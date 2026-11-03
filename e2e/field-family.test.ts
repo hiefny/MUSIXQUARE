@@ -16,6 +16,9 @@ import { navigateToTab, openChatDrawer, readState, waitForAppFonts } from './hel
 
 const DANGER_DARK = 'rgb(255, 59, 48)'; // --danger-foreground, #ff3b30
 const TEXT_SUB_DARK = 'rgb(161, 161, 170)'; // --text-sub, #a1a1aa
+const PRIMARY_DARK = 'rgb(59, 130, 246)'; // --primary, #3b82f6
+
+type PageBus = { __MUSIXQUARE_BUS__: { emit(event: string, payload?: unknown): void } };
 
 test.use({ serviceWorkers: 'block', colorScheme: 'dark', viewport: { width: 390, height: 844 } });
 
@@ -172,6 +175,97 @@ for (const width of [390, 320]) {
     expectPx(line.top - (await measure(input)).bottom, 8, 'field to line');
   });
 }
+
+// Only a wrong value turns the field red (aria-invalid and the red underline);
+// a connection or server failure paints only the line, the code stays calm.
+test('a wrong code turns the code underline red and a connection failure only the line', async ({
+  page,
+}) => {
+  await injectPeerServer(page);
+  await useAnonymousAccountSession(page);
+  await useKoreanDark(page);
+  await page.goto('/');
+  await waitForBootstrapReady(page);
+  await page.locator('#btn-setup-guest').click();
+  await expect(page.locator('#setup-join-area')).toBeVisible();
+  const input = page.locator('#setup-join-code');
+  const error = page.locator('#setup-guest-error');
+
+  // The six-digit check: the typed value is wrong, red even while focused.
+  await input.fill('000');
+  await input.press('Enter');
+  await expect(error).toHaveText('6자리 숫자를 입력해 주세요');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await expect(input).toHaveCSS('border-bottom-color', DANGER_DARK);
+  await expect(error).toHaveCSS('color', DANGER_DARK);
+
+  // The first keystroke clears it; the focus blue returns.
+  await input.press('0');
+  await expect(error).toBeHidden();
+  await expect(input).not.toHaveAttribute('aria-invalid');
+  await expect(input).toHaveCSS('border-bottom-color', PRIMARY_DARK);
+
+  // A connection failure: the red 600 line, the code box calm.
+  await page.evaluate(() => {
+    (window as unknown as PageBus).__MUSIXQUARE_BUS__.emit('setup:guest-join-failure', {
+      error: null,
+      userMessage: 'PRO 방에 연결하지 못했어요',
+    });
+  });
+  await expect(error).toHaveText('PRO 방에 연결하지 못했어요');
+  await expect(error).toHaveCSS('color', DANGER_DARK);
+  await expect(error).toHaveCSS('font-weight', '600');
+  await expect(input).toBeFocused();
+  await expect(input).not.toHaveAttribute('aria-invalid');
+  await expect(input).toHaveCSS('border-bottom-color', PRIMARY_DARK);
+
+  // A code that no room answers is a wrong value again.
+  await page.evaluate(() => {
+    (window as unknown as PageBus).__MUSIXQUARE_BUS__.emit(
+      'network:error',
+      Object.assign(new Error('PEER_UNAVAILABLE'), { type: 'peer-unavailable' }),
+    );
+  });
+  await expect(error).toContainText('코드를 다시 확인해 주세요');
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await expect(input).toHaveCSS('border-bottom-color', DANGER_DARK);
+});
+
+test('a taken nickname comes back as the red line under the field', async ({ page }) => {
+  await localAccount(page, true);
+  await page.route('**/api/auth/profile', (route) =>
+    route.fulfill({ status: 409, json: { error: 'NICKNAME_TAKEN' } }),
+  );
+  await page.goto('/');
+  const input = page.locator('#dialog-overlay .dialog-input');
+  const hint = page.locator('#dialog-input-hint');
+  await expect(input).toBeVisible();
+  await waitForDialogSettled(page);
+  await input.click();
+  await page.keyboard.type('Studio3');
+  await page.locator('#btn-dialog-ok').click();
+
+  // The dialog opens again with the name, the refusal under it in red 600,
+  // the underline red and the field invalid; nothing shakes.
+  await expect(hint).toHaveText('이미 사용 중인 닉네임이에요');
+  await expect(hint).toHaveClass(/\berror\b/);
+  await expect(input).toHaveText('Studio3');
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await expect(input).not.toHaveClass(/\bshake\b/);
+  await waitForDialogSettled(page);
+  await expect(hint).toHaveCSS('color', DANGER_DARK);
+  await expect(hint).toHaveCSS('font-weight', '600');
+  await expect(input).toHaveCSS('border-bottom-color', DANGER_DARK);
+
+  // The first keystroke brings the rule back as the grey hint.
+  await input.press('End');
+  await page.keyboard.type('4');
+  await expect(hint).not.toHaveClass(/\berror\b/);
+  await expect(hint).toHaveText(/^12자 이내로 입력해 주세요/u);
+  await expect(input).toHaveAttribute('aria-invalid', 'false');
+  await expect(hint).toHaveCSS('color', TEXT_SUB_DARK);
+});
 
 test('the nickname dialog uses the entry step with a 4px-inset 12px hint', async ({ page }) => {
   await localAccount(page, true);

@@ -209,6 +209,43 @@ test('protected guests are prompted after the server denies password-free admiss
   expect(state.sessions[1]).toMatchObject({ pin: '12345678' });
 });
 
+// Owner decision 2026-11-03: a refused PIN is a wrong value. The prompt keeps
+// its own sentence and the refusal is the red line under the boxes, with both
+// halves invalid until a digit is typed.
+test('a refused PIN shows as the line under the boxes, not in place of the prompt', async ({
+  page,
+}) => {
+  const state = await openRoom(page, false, true);
+  await expect(page.locator('#dialog-title')).toHaveText('Enter room password');
+  const segments = page.locator('.dialog-input-segment');
+  const hint = page.locator('#dialog-input-hint');
+  const prompt = () =>
+    page.evaluate(() => document.getElementById('dialog-message')?.firstChild?.textContent);
+  const firstPrompt = await prompt();
+  await segments.first().fill('0000');
+  await segments.last().fill('0000');
+  await page.locator('#btn-dialog-ok').click();
+  await expect.poll(() => state.sessions.length).toBe(2);
+
+  await expect(hint).toHaveClass(/\berror\b/);
+  await expect(hint).toContainText('That password is not correct');
+  await expect(page.locator('.dialog-input-split')).toHaveClass(/\binvalid\b/);
+  await expect(segments.first()).toHaveAttribute('aria-invalid', 'true');
+  await expect(segments.last()).toHaveAttribute('aria-invalid', 'true');
+  await expect(segments.first()).toHaveValue('');
+  expect(await prompt()).toBe(firstPrompt);
+  expect(await prompt()).toBe('Enter the 8-digit password for this PRO room.');
+
+  await segments.first().fill('1234');
+  await expect(hint).not.toHaveClass(/\berror\b/);
+  await expect(segments.first()).toHaveAttribute('aria-invalid', 'false');
+  await segments.last().fill('5678');
+  await page.locator('#btn-dialog-ok').click();
+  await waitForState(page, 'room.context.kind', 'pro');
+  expect(state.sessions).toHaveLength(3);
+  expect(state.sessions[2]).toMatchObject({ pin: '12345678' });
+});
+
 for (const width of [390, 1280]) {
   test(`owner disables, cancels and manually restores entry protection at ${width}px`, async ({
     page,

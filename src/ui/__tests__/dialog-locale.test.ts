@@ -66,6 +66,60 @@ describe('dialog locale lifetime', () => {
     expect(bus.debug()['i18n:changed'] || 0).toBe(listeners);
   });
 
+  // Owner decision 2026-11-03: a server refusal shown under the field (a
+  // taken nickname, a refused PIN) stays until the next keystroke. A language
+  // change re-reads it; it must not fall back to the hint, which the
+  // validator passes for a refused nickname, or to the validator's own
+  // message, which an empty PIN would get.
+  it('keeps a refusal under the field across a language change until the next keystroke', async () => {
+    const pending = showDialog({
+      title: () => t('account.nickname_title'),
+      inputField: {
+        defaultValue: 'Studio3',
+        hint: () => t('account.nickname_hint'),
+        initialError: () => t('account.nickname_taken'),
+        validator: () => null,
+      },
+    });
+    const input = document.querySelector<HTMLElement>('.dialog-input')!;
+    const hint = document.getElementById('dialog-input-hint')!;
+    const english = t('account.nickname_taken');
+    expect(hint.textContent).toBe(english);
+    setLanguageMode('ko');
+    expect(hint.textContent).toBe(t('account.nickname_taken'));
+    expect(hint.textContent).not.toBe(english);
+    expect(hint.classList.contains('error')).toBe(true);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(hint.textContent).toBe(t('account.nickname_hint'));
+    expect(hint.classList.contains('error')).toBe(false);
+    closeDialog('secondary');
+    await pending;
+  });
+
+  it('keeps a refused PIN under the empty boxes across a language change', async () => {
+    const pending = showDialog({
+      title: () => t('dialog.room_password_title'),
+      message: () => t('dialog.room_password_msg'),
+      inputField: {
+        placeholder: () => t('dialog.room_password_placeholder'),
+        maxLength: 8,
+        splitEvery: 4,
+        initialError: () => t('dialog.room_password_retry_msg'),
+        validator: (value) => (/^\d{8}$/.test(value) ? null : t('connect.room_password_invalid')),
+      },
+    });
+    const hint = document.getElementById('dialog-input-hint')!;
+    setLanguageMode('ko');
+    expect(hint.textContent).toBe(t('dialog.room_password_retry_msg'));
+    expect(hint.classList.contains('error')).toBe(true);
+    expect(document.getElementById('dialog-message')?.firstChild?.textContent).toBe(
+      t('dialog.room_password_msg'),
+    );
+    closeDialog('secondary');
+    await pending;
+  });
+
   it('preserves literal custom copy, including text equal to a translation', async () => {
     const originalTitle = t('account.nickname_title');
     const pending = showDialog({

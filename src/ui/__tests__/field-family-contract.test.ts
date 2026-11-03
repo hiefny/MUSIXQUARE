@@ -54,6 +54,7 @@ const LINE_ERROR = ':is(.setup-inline-error, .dialog-hint.error, .yt-preview-met
 const LINE_CENTRED = ':is(.setup-inline-error, .dialog-input-split + .dialog-hint)';
 const JOIN_NARROW = '.setup-join-input:not(.yt-intro-text):not([readonly])';
 const SYNC_INVALID = ".sync-manual-input-wrapper:has([aria-invalid='true'])";
+const JOIN_INVALID = ".setup-join-input:not(.yt-intro-text)[aria-invalid='true']";
 const ENTRY_LINE = '.chat-input:not(.sync-manual-input)';
 const FORCED_INVALID =
   ":is(input:not([type='range']):not([type='hidden']), [contenteditable='true'], [role='textbox'], [role='combobox'])[aria-invalid='true']";
@@ -516,6 +517,22 @@ describe('one field family (owner decision 2026-11-03)', () => {
     );
     expect(invalid.index).toBeGreaterThan(focused.index);
 
+    // The start-screen code turns red only when the code itself is wrong (the
+    // script sets aria-invalid for value errors only), even while focused.
+    const join = theRule(JOIN_INVALID, BASE);
+    expect(join.declarations).toEqual({ 'border-bottom-color': 'var(--danger-foreground)' });
+    expect(higher(specificity(JOIN_INVALID), specificity('.setup-join-input:focus'))).toBe(true);
+    expect(join.index).toBeGreaterThan(theRule('.setup-join-input:focus', BASE).index);
+    expect(join.index).toBeGreaterThan(theRule('.setup-join-input', BASE).index);
+    // The YouTube box shares the class but draws its underline on its wrapper.
+    expect(
+      RULES.filter(
+        (found) =>
+          found.path === APP &&
+          found.selectors.some((selector) => /\.setup-join-input[^,]*aria-invalid/u.test(selector)),
+      ).flatMap((found) => found.selectors),
+    ).toEqual([JOIN_INVALID]);
+
     // Joining: the digits fade once (iOS WebKit dims disabled fields itself).
     expect(theRule('.setup-join-input:disabled', BASE).declarations).toEqual({
       opacity: '1',
@@ -580,6 +597,7 @@ describe('one field family (owner decision 2026-11-03)', () => {
       ['.sync-col-label', BASE],
       ['.sync-col-value', BASE],
       [SYNC_INVALID, BASE],
+      [JOIN_INVALID, BASE],
       ['.sync-manual-input:empty::before', BASE],
       ['.yt-search-input-wrapper .yt-intro-text', COMPONENTS],
       ['.setup-join-area > .yt-preview-meta', COMPONENTS],

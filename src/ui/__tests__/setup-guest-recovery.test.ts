@@ -37,7 +37,7 @@ const mocks = vi.hoisted(() => ({
       }
     }
   }),
-  setupSetGuestJoinError: vi.fn((message: string | null, inviteLink = false) => {
+  setupSetGuestJoinError: vi.fn((message: string | null, inviteLink = false, invalid = false) => {
     const renderError = (id: string, value: string | null): void => {
       const error = document.getElementById(id);
       if (!error) return;
@@ -51,7 +51,7 @@ const mocks = vi.hoisted(() => ({
 
     const input = document.getElementById('setup-join-code');
     if (!input) return;
-    if (message && !inviteLink) input.setAttribute('aria-invalid', 'true');
+    if (message && !inviteLink && invalid) input.setAttribute('aria-invalid', 'true');
     else input.removeAttribute('aria-invalid');
   }),
   showToast: vi.fn(),
@@ -363,7 +363,12 @@ describe('guest setup recovery', () => {
 
     expect(input.value).toBe('123456');
     expect(input.disabled).toBe(false);
-    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith('error.host_unreachable', false);
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(
+      'error.host_unreachable',
+      false,
+      false,
+    );
+    expect(input.hasAttribute('aria-invalid')).toBe(false);
     expect(mocks.actions[0]).toMatchObject({
       id: 'btn-setup-back',
       ariaLabel: 'dialog.go_back',
@@ -406,9 +411,78 @@ describe('guest setup recovery', () => {
 
     expect(mocks.joinSession).not.toHaveBeenCalled();
     expect(mocks.showToast).not.toHaveBeenCalled();
-    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith('setup.six_digit_enter');
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(
+      'setup.six_digit_enter',
+      false,
+      true,
+    );
+    expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(document.activeElement).toBe(input);
   });
+
+  // Owner decision 2026-11-03: only a wrong value turns the field red. A code
+  // that no room answers is wrong; a connection failure paints only the line.
+  it('marks the typed code invalid only for a failure about the code itself', async () => {
+    const input = document.getElementById('setup-join-code') as HTMLInputElement;
+    await handleSetupJoinWithRole(0);
+
+    restoreGuestJoinControlsAfterFailure('error.peer_unavailable', false, true);
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(
+      'error.peer_unavailable',
+      false,
+      true,
+    );
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+
+    restoreGuestJoinControlsAfterFailure('error.network_issue');
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(
+      'error.network_issue',
+      false,
+      false,
+    );
+    expect(input.hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  it('keeps an invite link line calm even for a wrong code: the invite screen has no field', () => {
+    mocks.pendingAutoCode = '000000';
+    const input = document.getElementById('setup-join-code') as HTMLInputElement;
+
+    restoreGuestJoinControlsAfterFailure('error.peer_unavailable', false, true);
+
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(
+      'error.peer_unavailable',
+      true,
+      true,
+    );
+    expect(input.hasAttribute('aria-invalid')).toBe(false);
+    expect(document.getElementById('setup-auto-join-error')?.textContent).toBe(
+      'error.peer_unavailable',
+    );
+  });
+
+  it.each([
+    ['required', 'dialog.room_password_msg', undefined],
+    ['invalid', 'dialog.room_password_msg', 'dialog.room_password_retry_msg'],
+    ['timeout', 'dialog.room_password_timeout_msg', undefined],
+  ] as const)(
+    'keeps the PIN prompt sentence for a %s prompt and shows a refusal under the boxes',
+    async (reason, message, initialError) => {
+      await handleSetupJoinWithRole(0);
+      vi.mocked(showDialog).mockResolvedValueOnce({ action: 'cancel' });
+
+      await promptForRoomPassword(reason);
+
+      expect(showDialog).toHaveBeenCalledOnce();
+      const options = vi.mocked(showDialog).mock.calls[0]?.[0];
+      expect(options).toMatchObject({ message });
+      // The refused PIN is a wrong value: a red line under the boxes, both
+      // halves invalid. The timeout is about the connection and stays above.
+      const field = typeof options === 'object' ? options.inputField : undefined;
+      expect(field?.initialError).toBe(initialError);
+      expect(field?.hint).toBeUndefined();
+    },
+  );
 
   it('keeps a failed PRO invite join on its auto-join error and retries the same code', async () => {
     const goBack = vi.fn();
@@ -433,7 +507,11 @@ describe('guest setup recovery', () => {
       error: failure,
       userMessage: 'pro.connect_failed',
     });
-    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith('pro.connect_failed', true);
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(
+      'pro.connect_failed',
+      true,
+      false,
+    );
 
     const guestError = document.getElementById('setup-guest-error') as HTMLElement;
     const autoJoinError = document.getElementById('setup-auto-join-error') as HTMLElement;
@@ -493,7 +571,8 @@ describe('guest setup recovery', () => {
         error: failure,
         userMessage: copy,
       });
-      expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(copy, false);
+      expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(copy, false, false);
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
       const guestError = document.getElementById('setup-guest-error') as HTMLElement;
       expect(guestError.textContent).toBe(copy);
       expect(guestError.hidden).toBe(false);
@@ -523,7 +602,7 @@ describe('guest setup recovery', () => {
     expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-success');
     expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-failure', expect.anything());
     // The dialog already said it; the screen shows no error of its own.
-    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(null, false);
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(null, false, false);
     expect(input.disabled).toBe(false);
     expect(input.value).toBe('000001');
 
@@ -554,7 +633,7 @@ describe('guest setup recovery', () => {
     );
 
     expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-failure', expect.anything());
-    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(null, true);
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(null, true, false);
     const back = document.getElementById('btn-setup-back') as HTMLButtonElement;
     expect(mocks.actions[0]).toMatchObject({ id: 'btn-setup-back', ariaLabel: 'dialog.go_back' });
     expect(back.disabled).toBe(false);

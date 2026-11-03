@@ -236,7 +236,11 @@ describe('setup network error messages', () => {
       bus.emit('network:error', error);
 
       expect(showToast).not.toHaveBeenCalled();
-      expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith('network.session_full');
+      expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith(
+        'network.session_full',
+        false,
+        false,
+      );
       expect(getState('network.isConnecting')).toBe(false);
     },
   );
@@ -245,9 +249,104 @@ describe('setup network error messages', () => {
     bus.emit('network:error', new Error('HOST_UNREACHABLE'));
 
     expect(showToast).not.toHaveBeenCalled();
-    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith('error.host_unreachable');
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith(
+      'error.host_unreachable',
+      false,
+      false,
+    );
     expect(showToast).not.toHaveBeenCalledWith('network.cant_join');
     expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  // Owner decision 2026-11-03: only a wrong value turns the field red. A typed
+  // code that no room answers is wrong; the reconnect's "host left" and every
+  // connection, room or server failure paint only the line.
+  it('marks the typed code wrong when no room answers it', () => {
+    const failures = vi.fn();
+    bus.on('setup:guest-join-failure', failures);
+
+    bus.emit('network:error', Object.assign(new Error('x'), { type: 'peer-unavailable' }));
+
+    expect(failures).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ userMessage: 'error.peer_unavailable', invalidCode: true }),
+    );
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'error.peer_unavailable',
+      false,
+      true,
+    );
+  });
+
+  it('keeps the code calm when the host left after a reconnect', () => {
+    sessionStorage.setItem('mxqr_reconnect_target', '000000');
+    const failures = vi.fn();
+    bus.on('setup:guest-join-failure', failures);
+
+    bus.emit('network:error', Object.assign(new Error('x'), { type: 'peer-unavailable' }));
+
+    expect(failures).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ userMessage: 'error.host_left', invalidCode: false }),
+    );
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'error.host_left',
+      false,
+      false,
+    );
+  });
+
+  it('marks the code wrong on the late path too, after setup cleared the connecting flag', () => {
+    setState('network.isConnecting', false);
+    const failures = vi.fn();
+    bus.on('setup:guest-join-failure', failures);
+
+    bus.emit('network:error', Object.assign(new Error('x'), { type: 'peer-unavailable' }));
+
+    expect(failures).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ userMessage: 'error.peer_unavailable', invalidCode: true }),
+    );
+  });
+
+  it.each([
+    [
+      'a network failure',
+      Object.assign(new Error('x'), { type: 'network' }),
+      'error.network_issue',
+    ],
+    ['an unreachable host', new Error('HOST_UNREACHABLE'), 'error.host_unreachable'],
+    ['a full room', Object.assign(new Error('x'), { type: 'room-full' }), 'network.session_full'],
+  ])('paints only the line for %s', (_label, error, message) => {
+    const failures = vi.fn();
+    bus.on('setup:guest-join-failure', failures);
+
+    bus.emit('network:error', error);
+
+    expect(failures).toHaveBeenCalledOnce();
+    expect(failures.mock.calls[0]?.[0]).not.toMatchObject({ invalidCode: true });
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      message,
+      false,
+      false,
+    );
+  });
+
+  it('forwards whether a reported failure is about the typed code', () => {
+    bus.emit('setup:guest-join-failure', {
+      error: null,
+      userMessage: 'error.peer_unavailable',
+      invalidCode: true,
+    });
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenLastCalledWith(
+      'error.peer_unavailable',
+      false,
+      true,
+    );
+
+    bus.emit('setup:guest-join-failure', { error: null, userMessage: 'pro.connect_failed' });
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenLastCalledWith(
+      'pro.connect_failed',
+      false,
+      false,
+    );
   });
 
   it('routes a wrapped terminal feature failure to Refresh instead of Retry', () => {
@@ -689,7 +788,7 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
         }),
       );
       expect(getState('network.isConnecting')).toBe(false);
-      expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith(message);
+      expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith(message, false, false);
       expect(showDialog).not.toHaveBeenCalled();
     },
   );
@@ -754,7 +853,11 @@ describe('forced update: refusals below the App build floor (train 9.0.14)', () 
 
     bus.emit('network:error', refuse('123456'));
 
-    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(null);
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      null,
+      false,
+      false,
+    );
     expect(cancelled).toHaveBeenCalledOnce();
     expect(showToast).not.toHaveBeenCalled();
     expect(showDialog).not.toHaveBeenCalled();
@@ -766,7 +869,11 @@ describe('forced update: refusals below the App build floor (train 9.0.14)', () 
 
     bus.emit('network:error', refusal());
 
-    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(null);
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      null,
+      false,
+      false,
+    );
     expect(showToast).not.toHaveBeenCalled();
   });
 
@@ -777,7 +884,11 @@ describe('forced update: refusals below the App build floor (train 9.0.14)', () 
 
     bus.emit('network:error', refuse('123456'));
 
-    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(null);
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      null,
+      false,
+      false,
+    );
     expect(showToast).not.toHaveBeenCalled();
     expect(getState('network.isConnecting')).toBe(false);
   });
@@ -789,6 +900,8 @@ describe('forced update: refusals below the App build floor (train 9.0.14)', () 
 
     expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
       'error.network_generic',
+      false,
+      false,
     );
     expect(getState('network.isConnecting')).toBe(false);
   });

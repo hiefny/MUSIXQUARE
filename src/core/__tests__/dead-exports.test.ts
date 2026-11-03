@@ -44,8 +44,9 @@ describe('Dead-export ratchet', () => {
       // no longer exposes a class used externally only by test fixtures. The
       // update dialog helper now reads DialogResult from the dialog module.
       // The multiple-playlist work consumes one more previously self-only export.
-      expect(summary).toContain('baseline 20), self-only: 76 ');
-      expect(summary).toMatch(/self-only: 76 .*baseline 76\)$/u);
+      // The background-stop return e2e spec reads the resume guard's threshold.
+      expect(summary).toContain('baseline 20), self-only: 75 ');
+      expect(summary).toMatch(/self-only: 75 .*baseline 75\)$/u);
       expect(output).toContain('OK');
     },
     DEAD_EXPORT_TEST_TIMEOUT_MS,

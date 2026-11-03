@@ -242,6 +242,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       const devices = document.querySelector<HTMLElement>('.device-comp')!;
       const messaging = document.querySelector<HTMLElement>('.messaging-comp')!;
       const interfaceSample = document.querySelector<HTMLElement>('.interface-comp')!;
+      const loadingSample = document.querySelector<HTMLElement>('.loading-comp')!;
       const feedback = document.querySelector<HTMLElement>('.feedback-comp')!;
       const navigation = document.querySelector<HTMLElement>('.nav-comp')!;
       const componentGrid = document.querySelector<HTMLElement>('.component-grid')!;
@@ -265,6 +266,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       const devicesRect = devices.getBoundingClientRect();
       const messagingRect = messaging.getBoundingClientRect();
       const interfaceRect = interfaceSample.getBoundingClientRect();
+      const loadingRect = loadingSample.getBoundingClientRect();
       const feedbackRect = feedback.getBoundingClientRect();
       const navigationRect = navigation.getBoundingClientRect();
       const toastRect = toast.getBoundingClientRect();
@@ -545,8 +547,16 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           width: messagingRect.width,
         },
         interfaceSample: {
+          bottom: interfaceRect.bottom,
+          left: interfaceRect.left,
           top: interfaceRect.top,
           width: interfaceRect.width,
+        },
+        loadingSample: {
+          bottom: loadingRect.bottom,
+          left: loadingRect.left,
+          top: loadingRect.top,
+          width: loadingRect.width,
         },
         playback: { bottom: playbackRect.bottom, top: playbackRect.top, width: playbackRect.width },
         selection: {
@@ -579,8 +589,9 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.wrappersFlat).toBe(true);
     expect(components.iconSamplesTransparent).toBe(true);
     expect(components.iconTilesTransparent).toBe(true);
-    // The Input fields card takes its own row (owner decision 2026-11-03).
-    expect(components.componentDividers.horizontal).toHaveLength(5);
+    // The Input fields card takes its own row, and the loading states join
+    // the settings tabs beside the chat surfaces (owner decision 2026-11-03).
+    expect(components.componentDividers.horizontal).toHaveLength(4);
     expect(
       components.componentDividers.horizontal.every(
         ({ backgroundColor, height, width }) =>
@@ -760,7 +771,9 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           .filter((specimen) => specimen.scrollWidth > specimen.clientWidth + 1)
           .map((specimen) => specimen.querySelector('.block-title')?.textContent?.trim()),
         gridWidth: rect(document.querySelector('.component-grid')!).width,
-        joiningColor: getComputedStyle(frame('Joining').querySelector('.setup-join-input')!).color,
+        joiningColor: getComputedStyle(
+          frame('Joining (disabled)').querySelector('.setup-join-input')!,
+        ).color,
         messageRow: rect(message).height,
         nicknameBox: rect(restInput).height,
         nicknameHint: line(restInput, rest.querySelector('.dialog-hint')!),
@@ -788,6 +801,33 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           wrongCode: underline(frame('Wrong code').querySelector('.setup-join-input')!),
         },
         wrongCodeLine: rect(frame('Wrong code').querySelector('.setup-inline-error')!).height,
+        // Prose whose last line holds a single word.
+        loneLastWords: [
+          ...card.querySelectorAll<HTMLElement>(
+            ':scope > .section-intro, .token-row > span, .input-note, .input-rules li',
+          ),
+        ].flatMap((element) => {
+          const words: Array<{ text: string; top: number }> = [];
+          const range = document.createRange();
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            for (const match of (node.textContent ?? '').matchAll(/\S+/gu)) {
+              range.setStart(node, match.index);
+              range.setEnd(node, match.index + match[0].length);
+              const boxes = range.getClientRects();
+              const last = boxes[boxes.length - 1];
+              if (last) words.push({ text: match[0], top: last.top });
+            }
+          }
+          const lastTop = words.at(-1)?.top ?? 0;
+          const onLastLine = words.filter((word) => Math.abs(word.top - lastTop) < 4);
+          const lines = words.filter(
+            (word, index) => index === 0 || Math.abs(word.top - words[index - 1]!.top) >= 4,
+          ).length;
+          return lines > 1 && onLastLine.length === 1
+            ? [`${element.textContent?.replace(/\s+/gu, ' ').trim()} | ${onLastLine[0]!.text}`]
+            : [];
+        }),
       };
     });
     const SURFACE_3 = 'rgb(64, 64, 64)';
@@ -795,6 +835,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     const DANGER = 'rgb(255, 59, 48)';
     expect(Math.abs(inputFields.cardWidth - inputFields.gridWidth)).toBeLessThan(1);
     expect(inputFields.frameOverflow).toEqual([]);
+    // The card shows the rule that no word sits alone on a line.
+    if (viewport.width >= 1280) expect(inputFields.loneLastWords).toEqual([]);
     // The line under a field: 12px on an 18px line, 8px under the underline.
     expect(inputFields.codeLine).toEqual({
       color: DANGER,
@@ -873,6 +915,20 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       expect(Math.abs(components.playlist.top - components.devices.top)).toBeLessThan(1);
       expect(Math.abs(components.playlist.width - components.devices.width)).toBeLessThan(1);
       expect(Math.abs(components.messaging.top - components.interfaceSample.top)).toBeLessThan(1);
+      // The loading states sit under the settings tabs in the same column, so
+      // the column beside the chat surfaces is not mostly empty.
+      expect(
+        Math.abs(components.loadingSample.left - components.interfaceSample.left),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(components.loadingSample.width - components.interfaceSample.width),
+      ).toBeLessThan(1);
+      expect(components.loadingSample.top).toBeGreaterThanOrEqual(
+        components.interfaceSample.bottom,
+      );
+      expect(components.loadingSample.bottom - components.interfaceSample.top).toBeGreaterThan(
+        (components.messaging.bottom - components.messaging.top) / 2,
+      );
       expect(components.messaging.width).toBeGreaterThan(components.interfaceSample.width);
       expect(Math.abs(components.feedback.top - components.navigation.top)).toBeLessThan(1);
       expect(components.navigation.width).toBeGreaterThan(components.feedback.width);
@@ -886,6 +942,9 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       expect(components.ranges.top).toBeGreaterThanOrEqual(components.selection.bottom);
       expect(components.devices.top).toBeGreaterThanOrEqual(components.playlist.bottom);
       expect(components.interfaceSample.top).toBeGreaterThanOrEqual(components.messaging.bottom);
+      expect(components.loadingSample.top).toBeGreaterThanOrEqual(
+        components.interfaceSample.bottom,
+      );
       expect(components.navigation.top).toBeGreaterThanOrEqual(components.feedback.bottom);
     }
   }

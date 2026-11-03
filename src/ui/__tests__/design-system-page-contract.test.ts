@@ -665,9 +665,10 @@ describe('public design-system page contract', () => {
         (child) => child.className,
       ),
     ).toEqual(['comp playlist-comp', 'comp device-comp']);
-    // Five rows since the Input fields card (owner decision 2026-11-03) took
-    // its own full-width row after the chat surfaces and settings tabs.
-    expect(rowDividers).toHaveLength(5);
+    // Four dividers since the Input fields card (owner decision 2026-11-03)
+    // took its own full-width row after the chat surfaces, and the loading
+    // states joined the settings tabs in the column beside them.
+    expect(rowDividers).toHaveLength(4);
     expect(rowDividers.every((divider) => divider.getAttribute('aria-hidden') === 'true')).toBe(
       true,
     );
@@ -922,8 +923,9 @@ describe('public design-system page contract', () => {
     // Owner decision (2026-11-03, the input system): every text field in the
     // app is one quiet underline field in three size steps with one line under
     // it. The old "Text input & settings tabs" card splits: the settings tabs
-    // keep their card beside the chat surfaces, and a full-width Input fields
-    // card follows a row divider. Its specimens use the app's class names and
+    // and the loading states share the column beside the chat surfaces, so
+    // neither column sits mostly empty, and a full-width Input fields card
+    // follows a row divider. Its specimens use the app's class names and
     // English copy; field-family-contract.test.ts pins the mirrored values.
     const components = sectionWithHeading('Components');
     const text = (element: Element | null | undefined): string =>
@@ -938,12 +940,35 @@ describe('public design-system page contract', () => {
       ),
     ).toBeNull();
     expect(designSource).not.toContain('Text input &amp; settings tabs');
-    expect(tabsCard?.nextElementSibling?.className).toBe('component-row-divider');
-    expect(tabsCard?.nextElementSibling?.nextElementSibling).toBe(card);
+    const sideStack = tabsCard?.parentElement;
+    expect(sideStack?.className).toBe('component-side-stack');
+    expect(sideStack?.previousElementSibling?.className).toBe('comp messaging-comp');
+    expect([...(sideStack?.children ?? [])].map((child) => child.className)).toEqual([
+      'comp interface-comp',
+      'comp loading-comp',
+    ]);
+    expect(text(tabsCard?.nextElementSibling?.querySelector(':scope > .lbl'))).toBe(
+      'Loading states',
+    );
+    expect(components.querySelectorAll('.loading-comp')).toHaveLength(1);
+    expect(sideStack?.nextElementSibling?.className).toBe('component-row-divider');
+    expect(sideStack?.nextElementSibling?.nextElementSibling).toBe(card);
     expect(card.className).toBe('comp input-comp');
     expect(card.nextElementSibling?.className).toBe('component-row-divider');
+    expect(card.nextElementSibling?.nextElementSibling?.className).toBe('comp feedback-comp');
     expect(designStylesheet).toMatch(
-      /\.component-list-layout,\s*\.input-comp,\s*\.loading-comp\s*\{\s*grid-column:\s*1 \/ -1;/u,
+      /\.component-list-layout,\s*\.input-comp\s*\{\s*grid-column:\s*1 \/ -1;/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.component-side-stack\s*\{[^}]*grid-column:\s*span 5;[^}]*\}/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.editorial-designsystem \.component-side-stack \.loading-comp\s*\{\s*padding-top:\s*32px;\s*border-top:\s*1px solid var\(--divider\);/u,
+    );
+    // The card shows the rule that no word sits alone on a line, so its own
+    // prose and spec cells wrap without leaving one.
+    expect(designStylesheet).toMatch(
+      /\.input-comp > \.section-intro,\s*\.input-comp \.token-row > span,\s*\.input-note,\s*\.input-rules li\s*\{\s*text-wrap:\s*pretty;\s*\}/u,
     );
     expect(text(card.querySelector(':scope > .lbl'))).toBe('Input fields');
     expect(text(card.querySelector(':scope > .section-intro'))).toBe(
@@ -1030,20 +1055,21 @@ describe('public design-system page contract', () => {
     );
     expect(tags(entry)).toEqual(['16 / 400 / 20', '46']);
 
-    // States: five nickname frames, then the code's value error, a connection
-    // problem that paints only the line, and the joining fade.
+    // States: four nickname frames, then the code's value error, a
+    // connection problem that paints only the line, and the joining fade, the
+    // app's one disabled field (the nickname dialog has no disabled state).
     const stateFrames = frames(states);
     expect(titles(stateFrames)).toEqual([
       'Rest',
       'Focus',
       'Filled',
       'Error',
-      'Disabled',
       'Wrong code',
       'Connection problem',
-      'Joining',
+      'Joining (disabled)',
     ]);
-    const nickname = stateFrames.slice(0, 5).map((frame) => {
+    expect(card.querySelector('[aria-disabled]')).toBeNull();
+    const nickname = stateFrames.slice(0, 4).map((frame) => {
       const box = frame.querySelector<HTMLElement>('.dialog-input')!;
       const hint = frame.querySelector<HTMLElement>(':scope > .dialog-hint');
       return {
@@ -1080,14 +1106,13 @@ describe('public design-system page contract', () => {
       // The app's nickname rule refuses spaces (account.nickname_whitespace).
       nicknameRow({ clear: en['common.clear_input'], placeholder: null, value: 'Studio3' }),
       nicknameRow({ error: true, hint: en['account.nickname_required'], invalid: true }),
-      nicknameRow({ disabled: 'true', editable: null, placeholder: null, value: 'Studio3' }),
     ]);
     expect(
       normalizedPath(
         stateFrames[2]?.querySelector('.clearable-editor-button path')?.getAttribute('d') ?? null,
       ),
     ).toBe(normalizedPath(CLOSE_PATH));
-    const codes = stateFrames.slice(5).map((frame) => {
+    const codes = stateFrames.slice(4).map((frame) => {
       const input = frame.querySelector<HTMLInputElement>('input.setup-join-input')!;
       return {
         disabled: input.disabled,
@@ -1217,7 +1242,7 @@ describe('public design-system page contract', () => {
     // .dialog-actions on the page.
     expect(buttons?.querySelector('.dialog-actions')).toBeNull();
     expect(text(buttons?.querySelector(':scope > .input-note'))).toBe(
-      'The big button reads Search while a search term is typed and nothing is picked, Please wait... while busy, and Add to Playlist once a result or a link preview is ready. Enter and the magnifier always search.',
+      'The big button reads Search while a search term is typed and nothing is picked, Please wait... while busy, and Add to Playlist once a result or a link preview is ready. The magnifier always searches. Enter searches until a result is picked or a link previews, then adds it.',
     );
     const composers = frames(buttons).filter((frame) => !strip.includes(frame));
     expect(titles(composers)).toEqual(['Message', 'Send focused']);

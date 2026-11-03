@@ -937,10 +937,16 @@ describe('the design-system page mirrors the field family', () => {
       ).toBeGreaterThan(lastFocus);
       expect(higher(specificity(focused), specificity(selector)), selector).toBe(false);
     }
-    // Disabled: the content at half strength, like the joining code.
-    expect(pageDeclarations(".dialog-input[aria-disabled='true']")).toEqual(
+    // Disabled: the joining code, the app's one disabled field, at half
+    // strength. The page adds no disabled look the app does not have.
+    expect(pageDeclarations('.setup-join-input:disabled')).toEqual(
       theRule('.setup-join-input:disabled', BASE).declarations,
     );
+    expect(
+      PAGE_RULES.filter((found) =>
+        found.selectors.some((selector) => selector.includes('aria-disabled')),
+      ).map(describePageRule),
+    ).toEqual([]);
 
     // The clear, search and send buttons: --surface-3 until they can act,
     // then --primary; the clear button --text-muted. Rings sit inside.

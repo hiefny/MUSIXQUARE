@@ -76,9 +76,9 @@ const hi: Record<I18nKey, string> = {
   'account.nickname_title': 'निकनेम सेट करें',
   'account.nickname_message': 'MUSIXQUARE पर इस्तेमाल करने के लिए अपना निकनेम चुनें।',
   'account.nickname_placeholder': 'निकनेम',
-  'account.nickname_hint': 'अधिकतम 12 अक्षर इस्तेमाल करें।',
-  'account.nickname_required': 'निकनेम दर्ज करें।',
-  'account.nickname_whitespace': 'निकनेम में स्पेस या अदृश्य वर्ण नहीं हो सकते।',
+  'account.nickname_hint': 'अधिकतम 12 अक्षर इस्तेमाल करें',
+  'account.nickname_required': 'निकनेम दर्ज करें',
+  'account.nickname_whitespace': 'निकनेम में स्पेस या अदृश्य वर्ण नहीं हो सकते',
   'account.nickname_taken': 'यह निकनेम पहले से इस्तेमाल हो रहा है',
   'account.nickname_saved': 'निकनेम बदलकर {{name}} कर दिया गया',
   'account.action_failed': 'अकाउंट अपडेट नहीं हो सका\nकृपया फिर कोशिश करें',
@@ -263,8 +263,8 @@ const hi: Record<I18nKey, string> = {
   'settings.default_5s': 'डिफ़ॉल्ट 5.0s',
   'settings.invite_code': 'आमंत्रण कोड',
   'settings.leave_session': 'सेशन छोड़ें',
-  'connect.rename_reserved': 'यह निकनेम आरक्षित है।',
-  'connect.rename_profanity': 'अनुचित शब्द मिले हैं।',
+  'connect.rename_reserved': 'यह निकनेम आरक्षित है',
+  'connect.rename_profanity': 'अनुचित शब्द मिले हैं',
   'settings.invite_share': 'आमंत्रित करें और साझा करें',
   'settings.subtab.general': 'सामान्य',
   'settings.subtab.audio': 'ऑडियो',
@@ -749,7 +749,7 @@ const hi: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'दूसरे ऐप पर जाने या स्क्रीन बंद होने से आवाज़ रुक सकती है या सिंक बिगड़ सकता है।',
   'dialog.sw_update_title': 'अपडेट',
-  'dialog.sw_update_msg': 'नया वर्ज़न तैयार है।\nअपडेट करने के लिए रीफ़्रेश करें।',
+  'dialog.sw_update_msg': 'नया वर्ज़न तैयार है\nअपडेट करने के लिए रीफ़्रेश करें',
   'dialog.sw_update_apply': 'लागू करें',
   'dialog.sw_update_apply_msg': 'नया वर्ज़न तैयार है।\nलागू करने पर पेज फिर से लोड होगा।',
   'dialog.sw_update_room_host_msg': 'नया वर्ज़न तैयार है।\nलागू करने के लिए रूम फिर से खोलना होगा।',
@@ -765,14 +765,14 @@ const hi: Record<I18nKey, string> = {
   'dialog.step_back': 'पिछला',
   'dialog.room_password_title': 'रूम का पासवर्ड दर्ज करें',
   'dialog.room_password_msg': 'इस रूम में शामिल होने के लिए पासवर्ड चाहिए।',
-  'dialog.room_password_retry_msg': 'पासवर्ड मेल नहीं खाता। फिर कोशिश करें।',
+  'dialog.room_password_retry_msg': 'पासवर्ड मेल नहीं खाता',
   'dialog.room_password_timeout_msg':
     'कनेक्शन का समय समाप्त हो गया। फिर कोशिश करने के लिए पासवर्ड दोबारा दर्ज करें।',
   'dialog.room_password_placeholder': '8 अंकों का पासवर्ड',
   'dialog.room_password_rate_limited':
-    'आपने बहुत बार गलत पासवर्ड दर्ज किया है। {{count}} मिनट बाद फिर कोशिश करें।',
+    'आपने बहुत बार गलत पासवर्ड दर्ज किया है\n{{count}} मिनट बाद फिर कोशिश करें',
   'dialog.room_password_rate_limited_later':
-    'आपने बहुत बार गलत पासवर्ड दर्ज किया है। थोड़ी देर बाद फिर कोशिश करें।',
+    'आपने बहुत बार गलत पासवर्ड दर्ज किया है\nथोड़ी देर बाद फिर कोशिश करें',
   'dialog.session_lost_msg':
     'ऐप स्लीप मोड में चला गया या कनेक्शन टूट गया, इसलिए दूसरे डिवाइस पहले ही डिस्कनेक्ट हो चुके हैं। नया सेशन शुरू करने के लिए रीस्टार्ट करें।',
   'dialog.session_lost_guest_msg':
@@ -823,7 +823,7 @@ const hi: Record<I18nKey, string> = {
   'pro.resume_tap': 'प्लेबैक फिर शुरू करने के लिए टैप करें',
   'pro.pin_title': 'रूम का पासवर्ड दर्ज करें',
   'pro.pin_message': 'इस PRO रूम का 8 अंकों वाला पासवर्ड दर्ज करें।',
-  'pro.pin_retry_message': 'यह पासवर्ड सही नहीं है। फिर कोशिश करें।',
+  'pro.pin_retry_message': 'यह पासवर्ड सही नहीं है',
   'pro.pin_change_title': 'रूम का पासवर्ड बदलें',
   'pro.pin_change_message': '8 अंकों का नया पासवर्ड सेट करें।',
   'pro.pin_changed': 'रूम का पासवर्ड बदल दिया गया',
@@ -850,11 +850,11 @@ const hi: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO रूम से कनेक्ट नहीं हो सका',
   'pro.room_full': 'यह PRO रूम भर चुका है',
   'pro.room_full_detail':
-    'PRO रूम में मालिक समेत अधिकतम 100 डिवाइस जुड़ सकते हैं। मालिक के लिए हमेशा एक जगह खाली रखी जाती है।',
+    'मालिक समेत अधिकतम 100 डिवाइस जुड़ सकते हैं\nमालिक के लिए हमेशा एक जगह खाली रखी जाती है',
   'pro.join_rate_limited':
-    'शामिल होने की बहुत ज़्यादा कोशिशें हुई हैं। {{count}} मिनट बाद फिर कोशिश करें।',
+    'शामिल होने की बहुत ज़्यादा कोशिशें हुई हैं\n{{count}} मिनट बाद फिर कोशिश करें',
   'pro.join_rate_limited_later':
-    'शामिल होने की बहुत ज़्यादा कोशिशें हुई हैं। थोड़ी देर बाद फिर कोशिश करें।',
+    'शामिल होने की बहुत ज़्यादा कोशिशें हुई हैं\nथोड़ी देर बाद फिर कोशिश करें',
   'pro.active_tab_title': 'एक पिछला कनेक्शन बाकी है',
   'pro.active_tab_message': 'यहाँ जारी रखने पर पिछला कनेक्शन बंद हो जाएगा।',
   'pro.active_tab_replaced': 'यह PRO रूम पहले से दूसरे टैब में खुला है',

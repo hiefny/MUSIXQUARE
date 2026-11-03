@@ -75,10 +75,10 @@ const id: Record<I18nKey, string> = {
   'account.nickname_title': 'Atur nama panggilan',
   'account.nickname_message': 'Pilih nama panggilan untuk digunakan di MUSIXQUARE.',
   'account.nickname_placeholder': 'Nama panggilan',
-  'account.nickname_hint': 'Maksimal 12 karakter.',
-  'account.nickname_required': 'Masukkan nama panggilan.',
+  'account.nickname_hint': 'Maksimal 12 karakter',
+  'account.nickname_required': 'Masukkan nama panggilan',
   'account.nickname_whitespace':
-    'Nama panggilan tidak boleh mengandung spasi atau karakter tak terlihat.',
+    'Nama panggilan tidak boleh mengandung spasi atau karakter tak terlihat',
   'account.nickname_taken': 'Nama panggilan tersebut sudah digunakan',
   'account.nickname_saved': 'Nama panggilan diubah menjadi {{name}}',
   'account.action_failed': 'Akun tidak dapat diperbarui\nCoba lagi nanti',
@@ -196,8 +196,8 @@ const id: Record<I18nKey, string> = {
   'settings.default_5s': 'Bawaan 5,0 dtk',
   'settings.invite_code': 'Kode undangan',
   'settings.leave_session': 'Keluar ruang',
-  'connect.rename_reserved': 'Nama panggilan ini tidak dapat digunakan.',
-  'connect.rename_profanity': 'Nama panggilan mengandung kata yang tidak pantas.',
+  'connect.rename_reserved': 'Nama panggilan ini tidak dapat digunakan',
+  'connect.rename_profanity': 'Nama panggilan mengandung kata yang tidak pantas',
   'settings.invite_share': 'Undang & Bagikan',
   'settings.subtab.general': 'Umum',
   'settings.subtab.audio': 'Audio',
@@ -684,7 +684,7 @@ const id: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Beralih ke aplikasi lain atau mematikan layar bisa membuat suara berhenti atau sinkronisasi meleset.',
   'dialog.sw_update_title': 'Pembaruan',
-  'dialog.sw_update_msg': 'Versi baru siap.\nMuat ulang untuk memperbarui.',
+  'dialog.sw_update_msg': 'Versi baru siap\nMuat ulang untuk memperbarui',
   'dialog.sw_update_apply': 'Terapkan',
   'dialog.sw_update_apply_msg': 'Versi baru siap.\nMenerapkannya akan memuat ulang halaman.',
   'dialog.sw_update_room_host_msg':
@@ -701,13 +701,13 @@ const id: Record<I18nKey, string> = {
   'dialog.step_back': 'Kembali',
   'dialog.room_password_title': 'Masukkan sandi ruang',
   'dialog.room_password_msg': 'Sandi diperlukan untuk bergabung ke ruang ini.',
-  'dialog.room_password_retry_msg': 'Sandi tidak cocok. Coba lagi.',
+  'dialog.room_password_retry_msg': 'Sandi tidak cocok',
   'dialog.room_password_timeout_msg': 'Koneksi melewati batas waktu. Masukkan sandi lagi.',
   'dialog.room_password_placeholder': 'Sandi 8 digit',
   'dialog.room_password_rate_limited':
-    'Anda terlalu sering memasukkan sandi yang salah. Coba lagi dalam {{count}} menit.',
+    'Anda terlalu sering memasukkan sandi yang salah\nCoba lagi dalam {{count}} menit',
   'dialog.room_password_rate_limited_later':
-    'Anda terlalu sering memasukkan sandi yang salah. Coba lagi sebentar lagi.',
+    'Anda terlalu sering memasukkan sandi yang salah\nCoba lagi sebentar lagi',
   'dialog.session_lost_msg':
     'Aplikasi tertidur atau kehilangan koneksi, jadi perangkat lain sudah terputus. Mulai ulang untuk membuat ruang baru.',
   'dialog.session_lost_guest_msg':
@@ -757,7 +757,7 @@ const id: Record<I18nKey, string> = {
   'pro.resume_tap': 'Ketuk untuk melanjutkan pemutaran',
   'pro.pin_title': 'Masukkan sandi ruang',
   'pro.pin_message': 'Masukkan sandi 8 digit untuk ruang PRO ini.',
-  'pro.pin_retry_message': 'Sandi salah. Coba lagi.',
+  'pro.pin_retry_message': 'Sandi salah',
   'pro.pin_change_title': 'Ubah sandi ruang',
   'pro.pin_change_message': 'Buat sandi baru 8 digit.',
   'pro.pin_changed': 'Sandi ruang telah diubah',
@@ -784,9 +784,9 @@ const id: Record<I18nKey, string> = {
   'pro.connect_failed': 'Tidak dapat terhubung ke ruang PRO',
   'pro.room_full': 'Ruang PRO ini sudah penuh',
   'pro.room_full_detail':
-    'Ruang PRO dapat menampung hingga 100 perangkat, termasuk milik pemilik ruang. Satu tempat selalu disediakan untuk pemilik ruang.',
-  'pro.join_rate_limited': 'Terlalu banyak percobaan bergabung. Coba lagi dalam {{count}} menit.',
-  'pro.join_rate_limited_later': 'Terlalu banyak percobaan bergabung. Coba lagi sebentar lagi.',
+    'Dapat menampung hingga 100 perangkat, termasuk milik pemilik ruang\nSatu tempat selalu disediakan untuk pemilik ruang',
+  'pro.join_rate_limited': 'Terlalu banyak percobaan bergabung\nCoba lagi dalam {{count}} menit',
+  'pro.join_rate_limited_later': 'Terlalu banyak percobaan bergabung\nCoba lagi sebentar lagi',
   'pro.active_tab_title': 'Koneksi sebelumnya masih tersisa',
   'pro.active_tab_message': 'Melanjutkan di sini akan memutus koneksi sebelumnya.',
   'pro.active_tab_replaced': 'Ruang PRO ini sudah terbuka di tab lain',

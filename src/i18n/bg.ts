@@ -75,9 +75,9 @@ const bg: Record<I18nKey, string> = {
   'account.nickname_title': 'Задаване на псевдоним',
   'account.nickname_message': 'Избери псевдонима, който ще използваш в MUSIXQUARE.',
   'account.nickname_placeholder': 'Псевдоним',
-  'account.nickname_hint': 'Използвай до 12 знака.',
-  'account.nickname_required': 'Въведи псевдоним.',
-  'account.nickname_whitespace': 'Псевдонимът не може да съдържа интервали или невидими знаци.',
+  'account.nickname_hint': 'Използвай до 12 знака',
+  'account.nickname_required': 'Въведи псевдоним',
+  'account.nickname_whitespace': 'Псевдонимът не може да съдържа интервали или невидими знаци',
   'account.nickname_taken': 'Този псевдоним вече се използва',
   'account.nickname_saved': 'Псевдонимът е променен на {{name}}',
   'account.action_failed': 'Профилът не бе актуализиран\nОпитай отново',
@@ -265,8 +265,8 @@ const bg: Record<I18nKey, string> = {
   'settings.default_5s': 'По подразбиране 5,0 s',
   'settings.invite_code': 'Код за покана',
   'settings.leave_session': 'Напускане на сесията',
-  'connect.rename_reserved': 'Този псевдоним е запазен.',
-  'connect.rename_profanity': 'Открити са неподходящи думи.',
+  'connect.rename_reserved': 'Този псевдоним е запазен',
+  'connect.rename_profanity': 'Открити са неподходящи думи',
   'settings.invite_share': 'Покана и споделяне',
   'settings.subtab.general': 'Общи',
   'settings.subtab.audio': 'Звук',
@@ -764,7 +764,7 @@ const bg: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Ако превключиш към друго приложение или екранът изгасне, звукът може да спре или синхронът да се наруши.',
   'dialog.sw_update_title': 'Актуализация',
-  'dialog.sw_update_msg': 'Нова версия е готова.\nОпресни, за да актуализираш.',
+  'dialog.sw_update_msg': 'Нова версия е готова\nОпресни, за да актуализираш',
   'dialog.sw_update_apply': 'Приложи',
   'dialog.sw_update_apply_msg': 'Нова версия е готова.\nПрилагането ще презареди страницата.',
   'dialog.sw_update_room_host_msg':
@@ -781,14 +781,14 @@ const bg: Record<I18nKey, string> = {
   'dialog.step_back': 'Назад',
   'dialog.room_password_title': 'Въведи паролата за стаята',
   'dialog.room_password_msg': 'За присъединяване към тази стая е необходима парола.',
-  'dialog.room_password_retry_msg': 'Паролата не съвпада. Опитай отново.',
+  'dialog.room_password_retry_msg': 'Паролата не съвпада',
   'dialog.room_password_timeout_msg':
     'Времето за свързване изтече. Въведи паролата отново, за да опиташ пак.',
   'dialog.room_password_placeholder': '8-цифрена парола',
   'dialog.room_password_rate_limited':
-    'Въведе грешна парола твърде много пъти. Опитай отново след {{count}} мин.',
+    'Въведе грешна парола твърде много пъти\nОпитай отново след {{count}} мин',
   'dialog.room_password_rate_limited_later':
-    'Въведе грешна парола твърде много пъти. Опитай отново след малко.',
+    'Въведе грешна парола твърде много пъти\nОпитай отново след малко',
   'dialog.session_lost_msg':
     'Приложението е заспало или е загубило връзка, затова останалите устройства вече са отпаднали от сесията. Рестартирай, за да започнеш нова сесия.',
   'dialog.session_lost_guest_msg':
@@ -839,7 +839,7 @@ const bg: Record<I18nKey, string> = {
   'pro.resume_tap': 'Докосни, за да продължиш възпроизвеждането',
   'pro.pin_title': 'Въведи паролата за стаята',
   'pro.pin_message': 'Въведи 8-цифрената парола за тази PRO стая.',
-  'pro.pin_retry_message': 'Паролата е неправилна. Опитай отново.',
+  'pro.pin_retry_message': 'Паролата е неправилна',
   'pro.pin_change_title': 'Промяна на паролата за стаята',
   'pro.pin_change_message': 'Задай нова 8-цифрена парола.',
   'pro.pin_changed': 'Паролата за стаята е променена',
@@ -866,10 +866,9 @@ const bg: Record<I18nKey, string> = {
   'pro.connect_failed': 'Свързването с PRO стаята е неуспешно',
   'pro.room_full': 'Тази PRO стая е пълна',
   'pro.room_full_detail':
-    'В PRO стая може да има до 100 устройства, включително това на собственика. Едно място винаги е запазено за собственика.',
-  'pro.join_rate_limited':
-    'Твърде много опити за присъединяване. Опитай отново след {{count}} мин.',
-  'pro.join_rate_limited_later': 'Твърде много опити за присъединяване. Опитай отново след малко.',
+    'Може да има до 100 устройства, включително това на собственика\nЕдно място винаги е запазено за собственика',
+  'pro.join_rate_limited': 'Твърде много опити за присъединяване\nОпитай отново след {{count}} мин',
+  'pro.join_rate_limited_later': 'Твърде много опити за присъединяване\nОпитай отново след малко',
   'pro.active_tab_title': 'Останала е предишна връзка',
   'pro.active_tab_message': 'Ако продължиш тук, предишната връзка ще бъде прекъсната.',
   'pro.active_tab_replaced': 'Тази PRO стая вече е отворена в друг раздел',

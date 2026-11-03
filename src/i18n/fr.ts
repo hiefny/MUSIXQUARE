@@ -76,10 +76,10 @@ const fr: Record<I18nKey, string> = {
   'account.nickname_title': 'Choisir un pseudo',
   'account.nickname_message': 'Choisissez le pseudo à utiliser sur MUSIXQUARE.',
   'account.nickname_placeholder': 'Pseudo',
-  'account.nickname_hint': '12 caractères maximum.',
-  'account.nickname_required': 'Saisissez un pseudo.',
+  'account.nickname_hint': '12 caractères maximum',
+  'account.nickname_required': 'Saisissez un pseudo',
   'account.nickname_whitespace':
-    'Le pseudo ne peut pas contenir d’espaces ni de caractères invisibles.',
+    'Le pseudo ne peut pas contenir d’espaces ni de caractères invisibles',
   'account.nickname_taken': 'Ce pseudo est déjà utilisé',
   'account.nickname_saved': 'Pseudo remplacé par {{name}}',
   'account.action_failed': 'Impossible de mettre à jour le compte\nRéessayez',
@@ -194,8 +194,8 @@ const fr: Record<I18nKey, string> = {
   'settings.default_5s': 'Valeur par défaut : 5,0 s',
   'settings.invite_code': 'Code d’invitation',
   'settings.leave_session': 'Quitter le salon',
-  'connect.rename_reserved': 'Ce pseudo est réservé.',
-  'connect.rename_profanity': 'Des termes inappropriés ont été détectés.',
+  'connect.rename_reserved': 'Ce pseudo est réservé',
+  'connect.rename_profanity': 'Des termes inappropriés ont été détectés',
   'settings.invite_share': 'Inviter et partager',
   'settings.subtab.general': 'Général',
   'settings.subtab.audio': 'Audio',
@@ -695,7 +695,7 @@ const fr: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Si vous changez d’application ou si l’écran s’éteint, le son risque de se couper ou de se désynchroniser.',
   'dialog.sw_update_title': 'Mise à jour',
-  'dialog.sw_update_msg': 'Une nouvelle version est prête.\nActualisez pour mettre à jour.',
+  'dialog.sw_update_msg': 'Une nouvelle version est prête\nActualisez pour mettre à jour',
   'dialog.sw_update_apply': 'Appliquer',
   'dialog.sw_update_apply_msg': 'Une nouvelle version est prête.\nL’appliquer recharge la page.',
   'dialog.sw_update_room_host_msg':
@@ -712,14 +712,14 @@ const fr: Record<I18nKey, string> = {
   'dialog.step_back': 'Précédent',
   'dialog.room_password_title': 'Saisir le mot de passe du salon',
   'dialog.room_password_msg': 'Un mot de passe est requis pour rejoindre ce salon.',
-  'dialog.room_password_retry_msg': 'Ce mot de passe ne correspond pas. Réessayez.',
+  'dialog.room_password_retry_msg': 'Ce mot de passe ne correspond pas',
   'dialog.room_password_timeout_msg':
     'La connexion a expiré. Saisissez de nouveau le mot de passe.',
   'dialog.room_password_placeholder': 'Mot de passe à 8 chiffres',
   'dialog.room_password_rate_limited':
-    'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans {{count}} minutes.',
+    'Vous avez saisi un mot de passe incorrect trop de fois\nRéessayez dans {{count}} minutes',
   'dialog.room_password_rate_limited_later':
-    'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans quelques instants.',
+    'Vous avez saisi un mot de passe incorrect trop de fois\nRéessayez dans quelques instants',
   'dialog.session_lost_msg':
     'L’application est passée en veille ou a perdu la connexion. Les autres appareils sont donc déjà déconnectés. Redémarrez pour créer un nouveau salon.',
   'dialog.session_lost_guest_msg':
@@ -769,7 +769,7 @@ const fr: Record<I18nKey, string> = {
   'pro.resume_tap': 'Appuyez pour reprendre la lecture',
   'pro.pin_title': 'Mot de passe du salon',
   'pro.pin_message': 'Saisissez le mot de passe à 8 chiffres de ce salon PRO.',
-  'pro.pin_retry_message': 'Mot de passe incorrect. Réessayez.',
+  'pro.pin_retry_message': 'Mot de passe incorrect',
   'pro.pin_change_title': 'Modifier le mot de passe du salon',
   'pro.pin_change_message': 'Définissez un nouveau mot de passe à 8 chiffres.',
   'pro.pin_changed': 'Mot de passe du salon modifié',
@@ -797,11 +797,11 @@ const fr: Record<I18nKey, string> = {
   'pro.connect_failed': 'Connexion au salon PRO impossible',
   'pro.room_full': 'Ce salon PRO est complet',
   'pro.room_full_detail':
-    'Un salon PRO accueille jusqu’à 100 appareils, propriétaire compris. Une place est toujours réservée au propriétaire.',
+    'Il accueille jusqu’à 100 appareils, propriétaire compris\nUne place est toujours réservée au propriétaire',
   'pro.join_rate_limited':
-    'Trop de tentatives pour rejoindre le salon. Réessayez dans {{count}} minutes.',
+    'Trop de tentatives pour rejoindre le salon\nRéessayez dans {{count}} minutes',
   'pro.join_rate_limited_later':
-    'Trop de tentatives pour rejoindre le salon. Réessayez dans quelques instants.',
+    'Trop de tentatives pour rejoindre le salon\nRéessayez dans quelques instants',
   'pro.active_tab_title': 'Une connexion précédente est toujours active',
   'pro.active_tab_message': 'Continuer ici mettra fin à la connexion précédente.',
   'pro.active_tab_replaced': 'Ce salon PRO est déjà ouvert dans un autre onglet',
@@ -1001,9 +1001,9 @@ export const pluralMessages = {
     one: '{{count}} fichier non pris en charge ne sera pas ajouté.',
   },
   'pro.join_rate_limited': {
-    one: 'Trop de tentatives pour rejoindre le salon. Réessayez dans {{count}} minute.',
+    one: 'Trop de tentatives pour rejoindre le salon\nRéessayez dans {{count}} minute',
   },
   'dialog.room_password_rate_limited': {
-    one: 'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans {{count}} minute.',
+    one: 'Vous avez saisi un mot de passe incorrect trop de fois\nRéessayez dans {{count}} minute',
   },
 } satisfies LocalePluralMessages;

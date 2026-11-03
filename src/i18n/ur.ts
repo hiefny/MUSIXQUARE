@@ -75,9 +75,9 @@ const ur: Record<I18nKey, string> = {
   'account.nickname_title': 'عرفی نام مقرر کریں',
   'account.nickname_message': 'وہ عرفی نام منتخب کریں جو آپ MUSIXQUARE پر استعمال کریں گے۔',
   'account.nickname_placeholder': 'عرفی نام',
-  'account.nickname_hint': 'زیادہ سے زیادہ 12 حروف استعمال کریں۔',
-  'account.nickname_required': 'عرفی نام درج کریں۔',
-  'account.nickname_whitespace': 'عرفی نام میں خالی جگہ یا نظر نہ آنے والے حروف شامل نہیں ہو سکتے۔',
+  'account.nickname_hint': 'زیادہ سے زیادہ 12 حروف استعمال کریں',
+  'account.nickname_required': 'عرفی نام درج کریں',
+  'account.nickname_whitespace': 'عرفی نام میں خالی جگہ یا نظر نہ آنے والے حروف شامل نہیں ہو سکتے',
   'account.nickname_taken': 'یہ عرفی نام پہلے ہی استعمال ہو رہا ہے',
   'account.nickname_saved': 'عرفی نام بدل کر {{name}} کر دیا گیا',
   'account.action_failed': 'آپ کا اکاؤنٹ اپ ڈیٹ نہیں ہو سکا\nدوبارہ کوشش کریں',
@@ -262,8 +262,8 @@ const ur: Record<I18nKey, string> = {
   'settings.default_5s': 'ڈیفالٹ 5.0 سیکنڈ',
   'settings.invite_code': 'دعوتی کوڈ',
   'settings.leave_session': 'سیشن چھوڑیں',
-  'connect.rename_reserved': 'یہ عرفی نام استعمال نہیں کیا جا سکتا۔',
-  'connect.rename_profanity': 'نامناسب الفاظ ملے ہیں۔',
+  'connect.rename_reserved': 'یہ عرفی نام استعمال نہیں کیا جا سکتا',
+  'connect.rename_profanity': 'نامناسب الفاظ ملے ہیں',
   'settings.invite_share': 'دعوت اور شیئر',
   'settings.subtab.general': 'عمومی',
   'settings.subtab.audio': 'آڈیو',
@@ -745,7 +745,7 @@ const ur: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'دوسری ایپ پر جانے یا اسکرین بند کرنے سے آواز رک سکتی ہے یا سنک بگڑ سکتا ہے۔',
   'dialog.sw_update_title': 'اپ ڈیٹ',
-  'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔\nاپ ڈیٹ کے لیے ریفریش کریں۔',
+  'dialog.sw_update_msg': 'نیا ورژن تیار ہے\nاپ ڈیٹ کے لیے ریفریش کریں',
   'dialog.sw_update_apply': 'لاگو کریں',
   'dialog.sw_update_apply_msg': 'نیا ورژن تیار ہے۔\nلاگو کرنے پر صفحہ دوبارہ لوڈ ہوگا۔',
   'dialog.sw_update_room_host_msg': 'نیا ورژن تیار ہے۔\nلاگو کرنے کے لیے کمرہ دوبارہ کھولنا ہوگا۔',
@@ -761,14 +761,14 @@ const ur: Record<I18nKey, string> = {
   'dialog.step_back': 'پچھلا',
   'dialog.room_password_title': 'کمرے کا پاس ورڈ درج کریں',
   'dialog.room_password_msg': 'اس کمرے میں شامل ہونے کے لیے پاس ورڈ درکار ہے۔',
-  'dialog.room_password_retry_msg': 'پاس ورڈ درست نہیں۔ دوبارہ کوشش کریں۔',
+  'dialog.room_password_retry_msg': 'پاس ورڈ درست نہیں',
   'dialog.room_password_timeout_msg':
     'کنکشن کا وقت ختم ہو گیا۔ دوبارہ کوشش کے لیے پاس ورڈ پھر درج کریں۔',
   'dialog.room_password_placeholder': '8 ہندسوں کا پاس ورڈ',
   'dialog.room_password_rate_limited':
-    'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے۔ {{count}} منٹ بعد دوبارہ کوشش کریں۔',
+    'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے\n{{count}} منٹ بعد دوبارہ کوشش کریں',
   'dialog.room_password_rate_limited_later':
-    'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
+    'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے\nتھوڑی دیر بعد دوبارہ کوشش کریں',
   'dialog.session_lost_msg':
     'ایپ سلیپ میں چلی گئی یا کنکشن کھو بیٹھی، اس لیے دوسرے آلات پہلے ہی منقطع ہو چکے ہیں۔ نیا سیشن شروع کرنے کے لیے دوبارہ شروع کریں۔',
   'dialog.session_lost_guest_msg':
@@ -819,7 +819,7 @@ const ur: Record<I18nKey, string> = {
   'pro.resume_tap': 'پلے بیک دوبارہ شروع کرنے کے لیے دبائیں',
   'pro.pin_title': 'کمرے کا پاس ورڈ درج کریں',
   'pro.pin_message': 'اس PRO کمرے کا 8 ہندسوں کا پاس ورڈ درج کریں۔',
-  'pro.pin_retry_message': 'پاس ورڈ درست نہیں۔ دوبارہ کوشش کریں۔',
+  'pro.pin_retry_message': 'پاس ورڈ درست نہیں',
   'pro.pin_change_title': 'کمرے کا پاس ورڈ بدلیں',
   'pro.pin_change_message': '8 ہندسوں کا نیا پاس ورڈ مقرر کریں۔',
   'pro.pin_changed': 'کمرے کا پاس ورڈ بدل گیا',
@@ -846,11 +846,11 @@ const ur: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO کمرے سے منسلک نہیں ہو سکا',
   'pro.room_full': 'یہ PRO کمرہ بھر گیا ہے',
   'pro.room_full_detail':
-    'PRO کمرے میں مالک سمیت زیادہ سے زیادہ 100 آلات منسلک ہو سکتے ہیں۔ مالک کے لیے ہمیشہ ایک جگہ مخصوص رہتی ہے۔',
+    'مالک سمیت زیادہ سے زیادہ 100 آلات منسلک ہو سکتے ہیں\nمالک کے لیے ہمیشہ ایک جگہ مخصوص رہتی ہے',
   'pro.join_rate_limited':
-    'شامل ہونے کی بہت زیادہ کوششیں ہوئی ہیں۔ {{count}} منٹ بعد دوبارہ کوشش کریں۔',
+    'شامل ہونے کی بہت زیادہ کوششیں ہوئی ہیں\n{{count}} منٹ بعد دوبارہ کوشش کریں',
   'pro.join_rate_limited_later':
-    'شامل ہونے کی بہت زیادہ کوششیں ہوئی ہیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
+    'شامل ہونے کی بہت زیادہ کوششیں ہوئی ہیں\nتھوڑی دیر بعد دوبارہ کوشش کریں',
   'pro.active_tab_title': 'پچھلا کنکشن باقی ہے',
   'pro.active_tab_message': 'یہاں جاری رکھنے سے پچھلا کنکشن منقطع ہو جائے گا۔',
   'pro.active_tab_replaced': 'یہ PRO کمرہ پہلے ہی دوسرے ٹیب میں کھلا ہے',

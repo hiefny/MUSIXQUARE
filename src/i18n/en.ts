@@ -76,9 +76,9 @@ const en: Record<I18nKey, string> = {
   'account.nickname_title': 'Set nickname',
   'account.nickname_message': 'Choose the nickname you will use on MUSIXQUARE.',
   'account.nickname_placeholder': 'Nickname',
-  'account.nickname_hint': 'Use up to 12 characters.',
-  'account.nickname_required': 'Enter a nickname.',
-  'account.nickname_whitespace': 'Nicknames cannot contain spaces or invisible characters.',
+  'account.nickname_hint': 'Use up to 12 characters',
+  'account.nickname_required': 'Enter a nickname',
+  'account.nickname_whitespace': 'Nicknames cannot contain spaces or invisible characters',
   'account.nickname_taken': 'That nickname is already in use',
   'account.nickname_saved': 'Nickname changed to {{name}}',
   'account.action_failed': 'Could not update your account\nPlease try again',
@@ -264,8 +264,8 @@ const en: Record<I18nKey, string> = {
   'settings.default_5s': 'Default 5.0s',
   'settings.invite_code': 'Invite code',
   'settings.leave_session': 'Leave Session',
-  'connect.rename_reserved': 'This nickname is reserved.',
-  'connect.rename_profanity': 'Inappropriate words detected.',
+  'connect.rename_reserved': 'This nickname is reserved',
+  'connect.rename_profanity': 'Inappropriate words detected',
   'settings.invite_share': 'Invite & Share',
   'settings.subtab.general': 'General',
   'settings.subtab.audio': 'Audio',
@@ -745,7 +745,7 @@ const en: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Switching apps or turning off the screen can stop the sound or break the sync.',
   'dialog.sw_update_title': 'Update',
-  'dialog.sw_update_msg': 'A new version is ready.\nRefresh to update.',
+  'dialog.sw_update_msg': 'A new version is ready\nRefresh to update',
   'dialog.sw_update_apply': 'Apply',
   'dialog.sw_update_apply_msg': 'A new version is ready.\nApplying it reloads the page.',
   'dialog.sw_update_room_host_msg':
@@ -761,14 +761,14 @@ const en: Record<I18nKey, string> = {
   'dialog.step_back': 'Back',
   'dialog.room_password_title': 'Enter Room Password',
   'dialog.room_password_msg': 'A password is required to join this room.',
-  'dialog.room_password_retry_msg': 'That password did not match. Try again.',
+  'dialog.room_password_retry_msg': 'That password did not match',
   'dialog.room_password_timeout_msg':
     'The connection timed out. Re-enter the password to try again.',
   'dialog.room_password_placeholder': '8-digit password',
   'dialog.room_password_rate_limited':
-    'You entered the wrong password too many times. Try again in {{count}} minutes.',
+    'You entered the wrong password too many times\nTry again in {{count}} minutes',
   'dialog.room_password_rate_limited_later':
-    'You entered the wrong password too many times. Try again in a little while.',
+    'You entered the wrong password too many times\nTry again in a little while',
   'dialog.session_lost_msg':
     'The app went to sleep or lost connection, so this device was disconnected from the others. Restart to begin a new session.',
   'dialog.session_lost_guest_msg':
@@ -818,7 +818,7 @@ const en: Record<I18nKey, string> = {
   'pro.resume_tap': 'Tap to resume playback',
   'pro.pin_title': 'Enter room password',
   'pro.pin_message': 'Enter the 8-digit password for this PRO room.',
-  'pro.pin_retry_message': 'That password is not correct. Try again.',
+  'pro.pin_retry_message': 'That password is not correct',
   'pro.pin_change_title': 'Change room password',
   'pro.pin_change_message': 'Set a new 8-digit password.',
   'pro.pin_changed': 'Room password changed',
@@ -844,10 +844,9 @@ const en: Record<I18nKey, string> = {
   'pro.owner_only': 'Only the room owner can do that',
   'pro.connect_failed': 'Could not connect to the PRO room',
   'pro.room_full': 'This PRO room is full',
-  'pro.room_full_detail':
-    'A PRO room holds up to 100 devices, including the owner. One spot is always kept for the owner.',
-  'pro.join_rate_limited': 'Too many join attempts. Try again in {{count}} minutes.',
-  'pro.join_rate_limited_later': 'Too many join attempts. Try again in a little while.',
+  'pro.room_full_detail': 'Up to 100 devices, owner included\nThe owner always keeps one spot',
+  'pro.join_rate_limited': 'Too many join attempts\nTry again in {{count}} minutes',
+  'pro.join_rate_limited_later': 'Too many join attempts\nTry again in a little while',
   'pro.active_tab_title': 'A previous connection remains',
   'pro.active_tab_message': 'Continuing here will disconnect the previous connection.',
   'pro.active_tab_replaced': 'This PRO room is already open in another tab',

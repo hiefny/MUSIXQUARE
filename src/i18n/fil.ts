@@ -76,10 +76,10 @@ const fil: Record<I18nKey, string> = {
   'account.nickname_title': 'Magtakda ng palayaw',
   'account.nickname_message': 'Piliin ang palayaw na gagamitin mo sa MUSIXQUARE.',
   'account.nickname_placeholder': 'Palayaw',
-  'account.nickname_hint': 'Gumamit ng hanggang 12 character.',
-  'account.nickname_required': 'Maglagay ng palayaw.',
+  'account.nickname_hint': 'Gumamit ng hanggang 12 character',
+  'account.nickname_required': 'Maglagay ng palayaw',
   'account.nickname_whitespace':
-    'Hindi maaaring magkaroon ng espasyo o hindi nakikitang character ang palayaw.',
+    'Hindi maaaring magkaroon ng espasyo o hindi nakikitang character ang palayaw',
   'account.nickname_taken': 'Ginagamit na ang palayaw na iyon',
   'account.nickname_saved': 'Ang bago mong palayaw ay {{name}}',
   'account.action_failed': 'Hindi ma-update ang account mo\nPakisubukan muli',
@@ -270,8 +270,8 @@ const fil: Record<I18nKey, string> = {
   'settings.default_5s': 'Default na 5.0s',
   'settings.invite_code': 'Code ng imbitasyon',
   'settings.leave_session': 'Umalis sa Session',
-  'connect.rename_reserved': 'Nakalaan ang palayaw na ito.',
-  'connect.rename_profanity': 'May natukoy na hindi angkop na salita.',
+  'connect.rename_reserved': 'Nakalaan ang palayaw na ito',
+  'connect.rename_profanity': 'May natukoy na hindi angkop na salita',
   'settings.invite_share': 'Mag-imbita at Magbahagi',
   'settings.subtab.general': 'General',
   'settings.subtab.audio': 'Audio',
@@ -772,7 +772,7 @@ const fil: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Kapag lumipat ka sa ibang app o nag-off ang screen, maaaring huminto ang tunog o mawala sa sync.',
   'dialog.sw_update_title': 'I-update',
-  'dialog.sw_update_msg': 'Handa na ang bagong bersyon.\nI-refresh para mag-update.',
+  'dialog.sw_update_msg': 'Handa na ang bagong bersyon\nI-refresh para mag-update',
   'dialog.sw_update_apply': 'Ilapat',
   'dialog.sw_update_apply_msg':
     'Handa na ang bagong bersyon.\nMagre-refresh ang page kapag inilapat ito.',
@@ -790,14 +790,14 @@ const fil: Record<I18nKey, string> = {
   'dialog.step_back': 'Bumalik',
   'dialog.room_password_title': 'Ilagay ang Password ng Kuwarto',
   'dialog.room_password_msg': 'Kailangan ng password para sumali sa kuwartong ito.',
-  'dialog.room_password_retry_msg': 'Hindi tugma ang password. Subukan muli.',
+  'dialog.room_password_retry_msg': 'Hindi tugma ang password',
   'dialog.room_password_timeout_msg':
     'Nag-timeout ang koneksyon. Ilagay muli ang password para subukan ulit.',
   'dialog.room_password_placeholder': '8-digit na password',
   'dialog.room_password_rate_limited':
-    'Masyadong maraming beses kang naglagay ng maling password. Subukan ulit pagkalipas ng {{count}} minuto.',
+    'Masyadong maraming beses kang naglagay ng maling password\nSubukan ulit pagkalipas ng {{count}} minuto',
   'dialog.room_password_rate_limited_later':
-    'Masyadong maraming beses kang naglagay ng maling password. Subukan ulit maya-maya.',
+    'Masyadong maraming beses kang naglagay ng maling password\nSubukan ulit maya-maya',
   'dialog.session_lost_msg':
     'Naka-sleep ang app o nawalan ito ng koneksyon, kaya nadiskonekta na ang ibang device. I-restart para magsimula ng bagong session.',
   'dialog.session_lost_guest_msg':
@@ -848,7 +848,7 @@ const fil: Record<I18nKey, string> = {
   'pro.resume_tap': 'I-tap para ipagpatuloy ang pag-play',
   'pro.pin_title': 'Ilagay ang password ng kuwarto',
   'pro.pin_message': 'Ilagay ang 8-digit na password para sa PRO room na ito.',
-  'pro.pin_retry_message': 'Hindi tama ang password. Subukan muli.',
+  'pro.pin_retry_message': 'Hindi tama ang password',
   'pro.pin_change_title': 'Palitan ang password ng kuwarto',
   'pro.pin_change_message': 'Magtakda ng bagong 8-digit na password.',
   'pro.pin_changed': 'Pinalitan ang password ng kuwarto',
@@ -876,10 +876,10 @@ const fil: Record<I18nKey, string> = {
   'pro.connect_failed': 'Hindi makakonekta sa PRO room',
   'pro.room_full': 'Puno na ang PRO room na ito',
   'pro.room_full_detail':
-    'Hanggang 100 device ang kasya sa isang PRO room, kasama ang sa may-ari. Laging may isang puwestong nakalaan para sa may-ari.',
+    'Hanggang 100 device ang kasya, kasama ang sa may-ari\nLaging may isang puwestong nakalaan para sa may-ari',
   'pro.join_rate_limited':
-    'Masyadong maraming pagtatangkang sumali. Subukan ulit pagkalipas ng {{count}} minuto.',
-  'pro.join_rate_limited_later': 'Masyadong maraming pagtatangkang sumali. Subukan ulit maya-maya.',
+    'Masyadong maraming pagtatangkang sumali\nSubukan ulit pagkalipas ng {{count}} minuto',
+  'pro.join_rate_limited_later': 'Masyadong maraming pagtatangkang sumali\nSubukan ulit maya-maya',
   'pro.active_tab_title': 'May natitirang naunang koneksyon',
   'pro.active_tab_message': 'Kapag nagpatuloy ka rito, mapuputol ang naunang koneksyon.',
   'pro.active_tab_replaced': 'Bukas na sa ibang tab ang PRO room na ito',

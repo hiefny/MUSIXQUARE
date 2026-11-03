@@ -75,9 +75,9 @@ const he: Record<I18nKey, string> = {
   'account.nickname_title': 'בחירת כינוי',
   'account.nickname_message': 'בחרו את הכינוי שיוצג ב-MUSIXQUARE.',
   'account.nickname_placeholder': 'כינוי',
-  'account.nickname_hint': 'עד 12 תווים.',
-  'account.nickname_required': 'יש להזין כינוי.',
-  'account.nickname_whitespace': 'כינוי לא יכול לכלול רווחים או תווים בלתי נראים.',
+  'account.nickname_hint': 'עד 12 תווים',
+  'account.nickname_required': 'יש להזין כינוי',
+  'account.nickname_whitespace': 'כינוי לא יכול לכלול רווחים או תווים בלתי נראים',
   'account.nickname_taken': 'הכינוי הזה כבר בשימוש',
   'account.nickname_saved': 'הכינוי שונה ל-{{name}}',
   'account.action_failed': 'לא הצלחנו לעדכן את החשבון\nכדאי לנסות שוב',
@@ -260,8 +260,8 @@ const he: Record<I18nKey, string> = {
   'settings.default_5s': 'ברירת מחדל 5.0 שנ׳',
   'settings.invite_code': 'קוד הזמנה',
   'settings.leave_session': 'יציאה מהחדר',
-  'connect.rename_reserved': 'הכינוי הזה שמור.',
-  'connect.rename_profanity': 'זוהתה שפה בלתי הולמת.',
+  'connect.rename_reserved': 'הכינוי הזה שמור',
+  'connect.rename_profanity': 'זוהתה שפה בלתי הולמת',
   'settings.invite_share': 'הזמנה ושיתוף',
   'settings.subtab.general': 'כללי',
   'settings.subtab.audio': 'שמע',
@@ -730,7 +730,7 @@ const he: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'מעבר לאפליקציה אחרת או כיבוי המסך עלולים לעצור את השמע או לשבש את הסנכרון.',
   'dialog.sw_update_title': 'עדכון',
-  'dialog.sw_update_msg': 'גרסה חדשה מוכנה.\nיש לרענן כדי לעדכן.',
+  'dialog.sw_update_msg': 'גרסה חדשה מוכנה\nיש לרענן כדי לעדכן',
   'dialog.sw_update_apply': 'החלה',
   'dialog.sw_update_apply_msg': 'גרסה חדשה מוכנה.\nההחלה תטען מחדש את הדף.',
   'dialog.sw_update_room_host_msg': 'גרסה חדשה מוכנה.\nכדי להחיל אותה, צריך לפתוח את החדר מחדש.',
@@ -745,13 +745,13 @@ const he: Record<I18nKey, string> = {
   'dialog.step_back': 'הקודם',
   'dialog.room_password_title': 'הזנת סיסמת החדר',
   'dialog.room_password_msg': 'נדרשת סיסמה כדי להצטרף לחדר הזה.',
-  'dialog.room_password_retry_msg': 'הסיסמה אינה תואמת. כדאי לנסות שוב.',
+  'dialog.room_password_retry_msg': 'הסיסמה אינה תואמת',
   'dialog.room_password_timeout_msg': 'תם הזמן לחיבור. יש להזין שוב את הסיסמה ולנסות מחדש.',
   'dialog.room_password_placeholder': 'סיסמה בת 8 ספרות',
   'dialog.room_password_rate_limited':
-    'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד {{count}} דקות.',
+    'הוזנה סיסמה שגויה יותר מדי פעמים\nאפשר לנסות שוב בעוד {{count}} דקות',
   'dialog.room_password_rate_limited_later':
-    'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד כמה רגעים.',
+    'הוזנה סיסמה שגויה יותר מדי פעמים\nאפשר לנסות שוב בעוד כמה רגעים',
   'dialog.session_lost_msg':
     'האפליקציה עברה למצב שינה או איבדה את החיבור, ולכן המכשירים האחרים כבר התנתקו. יש להפעיל מחדש כדי לפתוח חדר חדש.',
   'dialog.session_lost_guest_msg':
@@ -798,7 +798,7 @@ const he: Record<I18nKey, string> = {
   'pro.resume_tap': 'לחצו כדי להמשיך את ההפעלה',
   'pro.pin_title': 'הזנת סיסמת החדר',
   'pro.pin_message': 'יש להזין את הסיסמה בת 8 הספרות של חדר ה-PRO.',
-  'pro.pin_retry_message': 'הסיסמה אינה נכונה. כדאי לנסות שוב.',
+  'pro.pin_retry_message': 'הסיסמה אינה נכונה',
   'pro.pin_change_title': 'שינוי סיסמת החדר',
   'pro.pin_change_message': 'יש להגדיר סיסמה חדשה בת 8 ספרות.',
   'pro.pin_changed': 'סיסמת החדר שונתה',
@@ -823,9 +823,9 @@ const he: Record<I18nKey, string> = {
   'pro.connect_failed': 'לא הצלחנו להתחבר לחדר ה-PRO',
   'pro.room_full': 'חדר ה-PRO מלא',
   'pro.room_full_detail':
-    'חדר PRO מכיל עד 100 מכשירים, כולל המכשיר של בעל החדר. מקום אחד תמיד שמור לבעל החדר.',
-  'pro.join_rate_limited': 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד {{count}} דקות.',
-  'pro.join_rate_limited_later': 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד כמה רגעים.',
+    'הוא מכיל עד 100 מכשירים, כולל המכשיר של בעל החדר\nמקום אחד תמיד שמור לבעל החדר',
+  'pro.join_rate_limited': 'יותר מדי ניסיונות הצטרפות\nאפשר לנסות שוב בעוד {{count}} דקות',
+  'pro.join_rate_limited_later': 'יותר מדי ניסיונות הצטרפות\nאפשר לנסות שוב בעוד כמה רגעים',
   'pro.active_tab_title': 'נשאר חיבור קודם',
   'pro.active_tab_message': 'המשך כאן ינתק את החיבור הקודם.',
   'pro.active_tab_replaced': 'חדר ה-PRO כבר פתוח בכרטיסייה אחרת',
@@ -962,9 +962,9 @@ export const pluralMessages = {
     one: '{{count}} קובץ שאינו נתמך לא יתווסף.',
   },
   'pro.join_rate_limited': {
-    one: 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד {{count}} דקה.',
+    one: 'יותר מדי ניסיונות הצטרפות\nאפשר לנסות שוב בעוד {{count}} דקה',
   },
   'dialog.room_password_rate_limited': {
-    one: 'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד {{count}} דקה.',
+    one: 'הוזנה סיסמה שגויה יותר מדי פעמים\nאפשר לנסות שוב בעוד {{count}} דקה',
   },
 } satisfies LocalePluralMessages;

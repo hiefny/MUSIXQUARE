@@ -74,9 +74,9 @@ const fa: Record<I18nKey, string> = {
   'account.nickname_title': 'تنظیم نام مستعار',
   'account.nickname_message': 'نام مستعاری را که در MUSIXQUARE استفاده می‌کنید انتخاب کنید.',
   'account.nickname_placeholder': 'نام مستعار',
-  'account.nickname_hint': 'حداکثر 12 نویسه وارد کنید.',
-  'account.nickname_required': 'یک نام مستعار وارد کنید.',
-  'account.nickname_whitespace': 'نام مستعار نمی‌تواند فاصله یا نویسهٔ نامرئی داشته باشد.',
+  'account.nickname_hint': 'حداکثر 12 نویسه وارد کنید',
+  'account.nickname_required': 'یک نام مستعار وارد کنید',
+  'account.nickname_whitespace': 'نام مستعار نمی‌تواند فاصله یا نویسهٔ نامرئی داشته باشد',
   'account.nickname_taken': 'این نام مستعار قبلاً استفاده شده است',
   'account.nickname_saved': 'نام مستعار به {{name}} تغییر کرد',
   'account.action_failed': 'حساب به‌روزرسانی نشد\nدوباره تلاش کنید',
@@ -261,8 +261,8 @@ const fa: Record<I18nKey, string> = {
   'settings.default_5s': 'پیش‌فرض 5.0 ثانیه',
   'settings.invite_code': 'کد دعوت',
   'settings.leave_session': 'خروج از جلسه',
-  'connect.rename_reserved': 'این نام مستعار رزرو شده است.',
-  'connect.rename_profanity': 'واژه‌های نامناسب شناسایی شد.',
+  'connect.rename_reserved': 'این نام مستعار رزرو شده است',
+  'connect.rename_profanity': 'واژه‌های نامناسب شناسایی شد',
   'settings.invite_share': 'دعوت و اشتراک‌گذاری',
   'settings.subtab.general': 'عمومی',
   'settings.subtab.audio': 'صدا',
@@ -741,7 +741,7 @@ const fa: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'اگر به برنامهٔ دیگری بروید یا صفحه‌نمایش را خاموش کنید، ممکن است صدا قطع یا ناهمگام شود.',
   'dialog.sw_update_title': 'به‌روزرسانی',
-  'dialog.sw_update_msg': 'نسخهٔ جدید آماده است.\nبرای به‌روزرسانی، تازه‌سازی کنید.',
+  'dialog.sw_update_msg': 'نسخهٔ جدید آماده است\nبرای به‌روزرسانی، تازه‌سازی کنید',
   'dialog.sw_update_apply': 'اعمال',
   'dialog.sw_update_apply_msg': 'نسخهٔ جدید آماده است.\nبا اعمال آن، صفحه دوباره بارگیری می‌شود.',
   'dialog.sw_update_room_host_msg':
@@ -758,13 +758,13 @@ const fa: Record<I18nKey, string> = {
   'dialog.step_back': 'قبلی',
   'dialog.room_password_title': 'گذرواژهٔ اتاق را وارد کنید',
   'dialog.room_password_msg': 'برای پیوستن به این اتاق، گذرواژه لازم است.',
-  'dialog.room_password_retry_msg': 'گذرواژه درست نیست. دوباره تلاش کنید.',
+  'dialog.room_password_retry_msg': 'گذرواژه درست نیست',
   'dialog.room_password_timeout_msg': 'مهلت اتصال تمام شد. برای تلاش دوباره گذرواژه را وارد کنید.',
   'dialog.room_password_placeholder': 'گذرواژهٔ 8 رقمی',
   'dialog.room_password_rate_limited':
-    'گذرواژه را بیش از حد اشتباه وارد کرده‌اید. {{count}} دقیقه دیگر دوباره تلاش کنید.',
+    'گذرواژه را بیش از حد اشتباه وارد کرده‌اید\n{{count}} دقیقه دیگر دوباره تلاش کنید',
   'dialog.room_password_rate_limited_later':
-    'گذرواژه را بیش از حد اشتباه وارد کرده‌اید. کمی بعد دوباره تلاش کنید.',
+    'گذرواژه را بیش از حد اشتباه وارد کرده‌اید\nکمی بعد دوباره تلاش کنید',
   'dialog.session_lost_msg':
     'برنامه به خواب رفت یا اتصال را از دست داد و دستگاه‌های دیگر جدا شده‌اند. برای شروع جلسهٔ جدید، برنامه را دوباره راه‌اندازی کنید.',
   'dialog.session_lost_guest_msg':
@@ -813,7 +813,7 @@ const fa: Record<I18nKey, string> = {
   'pro.resume_tap': 'برای ادامهٔ پخش بزنید',
   'pro.pin_title': 'گذرواژهٔ اتاق را وارد کنید',
   'pro.pin_message': 'گذرواژهٔ 8 رقمی این اتاق PRO را وارد کنید.',
-  'pro.pin_retry_message': 'گذرواژه درست نیست. دوباره تلاش کنید.',
+  'pro.pin_retry_message': 'گذرواژه درست نیست',
   'pro.pin_change_title': 'تغییر گذرواژهٔ اتاق',
   'pro.pin_change_message': 'یک گذرواژهٔ 8 رقمی جدید تنظیم کنید.',
   'pro.pin_changed': 'گذرواژهٔ اتاق تغییر کرد',
@@ -840,11 +840,11 @@ const fa: Record<I18nKey, string> = {
   'pro.connect_failed': 'اتصال به اتاق PRO انجام نشد',
   'pro.room_full': 'این اتاق PRO پر است',
   'pro.room_full_detail':
-    'هر اتاق PRO گنجایش حداکثر 100 دستگاه را با احتساب مالک دارد. یک جا همیشه برای مالک اتاق نگه داشته می‌شود.',
+    'گنجایش حداکثر 100 دستگاه را با احتساب مالک دارد\nیک جا همیشه برای مالک اتاق نگه داشته می‌شود',
   'pro.join_rate_limited':
-    'تعداد تلاش‌ها برای پیوستن بیش از حد است. {{count}} دقیقه دیگر دوباره تلاش کنید.',
+    'تعداد تلاش‌ها برای پیوستن بیش از حد است\n{{count}} دقیقه دیگر دوباره تلاش کنید',
   'pro.join_rate_limited_later':
-    'تعداد تلاش‌ها برای پیوستن بیش از حد است. کمی بعد دوباره تلاش کنید.',
+    'تعداد تلاش‌ها برای پیوستن بیش از حد است\nکمی بعد دوباره تلاش کنید',
   'pro.active_tab_title': 'اتصال قبلی باقی مانده است',
   'pro.active_tab_message': 'ادامه در اینجا، اتصال قبلی را قطع می‌کند.',
   'pro.active_tab_replaced': 'این اتاق PRO از قبل در زبانهٔ دیگری باز است',

@@ -76,9 +76,9 @@ const fi: Record<I18nKey, string> = {
   'account.nickname_title': 'Aseta nimimerkki',
   'account.nickname_message': 'Valitse MUSIXQUAREssa käyttämäsi nimimerkki.',
   'account.nickname_placeholder': 'Nimimerkki',
-  'account.nickname_hint': 'Enintään 12 merkkiä.',
-  'account.nickname_required': 'Anna nimimerkki.',
-  'account.nickname_whitespace': 'Nimimerkissä ei voi olla välilyöntejä tai näkymättömiä merkkejä.',
+  'account.nickname_hint': 'Enintään 12 merkkiä',
+  'account.nickname_required': 'Anna nimimerkki',
+  'account.nickname_whitespace': 'Nimimerkissä ei voi olla välilyöntejä tai näkymättömiä merkkejä',
   'account.nickname_taken': 'Nimimerkki on jo käytössä',
   'account.nickname_saved': 'Nimimerkiksi vaihdettiin {{name}}',
   'account.action_failed': 'Tilin päivittäminen epäonnistui\nYritä uudelleen',
@@ -265,8 +265,8 @@ const fi: Record<I18nKey, string> = {
   'settings.default_5s': 'Oletus 5,0 s',
   'settings.invite_code': 'Kutsukoodi',
   'settings.leave_session': 'Poistu istunnosta',
-  'connect.rename_reserved': 'Tämä nimimerkki on varattu.',
-  'connect.rename_profanity': 'Nimimerkissä on sopimattomia sanoja.',
+  'connect.rename_reserved': 'Tämä nimimerkki on varattu',
+  'connect.rename_profanity': 'Nimimerkissä on sopimattomia sanoja',
   'settings.invite_share': 'Kutsu ja jaa',
   'settings.subtab.general': 'Yleiset',
   'settings.subtab.audio': 'Ääni',
@@ -756,7 +756,7 @@ const fi: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Jos vaihdat toiseen sovellukseen tai näyttö sammuu, ääni voi katketa tai synkronointi voi mennä sekaisin.',
   'dialog.sw_update_title': 'Päivitys',
-  'dialog.sw_update_msg': 'Uusi versio on valmis.\nPäivitä sivu ottaaksesi sen käyttöön.',
+  'dialog.sw_update_msg': 'Uusi versio on valmis\nPäivitä sivu ottaaksesi sen käyttöön',
   'dialog.sw_update_apply': 'Ota käyttöön',
   'dialog.sw_update_apply_msg': 'Uusi versio on valmis.\nKäyttöönotto lataa sivun uudelleen.',
   'dialog.sw_update_room_host_msg':
@@ -773,13 +773,13 @@ const fi: Record<I18nKey, string> = {
   'dialog.step_back': 'Takaisin',
   'dialog.room_password_title': 'Anna huoneen salasana',
   'dialog.room_password_msg': 'Tähän huoneeseen liittyminen vaatii salasanan.',
-  'dialog.room_password_retry_msg': 'Salasana ei täsmännyt. Yritä uudelleen.',
+  'dialog.room_password_retry_msg': 'Salasana ei täsmännyt',
   'dialog.room_password_timeout_msg': 'Yhteys aikakatkaistiin. Yritä uudelleen antamalla salasana.',
   'dialog.room_password_placeholder': '8-numeroinen salasana',
   'dialog.room_password_rate_limited':
-    'Annoit väärän salasanan liian monta kertaa. Yritä uudelleen {{count}} minuutin kuluttua.',
+    'Annoit väärän salasanan liian monta kertaa\nYritä uudelleen {{count}} minuutin kuluttua',
   'dialog.room_password_rate_limited_later':
-    'Annoit väärän salasanan liian monta kertaa. Yritä hetken kuluttua uudelleen.',
+    'Annoit väärän salasanan liian monta kertaa\nYritä hetken kuluttua uudelleen',
   'dialog.session_lost_msg':
     'Sovellus siirtyi lepotilaan tai menetti yhteyden, joten muiden laitteiden yhteydet ovat jo katkenneet. Aloita uusi istunto käynnistämällä uudelleen.',
   'dialog.session_lost_guest_msg':
@@ -830,7 +830,7 @@ const fi: Record<I18nKey, string> = {
   'pro.resume_tap': 'Jatka toistoa napauttamalla',
   'pro.pin_title': 'Anna huoneen salasana',
   'pro.pin_message': 'Anna tämän PRO-huoneen 8-numeroinen salasana.',
-  'pro.pin_retry_message': 'Salasana on väärä. Yritä uudelleen.',
+  'pro.pin_retry_message': 'Salasana on väärä',
   'pro.pin_change_title': 'Vaihda huoneen salasana',
   'pro.pin_change_message': 'Aseta uusi 8-numeroinen salasana.',
   'pro.pin_changed': 'Huoneen salasana vaihdettiin',
@@ -857,10 +857,10 @@ const fi: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO-huoneeseen ei voitu muodostaa yhteyttä',
   'pro.room_full': 'Tämä PRO-huone on täynnä',
   'pro.room_full_detail':
-    'PRO-huoneeseen mahtuu enintään 100 laitetta omistaja mukaan lukien. Yksi paikka on aina varattu omistajalle.',
+    'Siihen mahtuu enintään 100 laitetta omistaja mukaan lukien\nYksi paikka on aina varattu omistajalle',
   'pro.join_rate_limited':
-    'Liian monta liittymisyritystä. Yritä uudelleen {{count}} minuutin kuluttua.',
-  'pro.join_rate_limited_later': 'Liian monta liittymisyritystä. Yritä hetken kuluttua uudelleen.',
+    'Liian monta liittymisyritystä\nYritä uudelleen {{count}} minuutin kuluttua',
+  'pro.join_rate_limited_later': 'Liian monta liittymisyritystä\nYritä hetken kuluttua uudelleen',
   'pro.active_tab_title': 'Aiempi yhteys on yhä jäljellä',
   'pro.active_tab_message': 'Jos jatkat tässä, aiempi yhteys katkaistaan.',
   'pro.active_tab_replaced': 'Tämä PRO-huone on jo avoinna toisessa välilehdessä',

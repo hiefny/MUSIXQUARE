@@ -76,9 +76,9 @@ const ptBr: Record<I18nKey, string> = {
   'account.nickname_title': 'Definir apelido',
   'account.nickname_message': 'Escolha o apelido que você usará no MUSIXQUARE.',
   'account.nickname_placeholder': 'Apelido',
-  'account.nickname_hint': 'Use até 12 caracteres.',
-  'account.nickname_required': 'Digite um apelido.',
-  'account.nickname_whitespace': 'O apelido não pode conter espaços nem caracteres invisíveis.',
+  'account.nickname_hint': 'Use até 12 caracteres',
+  'account.nickname_required': 'Digite um apelido',
+  'account.nickname_whitespace': 'O apelido não pode conter espaços nem caracteres invisíveis',
   'account.nickname_taken': 'Esse apelido já está em uso',
   'account.nickname_saved': 'Apelido alterado para {{name}}',
   'account.action_failed': 'Não foi possível atualizar a conta\nTente novamente mais tarde',
@@ -196,8 +196,8 @@ const ptBr: Record<I18nKey, string> = {
   'settings.default_5s': 'Padrão 5,0 s',
   'settings.invite_code': 'Código de convite',
   'settings.leave_session': 'Sair da sala',
-  'connect.rename_reserved': 'Este apelido é reservado.',
-  'connect.rename_profanity': 'O apelido contém termos impróprios.',
+  'connect.rename_reserved': 'Este apelido é reservado',
+  'connect.rename_profanity': 'O apelido contém termos impróprios',
   'settings.invite_share': 'Convidar e compartilhar',
   'settings.subtab.general': 'Geral',
   'settings.subtab.audio': 'Áudio',
@@ -700,7 +700,7 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Se você trocar de app ou a tela apagar, o som pode ser interrompido ou perder a sincronização.',
   'dialog.sw_update_title': 'Atualização',
-  'dialog.sw_update_msg': 'Uma nova versão está pronta.\nAtualize a página para aplicar.',
+  'dialog.sw_update_msg': 'Uma nova versão está pronta\nAtualize a página para aplicar',
   'dialog.sw_update_apply': 'Aplicar',
   'dialog.sw_update_apply_msg':
     'Uma nova versão está pronta.\nAo aplicar, a página será recarregada.',
@@ -718,13 +718,13 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.step_back': 'Voltar',
   'dialog.room_password_title': 'Digite a senha da sala',
   'dialog.room_password_msg': 'Uma senha é necessária para entrar nesta sala.',
-  'dialog.room_password_retry_msg': 'A senha não confere. Tente novamente.',
+  'dialog.room_password_retry_msg': 'A senha não confere',
   'dialog.room_password_timeout_msg': 'A conexão expirou. Digite a senha novamente.',
   'dialog.room_password_placeholder': 'Senha de 8 dígitos',
   'dialog.room_password_rate_limited':
-    'Você digitou a senha errada muitas vezes. Tente novamente em {{count}} minutos.',
+    'Você digitou a senha errada muitas vezes\nTente novamente em {{count}} minutos',
   'dialog.room_password_rate_limited_later':
-    'Você digitou a senha errada muitas vezes. Tente novamente daqui a pouco.',
+    'Você digitou a senha errada muitas vezes\nTente novamente daqui a pouco',
   'dialog.session_lost_msg':
     'O app entrou em repouso ou perdeu a conexão, então os outros dispositivos já foram desconectados. Reinicie para criar uma nova sala.',
   'dialog.session_lost_guest_msg':
@@ -773,7 +773,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.resume_tap': 'Toque para retomar a reprodução',
   'pro.pin_title': 'Senha da sala',
   'pro.pin_message': 'Digite a senha de 8 dígitos desta sala PRO.',
-  'pro.pin_retry_message': 'A senha está incorreta. Tente novamente.',
+  'pro.pin_retry_message': 'A senha está incorreta',
   'pro.pin_change_title': 'Alterar senha',
   'pro.pin_change_message': 'Defina uma nova senha de 8 dígitos.',
   'pro.pin_changed': 'Senha da sala alterada',
@@ -800,9 +800,9 @@ const ptBr: Record<I18nKey, string> = {
   'pro.connect_failed': 'Não foi possível conectar à sala PRO',
   'pro.room_full': 'Esta sala PRO está cheia',
   'pro.room_full_detail':
-    'Uma sala PRO comporta até 100 dispositivos, incluindo o do proprietário. Sempre fica uma vaga reservada para o proprietário.',
-  'pro.join_rate_limited': 'Muitas tentativas de entrar. Tente novamente em {{count}} minutos.',
-  'pro.join_rate_limited_later': 'Muitas tentativas de entrar. Tente novamente daqui a pouco.',
+    'Comporta até 100 dispositivos, incluindo o do proprietário\nSempre fica uma vaga reservada para o proprietário',
+  'pro.join_rate_limited': 'Muitas tentativas de entrar\nTente novamente em {{count}} minutos',
+  'pro.join_rate_limited_later': 'Muitas tentativas de entrar\nTente novamente daqui a pouco',
   'pro.active_tab_title': 'Ainda há uma conexão anterior',
   'pro.active_tab_message': 'Continuar aqui encerrará a conexão anterior.',
   'pro.active_tab_replaced': 'Esta sala PRO já está aberta em outra aba',
@@ -1005,9 +1005,9 @@ export const pluralMessages = {
     one: '{{count}} arquivo não compatível não será adicionado.',
   },
   'pro.join_rate_limited': {
-    one: 'Muitas tentativas de entrar. Tente novamente em {{count}} minuto.',
+    one: 'Muitas tentativas de entrar\nTente novamente em {{count}} minuto',
   },
   'dialog.room_password_rate_limited': {
-    one: 'Você digitou a senha errada muitas vezes. Tente novamente em {{count}} minuto.',
+    one: 'Você digitou a senha errada muitas vezes\nTente novamente em {{count}} minuto',
   },
 } satisfies LocalePluralMessages;

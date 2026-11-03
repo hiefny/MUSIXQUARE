@@ -77,9 +77,9 @@ const pa: Record<I18nKey, string> = {
   'account.nickname_title': 'ਉਪਨਾਮ ਸੈੱਟ ਕਰੋ',
   'account.nickname_message': 'MUSIXQUARE ਉੱਤੇ ਵਰਤਣ ਲਈ ਉਪਨਾਮ ਚੁਣੋ।',
   'account.nickname_placeholder': 'ਉਪਨਾਮ',
-  'account.nickname_hint': 'ਵੱਧ ਤੋਂ ਵੱਧ 12 ਅੱਖਰ ਵਰਤੋ।',
-  'account.nickname_required': 'ਉਪਨਾਮ ਦਾਖਲ ਕਰੋ।',
-  'account.nickname_whitespace': 'ਉਪਨਾਮ ਵਿੱਚ ਖਾਲੀ ਥਾਂ ਜਾਂ ਅਦਿੱਖ ਅੱਖਰ ਨਹੀਂ ਹੋ ਸਕਦੇ।',
+  'account.nickname_hint': 'ਵੱਧ ਤੋਂ ਵੱਧ 12 ਅੱਖਰ ਵਰਤੋ',
+  'account.nickname_required': 'ਉਪਨਾਮ ਦਾਖਲ ਕਰੋ',
+  'account.nickname_whitespace': 'ਉਪਨਾਮ ਵਿੱਚ ਖਾਲੀ ਥਾਂ ਜਾਂ ਅਦਿੱਖ ਅੱਖਰ ਨਹੀਂ ਹੋ ਸਕਦੇ',
   'account.nickname_taken': 'ਇਹ ਉਪਨਾਮ ਪਹਿਲਾਂ ਹੀ ਵਰਤਿਆ ਜਾ ਰਿਹਾ ਹੈ',
   'account.nickname_saved': 'ਉਪਨਾਮ ਬਦਲ ਕੇ {{name}} ਕਰ ਦਿੱਤਾ ਗਿਆ',
   'account.action_failed': 'ਤੁਹਾਡਾ ਖਾਤਾ ਅੱਪਡੇਟ ਨਹੀਂ ਹੋ ਸਕਿਆ\nਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
@@ -266,8 +266,8 @@ const pa: Record<I18nKey, string> = {
   'settings.default_5s': 'ਡਿਫਾਲਟ 5.0 ਸਕਿੰਟ',
   'settings.invite_code': 'ਸੱਦਾ ਕੋਡ',
   'settings.leave_session': 'ਸੈਸ਼ਨ ਛੱਡੋ',
-  'connect.rename_reserved': 'ਇਹ ਉਪਨਾਮ ਰਾਖਵਾਂ ਹੈ।',
-  'connect.rename_profanity': 'ਅਣਉਚਿਤ ਸ਼ਬਦ ਮਿਲੇ ਹਨ।',
+  'connect.rename_reserved': 'ਇਹ ਉਪਨਾਮ ਰਾਖਵਾਂ ਹੈ',
+  'connect.rename_profanity': 'ਅਣਉਚਿਤ ਸ਼ਬਦ ਮਿਲੇ ਹਨ',
   'settings.invite_share': 'ਸੱਦਾ ਦਿਓ ਅਤੇ ਸਾਂਝਾ ਕਰੋ',
   'settings.subtab.general': 'ਆਮ',
   'settings.subtab.audio': 'ਆਡੀਓ',
@@ -751,7 +751,7 @@ const pa: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'ਕਿਸੇ ਹੋਰ ਐਪ ਉੱਤੇ ਜਾਣ ਜਾਂ ਸਕ੍ਰੀਨ ਬੰਦ ਹੋਣ ਨਾਲ ਆਵਾਜ਼ ਰੁਕ ਸਕਦੀ ਹੈ ਜਾਂ ਸਿੰਕ ਵਿਗੜ ਸਕਦਾ ਹੈ।',
   'dialog.sw_update_title': 'ਅੱਪਡੇਟ',
-  'dialog.sw_update_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਅੱਪਡੇਟ ਕਰਨ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
+  'dialog.sw_update_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ\nਅੱਪਡੇਟ ਕਰਨ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ',
   'dialog.sw_update_apply': 'ਲਾਗੂ ਕਰੋ',
   'dialog.sw_update_apply_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਲਾਗੂ ਕਰਨ ਨਾਲ ਪੰਨਾ ਮੁੜ ਲੋਡ ਹੋਵੇਗਾ।',
   'dialog.sw_update_room_host_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਲਾਗੂ ਕਰਨ ਲਈ ਰੂਮ ਦੁਬਾਰਾ ਖੋਲ੍ਹਣਾ ਪਵੇਗਾ।',
@@ -767,14 +767,14 @@ const pa: Record<I18nKey, string> = {
   'dialog.step_back': 'ਪਿੱਛੇ',
   'dialog.room_password_title': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰੋ',
   'dialog.room_password_msg': 'ਇਸ ਰੂਮ ਵਿੱਚ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਪਾਸਵਰਡ ਲਾਜ਼ਮੀ ਹੈ।',
-  'dialog.room_password_retry_msg': 'ਉਹ ਪਾਸਵਰਡ ਮੇਲ ਨਹੀਂ ਖਾਂਦਾ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'dialog.room_password_retry_msg': 'ਉਹ ਪਾਸਵਰਡ ਮੇਲ ਨਹੀਂ ਖਾਂਦਾ',
   'dialog.room_password_timeout_msg':
     'ਕਨੈਕਸ਼ਨ ਦਾ ਸਮਾਂ ਮੁੱਕ ਗਿਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ ਲਈ ਪਾਸਵਰਡ ਫਿਰ ਦਾਖਲ ਕਰੋ।',
   'dialog.room_password_placeholder': '8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ',
   'dialog.room_password_rate_limited':
-    'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ। {{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+    'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ\n{{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'dialog.room_password_rate_limited_later':
-    'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+    'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'dialog.session_lost_msg':
     'ਐਪ ਸਲੀਪ ਮੋਡ ਵਿੱਚ ਚਲੀ ਗਈ ਜਾਂ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਗਿਆ, ਇਸ ਲਈ ਹੋਰ ਡਿਵਾਈਸਾਂ ਪਹਿਲਾਂ ਹੀ ਡਿਸਕਨੈਕਟ ਹੋ ਗਈਆਂ ਹਨ। ਨਵਾਂ ਸੈਸ਼ਨ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਮੁੜ ਸ਼ੁਰੂ ਕਰੋ।',
   'dialog.session_lost_guest_msg':
@@ -824,7 +824,7 @@ const pa: Record<I18nKey, string> = {
   'pro.resume_tap': 'ਪਲੇਬੈਕ ਮੁੜ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ',
   'pro.pin_title': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰੋ',
   'pro.pin_message': 'ਇਸ PRO ਰੂਮ ਦਾ 8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰੋ।',
-  'pro.pin_retry_message': 'ਉਹ ਪਾਸਵਰਡ ਸਹੀ ਨਹੀਂ ਹੈ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'pro.pin_retry_message': 'ਉਹ ਪਾਸਵਰਡ ਸਹੀ ਨਹੀਂ ਹੈ',
   'pro.pin_change_title': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਬਦਲੋ',
   'pro.pin_change_message': 'ਨਵਾਂ 8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ ਸੈੱਟ ਕਰੋ।',
   'pro.pin_changed': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਬਦਲ ਗਿਆ',
@@ -851,11 +851,11 @@ const pa: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO ਰੂਮ ਨਾਲ ਕਨੈਕਟ ਨਹੀਂ ਹੋ ਸਕਿਆ',
   'pro.room_full': 'ਇਹ PRO ਰੂਮ ਭਰ ਗਿਆ ਹੈ',
   'pro.room_full_detail':
-    'PRO ਰੂਮ ਵਿੱਚ ਮਾਲਕ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ ਜੁੜ ਸਕਦੀਆਂ ਹਨ। ਮਾਲਕ ਲਈ ਹਮੇਸ਼ਾ ਇੱਕ ਥਾਂ ਰਾਖਵੀਂ ਰੱਖੀ ਜਾਂਦੀ ਹੈ।',
+    'ਮਾਲਕ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ ਜੁੜ ਸਕਦੀਆਂ ਹਨ\nਮਾਲਕ ਲਈ ਹਮੇਸ਼ਾ ਇੱਕ ਥਾਂ ਰਾਖਵੀਂ ਰੱਖੀ ਜਾਂਦੀ ਹੈ',
   'pro.join_rate_limited':
-    'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ। {{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+    'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ\n{{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'pro.join_rate_limited_later':
-    'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+    'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'pro.active_tab_title': 'ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਬਾਕੀ ਹੈ',
   'pro.active_tab_message': 'ਇੱਥੇ ਅੱਗੇ ਵਧਣ ਨਾਲ ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਜਾਵੇਗਾ।',
   'pro.active_tab_replaced': 'ਇਹ PRO ਰੂਮ ਪਹਿਲਾਂ ਹੀ ਕਿਸੇ ਹੋਰ ਟੈਬ ਵਿੱਚ ਖੁੱਲ੍ਹਾ ਹੈ',

@@ -76,9 +76,9 @@ const el: Record<I18nKey, string> = {
   'account.nickname_title': 'Επιλέξτε ψευδώνυμο',
   'account.nickname_message': 'Επιλέξτε το ψευδώνυμο που θα χρησιμοποιείτε στο MUSIXQUARE.',
   'account.nickname_placeholder': 'Ψευδώνυμο',
-  'account.nickname_hint': 'Χρησιμοποιήστε έως 12 χαρακτήρες.',
-  'account.nickname_required': 'Εισαγάγετε ψευδώνυμο.',
-  'account.nickname_whitespace': 'Το ψευδώνυμο δεν μπορεί να περιέχει κενά ή αόρατους χαρακτήρες.',
+  'account.nickname_hint': 'Χρησιμοποιήστε έως 12 χαρακτήρες',
+  'account.nickname_required': 'Εισαγάγετε ψευδώνυμο',
+  'account.nickname_whitespace': 'Το ψευδώνυμο δεν μπορεί να περιέχει κενά ή αόρατους χαρακτήρες',
   'account.nickname_taken': 'Αυτό το ψευδώνυμο χρησιμοποιείται ήδη',
   'account.nickname_saved': 'Το ψευδώνυμο άλλαξε σε {{name}}',
   'account.action_failed': 'Δεν ήταν δυνατή η ενημέρωση του λογαριασμού\nΔοκιμάστε ξανά',
@@ -268,8 +268,8 @@ const el: Record<I18nKey, string> = {
   'settings.default_5s': 'Προεπιλογή 5,0 δευτ.',
   'settings.invite_code': 'Κωδικός πρόσκλησης',
   'settings.leave_session': 'Έξοδος από συνεδρία',
-  'connect.rename_reserved': 'Αυτό το ψευδώνυμο είναι δεσμευμένο.',
-  'connect.rename_profanity': 'Εντοπίστηκαν ακατάλληλες λέξεις.',
+  'connect.rename_reserved': 'Αυτό το ψευδώνυμο είναι δεσμευμένο',
+  'connect.rename_profanity': 'Εντοπίστηκαν ακατάλληλες λέξεις',
   'settings.invite_share': 'Πρόσκληση και κοινοποίηση',
   'settings.subtab.general': 'Γενικά',
   'settings.subtab.audio': 'Ήχος',
@@ -777,7 +777,7 @@ const el: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Αν αλλάξετε εφαρμογή ή σβήσει η οθόνη, ο ήχος μπορεί να σταματήσει ή να χαθεί ο συγχρονισμός.',
   'dialog.sw_update_title': 'Ενημέρωση',
-  'dialog.sw_update_msg': 'Μια νέα έκδοση είναι έτοιμη.\nΑνανεώστε για ενημέρωση.',
+  'dialog.sw_update_msg': 'Μια νέα έκδοση είναι έτοιμη\nΑνανεώστε για ενημέρωση',
   'dialog.sw_update_apply': 'Εφαρμογή',
   'dialog.sw_update_apply_msg': 'Μια νέα έκδοση είναι έτοιμη.\nΗ εφαρμογή θα ανανεώσει τη σελίδα.',
   'dialog.sw_update_room_host_msg':
@@ -794,14 +794,14 @@ const el: Record<I18nKey, string> = {
   'dialog.step_back': 'Πίσω',
   'dialog.room_password_title': 'Εισαγάγετε κωδικό πρόσβασης δωματίου',
   'dialog.room_password_msg': 'Απαιτείται κωδικός πρόσβασης για συμμετοχή σε αυτό το δωμάτιο.',
-  'dialog.room_password_retry_msg': 'Ο κωδικός πρόσβασης δεν ταιριάζει. Δοκιμάστε ξανά.',
+  'dialog.room_password_retry_msg': 'Ο κωδικός πρόσβασης δεν ταιριάζει',
   'dialog.room_password_timeout_msg':
     'Έληξε το χρονικό όριο σύνδεσης. Εισαγάγετε ξανά τον κωδικό πρόσβασης.',
   'dialog.room_password_placeholder': 'Οκταψήφιος κωδικός πρόσβασης',
   'dialog.room_password_rate_limited':
-    'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές. Δοκιμάστε ξανά σε {{count}} λεπ.',
+    'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές\nΔοκιμάστε ξανά σε {{count}} λεπ',
   'dialog.room_password_rate_limited_later':
-    'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές. Δοκιμάστε ξανά σε λίγο.',
+    'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές\nΔοκιμάστε ξανά σε λίγο',
   'dialog.session_lost_msg':
     'Η εφαρμογή τέθηκε σε αναστολή ή έχασε τη σύνδεση, επομένως οι άλλες συσκευές έχουν ήδη αποσυνδεθεί. Κάντε επανεκκίνηση για να ξεκινήσετε νέα συνεδρία.',
   'dialog.session_lost_guest_msg':
@@ -852,7 +852,7 @@ const el: Record<I18nKey, string> = {
   'pro.resume_tap': 'Πατήστε για συνέχιση της αναπαραγωγής',
   'pro.pin_title': 'Εισαγάγετε κωδικό πρόσβασης δωματίου',
   'pro.pin_message': 'Εισαγάγετε τον οκταψήφιο κωδικό πρόσβασης αυτού του δωματίου PRO.',
-  'pro.pin_retry_message': 'Ο κωδικός πρόσβασης δεν είναι σωστός. Δοκιμάστε ξανά.',
+  'pro.pin_retry_message': 'Ο κωδικός πρόσβασης δεν είναι σωστός',
   'pro.pin_change_title': 'Αλλαγή κωδικού πρόσβασης δωματίου',
   'pro.pin_change_message': 'Ορίστε νέο οκταψήφιο κωδικό πρόσβασης.',
   'pro.pin_changed': 'Ο κωδικός πρόσβασης δωματίου άλλαξε',
@@ -880,9 +880,9 @@ const el: Record<I18nKey, string> = {
   'pro.connect_failed': 'Δεν ήταν δυνατή η σύνδεση στο δωμάτιο PRO',
   'pro.room_full': 'Αυτό το δωμάτιο PRO είναι γεμάτο',
   'pro.room_full_detail':
-    'Ένα δωμάτιο PRO δέχεται έως 100 συσκευές, μαζί με τη συσκευή του κατόχου. Μία θέση είναι πάντα δεσμευμένη για τον κάτοχο.',
-  'pro.join_rate_limited': 'Πάρα πολλές προσπάθειες σύνδεσης. Δοκιμάστε ξανά σε {{count}} λεπ.',
-  'pro.join_rate_limited_later': 'Πάρα πολλές προσπάθειες σύνδεσης. Δοκιμάστε ξανά σε λίγο.',
+    'Δέχεται έως 100 συσκευές, μαζί με τη συσκευή του κατόχου\nΜία θέση είναι πάντα δεσμευμένη για τον κάτοχο',
+  'pro.join_rate_limited': 'Πάρα πολλές προσπάθειες σύνδεσης\nΔοκιμάστε ξανά σε {{count}} λεπ',
+  'pro.join_rate_limited_later': 'Πάρα πολλές προσπάθειες σύνδεσης\nΔοκιμάστε ξανά σε λίγο',
   'pro.active_tab_title': 'Υπάρχει ακόμα προηγούμενη σύνδεση',
   'pro.active_tab_message': 'Αν συνεχίσετε εδώ, η προηγούμενη σύνδεση θα τερματιστεί.',
   'pro.active_tab_replaced': 'Αυτό το δωμάτιο PRO είναι ήδη ανοιχτό σε άλλη καρτέλα',

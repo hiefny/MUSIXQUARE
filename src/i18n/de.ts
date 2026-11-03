@@ -76,10 +76,10 @@ const de: Record<I18nKey, string> = {
   'account.nickname_title': 'Nickname festlegen',
   'account.nickname_message': 'Wähle deinen Nickname für MUSIXQUARE.',
   'account.nickname_placeholder': 'Nickname',
-  'account.nickname_hint': 'Maximal 12 Zeichen.',
-  'account.nickname_required': 'Gib einen Nickname ein.',
+  'account.nickname_hint': 'Maximal 12 Zeichen',
+  'account.nickname_required': 'Gib einen Nickname ein',
   'account.nickname_whitespace':
-    'Nicknames dürfen keine Leerzeichen oder unsichtbaren Zeichen enthalten.',
+    'Nicknames dürfen keine Leerzeichen oder unsichtbaren Zeichen enthalten',
   'account.nickname_taken': 'Dieser Nickname ist bereits vergeben',
   'account.nickname_saved': 'Nickname in {{name}} geändert',
   'account.action_failed': 'Das Konto konnte nicht aktualisiert werden\nVersuche es später erneut',
@@ -195,8 +195,8 @@ const de: Record<I18nKey, string> = {
   'settings.default_5s': 'Standard 5,0 s',
   'settings.invite_code': 'Einladungscode',
   'settings.leave_session': 'Raum verlassen',
-  'connect.rename_reserved': 'Dieser Nickname ist reserviert.',
-  'connect.rename_profanity': 'Der Nickname enthält unzulässige Begriffe.',
+  'connect.rename_reserved': 'Dieser Nickname ist reserviert',
+  'connect.rename_profanity': 'Der Nickname enthält unzulässige Begriffe',
   'settings.invite_share': 'Einladen & Teilen',
   'settings.subtab.general': 'Allgemein',
   'settings.subtab.audio': 'Audio',
@@ -701,7 +701,7 @@ const de: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Wenn du zu einer anderen App wechselst oder der Bildschirm ausgeht, kann der Ton aussetzen oder der Sync nicht mehr stimmen.',
   'dialog.sw_update_title': 'Update',
-  'dialog.sw_update_msg': 'Eine neue Version ist bereit.\nLade die Seite neu, um sie anzuwenden.',
+  'dialog.sw_update_msg': 'Eine neue Version ist bereit\nLade die Seite neu, um sie anzuwenden',
   'dialog.sw_update_apply': 'Anwenden',
   'dialog.sw_update_apply_msg':
     'Eine neue Version ist bereit.\nBeim Anwenden wird die Seite neu geladen.',
@@ -719,14 +719,14 @@ const de: Record<I18nKey, string> = {
   'dialog.step_back': 'Zurück',
   'dialog.room_password_title': 'Raumpasswort eingeben',
   'dialog.room_password_msg': 'Für den Beitritt zu diesem Raum ist ein Passwort erforderlich.',
-  'dialog.room_password_retry_msg': 'Das Passwort stimmt nicht. Bitte erneut versuchen.',
+  'dialog.room_password_retry_msg': 'Das Passwort stimmt nicht',
   'dialog.room_password_timeout_msg':
     'Die Verbindung hat zu lange gedauert. Gib das Passwort erneut ein.',
   'dialog.room_password_placeholder': '8-stelliges Passwort',
   'dialog.room_password_rate_limited':
-    'Du hast das Passwort zu oft falsch eingegeben. Versuche es in {{count}} Minuten erneut.',
+    'Du hast das Passwort zu oft falsch eingegeben\nVersuche es in {{count}} Minuten erneut',
   'dialog.room_password_rate_limited_later':
-    'Du hast das Passwort zu oft falsch eingegeben. Versuche es etwas später erneut.',
+    'Du hast das Passwort zu oft falsch eingegeben\nVersuche es etwas später erneut',
   'dialog.session_lost_msg':
     'Die App wurde in den Ruhezustand versetzt oder hat die Verbindung verloren. Die anderen Geräte wurden daher bereits getrennt. Starte neu, um einen neuen Raum zu öffnen.',
   'dialog.session_lost_guest_msg':
@@ -776,7 +776,7 @@ const de: Record<I18nKey, string> = {
   'pro.resume_tap': 'Tippe, um die Wiedergabe fortzusetzen',
   'pro.pin_title': 'Raumpasswort eingeben',
   'pro.pin_message': 'Gib das 8-stellige Passwort für diesen PRO-Raum ein.',
-  'pro.pin_retry_message': 'Das Passwort ist falsch. Versuche es erneut.',
+  'pro.pin_retry_message': 'Das Passwort ist falsch',
   'pro.pin_change_title': 'Raumpasswort ändern',
   'pro.pin_change_message': 'Lege ein neues 8-stelliges Passwort fest.',
   'pro.pin_changed': 'Raumpasswort wurde geändert',
@@ -804,9 +804,9 @@ const de: Record<I18nKey, string> = {
   'pro.connect_failed': 'Verbindung zum PRO-Raum fehlgeschlagen',
   'pro.room_full': 'Dieser PRO-Raum ist voll',
   'pro.room_full_detail':
-    'Ein PRO-Raum bietet Platz für bis zu 100 Geräte, einschließlich des Raumbesitzers. Ein Platz bleibt immer für den Raumbesitzer frei.',
-  'pro.join_rate_limited': 'Zu viele Beitrittsversuche. Versuche es in {{count}} Minuten erneut.',
-  'pro.join_rate_limited_later': 'Zu viele Beitrittsversuche. Versuche es etwas später erneut.',
+    'Er bietet Platz für bis zu 100 Geräte, einschließlich des Raumbesitzers\nEin Platz bleibt immer für den Raumbesitzer frei',
+  'pro.join_rate_limited': 'Zu viele Beitrittsversuche\nVersuche es in {{count}} Minuten erneut',
+  'pro.join_rate_limited_later': 'Zu viele Beitrittsversuche\nVersuche es etwas später erneut',
   'pro.active_tab_title': 'Eine vorherige Verbindung besteht noch',
   'pro.active_tab_message': 'Wenn du hier fortfährst, wird die vorherige Verbindung getrennt.',
   'pro.active_tab_replaced': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
@@ -1007,9 +1007,9 @@ export const pluralMessages = {
     one: '{{count}} nicht unterstützte Datei wird nicht hinzugefügt.',
   },
   'pro.join_rate_limited': {
-    one: 'Zu viele Beitrittsversuche. Versuche es in {{count}} Minute erneut.',
+    one: 'Zu viele Beitrittsversuche\nVersuche es in {{count}} Minute erneut',
   },
   'dialog.room_password_rate_limited': {
-    one: 'Du hast das Passwort zu oft falsch eingegeben. Versuche es in {{count}} Minute erneut.',
+    one: 'Du hast das Passwort zu oft falsch eingegeben\nVersuche es in {{count}} Minute erneut',
   },
 } satisfies LocalePluralMessages;

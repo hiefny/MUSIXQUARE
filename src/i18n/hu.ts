@@ -75,9 +75,9 @@ const hu: Record<I18nKey, string> = {
   'account.nickname_title': 'Válassz becenevet',
   'account.nickname_message': 'Válaszd ki a MUSIXQUARE-ben használt becenevedet.',
   'account.nickname_placeholder': 'Becenév',
-  'account.nickname_hint': 'Legfeljebb 12 karaktert használj.',
-  'account.nickname_required': 'Adj meg egy becenevet.',
-  'account.nickname_whitespace': 'A becenév nem tartalmazhat szóközt vagy láthatatlan karaktert.',
+  'account.nickname_hint': 'Legfeljebb 12 karaktert használj',
+  'account.nickname_required': 'Adj meg egy becenevet',
+  'account.nickname_whitespace': 'A becenév nem tartalmazhat szóközt vagy láthatatlan karaktert',
   'account.nickname_taken': 'Ez a becenév már használatban van',
   'account.nickname_saved': 'A becenév erre változott: {{name}}',
   'account.action_failed': 'Nem sikerült frissíteni a fiókot\nPróbáld újra',
@@ -265,8 +265,8 @@ const hu: Record<I18nKey, string> = {
   'settings.default_5s': 'Alapérték: 5,0 mp',
   'settings.invite_code': 'Meghívókód',
   'settings.leave_session': 'Munkamenet elhagyása',
-  'connect.rename_reserved': 'Ez a becenév foglalt.',
-  'connect.rename_profanity': 'Nem megfelelő szavakat észleltünk.',
+  'connect.rename_reserved': 'Ez a becenév foglalt',
+  'connect.rename_profanity': 'Nem megfelelő szavakat észleltünk',
   'settings.invite_share': 'Meghívás és megosztás',
   'settings.subtab.general': 'Általános',
   'settings.subtab.audio': 'Hang',
@@ -763,7 +763,7 @@ const hu: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Ha másik alkalmazásra váltasz, vagy kikapcsol a képernyő, leállhat a hang, vagy elcsúszhat a szinkronizálás.',
   'dialog.sw_update_title': 'Frissítés',
-  'dialog.sw_update_msg': 'Új verzió érhető el.\nA frissítéshez töltsd újra az oldalt.',
+  'dialog.sw_update_msg': 'Új verzió érhető el\nA frissítéshez töltsd újra az oldalt',
   'dialog.sw_update_apply': 'Alkalmaz',
   'dialog.sw_update_apply_msg': 'Új verzió érhető el.\nAz alkalmazás újratölti az oldalt.',
   'dialog.sw_update_room_host_msg':
@@ -780,14 +780,14 @@ const hu: Record<I18nKey, string> = {
   'dialog.step_back': 'Vissza',
   'dialog.room_password_title': 'Add meg a szobajelszót',
   'dialog.room_password_msg': 'A szobához való csatlakozáshoz jelszó szükséges.',
-  'dialog.room_password_retry_msg': 'A jelszó nem egyezik. Próbáld újra.',
+  'dialog.room_password_retry_msg': 'A jelszó nem egyezik',
   'dialog.room_password_timeout_msg':
     'A kapcsolat időtúllépés miatt megszakadt. Add meg újra a jelszót.',
   'dialog.room_password_placeholder': 'Nyolcjegyű jelszó',
   'dialog.room_password_rate_limited':
-    'Túl sokszor adtál meg hibás jelszót. Próbáld újra {{count}} perc múlva.',
+    'Túl sokszor adtál meg hibás jelszót\nPróbáld újra {{count}} perc múlva',
   'dialog.room_password_rate_limited_later':
-    'Túl sokszor adtál meg hibás jelszót. Próbáld újra egy kicsit később.',
+    'Túl sokszor adtál meg hibás jelszót\nPróbáld újra egy kicsit később',
   'dialog.session_lost_msg':
     'Az alkalmazás alvó állapotba került vagy elvesztette a kapcsolatot, ezért a többi eszköz már levált. Új munkamenet indításához indítsd újra.',
   'dialog.session_lost_guest_msg':
@@ -838,7 +838,7 @@ const hu: Record<I18nKey, string> = {
   'pro.resume_tap': 'Koppints a lejátszás folytatásához',
   'pro.pin_title': 'Add meg a szobajelszót',
   'pro.pin_message': 'Add meg a PRO-szoba nyolcjegyű jelszavát.',
-  'pro.pin_retry_message': 'A jelszó helytelen. Próbáld újra.',
+  'pro.pin_retry_message': 'A jelszó helytelen',
   'pro.pin_change_title': 'Szobajelszó módosítása',
   'pro.pin_change_message': 'Állíts be új, nyolcjegyű jelszót.',
   'pro.pin_changed': 'A szobajelszó megváltozott',
@@ -865,9 +865,9 @@ const hu: Record<I18nKey, string> = {
   'pro.connect_failed': 'Nem sikerült csatlakozni a PRO-szobához',
   'pro.room_full': 'Ez a PRO-szoba megtelt',
   'pro.room_full_detail':
-    'Egy PRO-szobához legfeljebb 100 eszköz csatlakozhat, a szobatulajdonosé is beleértve. Egy hely mindig a szobatulajdonosnak van fenntartva.',
-  'pro.join_rate_limited': 'Túl sok csatlakozási kísérlet. Próbáld újra {{count}} perc múlva.',
-  'pro.join_rate_limited_later': 'Túl sok csatlakozási kísérlet. Próbáld újra egy kicsit később.',
+    'Legfeljebb 100 eszköz csatlakozhat, a szobatulajdonosé is beleértve\nEgy hely mindig a szobatulajdonosnak van fenntartva',
+  'pro.join_rate_limited': 'Túl sok csatlakozási kísérlet\nPróbáld újra {{count}} perc múlva',
+  'pro.join_rate_limited_later': 'Túl sok csatlakozási kísérlet\nPróbáld újra egy kicsit később',
   'pro.active_tab_title': 'Még van egy korábbi kapcsolat',
   'pro.active_tab_message': 'Ha itt folytatod, a korábbi kapcsolat megszakad.',
   'pro.active_tab_replaced': 'Ez a PRO-szoba már meg van nyitva egy másik lapon',

@@ -748,13 +748,13 @@ const th: Record<I18nKey, string> = {
   'dialog.step_back': 'ย้อนกลับ',
   'dialog.room_password_title': 'ใส่รหัสผ่านห้อง',
   'dialog.room_password_msg': 'ต้องใช้รหัสผ่านเพื่อเข้าร่วมห้องนี้',
-  'dialog.room_password_retry_msg': 'รหัสผ่านไม่ตรงกัน ลองอีกครั้ง',
+  'dialog.room_password_retry_msg': 'รหัสผ่านไม่ตรงกัน',
   'dialog.room_password_timeout_msg': 'การเชื่อมต่อหมดเวลา ใส่รหัสผ่านอีกครั้ง',
   'dialog.room_password_placeholder': 'รหัสผ่าน 8 หลัก',
   'dialog.room_password_rate_limited':
-    'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
+    'ใส่รหัสผ่านผิดหลายครั้งเกินไป\nโปรดลองอีกครั้งในอีก {{count}} นาที',
   'dialog.room_password_rate_limited_later':
-    'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
+    'ใส่รหัสผ่านผิดหลายครั้งเกินไป\nโปรดลองอีกครั้งในภายหลัง',
   'dialog.session_lost_msg':
     'แอปเข้าสู่โหมดพักหรือการเชื่อมต่อหลุด อุปกรณ์อื่นจึงหลุดไปแล้ว เริ่มใหม่เพื่อเปิดห้องใหม่',
   'dialog.session_lost_guest_msg':
@@ -802,7 +802,7 @@ const th: Record<I18nKey, string> = {
   'pro.resume_tap': 'แตะเพื่อเล่นต่อ',
   'pro.pin_title': 'ใส่รหัสผ่านห้อง',
   'pro.pin_message': 'ใส่รหัสผ่าน 8 หลักของห้อง PRO นี้',
-  'pro.pin_retry_message': 'รหัสผ่านไม่ถูกต้อง ลองอีกครั้ง',
+  'pro.pin_retry_message': 'รหัสผ่านไม่ถูกต้อง',
   'pro.pin_change_title': 'เปลี่ยนรหัสผ่านห้อง',
   'pro.pin_change_message': 'ตั้งรหัสผ่านใหม่ 8 หลัก',
   'pro.pin_changed': 'เปลี่ยนรหัสผ่านห้องแล้ว',
@@ -829,9 +829,9 @@ const th: Record<I18nKey, string> = {
   'pro.connect_failed': 'เชื่อมต่อห้อง PRO ไม่สำเร็จ',
   'pro.room_full': 'ห้อง PRO นี้เต็มแล้ว',
   'pro.room_full_detail':
-    'ห้อง PRO รองรับอุปกรณ์ได้สูงสุด 100 เครื่องรวมเจ้าของห้อง และจะเว้นที่ไว้ให้เจ้าของห้องหนึ่งที่เสมอ',
-  'pro.join_rate_limited': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
-  'pro.join_rate_limited_later': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในภายหลัง',
+    'รองรับอุปกรณ์ได้สูงสุด 100 เครื่องรวมเจ้าของห้อง\nจะเว้นที่ไว้ให้เจ้าของห้องหนึ่งที่เสมอ',
+  'pro.join_rate_limited': 'พยายามเข้าร่วมบ่อยเกินไป\nโปรดลองอีกครั้งในอีก {{count}} นาที',
+  'pro.join_rate_limited_later': 'พยายามเข้าร่วมบ่อยเกินไป\nโปรดลองอีกครั้งในภายหลัง',
   'pro.active_tab_title': 'ยังมีการเชื่อมต่อก่อนหน้าค้างอยู่',
   'pro.active_tab_message': 'หากดำเนินการต่อที่นี่ การเชื่อมต่อก่อนหน้าจะถูกตัด',
   'pro.active_tab_replaced': 'ห้อง PRO นี้เปิดอยู่ในแท็บอื่นแล้ว',

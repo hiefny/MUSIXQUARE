@@ -292,6 +292,66 @@ test.describe('YouTube search loading and quick add', () => {
     }
   });
 
+  // A search disables the button that started it, and Chromium then moves
+  // focus to the page. The magnifier and the big button take keyboard focus
+  // back once they can act again, so the next Enter acts on the results.
+  test('keyboard focus returns to the magnifier and the big button after a search', async ({
+    page,
+  }) => {
+    let releaseSearch!: () => void;
+    let pending = Promise.resolve();
+    const holdSearch = (): void => {
+      pending = new Promise<void>((resolve) => {
+        releaseSearch = resolve;
+      });
+    };
+    holdSearch();
+    let requests = 0;
+    await page.route('**/api/youtube-search?**', async (route) => {
+      requests++;
+      await pending;
+      await route.fulfill({ json: { results: RESULTS } });
+    });
+    await openSearch(page);
+    const input = page.locator('#youtube-url-input');
+    const primary = page.locator('#youtube-play-btn');
+    const magnifier = page.locator('#youtube-search-btn');
+    const results = page.locator('#youtube-search-results');
+    try {
+      await input.fill('Keyboard search');
+      await expect(magnifier).toBeEnabled();
+      await magnifier.focus();
+      await page.keyboard.press('Enter');
+      await expect(results).toHaveAttribute('aria-busy', 'true');
+      await expect(magnifier).toBeDisabled();
+      await expect(magnifier).not.toBeFocused();
+      releaseSearch();
+      await expect(results.locator('button')).toHaveCount(RESULTS.length);
+      await expect(magnifier).toBeFocused();
+
+      holdSearch();
+      await input.fill('Keyboard search again');
+      await expect(primary).toHaveText('Search');
+      await primary.focus();
+      await page.keyboard.press('Enter');
+      await expect(primary).toHaveText('Please wait...');
+      await expect(primary).toBeDisabled();
+      await expect(primary).not.toBeFocused();
+      releaseSearch();
+      await expect(primary).toHaveText('Add to Playlist');
+      await expect(primary).toBeFocused();
+      expect(await readState(page, 'playlist.items')).toEqual([]);
+      await page.keyboard.press('Enter');
+      await waitForPlaylistCount(page, 1);
+      const items = (await readState(page, 'playlist.items')) as Array<{ videoId: string }>;
+      expect(items.map((item) => item.videoId)).toEqual([RESULTS[0]!.videoId]);
+      expect(requests).toBe(2);
+      await expect(page.locator('#youtube-url-overlay')).not.toBeVisible();
+    } finally {
+      releaseSearch();
+    }
+  });
+
   test('search failure removes skeleton and allows a fresh search', async ({ page }) => {
     let requests = 0;
     await page.route('**/api/youtube-search?**', (route) => {

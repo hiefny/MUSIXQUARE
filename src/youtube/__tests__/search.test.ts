@@ -781,6 +781,109 @@ describe('YouTube primary button and status line states', () => {
     await vi.advanceTimersByTimeAsync(500);
     expectSheet({ button: 'off', line: 'youtube.fetch_failed', error: true, magnifier: 'off' });
   });
+
+  // A search disables the button that started it, and a browser moves focus
+  // off a disabled button to the page. The big button and the magnifier take
+  // keyboard focus back once they can act again, so a second Enter adds the
+  // picked result or searches again, unless the person moved focus meanwhile.
+  describe('keyboard focus across a search', () => {
+    const play = (): HTMLButtonElement =>
+      document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    const magnifier = (): HTMLButtonElement =>
+      document.getElementById('youtube-search-btn') as HTMLButtonElement;
+
+    /** The browser's focus fix-up: focus leaves a disabled button for the page.
+     *  jsdom neither does it nor blurs a disabled button, so focus passes
+     *  through a removed element. */
+    function dropFocusToPage(): void {
+      const passing = document.createElement('button');
+      document.body.append(passing);
+      passing.focus();
+      passing.remove();
+    }
+
+    /** Types q, focuses control and starts the search from it.
+     *  Resolves to an object, so awaiting it does not wait for the search. */
+    async function searchFrom(
+      control: HTMLButtonElement,
+      q: string,
+    ): Promise<{ search: Promise<void> }> {
+      fetchYouTubePreview(q);
+      control.focus();
+      expect(document.activeElement).toBe(control);
+      const search = searchYouTubeFromInput(q);
+      await vi.waitFor(() => expect(searches.has(q)).toBe(true));
+      expect(control.disabled).toBe(true);
+      dropFocusToPage();
+      expect(document.activeElement).toBe(document.body);
+      return { search };
+    }
+
+    it('gives focus back to the big button once the first result is picked', async () => {
+      mount();
+      const q = query();
+      const { search } = await searchFrom(play(), q);
+      // The same query drawn again while its search runs stays busy.
+      fetchYouTubePreview(q);
+      expectSheet({ button: 'busy', line: 'youtube.searching', magnifier: 'busy' });
+      searches.get(q)!.resolve(Response.json({ results: [RESULT] }));
+      await search;
+      expectSheet({ button: 'add', line: 'youtube.search_selected', magnifier: 'on' });
+      expect(document.activeElement).toBe(play());
+    });
+
+    it('gives focus back to the big button when the search fails', async () => {
+      mount();
+      const q = query();
+      const { search } = await searchFrom(play(), q);
+      searches.get(q)!.reject(new Error('offline'));
+      await search;
+      expectSheet({
+        button: 'search',
+        line: 'youtube.search_failed',
+        error: true,
+        magnifier: 'on',
+      });
+      expect(document.activeElement).toBe(play());
+    });
+
+    it('gives focus back to the magnifier once its search settles', async () => {
+      mount();
+      const q = query();
+      const { search } = await searchFrom(magnifier(), q);
+      searches.get(q)!.resolve(Response.json({ results: [RESULT] }));
+      await search;
+      expectSheet({ button: 'add', line: 'youtube.search_selected', magnifier: 'on' });
+      expect(document.activeElement).toBe(magnifier());
+    });
+
+    it('leaves focus where the person moved it during the search', async () => {
+      mount();
+      const cancel = document.createElement('button');
+      cancel.id = 'btn-yt-cancel';
+      document.body.append(cancel);
+      const q = query();
+      const { search } = await searchFrom(play(), q);
+      cancel.focus();
+      searches.get(q)!.resolve(Response.json({ results: [RESULT] }));
+      await search;
+      expectSheet({ button: 'add', line: 'youtube.search_selected', magnifier: 'on' });
+      expect(document.activeElement).toBe(cancel);
+    });
+
+    it('does not focus either button after the box is cleared during the search', async () => {
+      mount();
+      const q = query();
+      const { search } = await searchFrom(play(), q);
+      clearYouTubeInputState();
+      fetchYouTubePreview(q);
+      expectSheet({ button: 'search', line: 'youtube.search_prompt', magnifier: 'on' });
+      expect(document.activeElement).toBe(document.body);
+      searches.get(q)!.resolve(Response.json({ results: [RESULT] }));
+      await search;
+      expect(document.activeElement).toBe(document.body);
+    });
+  });
 });
 
 describe('YouTube search loading lifecycle', () => {

@@ -270,7 +270,7 @@ runbooks. Neither belongs in a general setup document.
   App 808, the Drift Audit reported 32 pass / 0 fail / 5 manual-only, and the release owner saw
   only the start screen and the update dialog in production desktop Chromium (not blind: the
   dialog unchanged, its apply button reloading into the v808 caches and scripts). The post-merge
-  Full E2E 41597953240 on `cfa81bdc` was still running when this record was written (the production large-room R2 smoke and `webkit-mobile`, 94 passed and 5 skipped plus the production service worker test, had passed; `e2e` had not finished). The blind device candidates A to D wait,
+  Full E2E 41597953240 on `cfa81bdc` passed at 17:58 KST (`e2e` 813 passed on Linux Chromium, among them the ten YouTube specs' 53 rows, `setup-youtube-activation` 4 and the five PRO specs' 31 rows; `webkit-mobile` 94 passed and 5 skipped plus the production service worker test, among them `setup-youtube-activation` 4 and `youtube-landscape-full-bleed` 4 on Linux WebKit, not a real iPhone Safari; the production large-room R2 smoke passed), which meets this train's part of the condition for the next App update, the public-page font train (9.0.36 / v809 planned), to merge once this record has merged. The blind device candidates A to D wait,
   and Phase 6 end condition 6's 14 days count from this release (to 2026-11-17 16:40 KST). The
   release record's §2 carries the train as post-deploy items (scope and status, the owner
   decisions and rule, rollback, the post-deploy check, the next steps, the Phase 6 end conditions,

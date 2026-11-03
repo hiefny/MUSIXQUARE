@@ -51,6 +51,7 @@ import {
   clearYouTubeInputState,
   getSelectedYouTubeSearchResult,
   getYouTubeInputIntent,
+  setYouTubePrimaryButton,
 } from '../youtube/search.ts';
 import { primeYouTubePlayer, waitForPendingYouTubePrimeBounce } from '../youtube/iframe.ts';
 import { YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS } from '../youtube/constants.ts';
@@ -756,6 +757,11 @@ let youtubeGestureSubmitGeneration = 0;
 let youtubeGestureSubmitOwner: number | null = null;
 let releaseYouTubeGestureSubmit: (() => void) | null = null;
 let isYouTubeGestureAuthorityCurrent: (() => boolean) | null = null;
+/** The big button's last click ran a search (it read Search). A cached search
+ *  settles on the next microtask, so the second tap of a double tap can land
+ *  on Add to Playlist: that click (detail 2 or more) is ignored. The next
+ *  click or any input clears it; no timer is involved. */
+let youtubePrimaryRanSearch = false;
 
 function invalidateYouTubeGestureSubmit(): void {
   youtubeGestureSubmitGeneration++;
@@ -824,18 +830,14 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
   };
   releaseYouTubeGestureSubmit = () => {
     if (!playButton?.isConnected) return;
-    playButton.removeAttribute('aria-busy');
-    // A newer input/preview owns its own disabled state.
+    // A newer input, pick or preview already set the button for its state.
     if (
       (input.textContent || '') === submittedText &&
       getSelectedYouTubeSearchResult(submittedText) === submittedResult
     )
-      playButton.disabled = false;
+      setYouTubePrimaryButton('add');
   };
-  if (playButton) {
-    playButton.disabled = true;
-    playButton.setAttribute('aria-busy', 'true');
-  }
+  setYouTubePrimaryButton('busy');
 
   waitForPendingYouTubePrimeBounce(YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS)
     .catch((error) => log.debug('[YouTube Prime] submit wait failed:', error))
@@ -1569,6 +1571,7 @@ export function initPlayerControls(): void {
       'input',
       (e) => {
         invalidateYouTubeGestureSubmit();
+        youtubePrimaryRanSearch = false;
         // Stray-<br> placeholder restore — shared helper, see dom.ts.
         normalizeEmptyContentEditable(ytInput, e);
         const inputText = ytInput.textContent || '';
@@ -1661,7 +1664,19 @@ export function initPlayerControls(): void {
   $on('btn-yt-cancel', 'click', () => closeYouTubePopup());
   if (ytInput) {
     $on('youtube-search-btn', 'click', () => submitYouTubeSearch(ytInput));
-    $on('youtube-play-btn', 'click', () => submitYouTubeFromGesture(ytInput));
+    // The big button searches while it reads Search (src/youtube/search.ts
+    // sets data-mode) and adds otherwise.
+    $on('youtube-play-btn', 'click', (event) => {
+      const playButton = event.currentTarget as HTMLElement;
+      if (playButton.dataset.mode === 'search') {
+        youtubePrimaryRanSearch = true;
+        submitYouTubeSearch(ytInput);
+        return;
+      }
+      const repeat = youtubePrimaryRanSearch && (event as MouseEvent).detail >= 2;
+      youtubePrimaryRanSearch = false;
+      if (!repeat) submitYouTubeFromGesture(ytInput);
+    });
   }
 
   // Seek bar

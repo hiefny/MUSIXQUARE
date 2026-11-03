@@ -11356,6 +11356,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-bottom-color: var(--primary);
   }
 
+  /* An invalid link turns the underline red (src/youtube/search.ts marks the
+     box aria-invalid); a failed search or lookup paints only the line. */
+  .yt-search-input-wrapper:has([aria-invalid='true']) {
+    border-bottom-color: var(--danger-foreground);
+  }
+
   .yt-search-input-wrapper .yt-intro-text {
     flex: 1;
     width: auto;

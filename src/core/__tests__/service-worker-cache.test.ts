@@ -100,8 +100,10 @@ describe('service worker cache policy', () => {
   it('precaches no font sheet or font file at install', () => {
     expect(APP_SHELL_SOURCE).not.toContain('PretendardVariable.woff2');
     expect(APP_SHELL_SOURCE).not.toMatch(/woff2|font-(?:inter|noto)|noto-/u);
-    // The public pages' sheets are never installed: the account page, which
-    // is installed, draws with the device's system fonts and links none.
+    // The public pages' sheets are never installed. The sign-in completion
+    // page, which is installed, links none: its script adds them once its
+    // completion message is out, the stable-static path caches them after
+    // the first fetch, and without them the page shows the device's fonts.
     expect(APP_SHELL_SOURCE).not.toMatch(/web-fonts\//u);
   });
 

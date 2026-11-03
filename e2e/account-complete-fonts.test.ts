@@ -5,7 +5,9 @@
  * (/web-fonts/). Until the faces are ready the text waits invisible, 600 ms
  * at most (public/account-complete.css), so it never shows in a device font
  * first and never stays hidden: a sheet that fails shows it at once in the
- * device's fonts, and one that never answers lets the wait end by itself.
+ * device's fonts, one that never answers lets the wait end by itself, and
+ * faces that cannot load leave the text to the device's fonts at the end of
+ * the app's stack.
  *
  * Runs in Chromium (the default suite) and in the WebKit lane
  * (playwright.webkit.config.ts). While a sheet for the screen loads, WebKit
@@ -179,6 +181,29 @@ test('shows its text when the wait ends, if the shared sheets never answer', asy
   expect(state.message).toBe(CANCELLED_KO);
   // The wait is 600 ms; allow a slow runner, never seconds.
   expect(shown - started).toBeLessThan(2_000);
+});
+
+test("shows its text in the device's fonts when its faces cannot load", async ({ page }) => {
+  await page.route('**/assets/*.woff2', (route) => route.abort());
+  await page.goto(COMPLETION_PATH);
+  await page.waitForSelector(':root[data-mxqr-fonts]', { state: 'attached' });
+  const state = await windowState(page);
+  // The sheets loaded, so the text reads the app's stack; its faces failed,
+  // so the device's fonts at the end of that stack draw it, and the script's
+  // mark, not the capped wait, shows it.
+  expect(state.mark).toBe('app');
+  expect(state.message).toBe(CANCELLED_KO);
+  expect(drawn(state.color)).toBe(true);
+  expect(state.family).toMatch(/^Inter, "?MUSIXQUARE Hangul"?,/u);
+  expect(state.loadedFamilies).toEqual([]);
+  const failedFaces = await page.evaluate(() => {
+    let failed = 0;
+    document.fonts.forEach((face) => {
+      if (face.status === 'error') failed += 1;
+    });
+    return failed;
+  });
+  expect(failedFaces).toBeGreaterThan(0);
 });
 
 test("shows its text at once in the device's fonts when a shared sheet fails", async ({ page }) => {

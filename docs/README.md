@@ -94,9 +94,13 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [Phase 6 train 6D: the YouTube start recoveries in one module, the Standard host's local start wait and the PRO start tokens (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
-  prepared, not released. The fourth and last Phase 6 App update on branch `agent/p6-6d`,
-  thirty-four commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
+- [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
+  prepared, not released. The next App update, 9.0.35 / v808 (App build 808, target `app`, one
+  update dialog, the last of Phase 6's four) after App 9.0.34 / v807. The release owner decided on
+  the afternoon of 2026-11-03 to ship 6D first because the public-page font train, which the
+  release record had named as 9.0.35, is still being finished; that train becomes the App update
+  after it (9.0.36 / v809 planned). On branch `agent/p6-6d`,
+  thirty-seven commits on main `432d4ae7` (the App 9.0.34 / v807 release record): the thirteen
   commits first built on the 6C train's tip `bdb5759a`, moved patch for patch once 6B (9.0.32 /
   v805) and 6C (9.0.34 / v807) had shipped, a tests-only commit and a comment and registry commit
   from the review of the moved branch, one record commit, 6D-6's nine commits (regression rows,
@@ -107,9 +111,12 @@ runbooks. Neither belongs in a general setup document.
   `767a5a08` and one record commit, first stacked without 6D-6 as `5ca0abf0`, `38fcedb5` and
   `7208a93d` and re-applied patch for patch after it; those first SHAs are on no ref now), the
   final local check's record commit, QA round 9's record commit, QA round 10's record commit, and
-  the tests-only commit `8a0edafb` and record commit of 6D-6's review (QA round 11);
-  the version bump, the release-record entry
-  and the release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
+  the tests-only commit `8a0edafb` and record commit of 6D-6's review (QA round 11), the
+  release preparation record `a5c49cc0` (the train's pre-deploy section in the release record,
+  its open-item links and the sections that named the next App update), the bump `b0906a93`
+  (9.0.35 / v808 in the same seven lines of six files as 9.0.34's `c44d4d2c`), the last runtime
+  commit, and a record commit for the release preparation; the bump head's full local gate, the
+  pull request, merge and release are the release owner's. 6D-1 turns the Standard guest's local zero-start recovery from a
   `player.ts` closure into the class `GuestZeroStartRecovery` in the new
   `src/youtube/zero-start-recovery.ts`, and the two
   recoveries' 0.35 s settle tolerance, 50 ms poll and 3 s bridge into three named exports of
@@ -135,8 +142,8 @@ runbooks. Neither belongs in a general setup document.
   ending 15 s after the PREPARE with the load-timeout toast; the slowest phones, whose first screen
   is merely slow, take that path too. One rarer path stays worse than before 6D-6: a start learned
   from a snapshot 12 to 15 s after the PREPARE while the first screen is still loading still ends
-  with the load-timeout toast and waits for the next room-state sync (pinned by a test row; put to
-  the owner with the size question Q29). 6C-3 is built after it as the
+  with the load-timeout toast and waits for the next room-state sync (pinned by a test row; the
+  owner accepted it with the size question Q29). 6C-3 is built after it as the
   train's last increment and its one intended change ([screen changes: sound and start timing only,
   iPhone, master volume between 0 and 0.5 %]): `readYouTubeAppAudio` loses its 'non-positive'
   variant, so every site mutes YouTube when the master volume rounds to 0 %, with the same frames
@@ -152,11 +159,12 @@ runbooks. Neither belongs in a general setup document.
   after the move, the SHA map, the guard counts (CHECK 11 stays 20 as `player.ts`'s recovery
   writes move into the new module), the first load (+458 B eager JavaScript gzip against main
   `432d4ae7`: +294 B for 6D-1 to 6D-5, +68 B for 6D-6, +114 B for its fallback and −18 B for
-  6C-3; Phase 6 total +289 B, over the +200 B cap by 89 B, a Q29 question for the owner), 6C-3's
+  6C-3; Phase 6 total +289 B, over the +200 B cap by 89 B; on the morning of 2026-11-03 the owner
+  answered Q29 to ship as is, keeping the fallback and the rare late-snapshot timeout), 6C-3's
   before/after table and timing check against the approved table, the Phase 6 end-condition
-  check, mixed versions, rollback (checkpoint App 9.0.34 / v807, or the public-page font train's
-  App if that ships first), the blind device candidates, the three open items to link and the Phase
-  7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
+  check (condition 6's 14 days count from this release), mixed versions, rollback (checkpoint App
+  9.0.34 / v807, a forward fix at 9.0.36 / v809 or the next free number), the blind device
+  candidates, the three open items, now linked from the release record, and the Phase 7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
   onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
   and reran the tests-first pairs, types, lint, format, `check:workers`, three unit directories
   with the guard self-test, the build and every guard. QA round 6, on the reviewed tip `acc22d3a`:
@@ -220,7 +228,15 @@ runbooks. Neither belongs in a general setup document.
   changes]; the report points the 6C-3 rows at the re-applied SHAs. The three unit directories
   with the guard self-test (250 files / 6,929 rows), a clean build (the same bytes as round 10),
   every guard except `guard:sw-cache-version`, the ownership check and the local deploy-target
-  judgement pass as before.
+  judgement pass as before. At the release preparation on the afternoon of 2026-11-03 (`git fetch`
+  showed main still at `432d4ae7`), on the bump head `b0906a93`: `guard:sw-cache-version` (PASS
+  v808) and `guard:release-identity` (9.0.35 / v808), `npm run build:checked` as one command, the
+  ownership check (49 records, 459 files), the local deploy-target judgement (App 17 with the four
+  version mirrors, every other target 0, no App runtime dependency change, target `app`
+  partial-release compatible), the contract-freeze diff (the seven version lines; in `cloudflare/`
+  only `ADMIN_ASSET_VERSION`) and the first load (+462 B eager JavaScript gzip against `432d4ae7`,
+  4 B of it the version strings) pass; the rest of the full local gate on the bump head has not run
+  yet.
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;

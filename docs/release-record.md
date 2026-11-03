@@ -117,7 +117,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `guard:*` 37(버전 올리기를 기다리는 `guard:sw-cache-version`만 실패), critical E2E 101 / 101, YouTube Chromium spec 열 개 53 / 53,
       WebKit `setup-youtube-activation` 4 / 4, 6D-6 사진 다시 찍기를 돌렸고, 라운드 11(`8a0edafb`)은 런타임을 바꾸지 않은 시험만 경계 행
       넷과 깨끗한 빌드(라운드 10과 같은 바이트), `guard:*`, 소유권, 배포 대상을 다시 돌렸다. 버전 올리기 머리의 로컬 전체 관문(아래 배포
-      조건 (3))은 이 기록 뒤에 돈다. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지
+      조건 (3))은 이 기록 뒤에 돈다(버전 올리기 `b0906a93`의 머리에서 릴리스 준비 때 돌린 두 버전 가드, `build:checked` 한 명령, 소유권, 배포 대상 App 17과 부분 릴리스 호환, 계약 동결 diff, 첫 로딩은 통과, 보고서 'Version', 'Deploy target', '번들 크기'). PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지
       않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
       [변경·QA 보고서](design/phase6-6d-recovery-pro-arm-2026-11-02.md),
       [증분 한눈에](design/phase6-6d-recovery-pro-arm-2026-11-02.md#증분-한눈에),
@@ -164,7 +164,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `guard:release-identity` 'MUSIXQUARE 9.0.35; service-worker cache epoch v808'), 모든 `guard:*`, 자원 소유권(49 records / 459
       production files, `--report`가 QA 라운드 11과 같음), 핵심·Worker 커버리지, 단위 전체, `build:e2e` 뒤 critical E2E, YouTube Chromium
       spec 열 개, WebKit `setup-youtube-activation`, 운영 빌드의 후보 E2E가 통과하고, 첫 로딩(진입, eager JS, eager 전체 gzip)이 origin/main
-      빌드보다 보고서 '번들 크기'의 잰 차(eager JS gzip +458 B) 밖으로 늘지 않으며, 배포 대상이 App뿐(App 13 경로와 버전 거울 넷, 다른
+      빌드보다 보고서 '번들 크기'의 잰 차(버전 올리기 앞 eager JS gzip +458 B, 버전 문자열 몫을 더한 버전 올리기 머리 `b0906a93`의 `build:checked` 빌드 +462 B) 밖으로 늘지 않으며, 배포 대상이 App뿐(App 13 경로와 버전 거울 넷, 다른
       Worker 0)이고, 계약 동결 diff가 버전 일곱 줄뿐이다(`cloudflare/`는 `ADMIN_ASSET_VERSION` 한 줄). 결과는 보고서의 새 QA 라운드와 PR
       본문에 둔다. (4) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false,
       `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job 시작 사이에 머지하지 않는다. (5) 배포 직후 공개 최소 빌드

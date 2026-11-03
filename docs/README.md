@@ -99,7 +99,7 @@ runbooks. Neither belongs in a general setup document.
 - [Phase 7 train 7A: on-device audio recovery counts in /debug sync and a behaviour-neutral recovery cleanup (2026-11-03)](design/phase7-7a-audio-recovery-counters-2026-11-03.md):
   prepared, not merged or released. The first of the three Phase 7 App updates (owner decision Q2)
   on branch `agent/p7-7a`: twelve commits on `agent/p7-t1` (the release-free Phase 7 T0 second pull
-  request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and three record commits;
+  request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and four record commits;
   the version bump, the release-record entry and the release are the release owner's, after Phase 6
   6D has shipped, been recorded and passed its post-merge Full E2E and its post-deploy smoke. 7A-2
   gives the AudioContext recovery one timing home,
@@ -120,7 +120,8 @@ runbooks. Neither belongs in a general setup document.
   are unchanged (native 11; indirect 4 / 2 / 5); the RO-01 timing contract gains its scalar home
   (report-only pairs 45 to 38). First load +710 B eager JavaScript gzip (+714 B before the review
   fixes, whose −4 B are hashed lazy chunk names): 7A-1 +903 B, over the +300 B increment cap even
-  without its three optional parts (+580 B), an owner question; the four neutral increments −189 B;
+  without its three optional parts (+580 B), which the owner kept as approved on 2026-11-03 with none
+  of the three removed; the four neutral increments −189 B;
   the Phase 7 total is judged after the last train. QA rounds 1 to 3 ran
   on the first base `cd8eaf47`; round 4 moved the stack onto `432d4ae7` with all sixteen patches
   identical; round 5 ran the full local gate on code tip `dd758372` (types, lint, format,
@@ -138,7 +139,7 @@ runbooks. Neither belongs in a general setup document.
   entry. Round 10 reran the full local checks on both tips with no failure but the pending bump's
   `guard:sw-cache-version` on 7A (the unit suite, critical coverage and E2E, the recovery specs, the
   audio lab with equal observations, and the size against `432d4ae7`) and retook the `/debug sync`
-  pictures with the singular.
+  pictures with the singular. The fourth record commit adds the owner's answer on the 7A-1 size.
 - [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
   released on 2026-11-03 22:22 KST in Release 41643392133 (PR #567, squash `6f9cf6f8`) as App
   9.0.36 / v809 (App build 809, target `app`, one update dialog; the bump `f47d5733` is the last

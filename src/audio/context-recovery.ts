@@ -761,6 +761,35 @@ export function cancelPendingAudioContextRecovery(attemptToken: object): boolean
 }
 
 /**
+ * A trusted PLAY resumed the context for this exact file attempt, but the
+ * attempt's output no longer plays (a local PAUSE stopped it), so it can never
+ * prove its clock (owner answer Q12, C1-I5 lock-screen pause, Phase 7 7B-6).
+ * Retire it and arm the next PLAY's clock check in its place, as an attempt
+ * that gives up does, unless one is pending for this context already (the
+ * hidden boundary's keeps its continuity). The PLAY then rejoins the room
+ * itself. true when the attempt was retired here.
+ */
+export function retireStalePendingAudioContextRecovery(attemptToken: object): boolean {
+  const recovery = pendingRecovery;
+  if (
+    !recovery ||
+    recovery.attemptToken !== attemptToken ||
+    !recoveryStillOwnsAttempt(recovery) ||
+    recovery.identity.mode !== 'file' ||
+    recovery.phase !== 'awaiting-clock-verification' ||
+    String(recovery.context.state) !== 'running' ||
+    identityStillCurrent(recovery.identity)
+  ) {
+    return false;
+  }
+  retireRecovery(recovery);
+  if (getPendingForegroundAudioContextClockHealthCheck()?.context !== recovery.context) {
+    armForegroundAudioContextClockHealthCheck(recovery.context);
+  }
+  return true;
+}
+
+/**
  * Escalate only the exact provisional state-interruption whose trusted PLAY
  * probe proved the native clock is frozen. Preparation retains the same token;
  * the recovery event is emitted only after suspend/interrupted is concrete.

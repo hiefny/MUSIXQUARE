@@ -74,7 +74,10 @@ behind a failing test) and 7C (the move behind one owner).
    deadline, the playback scope's own clock check of a late resume (fix lane G7) and the rule for
    the attempt after a retired one stay each owner's. After its tap the recovery dialog waits on
    the play-request owner's answer (promoted, retired, cancelled or superseded), its AbortSignal,
-   its currency and its 5 s limit, instead of a 50 ms poll (owner answer Q7).
+   its currency and its 5 s limit, instead of a 50 ms poll (owner answer Q7). Since 7B-6 a
+   lock-screen PLAY that clears a local pause, and whose resume brought the context running for an
+   attempt that pause made stale, has the owner retire that attempt and arm the next PLAY's clock
+   check in its place, and rejoins the room itself (owner answer Q12).
 5. **Queries have no side effects.** A query answers from the owner's state and never changes it.
    Today `getPendingAudioContextClockHealthRequirement` in `context-recovery.ts` promotes a
    state-interruption attempt to clock verification when it is read; 7C-1 moves that promotion

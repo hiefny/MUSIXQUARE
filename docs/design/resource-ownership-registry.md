@@ -254,7 +254,12 @@ RO-54 accepted-exception
   superseded) raced with its AbortSignal, its currency on each visibility change and its 5 s
   limit, instead of polling every 50 ms (owner answer Q7).
   `src/app.ts` sequences both in the recovery dialog, and `src/player/media-session.ts` repeats
-  the same gesture sequence (resume, requirement, probe, escalate, confirm, rejoin).
+  the same gesture sequence (resume, requirement, probe, escalate, confirm, rejoin). Since Phase 7
+  7B-6, when its PLAY clears a local pause and the attempt it resumed was for the output that pause
+  stopped (which can never prove its clock), the owner retires that attempt and arms the next
+  PLAY's clock check unless one is pending for the context
+  (`retireStalePendingAudioContextRecovery`), and the PLAY rejoins the room itself (owner answer
+  Q12).
   `src/audio/ui-sounds.ts` asks first whether an owner holds the context for a tap
   (`isAudioOutputRecoveryHolding` in `context-recovery.ts`, which asks the play-request owner's
   `isForegroundAudioContextRestartHolding` when called; Phase 7 7B-3) and, while one does, makes
@@ -325,7 +330,9 @@ RO-54 accepted-exception
     "keeps a retired late gesture resume inert against a successor restart".
   - User pause/stop: `context-recovery.test.ts` "drops a pending rejoin when the room pauses
     during interruption"; `src/audio/__tests__/audio-context-ownership.test.ts` "a user pause
-    before a late resume settles retires the attempt" (G7).
+    before a late resume settles retires the attempt" (G7);
+    `src/player/__tests__/media-session-lock-screen-pause.test.ts` (a lock-screen PAUSE, then
+    PLAY, with an interruption pending; Phase 7 7B-6).
   - Teardown: `context-recovery.test.ts` "does not transfer a late gesture recovery after its exact
     binding is disposed".
   - Visibility: `context-recovery.test.ts` "never calls native resume while hidden without active

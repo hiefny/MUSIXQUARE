@@ -144,11 +144,12 @@ runbooks. Neither belongs in a general setup document.
   cited SHAs; PR CI 41772916970 passed on `87abe5e7` and the automated review ended with no findings; the merge `d1665230`
   (13:36 KST) used the prepared squash body; exact-main CI 41774236913 passed all 11 jobs and the release script read its
   success with no watch error this time; Release 41775435927 passed its smokes on the first try (entry `main-CRPNGkCE.js`,
-  862,074 B, 1,782 B larger than 9.0.36's as round 3 measured); the release owner's public reads and a desktop Chromium look
-  at the start and code entry screens (label 13px / 600, code field 32px / 700, line 12px / 600) matched; Drift Audit
+  862,074 B, 1,782 B larger than 9.0.36's as round 3 measured); the release owner's public reads showed v810 and a desktop
+  Chromium look at the code entry screen showed the input system's values (label 13px / 600, code field 32px / 700, line
+  12px / 600); Drift Audit
   41775763808 passed; and the post-merge Full E2E 41775760191 on `d1665230` passed at 15:13 KST (`e2e` 927 passed,
   `webkit-mobile` 103 passed and 5 skipped plus the service worker test, the large-room R2 smoke), the first Linux run of the
-  new iPhone and input specs, which meets this train's part of the condition for the next App update, the owner's UI tidy
+  new iPhone and input specs (per-spec counts are not in the release evidence), which meets this train's part of the condition for the next App update, the owner's UI tidy
   (9.0.38 / v811 planned, then Phase 7 7B), to merge once this record has merged. The owner's device checks (the `/debug sync`
   lines, the iPhone return, the input fields) wait, and 7A's remaining pre-merge reads (PRE-15, the T0 second pull request's
   baseline, the Phase total rule) are not recorded as done. The release record's §2 carries the train as post-deploy items,

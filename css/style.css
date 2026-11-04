@@ -12033,6 +12033,28 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       background: #ffffff;
     }
   }
+  /* Phone setup: the step areas (the elements that scroll) and the actions
+     bar span the screen, so a contained area's scrollbar, drawn at the right
+     edge of .setup-mobile-view (src/ui/custom-scrollbar.ts), sits at the
+     screen edge. The card's and the view's 28px insets move inside them:
+     56px in the step areas and 84px in the actions bar, its own 28px more,
+     so no text or button moves. The scrollbar takes no layout width, so both
+     sides stay equal. A width-only query, so phones held sideways under
+     720px get it too; the two-column panel from 720px keeps its own. */
+  @media (max-width: 719px) {
+    #setup-overlay .setup-card.full-screen,
+    #setup-overlay .setup-mobile-view {
+      padding-inline: 0;
+    }
+
+    #setup-overlay .setup-mobile-view > div:not(.ob-actions):not(.cscroll-track) {
+      padding-inline: 56px;
+    }
+
+    #setup-overlay .setup-mobile-view > .ob-actions {
+      padding-inline: 84px;
+    }
+  }
   /* Phone portrait setup: center the middle block (carousel, invite QR, QR
      scanner and code) between the header and the actions by what is visible.
      Auto margins split the free space; the bottom padding balances the gaps

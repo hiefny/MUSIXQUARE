@@ -122,8 +122,13 @@ runbooks. Neither belongs in a general setup document.
   of every tests-first pair on the moved commits (each fails on its parent and passes at its code, with the
   same counts as before the move) and retook the pictures on the bump head's E2E build: the demo, chat and
   start carousel captures (34) and the start-screen scrollbar captures (24) are byte-identical to the pictures
-  sent to the owner, and the `/debug` COPY row is pixel-identical. The full local gate on the bump head is the
-  next round. Not verified: real devices (the iPhone COPY with the keyboard up, touch scrolling from the side
+  sent to the owner, and the `/debug` COPY row is pixel-identical. Round 3 ran the full local gate on the
+  documentation commit `37e2deef` after the bump (code `74b2cec7`): typecheck, lint, format, `build:checked` and all 37 guards
+  one by one, both coverage configs, the full unit suite twice (777 files, 18,693 passed and 1 skipped each time), 202 E2E rows in
+  29 file runs (critical, the demo, chat, `/debug` and setup specs, the production candidate) and the local partial-release check
+  with the deployed SHAs (compatible); against a clean build of `3506dc41` the eager first load is 16 B smaller in JavaScript and
+  60 B smaller in all (gzip), with the main CSS 195 B larger raw.
+  Not verified: real devices (the iPhone COPY with the keyboard up, touch scrolling from the side
   margins), Linux, and WebKit beyond the local Playwright lane.
 - [App 9.0.37 / v810 train: Phase 7 7A, the iPhone guest YouTube return and the input design system (2026-11-04)](design/app-9-0-37-train-2026-11-04.md):
   released on 2026-11-04 13:51 KST in Release 41775435927 (PR #570, squash `d1665230`) as App 9.0.37 / v810 (App build

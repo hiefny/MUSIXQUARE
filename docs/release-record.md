@@ -69,7 +69,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `ADMIN_ASSET_VERSION` 한 줄뿐). 자원 소유권: 새 레코드 없음(50 records), 타이머·재시도·시한·수명 흐름을 더하지 않았고 `check-resource-ownership`의 정확한 기준치는
       그대로다. 로컬 QA: 옮기기 전 라운드(시험 먼저 짝 열 모두 부모 실패·코드 통과, 단위 전체 777개 파일, `build:checked`와 가드, critical E2E 101 / 101, 부분마다 9.0.37과 견준
       사진, 보고서 §15.1), 라운드 1(옮기기와 충실도), 라운드 2(버전 올리기, 배포 판정, 옮긴 SHA에서 시험 먼저 짝의 단위 절반이 같은 수, 마지막 빌드의 사진: 데모·채팅·회전판 34장과 시작 화면 24장이
-      오너에게 보낸 사진과 바이트까지 같고 `/debug` 창은 COPY 줄부터 아래가 0픽셀 차이). 버전 올리기 머리의 전체 로컬 관문(아래 배포 조건 (2))은 아직이다. PR, PR CI, 자동 코드 리뷰,
+      오너에게 보낸 사진과 바이트까지 같고 `/debug` 창은 COPY 줄부터 아래가 0픽셀 차이). 버전 올리기 머리의 전체 로컬 관문(아래 배포 조건 (2))은 라운드 3(2026-11-05, 시험한 머리 `37e2deef`, 코드 `74b2cec7`)에서 통과했다: 가드 37, 커버리지 둘, 단위 전체 두 번(두 번 모두 777개 파일, 18,693 통과, 1 건너뜀), E2E 29개 파일 실행 202 / 202(후보 19 포함), 배포 SHA를 넣은 로컬 부분 릴리스 판정 compatible, eager는 `3506dc41`의 깨끗한 빌드 대비 JS gzip −16 B, 전체 gzip −60 B(raw는 `main` CSS +195 B). PR, PR CI, 자동 코드 리뷰,
       exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
       [보고서](design/app-9-0-38-train-2026-11-04.md),
       [부분 한눈에](design/app-9-0-38-train-2026-11-04.md#2-부분-한눈에),
@@ -92,7 +92,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `guard:sw-cache-version` PASS v811과 `guard:release-identity` 'MUSIXQUARE 9.0.38; service-worker cache epoch v811', 보고서 라운드
       2), 그 머리에서 typecheck, lint, `format:check`, `build:checked`(한 명령), 모든 `guard:*`, 자원 소유권, 핵심·Worker 커버리지, 단위 전체, `build:e2e`
       뒤 critical E2E, 데모·채팅·`/debug`·시작 화면 명세(새 `debug-overlay-copy`와 `setup-scroll-edge` 포함), 운영 빌드의 후보 E2E가 통과하고, 배포 대상이
-      App뿐(App 8, 다른 Worker 0, 의존성 변경 없음)이며, eager 크기를 `3506dc41`의 깨끗한 빌드와 견준다. 결과는 보고서의 새 QA 라운드와 PR 본문에 둔다(아직). 머지 전에 런타임 커밋이
+      App뿐(App 8, 다른 Worker 0, 의존성 변경 없음)이며, eager 크기를 `3506dc41`의 깨끗한 빌드와 견준다. 결과는 보고서의 새 QA 라운드와 PR 본문에 둔다(2026-11-05 보고서 라운드 3: 통과). 머지 전에 런타임 커밋이
       더해지면 버전 올리기를 다시 마지막에 두고 다시 돈다. (3) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main CI success, 그 뒤 Release target `app`,
       Developer API D1 false, `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job 시작 사이에 머지하지 않는다. (4) 배포 직후 공개 최소 빌드
       상태(저장·유효 795, live App 811), `/service-worker.js`의 `CACHE_VERSION = "v811"`, `index.html`의 `/bootstrap.js?cache=v811`,
@@ -102,7 +102,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `docs/hotfix-procedure.md`의 9.0.25 문단에 9.0.38(빌드 811)이 9.0.37을 이었다는 문장을 더하며, 아래 9.0.37·9.0.36·9.0.35 절과 9.0.31·9.0.29·9.0.21
       절의 고친 문장 셋, iPhone `/debug console` 복사 항목, §4의 두 문장에서 이 열차를 배포 전으로 적은 것을 배포 뒤로 고치고, 보고서의 상태와 이 절을 배포 뒤로 바꾼다. 그 기록은 다음 단계로 다음
       App 열차(Phase 7 7B)가 이 열차의 머지 뒤 Full E2E가 통과하고 그 기록이 머지된 뒤에만 머지한다는 조건을 잇는다.
-      [릴리스 담당이 할 일](design/app-9-0-38-train-2026-11-04.md#14-릴리스-담당이-할-일).
+      [릴리스 담당이 할 일](design/app-9-0-38-train-2026-11-04.md#14-릴리스-담당이-할-일),
+      [QA 라운드 3](design/app-9-0-38-train-2026-11-04.md#154-라운드-3-버전-올리기-머리의-전체-로컬-관문-2026-11-05-0013--0106-kst).
 - [ ] 되돌리기(보고서 §11): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 main에서 이 열차의 squash를 되돌리는 9.0.39 / v812
       이상(그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint의
       App, 곧 dispatch 때의 운영 App 9.0.37 / v810(빌드 810, App 버전 `80534771`, 배포 SHA `d1665230`, Release 41775435927)으로 간다. 795 이상이라

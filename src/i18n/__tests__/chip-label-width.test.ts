@@ -173,10 +173,11 @@ function chipGroups(css: string): readonly ChipGroup[] {
     settings('grid-eq'),
     settings('grid-virtual-effects'),
     {
-      // .setup-card { padding: 32px 28px 24px } and .onboarding-card > div
-      // { padding: 0 28px } leave 320 − 4 × 28 = 208px; the grid keeps
-      // .setup-card-tight's padding 0, so two 1fr columns with the 12px gap
-      // give 98px chips and 98 − 2 × 12 − 2 × 2 = 70px at 14px.
+      // Under 720px the setup card and its view keep no inline padding and
+      // the step areas take 56px each side, which leaves 320 − 2 × 56 =
+      // 208px; the grid keeps .setup-card-tight's padding 0, so two 1fr
+      // columns with the 12px gap give 98px chips and 98 − 2 × 12 − 2 × 2 =
+      // 70px at 14px.
       name: 'setup-role-grid',
       labels: '#setup-role-grid .ch-opt > span[data-i18n]',
       boxes: [{ screen: '320×568', fontSize: 14, width: 70 }],
@@ -257,6 +258,7 @@ interface BoxSource {
 }
 
 const PHONES = '@media (max-width: 420px)';
+const ONE_COLUMN = '@media (max-width: 719px)';
 const TWO_COLUMNS = '@media (min-width: 720px)';
 const SIDE_RAIL =
   '@media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px)';
@@ -339,10 +341,19 @@ const LABEL_BOX_SOURCES: Readonly<Record<string, readonly BoxSource[]>> = {
     ...CHIP_SOURCES,
   ],
   'setup role chips': [
-    source('css/style.css', '.setup-card', null, { padding: '32px 28px 24px' }),
-    source('css/style.css', '.onboarding-card > div:not(.ob-actions):not(.cscroll-track)', null, {
-      padding: '0 28px',
+    // @layer responsive: the card's and the view's insets move into the step areas.
+    source('css/style.css', '#setup-overlay .setup-card.full-screen', ONE_COLUMN, {
+      'padding-inline': '0',
     }),
+    source('css/style.css', '#setup-overlay .setup-mobile-view', ONE_COLUMN, {
+      'padding-inline': '0',
+    }),
+    source(
+      'css/style.css',
+      '#setup-overlay .setup-mobile-view > div:not(.ob-actions):not(.cscroll-track)',
+      ONE_COLUMN,
+      { 'padding-inline': '56px' },
+    ),
     // @layer components, after #setup-role-grid.channel-grid's padding in base.
     source('css/style.css', '.setup-card-tight', null, { padding: '0' }),
     ...CHIP_SOURCES,

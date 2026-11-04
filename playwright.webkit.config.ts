@@ -19,6 +19,7 @@ export default defineConfig({
     'maintenance-inline-logo.test.ts',
     'setup-carousel-autoplay.test.ts',
     'setup-youtube-activation.test.ts',
+    'setup-scroll-edge.test.ts',
     'app-entrance.test.ts',
     'app-touch-policy.test.ts',
     'wordmark-reveal.test.ts',

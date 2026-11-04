@@ -326,6 +326,68 @@ function closeActiveTextDebugOverlay(): void {
   }
 }
 
+/**
+ * Copies with execCommand('copy') from a selected, read-only textarea, as
+ * src/ui/dom.ts does (chat modules may not import it). 16px keeps iOS from
+ * zooming into the field; focus and the selection come back afterwards.
+ */
+function copyWithHiddenTextarea(text: string): boolean {
+  if (!document.body || typeof document.execCommand !== 'function') return false;
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  const textarea = document.createElement('textarea');
+  try {
+    textarea.value = text;
+    textarea.readOnly = true;
+    textarea.setAttribute('aria-hidden', 'true');
+    textarea.style.cssText =
+      'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px';
+    document.body.appendChild(textarea);
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+    if (active?.isConnected) active.focus({ preventScroll: true });
+    if (range && selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+}
+
+/**
+ * Copies `text` inside the tap whose click handler calls it, then reports
+ * whether it did. iOS WebKit allows a clipboard write only while it handles
+ * the tap, so the Clipboard API write starts before any await. Where the API
+ * is missing or throws, the hidden textarea copies at once; where the write is
+ * rejected, it copies in the rejection handler. WebKit rejects a refused write
+ * at once, so that handler runs in the microtasks right after the click
+ * handler, while the tap is still being handled.
+ */
+function copyInsideTap(text: string, report: (copied: boolean) => void): void {
+  const clipboard = navigator.clipboard;
+  if (!clipboard?.writeText) {
+    report(copyWithHiddenTextarea(text));
+    return;
+  }
+  let write: Promise<void>;
+  try {
+    write = clipboard.writeText(text);
+  } catch {
+    report(copyWithHiddenTextarea(text));
+    return;
+  }
+  write.then(
+    () => report(true),
+    () => report(copyWithHiddenTextarea(text)),
+  );
+}
+
 function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
   const generation = debugCommandGeneration;
   // Single-overlay invariant across ALL /debug overlays (including memory).
@@ -350,6 +412,18 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     pre.style.touchAction = 'pan-y';
   }
   overlay.appendChild(pre);
+
+  // COPY copies the text on screen inside its own tap. iPhone Safari refuses
+  // the copy on open below, which starts after the lazy import and an await.
+  // The result shows on the button, because a toast sits under this overlay.
+  const actions = document.createElement('div');
+  actions.className = 'onboarding-diagnostics-actions';
+  const copyButton = document.createElement('button');
+  copyButton.type = 'button';
+  copyButton.className = 'onboarding-diagnostics-action';
+  copyButton.textContent = 'COPY';
+  actions.appendChild(copyButton);
+  overlay.appendChild(actions);
 
   const hint = document.createElement('div');
   hint.className = 'debug-memory-hint';
@@ -403,6 +477,14 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     }
     if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
   };
+
+  copyButton.addEventListener('click', (event) => {
+    // The screen and system audio overlays close on any click.
+    event.stopPropagation();
+    copyInsideTap(pre.textContent ?? '', (copied) => {
+      if (!disposed) copyButton.textContent = copied ? 'COPIED' : 'COPY FAILED';
+    });
+  });
 
   if (opts.scrollable) {
     // Backdrop tap only — let the user scroll the content without closing.

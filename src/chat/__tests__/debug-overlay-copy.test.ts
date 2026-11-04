@@ -13,8 +13,11 @@
  * it no longer replaces what a tap already copied. A tap before the first
  * sample is on screen copies nothing. The COPY click reaches the page like
  * any button click, and focus that a click put on COPY goes back to where it
- * was when the overlay closes.
+ * was when the overlay closes. From 720px wide its row keeps a phone's width
+ * in the middle of the overlay (owner decision 2026-11-04).
  */
+import { readFileSync } from 'node:fs';
+import { parse as parseCss, type AtRule, type Node, type Rule } from 'postcss';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const timerMocks = vi.hoisted(() => {
@@ -91,6 +94,56 @@ async function openSync(): Promise<HTMLButtonElement> {
   return copyButton('debug-sync-flight-overlay');
 }
 
+interface CssSetting {
+  readonly layer: string | null;
+  readonly condition: string | null;
+  readonly selector: string;
+  readonly value: string;
+}
+
+/** The innermost cascade layer and at-rule condition a rule sits in. */
+function placeOf(node: Node): Pick<CssSetting, 'layer' | 'condition'> {
+  let layer: string | null = null;
+  let condition: string | null = null;
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.type !== 'atrule') continue;
+    const atRule = parent as AtRule;
+    if (atRule.name === 'layer') layer ??= atRule.params;
+    else condition ??= `@${atRule.name} ${atRule.params}`;
+  }
+  return { layer, condition };
+}
+
+/**
+ * The declarations of `property` in css/style.css whose rule selects
+ * `element`, leaving out the universal reset (margin and padding 0) that
+ * every element starts from.
+ */
+function cssSettings(element: Element, property: string): CssSetting[] {
+  const found: CssSetting[] = [];
+  const normalize = (value: string) => value.replace(/\s+/gu, ' ').trim();
+  parseCss(readFileSync('css/style.css', 'utf8')).walkDecls(property, (declaration) => {
+    if (declaration.parent?.type !== 'rule') return;
+    const rule = declaration.parent as Rule;
+    for (const selector of rule.selectors) {
+      if (selector.trim() === '*') continue;
+      let selects = false;
+      try {
+        selects = element.matches(selector);
+      } catch {
+        // A selector jsdom cannot read (a pseudo-element) styles no element.
+      }
+      if (!selects) continue;
+      found.push({
+        ...placeOf(rule),
+        selector: normalize(selector),
+        value: normalize(declaration.value),
+      });
+    }
+  });
+  return found;
+}
+
 /**
  * Holds the next two system audio samples, which the overlay asks for when it
  * opens: the first refresh's, then the copy on open's. Each call of the
@@ -159,6 +212,51 @@ describe('/debug overlay COPY', () => {
       expect(button.parentElement?.nextElementSibling?.className, id).toBe('debug-memory-hint');
     }
     expect(document.querySelectorAll('.onboarding-diagnostics-action')).toHaveLength(1);
+  });
+
+  it("keeps a 390px phone's 350px COPY in the middle from 720px wide", async () => {
+    // The overlay's 12px side padding and the row's 8px leave a 390px phone a
+    // 350px COPY, which fills its flex row. From 720px the row stops at 366px
+    // in the middle of the overlay, so the button keeps that 350px and a tap
+    // beside the row lands on the overlay itself. Below 720px the row is as
+    // before. The onboarding diagnostics share the row's classes and keep
+    // their whole row.
+    const wide = { layer: 'responsive', condition: '@media (min-width: 720px)' };
+    const narrowed = [
+      ['width', '100%'],
+      ['max-width', '366px'],
+      ['margin-inline', 'auto'],
+    ] as const;
+    const values = (element: Element, property: string) =>
+      cssSettings(element, property).map(({ value }) => value);
+    for (const [sub, id] of [
+      ['console', 'debug-console-overlay'],
+      ['sync', 'debug-sync-flight-overlay'],
+      ['screen', 'debug-screen-overlay'],
+      ['sa', 'debug-system-audio-overlay'],
+    ] as const) {
+      cmdDebug([sub]);
+      await flushMicrotasks();
+      const element = overlay(id);
+      const button = copyButton(id);
+      const row = button.parentElement!;
+      expect(values(element, 'padding'), id).toEqual([
+        'max(env(safe-area-inset-top, 20px), 20px) 12px calc(max(env(safe-area-inset-bottom, 20px), 20px) + 22px) 12px',
+      ]);
+      expect(values(row, 'display'), id).toEqual(['flex']);
+      expect(values(row, 'padding'), id).toEqual(['0 8px']);
+      expect(values(button, 'flex'), id).toEqual(['1 1 0']);
+      expect(values(button, 'max-width'), id).toEqual([]);
+      for (const [property, value] of narrowed) {
+        expect(cssSettings(row, property), `${id} ${property}`).toEqual([
+          expect.objectContaining({ ...wide, value }),
+        ]);
+      }
+      element.classList.add('onboarding-diagnostics-overlay');
+      for (const [property] of narrowed) {
+        expect(cssSettings(row, property), `${id} ${property}`).toEqual([]);
+      }
+    }
   });
 
   it('keeps the copy when the overlay opens', async () => {

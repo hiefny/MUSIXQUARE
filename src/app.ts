@@ -53,7 +53,6 @@ import { setChannelMode } from './audio/channel.ts';
 import { isPlaybackPlayingFile } from './player/ownership.ts';
 import { inspectBackgroundFileOutput } from './audio/output-health.ts';
 import {
-  AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS,
   AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS,
   AUDIO_RECOVERY_GESTURE_WAIT_MS,
 } from './audio/context-protocol.ts';
@@ -67,6 +66,7 @@ import {
   resumePreparedForegroundAudioContextRestartFromGesture,
   retireForegroundAudioContextRestart,
   restartAudioContextFromGesture,
+  whenForegroundAudioContextRestartClockRequirement,
   whenForegroundAudioContextRestartReprepared,
 } from './audio/context.ts';
 import {
@@ -83,7 +83,6 @@ import {
 import {
   DEADLINE_CLOCK_REQUIREMENT,
   DEADLINE_GESTURE_FLOW,
-  DEADLINES_WATCHED,
   DIALOG_REQUESTS_PLAY,
   DIALOG_REQUESTS_RETURN,
   RESUME_DIALOG,
@@ -367,27 +366,47 @@ function primeIosAudioFromGesture(): void {
   }
 }
 
+/**
+ * The dialog's wait after its tap for the play-request restart's clock
+ * requirement (Phase 7 7B-5, owner answer Q7). Nothing polls: the owner's
+ * promise settles when the gesture's resume promotes the attempt, and when
+ * the attempt is retired, cancelled or superseded; the dialog's AbortSignal,
+ * its currency read again on every visibility change, and the 5 s limit end
+ * the wait too. A promoted attempt's requirement is then read at once.
+ */
 async function waitForForegroundRestartClockRequirement(
   attemptToken: object,
   isCurrent: () => boolean,
+  signal: AbortSignal,
   timeoutMs = AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS,
 ): Promise<NonNullable<
   ReturnType<typeof getPendingForegroundAudioContextRestartClockHealthRequirement>
 > | null> {
-  const deadline = Date.now() + timeoutMs;
-  countAudioRecovery(DEADLINES_WATCHED);
-  while (isCurrent()) {
+  let endWait!: () => void;
+  const ended = new Promise<'ended'>((resolve) => {
+    endWait = () => resolve('ended');
+  });
+  const readCurrency = (): void => {
+    if (!isCurrent()) endWait();
+  };
+  signal.addEventListener('abort', endWait);
+  document.addEventListener('visibilitychange', readCurrency);
+  try {
+    readCurrency();
+    const outcome = await raceAudioRecoveryDeadline(
+      DEADLINE_CLOCK_REQUIREMENT,
+      Promise.race([whenForegroundAudioContextRestartClockRequirement(attemptToken), ended]),
+      delay(timeoutMs).then(() => 'limit' as const),
+    );
+    if (outcome !== 'promoted' || !isCurrent()) return null;
     const requirement = getPendingForegroundAudioContextRestartClockHealthRequirement();
-    if (requirement?.attemptToken === attemptToken && requirement.isCurrent()) {
-      return requirement;
-    }
-    if (Date.now() >= deadline) {
-      countAudioRecovery(DEADLINE_CLOCK_REQUIREMENT);
-      return null;
-    }
-    await delay(AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS);
+    return requirement?.attemptToken === attemptToken && requirement.isCurrent()
+      ? requirement
+      : null;
+  } finally {
+    signal.removeEventListener('abort', endWait);
+    document.removeEventListener('visibilitychange', readCurrency);
   }
-  return null;
 }
 
 function isSameAudioRecoveryIdentity(
@@ -628,6 +647,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
         const requirement = await waitForForegroundRestartClockRequirement(
           gestureResult.foregroundAttemptToken,
           operationStillCurrent,
+          abortController.signal,
         );
         if (!requirement) {
           const context = getExistingAudioContext();

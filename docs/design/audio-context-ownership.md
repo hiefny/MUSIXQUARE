@@ -23,7 +23,7 @@ change, and only a trusted user gesture may resume it. Two machines drive it tod
 | Playback-scope recovery | `src/audio/context-recovery.ts` | an OS interruption or a stalled clock during playback (`statechange`, visibility, G7) |
 
 Each kept its own suspend lease and its own `statechange` listeners until 7B-4 (Decision 3), and
-each keeps its own gesture resume. `src/app.ts` sequences both in the recovery dialog ('Audio paused unexpectedly' with the 'Restore
+its own gesture resume until 7B-5 (Decision 4). `src/app.ts` sequences both in the recovery dialog ('Audio paused unexpectedly' with the 'Restore
 audio' button in English), `src/player/media-session.ts` repeats the same gesture sequence for
 a lock-screen PLAY, and `src/audio/ui-sounds.ts` resumes the context on a trusted press before it
 plays a UI sound, without asking either machine (until 7B-3, Decision 2.3). Phase 7 makes
@@ -61,12 +61,20 @@ behind a failing test) and 7C (the move behind one owner).
    later request takes the lease, or the place behind the fence, over and the earlier attempt
    retires (owner answer Q6). What an attempt does when its suspend is lost stays its owner's. The
    one listener calls, in a fixed order whatever arrived first, the binding
-   (`bindAudioContextStateDispatch`), the lease, the fence and the play-request gesture resume
-   promotion; fixing the order is itself a behaviour change, recorded with 7B-4.
+   (`bindAudioContextStateDispatch`), the lease, the fence and the recovery resumes' promotion
+   (either owner's since 7B-5); fixing the order is itself a behaviour change, recorded with 7B-4.
 4. **A gesture resume is synchronous inside the activation callback.** No `await` precedes native
    `resume()` on a gesture path (the recovery dialog's button, a lock-screen PLAY, the start tap),
    so the call keeps the transient activation. A running-but-frozen context is suspended before
-   the dialog shows, so the button never spends its activation awaiting `suspend()`.
+   the dialog shows, so the button never spends its activation awaiting `suspend()`. Since 7B-5 one
+   recovery resume serves every attempt of both owners (`requestAudioContextResume`, in
+   `context.ts` until 7C moves it into the owner): it issues the native `resume()` synchronously,
+   races it with the 750 ms deadline, and promotes the attempt when the context runs for it, the
+   deadline passed or not, so an owner hears its own late resume as its own. The steps after the
+   deadline, the playback scope's own clock check of a late resume (fix lane G7) and the rule for
+   the attempt after a retired one stay each owner's. After its tap the recovery dialog waits on
+   the play-request owner's answer (promoted, retired, cancelled or superseded), its AbortSignal,
+   its currency and its 5 s limit, instead of a 50 ms poll (owner answer Q7).
 5. **Queries have no side effects.** A query answers from the owner's state and never changes it.
    Today `getPendingAudioContextClockHealthRequirement` in `context-recovery.ts` promotes a
    state-interruption attempt to clock verification when it is read; 7C-1 moves that promotion
@@ -117,8 +125,9 @@ behind a failing test) and 7C (the move behind one owner).
   query reads `isForegroundAudioContextRestartHolding` only after the UI sound preference, which
   among those files only `src/audio/__tests__/ui-sounds.test.ts` turns on, and that file's factory
   defines the name. Since 7B-4 the binding and the playback scope's suspend preparation call the
-  ledger's `bindAudioContextStateDispatch` and `requestAudioContextSuspend`; none of those files
-  binds a context or arms a playback-scope attempt (each needs a binding).
+  ledger's `bindAudioContextStateDispatch` and `requestAudioContextSuspend`, and since 7B-5 its
+  resumes call `requestAudioContextResume`; none of those files binds a context or arms a
+  playback-scope attempt (each needs a binding).
 - **Public behaviour, no sub-step names.** The owner tables (`audio-output-recovery-boundary`,
   `audio-output-recovery-holding`, `audio-output-recovery-parity`, in `src/audio/__tests__/`)
   assert the fake's op log, bus events and the owners' normalized answers through one driver

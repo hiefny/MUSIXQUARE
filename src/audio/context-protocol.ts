@@ -37,10 +37,11 @@ export const AUDIO_RECOVERY_RESUME_DEADLINE_MS = 750;
 export const AUDIO_RETIRED_SUSPEND_CLEANUP_DEADLINE_MS = 500;
 /** The recovery dialog after its tap: the wait for the gesture resume before it reads the state. */
 export const AUDIO_RECOVERY_GESTURE_WAIT_MS = 1_000;
-/** The recovery dialog after its tap: the wait for the restart's clock requirement. */
+/**
+ * The recovery dialog after its tap: the limit of its wait for the restart's
+ * clock requirement, which the owner's promise ends sooner (Phase 7 7B-5).
+ */
 export const AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS = 5_000;
-/** How often the recovery dialog looks for that requirement. */
-export const AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS = 50;
 
 /**
  * Both owners' prepared state: the context is parked (suspended, or WebKit's

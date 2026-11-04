@@ -19,11 +19,7 @@ import {
   localFileOutputIdentitiesEqual,
   type LocalFileOutputIdentity,
 } from '../player/local-file-output-identity.ts';
-import {
-  AUDIO_RECOVERY_RESUME_DEADLINE_MS,
-  AUDIO_SUSPEND_PREPARE_DEADLINE_MS,
-  isAudioContextPrepared,
-} from './context-protocol.ts';
+import { AUDIO_SUSPEND_PREPARE_DEADLINE_MS, isAudioContextPrepared } from './context-protocol.ts';
 import {
   armForegroundAudioContextClockHealthCheck,
   bindAudioContextStateDispatch,
@@ -33,9 +29,10 @@ import {
   isForegroundAudioContextRestartOwned,
   probeAudioContextHealth,
   reparkForegroundAudioContextRestartAfterResume,
+  requestAudioContextResume,
   requestAudioContextSuspend,
   requestRetiredAudioContextSuspendCleanup,
-  restartAudioContextFromGesture,
+  type AudioContextResumeFlight,
   type AudioContextSuspendRequest,
 } from './context.ts';
 import {
@@ -97,7 +94,8 @@ interface PendingContextRecovery {
   automaticResume: Promise<ContextResumeResult> | null;
   gestureResume: Promise<ContextResumeResult> | null;
   automaticHealthProbe: Promise<void> | null;
-  activeResumeToken: object | null;
+  /** Its latest recovery resume (context.ts, Phase 7 7B-5), while that may still promote it. */
+  resume: AudioContextResumeFlight<ContextResumeResult> | null;
   completed: boolean;
   rejoinEmitted: boolean;
   cause: RecoveryCause;
@@ -215,7 +213,8 @@ function recoveryStillOwnsAttempt(recovery: PendingContextRecovery): boolean {
 function retireRecovery(recovery: PendingContextRecovery): void {
   if (recovery.phase === 'cancelled') return;
   setRecoveryPhase(recovery, 'cancelled');
-  recovery.activeResumeToken = null;
+  recovery.resume?.drop();
+  recovery.resume = null;
   if (pendingRecovery === recovery) pendingRecovery = null;
   if (activeRecoveryAttempt === recovery) activeRecoveryAttempt = null;
   if (recovery.generation === recoveryGeneration) recoveryGeneration += 1;
@@ -292,7 +291,7 @@ function createRecovery(
     automaticResume: null,
     gestureResume: null,
     automaticHealthProbe: null,
-    activeResumeToken: null,
+    resume: null,
     completed: false,
     rejoinEmitted: false,
     cause,
@@ -527,28 +526,13 @@ function contextResumeResult(recovery: PendingContextRecovery): ContextResumeRes
   return { running: String(recovery.context.state) === 'running', rejoinEmitted };
 }
 
-function handleNativeResumeSettlement(
-  recovery: PendingContextRecovery,
-  resumeToken: object,
-  source: 'automatic' | 'gesture',
-): void {
-  if (String(recovery.context.state) !== 'running') return;
-  if (recoveryStillOwnsAttempt(recovery) && recovery.activeResumeToken === resumeToken) {
-    recovery.activeResumeToken = null;
-    setRecoveryPhase(recovery, 'awaiting-clock-verification');
-    recovery.clockVerified = false;
-    // A gesture caller probes its own token while its flight is open. Once the
-    // resume deadline has returned it running:false, this late `running` has
-    // no other prober, so the owner verifies it (fix lane G7).
-    if (source === 'automatic' || !recovery.gestureResume) {
-      scheduleAutomaticClockVerification(recovery);
-    }
-    return;
-  }
-
-  // A retired native resume may settle after a newer identity has already
-  // prepared this same context for its trusted gesture. It cannot promote A,
-  // but its concrete running state must not silently undo B's suspension.
+/**
+ * A retired attempt's resume brought the context to running. A newer
+ * identity may already have prepared this same context for its trusted
+ * gesture: the old resume cannot promote it, but its concrete running state
+ * must not silently undo the newer attempt's suspension.
+ */
+function handleRetiredResumeLanding(recovery: PendingContextRecovery): void {
   const successor = pendingRecovery;
   if (
     !successor ||
@@ -584,8 +568,6 @@ function resumeContext(
     setRecoveryPhase(recovery, source === 'automatic' ? 'automatic-resuming' : 'gesture-resuming');
     recovery.clockVerified = false;
   }
-  const resumeToken = {};
-  recovery.activeResumeToken = resumeToken;
   const reportBlockedDemoResume = (): void => {
     // Demo has no resident queue file, so its semantic interruption owner must
     // surface a failed automatic resume instead of leaving the app inspector
@@ -600,60 +582,43 @@ function resumeContext(
     }
   };
 
-  let nativeResume: Promise<void>;
-  countAudioRecovery(source === 'gesture' ? RESUME_PLAY_GESTURE : RESUME_AUTO);
-  try {
-    nativeResume =
-      source === 'gesture'
-        ? restartAudioContextFromGesture(recovery.context)
-        : recovery.context.resume();
-  } catch (error) {
-    nativeResume = Promise.reject(error);
-  }
-  void nativeResume.then(
-    () => handleNativeResumeSettlement(recovery, resumeToken, source),
-    () => undefined,
-  );
-
-  const operation = raceAudioRecoveryDeadline(
-    source === 'gesture' ? DEADLINE_GESTURE_RESUME : DEADLINE_AUTO_RESUME,
-    nativeResume,
-    delay(AUDIO_RECOVERY_RESUME_DEADLINE_MS),
-  )
-    .then(() => {
-      if (recoveryStillOwnsAttempt(recovery)) {
-        if (String(recovery.context.state) === 'running') {
-          handleNativeResumeSettlement(recovery, resumeToken, source);
-        } else {
-          setRecoveryPhase(
-            recovery,
-            recovery.cause === 'background-clock-stalled' &&
-              isAudioContextPrepared(recovery.context)
-              ? 'awaiting-gesture'
-              : 'awaiting-resume',
-          );
-        }
-      }
+  // The one recovery resume in context.ts (Phase 7 7B-5, C1-I12), with this
+  // owner's step rules; a newer resume of the same attempt replaces an older
+  // one's promotion.
+  recovery.resume?.drop();
+  const flight = requestAudioContextResume(recovery.context, {
+    resumeSlot: source === 'gesture' ? RESUME_PLAY_GESTURE : RESUME_AUTO,
+    deadlineSlot: source === 'gesture' ? DEADLINE_GESTURE_RESUME : DEADLINE_AUTO_RESUME,
+    holds: () => recoveryStillOwnsAttempt(recovery),
+    promoted: (callerWaits) => {
+      setRecoveryPhase(recovery, 'awaiting-clock-verification');
+      recovery.clockVerified = false;
+      // A gesture caller probes its own token while its flight is open. Once
+      // the resume deadline has returned it running:false, this late
+      // `running` has no other prober, so the owner verifies it (fix lane G7).
+      if (source === 'automatic' || !callerWaits) scheduleAutomaticClockVerification(recovery);
+    },
+    // After the deadline a clock-stalled attempt still parked waits for its
+    // gesture again; otherwise the attempt waits for a resume.
+    missed: () =>
+      setRecoveryPhase(
+        recovery,
+        recovery.cause === 'background-clock-stalled' && isAudioContextPrepared(recovery.context)
+          ? 'awaiting-gesture'
+          : 'awaiting-resume',
+      ),
+    landed: () => handleRetiredResumeLanding(recovery),
+    result: (outcome) => {
       reportBlockedDemoResume();
-      return contextResumeResult(recovery);
-    })
-    .catch((error) => {
-      log.debug(`[Audio] ${source} resume failed`, error);
-      if (recoveryStillOwnsAttempt(recovery)) {
-        setRecoveryPhase(
-          recovery,
-          recovery.cause === 'background-clock-stalled' && isAudioContextPrepared(recovery.context)
-            ? 'awaiting-gesture'
-            : 'awaiting-resume',
-        );
-      }
-      if (recovery.activeResumeToken === resumeToken) recovery.activeResumeToken = null;
-      reportBlockedDemoResume();
-      return { running: false, rejoinEmitted: false };
-    })
-    .finally(() => {
-      if (recovery[slot] === operation) recovery[slot] = null;
-    });
+      return outcome === 'refused'
+        ? { running: false, rejoinEmitted: false }
+        : contextResumeResult(recovery);
+    },
+  });
+  recovery.resume = flight;
+  const operation = flight.settled.finally(() => {
+    if (recovery[slot] === operation) recovery[slot] = null;
+  });
   recovery[slot] = operation;
   return operation;
 }
@@ -1103,6 +1068,10 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
     if (state === 'running') reparkForegroundAudioContextRestartAfterResume(context);
     const recovery = pendingRecovery?.context === context ? pendingRecovery : null;
     if (state === 'running' && recovery) {
+      // Its own resume, the deadline passed or not, is promoted by the
+      // dispatcher's last part next (C1-I12, Phase 7 7B-5): a late gesture
+      // resume is not an outside resume to undo, and is verified (G7).
+      if (recovery.resume?.active()) return;
       if (
         recovery.phase === 'gesture-resuming' ||
         recovery.phase === 'awaiting-clock-verification'

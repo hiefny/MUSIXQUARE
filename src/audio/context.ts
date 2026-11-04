@@ -68,18 +68,37 @@ interface ForegroundRestartAttempt {
   /** Its side of the context's one suspend ledger (Phase 7 7B-4). */
   readonly suspend: AudioContextSuspendRequest;
   gestureResume: Promise<ForegroundAudioContextRestartResumeResult> | null;
-  activeResumeToken: object | null;
-  clearResumePromotion: (() => void) | null;
+  /** Its gesture's recovery resume, while that may still promote it (Phase 7 7B-5). */
+  resume: AudioContextResumeFlight<ForegroundAudioContextRestartResumeResult> | null;
   resolvePrepared: (prepared: boolean) => void;
   readonly whenPrepared: Promise<boolean>;
   preparedSettled: boolean;
   reprepare: ForegroundRestartReprepare | null;
+  /** Why it ended, read when its phase becomes 'cancelled'. */
+  end: ForegroundRestartEnd;
+  requirementWait: ForegroundRestartRequirementWait | null;
 }
 
 /** A parked attempt being parked again after an outside resume (Phase 7 7B-2). */
 interface ForegroundRestartReprepare {
   readonly parked: Promise<boolean>;
   readonly settle: (parked: boolean) => void;
+}
+
+/**
+ * How a play-request attempt ends before its clock check: retired by its
+ * owner (its foreground incident consumed elsewhere, its suspend lost),
+ * cancelled by a caller that retires its token, or superseded by a newer
+ * foreground incident or restart attempt.
+ */
+type ForegroundRestartEnd = 'retired' | 'cancelled' | 'superseded';
+
+type ForegroundRestartRequirementOutcome = 'promoted' | ForegroundRestartEnd;
+
+/** The recovery dialog's wait for the attempt's clock requirement (Phase 7 7B-5). */
+interface ForegroundRestartRequirementWait {
+  readonly settled: Promise<ForegroundRestartRequirementOutcome>;
+  readonly settle: (outcome: ForegroundRestartRequirementOutcome) => void;
 }
 
 /**
@@ -148,16 +167,60 @@ interface AudioContextStateBinding {
   readonly takeLateSuspend: () => boolean;
 }
 
-/** A play-request gesture resume still in flight, promoted on `running`. */
-interface ForegroundResumePromotion {
-  readonly attempt: ForegroundRestartAttempt;
-  readonly resumeToken: object;
+/**
+ * One recovery attempt's side of a native resume (RO-01, Phase 7 7B-5): the
+ * play-request restart's gesture resume in this file and the playback
+ * scope's gesture and automatic resumes in context-recovery.ts go through
+ * one implementation, requestAudioContextResume. These callbacks are each
+ * owner's own step rules.
+ */
+interface AudioContextResumeRequest<Result> {
+  /** Its count slot and its deadline's (output-recovery-counters.ts), by owner and source. */
+  readonly resumeSlot: number;
+  readonly deadlineSlot: number;
+  /** The owner still holds the attempt. */
+  readonly holds: () => boolean;
+  /**
+   * The context runs for this resume: the attempt goes on to its clock check.
+   * `callerWaits` is false once the deadline has answered the caller, so no
+   * caller checks this late running state (fix lane G7).
+   */
+  readonly promoted: (callerWaits: boolean) => void;
+  /** The deadline passed, or the resume was refused, without the context running. */
+  readonly missed: () => void;
+  /** The resume brought the context to running for an attempt it no longer promotes. */
+  readonly landed: () => void;
+  /**
+   * What the caller gets: at the deadline the context runs ('running') or
+   * not ('not-running'), the native resume was refused ('refused'), or the
+   * owner no longer held the attempt ('lost').
+   */
+  readonly result: (outcome: 'running' | 'not-running' | 'refused' | 'lost') => Result;
+}
+
+/** A recovery resume in flight, as its owner keeps it. */
+export interface AudioContextResumeFlight<Result> {
+  /** Settles at the deadline, or when the native resume is refused. */
+  readonly settled: Promise<Result>;
+  /** Until the running state promotes it, it is refused, or its owner drops it. */
+  readonly active: () => boolean;
+  /** The owner retired or replaced its attempt: the resume promotes nothing any more. */
+  readonly drop: () => void;
+}
+
+/** A recovery resume the dispatcher's last part promotes on `running`. */
+interface AudioContextResumeEntry {
+  readonly context: AudioContext;
+  readonly request: AudioContextResumeRequest<unknown>;
+  active: boolean;
+  callerWaits: boolean;
 }
 
 /** A context's one statechange listener and the parts it calls in its fixed order. */
 interface AudioContextStateDispatcher {
   binding: AudioContextStateBinding | null;
-  promotion: ForegroundResumePromotion | null;
+  /** Recovery resumes in flight, both owners' (Phase 7 7B-5). */
+  readonly resumes: Set<AudioContextResumeEntry>;
   listening: boolean;
   readonly listener: () => void;
 }
@@ -173,8 +236,10 @@ const retiredSuspendCleanupFlights = new WeakMap<AudioContext, Promise<void>>();
 
 /**
  * Every phase write of a play-request restart goes through here: the /debug
- * counts, and a re-park's promise, which settles once the attempt leaves
- * preparing-suspend (true when it is parked for its gesture again).
+ * counts; a re-park's promise, which settles once the attempt leaves
+ * preparing-suspend (true when it is parked for its gesture again); and the
+ * dialog's wait for the clock requirement, which settles when the attempt
+ * is promoted or ends (Phase 7 7B-5).
  */
 function setRestartPhase(attempt: ForegroundRestartAttempt, phase: ForegroundRestartPhase): void {
   const from = attempt.phase;
@@ -185,6 +250,11 @@ function setRestartPhase(attempt: ForegroundRestartAttempt, phase: ForegroundRes
   if (reprepare && phase !== 'preparing-suspend') {
     attempt.reprepare = null;
     reprepare.settle(phase === 'awaiting-gesture');
+  }
+  const wait = attempt.requirementWait;
+  if (wait && (phase === 'awaiting-clock-verification' || phase === 'cancelled')) {
+    attempt.requirementWait = null;
+    wait.settle(phase === 'cancelled' ? attempt.end : 'promoted');
   }
 }
 
@@ -376,7 +446,7 @@ function stateDispatcherFor(context: AudioContext): AudioContextStateDispatcher 
   if (existing) return existing;
   const dispatcher: AudioContextStateDispatcher = {
     binding: null,
-    promotion: null,
+    resumes: new Set(),
     listening: false,
     listener: () => dispatchAudioContextState(context, dispatcher),
   };
@@ -389,7 +459,7 @@ function syncStateDispatcher(context: AudioContext): void {
   const dispatcher = stateDispatchers.get(context);
   const needed = Boolean(
     dispatcher?.binding ||
-    dispatcher?.promotion ||
+    dispatcher?.resumes.size ||
     liveSuspendLease(context) ||
     lateSuspendFences.has(context),
   );
@@ -408,9 +478,9 @@ function syncStateDispatcher(context: AudioContext): void {
  * Every statechange of a context, in one fixed order (a behaviour change of
  * Phase 7 7B-4: the order no longer follows which listener was added first):
  * the binding's judgement, the suspend lease, the late-suspend fence, the
- * play-request gesture resume promotion. Each part is the one present when
- * the change arrived, as a listener added during a dispatch hears only the
- * next change.
+ * recovery resumes' promotion (either owner's since Phase 7 7B-5). Each part
+ * is the one present when the change arrived, as a listener added during a
+ * dispatch hears only the next change.
  */
 function dispatchAudioContextState(
   context: AudioContext,
@@ -419,7 +489,7 @@ function dispatchAudioContextState(
   const binding = dispatcher.binding;
   const lease = liveSuspendLease(context);
   const fence = lateSuspendFences.get(context) ?? null;
-  const promotion = dispatcher.promotion;
+  const resumes = [...dispatcher.resumes];
   binding?.judge(
     isAudioContextPrepared(context) &&
       (lease !== null || fence !== null || isForegroundAudioContextRestartOwned(context)),
@@ -429,8 +499,10 @@ function dispatchAudioContextState(
     else if (String(context.state) === 'closed') settleSuspendLease(lease, true);
   }
   if (fence && lateSuspendFences.get(context) === fence) handleLateSuspend(context, fence);
-  if (promotion && dispatcher.promotion === promotion && String(context.state) === 'running') {
-    promoteForegroundRestartAfterNativeResume(promotion.attempt, promotion.resumeToken);
+  for (const entry of resumes) {
+    if (entry.active && String(context.state) === 'running' && entry.request.holds()) {
+      promoteRecoveryResume(entry);
+    }
   }
 }
 
@@ -634,6 +706,94 @@ function handleLateSuspend(context: AudioContext, fence: AudioContextLateSuspend
   requestRetiredAudioContextSuspendCleanup(context);
 }
 
+// ── The recovery resume (RO-01, Phase 7 7B-5, C1-I12) ──
+// One implementation of an attempt's native resume for both owners: the
+// play-request restart's gesture resume and the playback scope's gesture
+// and automatic resumes. Their step rules (after the deadline, on a late
+// running state, for the attempt after a retired one) stay each owner's.
+
+/**
+ * Resume the context for a recovery attempt. The native resume() is issued
+ * synchronously, inside the caller's activation, and raced with
+ * AUDIO_RECOVERY_RESUME_DEADLINE_MS. The context running for it promotes the
+ * attempt once, from the native promise or from the dispatcher's last part,
+ * the deadline passed or not, so its owner hears its own late resume as its
+ * own and not as an outside one.
+ */
+export function requestAudioContextResume<Result>(
+  context: AudioContext,
+  request: AudioContextResumeRequest<Result>,
+): AudioContextResumeFlight<Result> {
+  const entry: AudioContextResumeEntry = { context, request, active: true, callerWaits: true };
+  stateDispatcherFor(context).resumes.add(entry);
+  syncStateDispatcher(context);
+  let nativeResume: Promise<void>;
+  countAudioRecovery(request.resumeSlot);
+  try {
+    nativeResume = context.resume();
+  } catch (error) {
+    nativeResume = Promise.reject(error);
+  }
+  void nativeResume.then(
+    () => landRecoveryResume(entry),
+    () => undefined,
+  );
+  const settled = raceAudioRecoveryDeadline(
+    request.deadlineSlot,
+    nativeResume,
+    delay(AUDIO_RECOVERY_RESUME_DEADLINE_MS),
+  )
+    .then(() => {
+      let outcome: 'running' | 'not-running' | 'lost' = 'lost';
+      if (request.holds()) {
+        if (String(context.state) === 'running') {
+          landRecoveryResume(entry);
+          outcome = 'running';
+        } else {
+          request.missed();
+          outcome = 'not-running';
+        }
+      }
+      entry.callerWaits = false;
+      return request.result(outcome);
+    })
+    .catch((error: unknown) => {
+      log.debug('[Audio] Recovery resume failed', error);
+      entry.callerWaits = false;
+      if (request.holds()) request.missed();
+      dropRecoveryResume(entry);
+      return request.result('refused');
+    });
+  return {
+    settled,
+    active: () => entry.active,
+    drop: () => dropRecoveryResume(entry),
+  };
+}
+
+/**
+ * A recovery resume settled with the context running: it promotes its
+ * attempt, or else its owner's rule for the attempt after a retired one acts.
+ */
+function landRecoveryResume(entry: AudioContextResumeEntry): void {
+  if (String(entry.context.state) !== 'running') return;
+  if (entry.active && entry.request.holds()) promoteRecoveryResume(entry);
+  else entry.request.landed();
+}
+
+function promoteRecoveryResume(entry: AudioContextResumeEntry): void {
+  dropRecoveryResume(entry);
+  entry.request.promoted(entry.callerWaits);
+}
+
+function dropRecoveryResume(entry: AudioContextResumeEntry): void {
+  if (!entry.active) return;
+  entry.active = false;
+  if (stateDispatchers.get(entry.context)?.resumes.delete(entry)) {
+    syncStateDispatcher(entry.context);
+  }
+}
+
 /** The context is parked for this attempt: it waits for its gesture. */
 function parkForegroundRestart(attempt: ForegroundRestartAttempt): void {
   setRestartPhase(attempt, 'awaiting-gesture');
@@ -666,16 +826,17 @@ function reparkForegroundRestart(attempt: ForegroundRestartAttempt): void {
 function retireForegroundRestartAttempt(
   attempt: ForegroundRestartAttempt,
   restorePrepared = true,
+  end: ForegroundRestartEnd = 'retired',
 ): void {
   if (attempt.phase === 'cancelled' || attempt.phase === 'completed') return;
   const shouldRestore = restorePrepared && isAudioContextPrepared(attempt.context);
   const { suspend } = attempt;
-  attempt.activeResumeToken = null;
-  attempt.clearResumePromotion?.();
-  attempt.clearResumePromotion = null;
+  attempt.resume?.drop();
+  attempt.resume = null;
   if (suspend.suspendLease?.nativeResolvedWithoutPrepared) {
     abandonSuspendLease(suspend.suspendLease, true);
   }
+  attempt.end = end;
   setRestartPhase(attempt, 'cancelled');
   if (!attempt.preparedSettled) {
     attempt.preparedSettled = true;
@@ -722,12 +883,13 @@ function createForegroundRestartAttempt(
       retrying: () => undefined,
     },
     gestureResume: null,
-    activeResumeToken: null,
-    clearResumePromotion: null,
+    resume: null,
     resolvePrepared,
     whenPrepared,
     preparedSettled: false,
     reprepare: null,
+    end: 'retired',
+    requirementWait: null,
   };
   pendingForegroundRestartAttempt = attempt;
   return attempt;
@@ -773,7 +935,7 @@ export function armForegroundAudioContextClockHealthCheck(
 ): object | null {
   if (!context || String(context.state) === 'closed') return null;
   if (pendingForegroundRestartAttempt) {
-    retireForegroundRestartAttempt(pendingForegroundRestartAttempt, false);
+    retireForegroundRestartAttempt(pendingForegroundRestartAttempt, false, 'superseded');
   }
   const incident: ForegroundClockHealthIncident = {
     context,
@@ -846,7 +1008,7 @@ export async function prepareForegroundAudioContextRestart(
 
   let attempt = pendingForegroundRestartAttempt;
   if (attempt && attempt.checkToken !== checkToken) {
-    retireForegroundRestartAttempt(attempt, false);
+    retireForegroundRestartAttempt(attempt, false, 'superseded');
     attempt = null;
   }
   if (!attempt) attempt = createForegroundRestartAttempt(incident);
@@ -911,25 +1073,12 @@ export async function prepareForegroundAudioContextRestartAfterClockStall(
   return preparation;
 }
 
-function promoteForegroundRestartAfterNativeResume(
-  attempt: ForegroundRestartAttempt,
-  resumeToken: object,
-): void {
-  if (String(attempt.context.state) !== 'running') return;
-  if (foregroundRestartStillCurrent(attempt) && attempt.activeResumeToken === resumeToken) {
-    // A retry may have superseded the Promise token, but the exact recovery
-    // attempt still owns the context. Running is only provisional here; the
-    // caller must pass the clock probe before commit.
-    setRestartPhase(attempt, 'awaiting-clock-verification');
-    attempt.activeResumeToken = null;
-    attempt.clearResumePromotion?.();
-    attempt.clearResumePromotion = null;
-    return;
-  }
-
-  // A retired native resume can physically undo a successor's prepared
-  // suspension. It may not promote that successor; put the successor back
-  // through a fresh suspend lease instead.
+/**
+ * A retired attempt's gesture resume can physically undo a successor's
+ * prepared suspension. It may not promote that successor; put the successor
+ * back through a fresh suspend lease instead.
+ */
+function reparkSuccessorAfterRetiredResume(attempt: ForegroundRestartAttempt): void {
   const successor = pendingForegroundRestartAttempt;
   if (
     successor &&
@@ -956,7 +1105,7 @@ export function reparkForegroundAudioContextRestartAfterResume(context: AudioCon
   if (
     attempt?.context === context &&
     attempt.phase === 'awaiting-gesture' &&
-    attempt.activeResumeToken === null &&
+    attempt.resume?.active() !== true &&
     foregroundRestartStillCurrent(attempt)
   ) {
     reparkForegroundRestart(attempt);
@@ -996,79 +1145,67 @@ export function resumePreparedForegroundAudioContextRestartFromGesture(
   if (attempt.gestureResume) return attempt.gestureResume;
 
   setRestartPhase(attempt, 'gesture-resuming');
-  const resumeToken = {};
-  attempt.activeResumeToken = resumeToken;
-  attempt.clearResumePromotion?.();
-  attempt.clearResumePromotion = armForegroundResumePromotion(attempt, resumeToken);
-  let nativeResume: Promise<void>;
-  countAudioRecovery(RESUME_PLAY_REQUEST);
-  try {
-    nativeResume = attempt.context.resume();
-  } catch (error) {
-    nativeResume = Promise.reject(error);
-  }
-  void nativeResume.then(
-    () => promoteForegroundRestartAfterNativeResume(attempt, resumeToken),
-    () => undefined,
-  );
-  const operation = raceAudioRecoveryDeadline(
-    DEADLINE_PLAY_REQUEST_RESUME,
-    nativeResume,
-    delay(AUDIO_RECOVERY_RESUME_DEADLINE_MS),
-  )
-    .then(() => {
-      if (!foregroundRestartStillCurrent(attempt)) {
-        return { running: false, requiresClockVerification: false };
-      }
-      if (String(attempt.context.state) === 'running') {
-        promoteForegroundRestartAfterNativeResume(attempt, resumeToken);
-        return { running: true, requiresClockVerification: true };
-      }
+  attempt.resume?.drop();
+  // The one recovery resume (Phase 7 7B-5), with this owner's step rules.
+  const flight = requestAudioContextResume(attempt.context, {
+    resumeSlot: RESUME_PLAY_REQUEST,
+    deadlineSlot: DEADLINE_PLAY_REQUEST_RESUME,
+    holds: () => foregroundRestartStillCurrent(attempt),
+    // Running is only provisional: the dialog's clock probe must pass before
+    // commit, and this owner runs none of its own (K-I12-a).
+    promoted: () => setRestartPhase(attempt, 'awaiting-clock-verification'),
+    // After the deadline it waits for its gesture again while the context is
+    // parked, otherwise for a suspend with no lease.
+    missed: () =>
       setRestartPhase(
         attempt,
         isAudioContextPrepared(attempt.context) ? 'awaiting-gesture' : 'preparing-suspend',
-      );
-      return { running: false, requiresClockVerification: false };
-    })
-    .catch(() => {
-      if (foregroundRestartStillCurrent(attempt)) {
-        setRestartPhase(
-          attempt,
-          isAudioContextPrepared(attempt.context) ? 'awaiting-gesture' : 'preparing-suspend',
-        );
-      }
-      if (attempt.activeResumeToken === resumeToken) {
-        attempt.activeResumeToken = null;
-        attempt.clearResumePromotion?.();
-        attempt.clearResumePromotion = null;
-      }
-      return { running: false, requiresClockVerification: false };
-    })
-    .finally(() => {
-      if (attempt.gestureResume === operation) attempt.gestureResume = null;
-    });
+      ),
+    landed: () => reparkSuccessorAfterRetiredResume(attempt),
+    result: (outcome) => ({
+      running: outcome === 'running',
+      requiresClockVerification: outcome === 'running',
+    }),
+  });
+  attempt.resume = flight;
+  const operation = flight.settled.finally(() => {
+    if (attempt.gestureResume === operation) attempt.gestureResume = null;
+  });
   attempt.gestureResume = operation;
   return operation;
 }
 
 /**
- * Promote this gesture resume when the context turns `running`, as the
- * dispatcher's last part (Phase 7 7B-4: no listener of its own). It stays
- * while the native resume is unsettled, past the resume deadline.
+ * The recovery dialog's wait after its tap for this attempt's clock
+ * requirement (Phase 7 7B-5, owner answer Q7, in place of a 50 ms poll). It
+ * settles once: 'promoted' when the gesture's resume brings the context to
+ * running for the attempt (its requirement is then exposed), 'cancelled'
+ * when a caller retires its token, 'superseded' when a newer foreground
+ * incident or restart attempt takes its place, 'retired' when its owner ends
+ * it (its incident consumed elsewhere, its suspend lost) or it is gone
+ * already. It does not settle by itself while the attempt waits: the
+ * dialog's own limit, AbortSignal and currency end that wait.
  */
-function armForegroundResumePromotion(
-  attempt: ForegroundRestartAttempt,
-  resumeToken: object,
-): () => void {
-  const dispatcher = stateDispatcherFor(attempt.context);
-  const promotion: ForegroundResumePromotion = { attempt, resumeToken };
-  dispatcher.promotion = promotion;
-  syncStateDispatcher(attempt.context);
-  return () => {
-    if (dispatcher.promotion !== promotion) return;
-    dispatcher.promotion = null;
-    syncStateDispatcher(attempt.context);
-  };
+export function whenForegroundAudioContextRestartClockRequirement(
+  attemptToken: object,
+): Promise<ForegroundRestartRequirementOutcome> {
+  const attempt = pendingForegroundRestartAttempt;
+  if (
+    !attempt ||
+    attempt.attemptToken !== attemptToken ||
+    !foregroundRestartStillCurrent(attempt)
+  ) {
+    return Promise.resolve('retired');
+  }
+  if (attempt.phase === 'awaiting-clock-verification') return Promise.resolve('promoted');
+  if (!attempt.requirementWait) {
+    let settle!: (outcome: ForegroundRestartRequirementOutcome) => void;
+    const settled = new Promise<ForegroundRestartRequirementOutcome>((resolve) => {
+      settle = resolve;
+    });
+    attempt.requirementWait = { settled, settle };
+  }
+  return attempt.requirementWait.settled;
 }
 
 export function getPendingForegroundAudioContextRestartClockHealthRequirement(): ForegroundAudioContextRestartClockHealthRequirement | null {
@@ -1115,7 +1252,7 @@ export function retireForegroundAudioContextRestart(attemptToken: object): boole
   const attempt = pendingForegroundRestartAttempt;
   if (!attempt || attempt.attemptToken !== attemptToken) return false;
   const checkToken = attempt.checkToken;
-  retireForegroundRestartAttempt(attempt);
+  retireForegroundRestartAttempt(attempt, true, 'cancelled');
   if (pendingForegroundClockHealthIncident?.token === checkToken) {
     pendingForegroundClockHealthIncident = null;
   }

@@ -616,17 +616,18 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
     {
       count: 6,
       reason:
-        "singleton, foreground restart and, since Phase 7 7B-4, both owners' one suspend " +
-        'lease per context (its single suspend())',
+        "singleton, foreground restart and, since Phase 7, both owners' one suspend lease per " +
+        'context (its single suspend(), 7B-4) and one recovery resume (its single resume(), 7B-5)',
     },
   ],
   [
     'src/audio/context-recovery.ts',
     {
-      count: 2,
+      count: 1,
       reason:
-        'interruption recovery, target owner: its automatic resumes; its suspend asks the one ' +
-        'lease in context.ts since Phase 7 7B-4 (3 -> 2)',
+        'interruption recovery, target owner: its automatic resume with nothing playing; its ' +
+        'suspend asks the one lease in context.ts since Phase 7 7B-4 (3 -> 2), and its attempts ' +
+        'resume through the one recovery resume there since 7B-5 (2 -> 1)',
     },
   ],
   [
@@ -690,10 +691,8 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
             "recovery dialog's ordinary branch, in the button's gesture (moves to the owner, 7C-2)",
         },
       ],
-      [
-        'src/audio/context-recovery.ts',
-        { count: 1, reason: "the playback-scope owner's own gesture resume" },
-      ],
+      // The playback-scope owner's own gesture resume went through the one
+      // recovery resume in context.ts in Phase 7 7B-5 (1 -> 0).
     ]),
   ],
   [

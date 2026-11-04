@@ -34,6 +34,7 @@ import {
   isForegroundAudioContextRestartOwned,
   isForegroundAudioContextRestartSuspendOwned,
   probeAudioContextHealth,
+  reparkForegroundAudioContextRestartAfterResume,
   requestRetiredAudioContextSuspendCleanup,
   restartAudioContextFromGesture,
 } from './context.ts';
@@ -1183,6 +1184,11 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
       return;
     }
 
+    // A play-request attempt waiting for its tap is parked again on this edge
+    // by its own owner, the same rule as this scope's below (C1-I13 a, Phase
+    // 7 7B-2): this binding is the one listener every context has, so it
+    // hands the edge over.
+    if (state === 'running') reparkForegroundAudioContextRestartAfterResume(context);
     const recovery = pendingRecovery?.context === context ? pendingRecovery : null;
     if (state === 'running' && recovery) {
       if (

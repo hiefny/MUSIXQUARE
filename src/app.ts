@@ -67,6 +67,7 @@ import {
   resumePreparedForegroundAudioContextRestartFromGesture,
   retireForegroundAudioContextRestart,
   restartAudioContextFromGesture,
+  whenForegroundAudioContextRestartReprepared,
 } from './audio/context.ts';
 import {
   cancelPendingAudioContextRecovery,
@@ -500,6 +501,38 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   let gestureFlight: Promise<GestureRecoveryFlightResult> | null = null;
   let gestureSemanticAttemptToken: object | null = null;
   let gestureForegroundAttemptToken: object | null = null;
+  // A tap that met the owner parking this same attempt again (an outside
+  // resume undid its suspension, and its preparation reads not current until
+  // it is parked): the owner keeps the attempt for it, so the close does not
+  // retire it, and the same request shows again once it is parked (Phase 7
+  // 7B-2). Transport's one notice and its closures stay as they are.
+  let reprepared: Promise<boolean> | null = null;
+  const noteReprepared = (): void => {
+    if (!reprepared && identity.foregroundRestartAttemptToken) {
+      reprepared = whenForegroundAudioContextRestartReprepared(
+        identity.foregroundRestartAttemptToken,
+      );
+    }
+  };
+  const showAgainWhenReprepared = (parked: Promise<boolean>, attemptToken: object): void => {
+    observeAudioRecoveryOperation(
+      parked.then((ready) => {
+        if (!ready) return;
+        // Another dialog owns the screen now, or the request is no longer
+        // current: let the attempt go, as the close would have.
+        if (
+          audioRecoveryPrompt ||
+          isForcedAppUpdatePending() ||
+          !audioRecoveryIdentityStillCurrent(identity)
+        ) {
+          retireForegroundAudioContextRestart(attemptToken);
+          return;
+        }
+        observeAudioRecoveryOperation(runAudioRecoveryRequest(request), 'reprepared recovery');
+      }),
+      'recovery re-park',
+    );
+  };
   // Whatever asked for it, this dialog explains the return from the
   // background itself, so the generic warning steps aside for this return.
   longBackgroundWarning.yieldToAudioRecovery();
@@ -512,7 +545,10 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     defaultFocus: 'primary',
     signal: abortController.signal,
     onPrimaryActivation: () => {
-      if (!operationStillCurrent()) return;
+      if (!operationStillCurrent()) {
+        noteReprepared();
+        return;
+      }
       activeAudioRecoveryGestureActivated = true;
       primeIosAudioFromGesture();
       if (identity.foregroundRestartAttemptToken) {
@@ -571,6 +607,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   })
     .then(async (result) => {
       if (result.action !== 'ok' || !gestureFlight || !operationStillCurrent()) {
+        if (result.action === 'ok') noteReprepared();
         return false;
       }
       const gestureResult = await raceAudioRecoveryDeadline(
@@ -733,9 +770,8 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     })
     .finally(() => {
       if (audioRecoveryPrompt !== operation) return;
-      if (identity.foregroundRestartAttemptToken) {
-        retireForegroundAudioContextRestart(identity.foregroundRestartAttemptToken);
-      }
+      const attemptToken = identity.foregroundRestartAttemptToken;
+      if (attemptToken && !reprepared) retireForegroundAudioContextRestart(attemptToken);
       audioRecoveryPrompt = null;
       activeAudioRecoveryIdentity = null;
       activeAudioRecoveryAbortController = null;
@@ -747,6 +783,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
           observeAudioRecoveryOperation(runAudioRecoveryRequest(next), 'follow-up recovery');
         });
       }
+      if (attemptToken && reprepared) showAgainWhenReprepared(reprepared, attemptToken);
     });
   audioRecoveryPrompt = operation;
   return operation;

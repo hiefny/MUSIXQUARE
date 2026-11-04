@@ -41,7 +41,9 @@ behind one owner).
 2. **Only the owner calls native `resume()` and `suspend()`**, with three exceptions:
    1. `ensureRunning` wakes a context that is not running (PLAY, file activation, the engine's
       initialization). When an attempt holds the context, the owner's re-suspend rule undoes that
-      wake (kept as today's behaviour, owner answer of 2026-11-02).
+      wake (kept as today's behaviour, owner answer of 2026-11-02). Since 7B-2 the play-request
+      attempt waiting for its tap has the same rule as the playback scope's, so its tap resumes a
+      parked context instead of being refused.
    2. `probeAudioContextHealth` with `attemptResume: true` has one caller,
       `src/audio/output-health.ts`, and runs only after both ownership checks in that file report
       no attempt.

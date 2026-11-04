@@ -73,6 +73,13 @@ interface ForegroundRestartAttempt {
   readonly whenPrepared: Promise<boolean>;
   preparedSettled: boolean;
   suspendPrepareAttempts: number;
+  reprepare: ForegroundRestartReprepare | null;
+}
+
+/** A parked attempt being parked again after an outside resume (Phase 7 7B-2). */
+interface ForegroundRestartReprepare {
+  readonly parked: Promise<boolean>;
+  readonly settle: (parked: boolean) => void;
 }
 
 interface ForegroundSuspendLease {
@@ -105,12 +112,21 @@ const foregroundLateSuspendFences = new WeakMap<AudioContext, ForegroundLateSusp
 const retiredSuspendRecoveryBindings = new WeakMap<AudioContext, RetiredSuspendRecoveryBinding>();
 const retiredSuspendCleanupFlights = new WeakMap<AudioContext, Promise<void>>();
 
-/** Every phase write of a play-request restart goes through here (the /debug counts). */
+/**
+ * Every phase write of a play-request restart goes through here: the /debug
+ * counts, and a re-park's promise, which settles once the attempt leaves
+ * preparing-suspend (true when it is parked for its gesture again).
+ */
 function setRestartPhase(attempt: ForegroundRestartAttempt, phase: ForegroundRestartPhase): void {
   const from = attempt.phase;
   if (from === phase) return;
   attempt.phase = phase;
   countAudioRecoveryPhase(attempt, from, phase);
+  const reprepare = attempt.reprepare;
+  if (reprepare && phase !== 'preparing-suspend') {
+    attempt.reprepare = null;
+    reprepare.settle(phase === 'awaiting-gesture');
+  }
 }
 
 registerAudioRecoveryOwner(
@@ -327,6 +343,21 @@ function startFreshForegroundSuspend(attempt: ForegroundRestartAttempt): void {
     return;
   }
   createForegroundSuspendLease(attempt.context, attempt);
+}
+
+/**
+ * Something resumed the context an attempt had parked for its gesture: park
+ * the same attempt again, with the same suspend budget (C1-I13 a, Phase 7
+ * 7B-2). A recovery dialog whose tap meets this re-park waits on `parked`.
+ */
+function reparkForegroundRestart(attempt: ForegroundRestartAttempt): void {
+  let settle!: (parked: boolean) => void;
+  const parked = new Promise<boolean>((resolve) => {
+    settle = resolve;
+  });
+  attempt.reprepare = { parked, settle };
+  setRestartPhase(attempt, 'preparing-suspend');
+  startFreshForegroundSuspend(attempt);
 }
 
 function handleForegroundLateSuspend(context: AudioContext, fenceToken: object): void {
@@ -553,6 +584,7 @@ function createForegroundRestartAttempt(
     whenPrepared,
     preparedSettled: false,
     suspendPrepareAttempts: 0,
+    reprepare: null,
   };
   pendingForegroundRestartAttempt = attempt;
   return attempt;
@@ -762,9 +794,44 @@ function promoteForegroundRestartAfterNativeResume(
     foregroundRestartStillCurrent(successor) &&
     successor.phase === 'awaiting-gesture'
   ) {
-    setRestartPhase(successor, 'preparing-suspend');
-    startFreshForegroundSuspend(successor);
+    reparkForegroundRestart(successor);
   }
+}
+
+/**
+ * The binding's `running` statechange (context-recovery.ts): something
+ * outside this owner (the OS, ensureRunning, a UI sound) resumed a context
+ * whose play-request attempt waits for its gesture. Park the same attempt
+ * again at once, as the playback scope re-suspends its own (C1-I13 a, Phase
+ * 7 7B-2), so the gesture resumes a parked context instead of finding it
+ * running. The attempt's own gesture resume, still unsettled after its
+ * deadline, is promoted by its listener instead.
+ */
+export function reparkForegroundAudioContextRestartAfterResume(context: AudioContext): void {
+  const attempt = pendingForegroundRestartAttempt;
+  if (
+    attempt?.context === context &&
+    attempt.phase === 'awaiting-gesture' &&
+    attempt.activeResumeToken === null &&
+    foregroundRestartStillCurrent(attempt)
+  ) {
+    reparkForegroundRestart(attempt);
+  }
+}
+
+/**
+ * Asked by the recovery dialog when its tap meets this exact attempt being
+ * parked again (its preparation reads not current until then). The promise
+ * settles once: true when the same attempt is parked for its gesture again,
+ * false when it retired first. The dialog keeps the attempt for it and shows
+ * the same request again; null means no re-park, and the dialog retires the
+ * attempt as before (C1-I13 a, Phase 7 7B-2).
+ */
+export function whenForegroundAudioContextRestartReprepared(
+  attemptToken: object,
+): Promise<boolean> | null {
+  const attempt = pendingForegroundRestartAttempt;
+  return attempt?.attemptToken === attemptToken ? (attempt.reprepare?.parked ?? null) : null;
 }
 
 /** Resume only an exact restart whose native suspend concretely completed. */

@@ -226,11 +226,16 @@ RO-54 accepted-exception
   phase union `ForegroundRestartPhase`) and playback-scope interruption recovery in
   `src/audio/context-recovery.ts` (`bindAudioContextInterruptionRecovery`,
   `resumePendingAudioContextInterruptionFromGesture`, phase union `RecoveryPhase`). Each keeps its
-  own suspend lease and `statechange` listeners. `src/app.ts` sequences both in the recovery
-  dialog, and `src/player/media-session.ts` repeats the same gesture sequence (resume, requirement,
-  probe, escalate, confirm, rejoin). `src/audio/ui-sounds.ts` resumes the context, only while it
-  is not running, on a trusted pointerdown or Enter or Space keydown and before it plays a UI
-  sound, without asking either owner. Since Phase 7 7A-1 each machine writes its phase only through
+  own suspend lease and `statechange` listeners. Since Phase 7 7B-2 the binding also hands each
+  `running` statechange to the play-request owner, which parks its attempt waiting for a tap again
+  with the same attempt (`reparkForegroundAudioContextRestartAfterResume`), as the playback scope
+  re-suspends its own; a dialog tap that meets that re-park keeps the attempt
+  (`whenForegroundAudioContextRestartReprepared`), and the dialog shows the same request again.
+  `src/app.ts` sequences both in the recovery dialog, and `src/player/media-session.ts` repeats
+  the same gesture sequence (resume, requirement, probe, escalate, confirm, rejoin).
+  `src/audio/ui-sounds.ts` resumes the context, only while it is not running, on a trusted
+  pointerdown or Enter or Space keydown and before it plays a UI sound, without asking either
+  owner. Since Phase 7 7A-1 each machine writes its phase only through
   one funnel (`setRestartPhase` in `context.ts`, `setRecoveryPhase` in `context-recovery.ts`), and
   `src/audio/output-recovery-counters.ts` observes the resource for `/debug sync`: an observer, not
   an owner. The owners, the recovery dialog in `app.ts` and UI sounds report events to it (each
@@ -3617,7 +3622,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   replacement would need a defined channel back to transport before `app.ts` checks currency,
   and the generic branch has no transport caller. The closure is correct and tested.
 - **Behaviour risk:** none.
-- **Revisit when:** Phase 7 makes a committed attempt queryable by token.
+- **Revisit when:** Phase 7 makes a committed attempt queryable by token. Phase 7 7B-2's re-notify
+  does not: after a re-park the dialog shows the same request again with the same closures, and the
+  owner's re-park query answers only for an attempt still being parked, not a committed one.
 - **Status:** `accepted-exception`.
 
 ### RO-37 Defensive retry-versus-semantic branch stays in `app.ts`

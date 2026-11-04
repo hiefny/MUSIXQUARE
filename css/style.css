@@ -8058,7 +8058,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .chat-join-order {
-    font-size: 0.8em;
+    font-size: 9px;
     opacity: 0.5;
     margin-inline-start: 2px;
   }

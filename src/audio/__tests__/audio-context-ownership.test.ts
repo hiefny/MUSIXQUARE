@@ -1170,7 +1170,8 @@ describe('RO-01 both machines on one context (C1-I4 f)', () => {
     const check = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
     const preparation = await o.context.prepareForegroundAudioContextRestart(check!);
     expect(preparation).toMatchObject({ status: 'prepared' });
-    // Only the binding still listens: the play-request lease has settled.
+    // One listener, the context's dispatcher (Phase 7 7B-4), for the
+    // binding: the play-request lease has settled.
     expect(fake.statechangeListenerCount).toBe(1);
 
     await vi.advanceTimersByTimeAsync(2_000);

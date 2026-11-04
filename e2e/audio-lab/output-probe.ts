@@ -10,7 +10,8 @@
  *   `ms suspend:state`; the origin is the event being dispatched when the
  *   call is made (`click`, `pointerdown`, `keydown`, ...), or `task`;
  * - a resume gate can hold calls from chosen origins, and a suspend gate can
- *   hold suspends, until the test releases them;
+ *   hold suspends (all of them, or only the first few), until the test
+ *   releases them;
  * - `currentTime` can be frozen and unfrozen on the instance, which stands in
  *   for the WebKit frozen clock (the instance is the app's only context, so
  *   scheduling and sync reads freeze too: tests keep the frozen window short);
@@ -57,7 +58,7 @@ interface Lab {
   freeze(): void;
   unfreeze(): void;
   holdResume(origins: string[], limit: number): void;
-  holdSuspend(): void;
+  holdSuspend(limit: number): void;
   releaseGates(): void;
 }
 
@@ -121,8 +122,8 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
       holdResume: (origins, limit) => {
         lab.resumeGate = makeGate(origins, limit);
       },
-      holdSuspend: () => {
-        lab.suspendGate = makeGate(null, Number.POSITIVE_INFINITY);
+      holdSuspend: (limit) => {
+        lab.suspendGate = makeGate(null, limit);
       },
       releaseGates: () => {
         const gates = [lab.resumeGate, lab.suspendGate];
@@ -257,8 +258,13 @@ export async function holdResume(page: Page, origins: string[], limit = 1): Prom
   );
 }
 
-export async function holdSuspend(page: Page): Promise<void> {
-  await page.evaluate(() => (window as unknown as LabWindow).__audioLab.holdSuspend());
+/** Hold the next `limit` suspend() calls (every one when left out) until the gates are released. */
+export async function holdSuspend(page: Page, limit?: number): Promise<void> {
+  await page.evaluate(
+    (max) =>
+      (window as unknown as LabWindow).__audioLab.holdSuspend(max ?? Number.POSITIVE_INFINITY),
+    limit ?? null,
+  );
 }
 
 /**

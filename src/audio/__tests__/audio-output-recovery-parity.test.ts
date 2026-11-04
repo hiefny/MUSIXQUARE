@@ -14,12 +14,13 @@
  *
  * Each row holds the play-request owner's cells and, for the playback
  * scope, only the cells that differ today, each with its named known
- * difference (K-I11-a..d; K-I12-a, b and d, and K-I12-c for the
+ * difference (K-I11-b and d; K-I12-a and d, and K-I12-c for the
  * play-request wait alone). The playback-scope rows assert every other cell
- * equal to the play-request one. If the owner approves the timing and
- * dispatch change (Q6, owner decision pending), 7B-4 flips only named I11
- * cells; 7B-5 (Q7, owner decision pending) only named I12 cells. Boundary
- * and driver as in audio-output-recovery-boundary.test.ts.
+ * equal to the play-request one. Phase 7 7B-4 (owner answer Q6: one lease,
+ * one late fence and one statechange dispatcher per context) closed K-I11-a,
+ * K-I11-c and K-I12-b, whose cells are now equal; 7B-5 (Q7, owner decision
+ * pending) flips only named I12 cells. Boundary and driver as in
+ * audio-output-recovery-boundary.test.ts.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -125,19 +126,21 @@ function incidentCell(o: Owners, original: object | null): 'original' | 'new' | 
 // ─── I11: suspend preparation ─────────────────────────────────────
 
 /**
- * K-I11-a: the play-request lease waits out its 250 ms late-suspend fence
- *   before its second native suspend (1,000 ms against 750 ms), so what
- *   follows that suspend is 250 ms later.
+ * K-I11-a (closed by Phase 7 7B-4, owner answer Q6): the play-request lease
+ *   waited out its 250 ms late-suspend fence before its second native
+ *   suspend (1,000 ms against 750 ms). Both owners now wait for the one
+ *   ledger's fence.
  * K-I11-b: after two failed suspends the play-request attempt retires and
  *   keeps the incident it came from; the playback scope gives up and arms a
- *   new incident for the next PLAY.
- * K-I11-c: a first suspend that lands inside the fence goes to the waiting
- *   play-request attempt with no second native call; the playback scope has
- *   already issued its second one.
+ *   new incident for the next PLAY (each owner's choice, kept by 7B-4).
+ * K-I11-c (closed by 7B-4): a first suspend that lands inside the fence goes
+ *   to the waiting play-request attempt with no second native call; the
+ *   playback scope had already issued its second one. It waits behind the
+ *   same fence now.
  * K-I11-d: once prepared, the playback scope notifies on the bus; the
  *   play-request answer reaches transport through its promise.
  */
-type KnownI11 = 'K-I11-a' | 'K-I11-b' | 'K-I11-c' | 'K-I11-d';
+type KnownI11 = 'K-I11-b' | 'K-I11-d';
 
 interface SuspendCell {
   /** Native calls, their settlements and state changes, in order. */
@@ -186,9 +189,9 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'running',
     },
+    // 7B-4 (Q6): the scope's second suspend at 1,000 ms and its retirement at
+    // 1,750 ms (they were K-I11-a: [0, 750] and retired@1500).
     scope: {
-      suspendsAt: ['K-I11-a', [0, 750]],
-      end: ['K-I11-a', 'retired@1500'],
       incident: ['K-I11-b', 'new'],
     },
   },
@@ -205,9 +208,8 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'running',
     },
+    // 7B-4 (Q6): as P1 (they were K-I11-a: [0, 750] and retired@1500).
     scope: {
-      suspendsAt: ['K-I11-a', [0, 750]],
-      end: ['K-I11-a', 'retired@1500'],
       incident: ['K-I11-b', 'new'],
     },
   },
@@ -224,9 +226,10 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'suspended',
     },
+    // 7B-4 (Q6): the late first suspend goes to the scope attempt waiting
+    // behind the fence, with no second native call (it was K-I11-c: a second
+    // suspend at 750 ms).
     scope: {
-      ops: ['K-I11-c', ['suspend()', 'suspend:resolved', 'suspend()', 'statechange:suspended']],
-      suspendsAt: ['K-I11-c', [0, 750]],
       notices: ['K-I11-d', [NOTICE]],
     },
   },
@@ -243,8 +246,8 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'suspended',
     },
+    // 7B-4 (Q6): the scope's second suspend at 1,000 ms (it was K-I11-a: 750).
     scope: {
-      suspendsAt: ['K-I11-a', [0, 750]],
       notices: ['K-I11-d', [NOTICE]],
     },
   },
@@ -284,9 +287,9 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'suspended',
     },
+    // 7B-4 (Q6): the scope's second suspend lands at 1,000 ms (it was
+    // K-I11-a: [0, 750] and prepared@750).
     scope: {
-      suspendsAt: ['K-I11-a', [0, 750]],
-      end: ['K-I11-a', 'prepared@750'],
       notices: ['K-I11-d', [NOTICE]],
     },
   },
@@ -418,14 +421,16 @@ describe('RO-01 I11 parity: suspend preparation for a gesture', () => {
  *   and verifies its own clock when the state turns running with no event
  *   for it (fix lane G7) and rejoins. (The re-prompt is the Known gap of
  *   audio-context-ownership.test.ts's G7 rows.)
- * K-I12-b: the play-request owner's resume listener stays while its native
- *   resume is unsettled; the playback scope adds none.
+ * K-I12-b (closed by Phase 7 7B-4, one dispatcher per context): the
+ *   play-request owner's resume listener stayed while its native resume was
+ *   unsettled; the playback scope adds none. The promotion is now a part of
+ *   the context's one listener.
  * K-I12-c: play-request only, see the table after this one.
  * K-I12-d: retiring a play-request attempt whose context is still parked
  *   resumes the context (its cleanup); dropping a playback-scope attempt
  *   leaves the context as it is.
  */
-type KnownI12 = 'K-I12-a' | 'K-I12-b' | 'K-I12-d';
+type KnownI12 = 'K-I12-a' | 'K-I12-d';
 
 interface ResumeCell {
   readonly timeline: string[];
@@ -604,11 +609,12 @@ const RESUME_SCENES: ResumeScene[] = [
     plan: { outcome: 'never' },
     request: {
       timeline: ['0:resume()', '750:result:not-running'],
-      listeners: 2,
+      // 7B-4: the waiting promotion adds no listener (it was 2, K-I12-b).
+      listeners: 1,
       state: 'suspended',
       current: true,
     },
-    scope: { listeners: ['K-I12-b', 1] },
+    scope: {},
   },
   {
     scene: 'retired at 900 ms, then the resume resolves at 1,200 ms',
@@ -765,7 +771,8 @@ describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait
       giveUp: true,
       result: {
         exposedAt: null,
-        atSixSeconds: { requirement: 'none', current: true, listeners: 2, ops: ['resume()'] },
+        // One listener since 7B-4 (it was 2: the waiting resume listener).
+        atSixSeconds: { requirement: 'none', current: true, listeners: 1, ops: ['resume()'] },
         giveUp: {
           retired: true,
           ops: ['resume()', 'statechange:running', 'resume:resolved'],

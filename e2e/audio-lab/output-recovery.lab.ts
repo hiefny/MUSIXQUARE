@@ -9,6 +9,9 @@
  *
  * - (i)/(ii) the two dialogs' outcomes: one retried source start, or one
  *   recovered rejoin;
+ * - (iii) app.ts's part of two recoveries asking to park the audio at once
+ *   (a seek while the return check parks it): which dialog stays, and what
+ *   its button does (Phase 7 7B-4);
  * - (a)-(d) app.ts's part of the play-request dialog, which unit tests cannot
  *   load: an outside resume while it waits and the owner parking it again, a
  *   tap inside that re-park (the same request shown once more), and how its
@@ -37,12 +40,14 @@
 import { expect, test, type Page } from '@playwright/test';
 import { clickPlayButton, readState, waitForPlaybackProjection } from '../helpers/wait.ts';
 import {
+  bounce,
   countOps,
   dialogMoves,
   emitNewerPlayRequest,
   holdResume,
   holdSuspend,
   openPlayRequestDialog,
+  openPlaying,
   openPreparedDialog,
   opsFrom,
   pageNow,
@@ -323,6 +328,60 @@ test.describe('prepared dialog (playing round trip)', () => {
     ]);
     const shown = timesOf(returned, 'dialog:shown');
     expect(shown[1]! - shown[0]!).toBeLessThan(100);
+  });
+
+  test("(iii) a seek while the return check parks the audio: one suspend, one dialog request, the seek's, and its tap plays from the moved position", async ({
+    page,
+  }) => {
+    await openPlaying(page);
+    const { starts: before } = await readLab(page);
+    // The return check's suspend lands late: the gate holds that first
+    // suspend only.
+    await holdSuspend(page, 1);
+    await bounce(page);
+    await waitForSuspendHeld(page);
+    const slider = page.locator('#seek-slider');
+    const duration = Number(await slider.getAttribute('max'));
+    const rail = await slider.boundingBox();
+    if (!rail) throw new Error('The seek rail must be visible');
+    await slider.click({ position: { x: rail.width * 0.6, y: rail.height / 2 } });
+    // The seek's PLAY checks the frozen clock (two 180 ms samples) and asks
+    // for its suspend; the held one goes on after that, inside its lease's
+    // 750 ms watchdog.
+    await page.waitForTimeout(500);
+    await releaseGates(page);
+    await expect(page.locator(DIALOG)).toBeVisible();
+    await page.waitForTimeout(1_000);
+    const shown = await readLab(page);
+    await unfreeze(page);
+    await page.locator(OK).click();
+    await expect(page.locator(DIALOG)).toHaveCount(0);
+    await page.waitForTimeout(1_500);
+    const lab = await readLab(page);
+    const position = Number(await slider.inputValue());
+    report('(iii)', lab, before);
+    console.log(`[audio-lab] (iii) position ${position} of ${duration}`);
+
+    // Phase 7 7B-4 (owner answer Q6; it was Known gap C1-I11, two leases):
+    // the seek's request takes the return check's lease over, so one native
+    // suspend and one dialog request, the later-started seek's; the return
+    // check's attempt retires with no notice. Its dialog stays, and its
+    // button retries the seek's PLAY: the track plays from the moved
+    // position. Before (measured on App 9.0.34 in Chromium): two suspends,
+    // three requests (the seek's and two of the return's), the dialog
+    // flashing two or three times, and the return dialog staying, whose
+    // button only realigned the old flow and lost the seek.
+    const returned = opsFrom(lab.ops, 'freeze');
+    expect(countOps(returned, ' suspend:')).toBe(1);
+    expect(shown.needed).toEqual(['play:clock-stalled']);
+    expect(lab.needed).toEqual(['play:clock-stalled']);
+    expect(dialogMoves(returned)).toEqual(['dialog:shown', 'dialog:hidden']);
+    expect(lab.dialogShows).toBe(1);
+    expect(countOps(fromTap(lab), 'resume@')).toBe(1);
+    expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
+    expect(lab.starts - before).toBe(1);
+    expect(lab.rejoins).toEqual([]);
+    expect(position).toBeGreaterThan(duration * 0.5);
   });
 });
 

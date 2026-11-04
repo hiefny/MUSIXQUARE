@@ -328,7 +328,7 @@ describe('a deadline counts only when it fires', () => {
     expect(delta(s, before, DEADLINE_NAMES)).toEqual(fires ? [`${String(slot)}:1`] : []);
   });
 
-  it('a suspend that never settles fires the watchdog and starts a second suspend', async () => {
+  it('a suspend that never settles fires the watchdog; the second suspend waits for the late fence', async () => {
     const s = await scene();
     s.fake.planSuspend({ outcome: 'never' }, { outcome: 'never' });
     stageFile(s.o);
@@ -340,10 +340,30 @@ describe('a deadline counts only when it fires', () => {
       .catch(() => undefined);
     await vi.advanceTimersByTimeAsync(800);
 
+    // Phase 7 7B-4 (owner answer Q6): the playback scope's second suspend
+    // waits for the 250 ms late fence, as the play-request restart's does
+    // (the next row); before, it came at once by 800 ms.
+    expect(s.fake.calls('suspend')).toBe(1);
+    expect(delta(s, before, ['DEADLINE_SCOPE_WATCHDOG', 'SUSPEND_CALLS'])).toEqual([
+      'DEADLINE_SCOPE_WATCHDOG:1',
+      'SUSPEND_CALLS:1',
+    ]);
+    await vi.advanceTimersByTimeAsync(210);
+
     expect(s.fake.calls('suspend')).toBe(2);
     expect(
-      delta(s, before, ['DEADLINE_SCOPE_WATCHDOG', 'SUSPEND_CALLS', 'SECOND_SUSPENDS']),
-    ).toEqual(['DEADLINE_SCOPE_WATCHDOG:1', 'SUSPEND_CALLS:2', 'SECOND_SUSPENDS:1']);
+      delta(s, before, [
+        'DEADLINE_SCOPE_WATCHDOG',
+        'DEADLINE_LATE_SUSPEND_FENCE',
+        'SUSPEND_CALLS',
+        'SECOND_SUSPENDS',
+      ]),
+    ).toEqual([
+      'DEADLINE_SCOPE_WATCHDOG:1',
+      'DEADLINE_LATE_SUSPEND_FENCE:1',
+      'SUSPEND_CALLS:2',
+      'SECOND_SUSPENDS:1',
+    ]);
   });
 
   it('the play-request watchdog hands its second suspend through the late fence', async () => {
@@ -448,7 +468,7 @@ describe('clock verification waits', () => {
 });
 
 describe('suspends, refused taps and overlaps', () => {
-  it('both owners suspending one context at once: two leases live', async () => {
+  it('both owners asking to suspend one context at once: one lease, one suspend', async () => {
     const s = await scene();
     s.fake.planSuspend({ latencyMs: 300 }, { latencyMs: 300 });
     stageFile(s.o);
@@ -460,9 +480,12 @@ describe('suspends, refused taps and overlaps', () => {
     const check = s.o.context.armForegroundAudioContextClockHealthCheck(s.fake.native);
     void s.o.context.prepareForegroundAudioContextRestart(check!).catch(() => undefined);
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(s.fake.calls('suspend')).toBe(2);
-    expect(s.read()[s.c.LEASES_AT_ONCE_MAX]).toBe(2);
-    expect(delta(s, before, ['SUSPEND_CALLS', 'SECOND_SUSPENDS'])).toEqual(['SUSPEND_CALLS:2']);
+    // Phase 7 7B-4 (owner answer Q6): the later request takes the lease in
+    // flight over (the earlier attempt retires), so "Leases at once (max)"
+    // stays 1; before, two leases and two native suspends.
+    expect(s.fake.calls('suspend')).toBe(1);
+    expect(s.read()[s.c.LEASES_AT_ONCE_MAX]).toBe(1);
+    expect(delta(s, before, ['SUSPEND_CALLS', 'SECOND_SUSPENDS'])).toEqual(['SUSPEND_CALLS:1']);
   });
 
   it('one owner alone: one lease', async () => {

@@ -1492,10 +1492,12 @@ RO-54 accepted-exception
   evidence shows either one disturbing playback. iOS return fix (2026-11-03, device report): an
   iPhone Standard guest reopened at the moment WebKit stops its hidden iframe stayed paused until
   a tap. On iPhone and iPad the browser stop now ends no chain, the local pause bit is down after
-  the return, and a sub-second bounce aligns after it; other platforms are unchanged. Open owner
-  question (train report): on iPhone and iPad, an iframe PAUSE the guest makes within the 1 s grace
-  without focus moving into the iframe is aligned over, as one made while a return rendezvous owns
-  the iframe (about 2.3 s) already was. Exception RO-48.
+  the return, and a sub-second bounce aligns after it; other platforms are unchanged. Owner
+  decision (2026-11-04, the question in the iOS return train report): keep it as it is, so on iPhone
+  and iPad an iframe PAUSE the guest makes within the 1 s grace without focus moving into the
+  iframe is aligned over, as one made while a return rendezvous owns the iframe (about 2.3 s)
+  already was. The fix ships in the App 9.0.37 train
+  ([train report](app-9-0-37-train-2026-11-04.md)). Exception RO-48.
 
 ### RO-06 Host shared start, playlist queue and guided demo
 

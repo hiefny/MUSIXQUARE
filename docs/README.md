@@ -96,9 +96,41 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.37 / v810 train: Phase 7 7A, the iPhone guest YouTube return and the input design system (2026-11-04)](design/app-9-0-37-train-2026-11-04.md):
+  prepared, not merged or released. By the owner's decision of 2026-11-04 (early morning) one App
+  update (one update dialog, target `app`) carries three increments on branch `agent/app-9-0-37`:
+  Phase 7 T1 (`agent/p7-t1`, tests, guards and docs only, its own release-free pull request first,
+  tip `1441742e`) rebuilt on main `34dbe592` (App 9.0.36 / v809's release record), then the sixteen
+  7A commits, the four iPhone fix commits and the twenty-three input system commits cherry-picked in
+  that order (seven conflicts, all in documents and the design page HTML; every code and test patch
+  unchanged), the bump `5d346d64` (9.0.37 / v810, the seven version lines of 9.0.36's bump, the last
+  runtime commit) and documentation commits. 7A (its report below) adds the owner-approved AUDIO
+  RECOVERY lines to `/debug sync` and four neutral cleanups. The iPhone fix (its report below) lets
+  an iPhone or iPad Standard guest that returns at the moment iOS stops the hidden YouTube iframe
+  play again without a tap; the owner kept its trade-off (a pause tapped within 1 s of the return,
+  without focus in the iframe, is aligned over). The input design system, approved from pictures on
+  2026-11-03 and recorded only in this report, makes every text field one underline family in three
+  size steps with one 12px line under it, turns the underline red (and sets `aria-invalid`) only for
+  a wrong value while connection and service failures paint only the line, shows a refused password
+  or a taken nickname as a red line under the field, labels the YouTube sheet's big button Search
+  while a query is typed, ends the under-field copy without a full stop with one sentence per line
+  in 42 languages (586 strings, the PRO room-full detail trimmed) and adds the design system's Input
+  fields card. Deploy target `app`: 74 App runtime paths against production `6f9cf6f8` at the bump
+  head, the other five Workers 0, no runtime dependency change; the build floor stays 795 and the
+  only storage change is 7A's sessionStorage key. Round 1 moved the increments and reran every
+  tests-first pair (each fails on its parent and passes at its code, but for 7A-6's neutral pin, as
+  recorded), the 7A audio lab (17 / 17 on
+  three trees with equal observations) and recovery specs, the iPhone spec (13 / 13) and the input
+  specs. Round 2 bumped, judged the deploy target and recaptured the 139 approved input states on the
+  bump head's build: 134 pixel-identical, the same five expected differences (the room-full trim and
+  the host code kept at 32px), all controls identical. Not verified: real devices, Linux and WebKit,
+  native readers for the 40 trimmed room-full copies outside ko and en, and Tamil's password refusal,
+  which wraps at 320 px. The full local gate on the bump head is the next round.
 - [iPhone YouTube return at the moment of the browser stop (2026-11-03)](design/ios-youtube-return-train-2026-11-03.md):
-  not released; branch `agent/ios-yt-return` on main `88550bc4` (App 9.0.35 / v808), tested code
-  `e4319843e`. Owner device report of 2026-11-03: an iPhone guest in a Standard room that reopens
+  not released; one increment of the App 9.0.37 / v810 train above, moved onto main `34dbe592` on
+  2026-11-04 (`e60f2f9a`, `f5785ff6`, `7bf5c5ef`, patches unchanged). Built on branch
+  `agent/ios-yt-return` on main `88550bc4` (App 9.0.35 / v808), tested code `e4319843e`. Owner
+  device report of 2026-11-03: an iPhone guest in a Standard room that reopens
   the app at the very moment iOS stops its hidden YouTube iframe stays paused until a tap on PLAY or
   Sync. On iPhone and iPad only, a Standard guest's unowned iframe PAUSE processed while hidden, or
   within `BACKGROUND_STOP_RETURN_GRACE_MS` (1 s) after the return and before focus moves into the
@@ -107,14 +139,17 @@ runbooks. Neither belongs in a general setup document.
   resume guard's one reading (`getLastObservedBackgroundReturn`). Computers, Android phones, hosts,
   operators and PRO rooms are unchanged. Increments: tests first `570f47229`, the fix `a86ad57bb`,
   the review fix `e4319843e`. Local evidence only (Vitest, Playwright Chromium with an iPhone user
-  agent and a fake YouTube player); no real iPhone yet, the 1 s grace is unmeasured, and one owner
-  question (a pause tapped within 1 s of the return on an iPhone is aligned over) is open.
+  agent and a fake YouTube player); no real iPhone yet and the 1 s grace is unmeasured. The owner
+  answered its one question on 2026-11-04: a pause tapped within 1 s of the return on an iPhone stays
+  aligned over.
 - [Phase 7 train 7A: on-device audio recovery counts in /debug sync and a behaviour-neutral recovery cleanup (2026-11-03)](design/phase7-7a-audio-recovery-counters-2026-11-03.md):
-  prepared, not merged or released. The first of the three Phase 7 App updates (owner decision Q2)
-  on branch `agent/p7-7a`: twelve commits on `agent/p7-t1` (the release-free Phase 7 T0 second pull
-  request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and four record commits;
-  the version bump, the release-record entry and the release are the release owner's, after Phase 6
-  6D has shipped, been recorded and passed its post-merge Full E2E and its post-deploy smoke. 7A-2
+  prepared, not merged or released; one increment of the App 9.0.37 / v810 train above, moved onto
+  main `34dbe592` on 2026-11-04 with every runtime and test patch unchanged (bump `5d346d64`, the
+  release-record §2 9.0.37 section). The first of the three Phase 7 App updates (owner decision Q2),
+  first prepared on branch `agent/p7-7a`: twelve commits on `agent/p7-t1` (the release-free Phase 7
+  T0 second pull request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and four
+  record commits; its start condition (Phase 6 6D shipped, recorded and past its post-merge Full E2E
+  and its post-deploy smoke) holds. 7A-2
   gives the AudioContext recovery one timing home,
   the new leaf `src/audio/context-protocol.ts` (not `src/audio/constants.ts`, which sits in another
   eager chunk), and one prepared-state predicate; 7A-3 deletes the write-only `fallbackEligible` and

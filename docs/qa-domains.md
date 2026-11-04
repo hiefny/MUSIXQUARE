@@ -1144,7 +1144,7 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **대표 구현:** [src/ui/dom.ts](../src/ui/dom.ts), [css/style.css](../css/style.css)
 
-**기존 검사 진입점:** [src/ui/__tests__/contrast-accessibility.test.ts](../src/ui/__tests__/contrast-accessibility.test.ts), [e2e/accessibility-contrast.test.ts](../e2e/accessibility-contrast.test.ts)
+**기존 검사 진입점:** [src/ui/__tests__/contrast-accessibility.test.ts](../src/ui/__tests__/contrast-accessibility.test.ts), [e2e/accessibility-contrast.test.ts](../e2e/accessibility-contrast.test.ts), [src/ui/__tests__/field-family-contract.test.ts](../src/ui/__tests__/field-family-contract.test.ts), [e2e/field-family.test.ts](../e2e/field-family.test.ts)
 
 ### QA102. visualizer 표시·canvas 수명 — P2
 

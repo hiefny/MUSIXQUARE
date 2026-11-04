@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | 미배포. 브랜치 `agent/ios-yt-return`, main `88550bc4`(App 9.0.35 / v808) 위. 버전 번호와 배포 순서는 릴리스 준비에서 정한다 |
-| Tested code | `e4319843e` (이 보고서가 다루는 런타임 코드와 시험의 마지막 커밋) |
+| Status | 미배포. App 9.0.37 / v810 열차의 한 증분이다(오너 결정 2026-11-04 새벽: Phase 7 7A, 이 고침, 입력칸 디자인 시스템을 한 App 업데이트로, [열차 보고서](app-9-0-37-train-2026-11-04.md)). 처음 브랜치 `agent/ios-yt-return`, main `88550bc4`(App 9.0.35 / v808) 위에서 만들었고, 2026-11-04 열차 갈래 `agent/app-9-0-37`(main `34dbe592` 위)로 옮겼다 |
+| Tested code | `e4319843e` (이 보고서가 다루는 런타임 코드와 시험의 마지막 커밋, `88550bc4` 위). 옮긴 뒤 시험 먼저 `e60f2f9a`, 고침 `f5785ff6`, 리뷰 반영 `7bf5c5ef`(패치 같음)이고, 그 커밋들과 열차 머리에서 다시 돌린 결과는 열차 보고서 §4.2다 |
 | Environment | Windows 11, Node 24.22.2, Vitest(jsdom), Playwright Chromium(가짜 YouTube 플레이어, 실제 PeerJS). 실제 아이폰과 WebKit은 아직 |
 | Registry | [RO-05](resource-ownership-registry.md#ro-05-guest-youtube-re-align-retry-chains)(주인), [RO-51](resource-ownership-registry.md#ro-51-return-from-background-dialog)(가드의 복귀 판독) |
-| Owner question | 아래 "오너 질문" 한 개, 답 대기 |
+| Owner question | 아래 "오너 질문" 한 개, 2026-11-04 새벽 답: 이대로 둔다 |
 
 ## 보고
 
@@ -81,6 +81,9 @@ YouTube 화면 안으로 초점을 옮기지 못한 경우 브라우저가 멈�
 자동 맞춤이 진행 중인 약 2초 동안 누른 일시정지가 무시되는 것은 전에도 같았다. 이대로 둘지, 아니면
 돌아온 뒤 들어온 멈춤은 모두 게스트가 누른 것으로 볼지(1초 창을 없애고 숨겨진 동안의 멈춤만 고침,
 그러면 멈춤 신호가 돌아온 직후에 오는 경우는 지금처럼 멈춘 채로 남음) 정해 주시면 된다.
+
+답(2026-11-04 새벽, 뜻만 적음): 이대로 둔다. 같은 때 오너는 이 고침을 Phase 7 7A, 입력칸 디자인 시스템과 함께 App 9.0.37 / v810
+한 업데이트로 내기로 했다([열차 보고서](app-9-0-37-train-2026-11-04.md)).
 
 ## 못 막는 경우
 

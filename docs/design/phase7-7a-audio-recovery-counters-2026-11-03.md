@@ -1,14 +1,14 @@
 # Phase 7 7A: 오디오 복구 숫자와 소리 중립 정리 (2026-11-03)
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 준비됨, 머지 전, 배포 전. Phase 7의 첫 App 열차다(오너 Q2 '셋': 7A, 7B, 7C). 갈래 `agent/p7-7a`는 `agent/p7-t1`(끝 `42819c58`: Phase 7 T0 둘째 PR의 시험 커밋 둘, T1의 가드·문서 커밋 넷과 그 리뷰 반영 셋, 릴리스 없음) 위 커밋 열과 기록 커밋들이다: 7A-2, 7A-3, 7A-4, 7A-6, 7A-1 각각 테스트 먼저 커밋과 코드 커밋, 7A-1의 리뷰 반영 짝(코드 끝 `a4d4d383`), 기록 커밋 `66f1288b`, 리뷰 반영을 적은 문서 커밋 `d1e50ca4`, 그 뒤의 다시 검사(QA 라운드 10)를 적은 문서 커밋 `e9da3ceb`, 첫 로딩 크기에 대한 오너 답(아래 '오너 결정')을 적은 이 문서 커밋. 계획의 시작 조건대로 Phase 6 6D가 머지·배포·기록되고 그 머지 뒤 Full E2E와 배포 뒤 smoke가 통과하기 전에는 머지하지 않는다(아래 '머지 전에 할 일').                                                                                                                                                                                                             |
-| Base               | main `432d4ae7`(#564, App 9.0.34 / v807의 배포 기록). 그 App 런타임은 운영 9.0.34의 머지 `cd8eaf47`(#563)과 같다(`git diff cd8eaf47 432d4ae7`는 문서 일곱 파일뿐). 이 갈래는 처음 `cd8eaf47` 위에 만들어 QA 라운드 1 ~ 3을 그 SHA에서 돌렸고, QA 라운드 4에서 `432d4ae7` 위로 옮겼다(패치 열여섯 모두 같음). QA 라운드 9에서 리뷰 반영을 더한 `agent/p7-t1` 위로 7A 열을 다시 옮겼다(아래 'SHA 대응').                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Version            | 없음. 9.0.34 / v807 그대로다(`guard:release-identity` 'MUSIXQUARE 9.0.34; service-worker cache epoch v807'). App 런타임 경로가 바뀌므로 다음 App 패치와 SW epoch를 함께 올려야 하고(계획의 7A-5), 그 전에는 `guard:sw-cache-version`이 그 이유 하나로 실패한다: '[sw-cache-version] FAIL: committed PWA runtime changes are newer than v807 (cd8eaf47).'와 아래 'Deploy target'의 App 11 파일, 'Bump CACHE_VERSION in scripts/service-worker-asset.ts after these changes, then commit the bump.'(QA 라운드 5). 예상 번호는 9.0.37 / v810이다[추론: 공개 페이지 글꼴 9.0.35 / v808과 6D 9.0.36 / v809가 먼저 나가면. 사이에 다른 App 릴리스가 끼면 하나씩 밀림].                                                                                                                                                                                                                                                             |
-| Scope              | 계획 §4.5의 7A-1(숫자와 단계 쓰기 깔때기, 이름표 '의도(진단 표시)': `/debug sync` 줄), 7A-2(C1-I1 시간 집과 준비 상태 술어 하나), 7A-3(C1-I2 a·b), 7A-4(`attemptResume` 필수), 7A-6(닿지 않는 재무장 삭제, E5). 7A-2 ~ 7A-6은 중립이다. 7A-5(버전 올리기와 release-record §2 항목)는 릴리스 단계 몫이라 이 갈래에 없다. 7B·7C의 일은 없다.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Deploy target      | `app`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`로 바탕 `432d4ae7`과 코드 끝 `dd758372`를 견준 로컬 git 판정(QA 라운드 5, 운영 App의 머지 `cd8eaf47` 대비도 같음): App 11(`src/app.ts`, `src/audio/context-protocol.ts`, `src/audio/context-recovery.ts`, `src/audio/context.ts`, `src/audio/output-recovery-counters.ts`, `src/audio/ui-sounds.ts`, `src/chat/debug-console.ts`, `src/core/navigation-contract.ts`, `src/core/session-reset.ts`, `src/diagnostics/sync-flight-recorder.ts`, `src/types/index.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 변경 없음. `raise_app_build_floor` false, Developer API D1 false, 바닥 795 그대로. 리뷰 반영은 이 가운데 `src/diagnostics/sync-flight-recorder.ts`만 다시 고쳐 목록이 같다(`git diff --name-only 432d4ae7 a4d4d383`). |
-| Operations         | 운영에 닿지 않았다. 로컬 git(`git fetch` 한 번), 로컬 시험·빌드·Playwright(127.0.0.1:5591 앱, 5592 PeerJS, trace 끔, 재시도 0)만이고, 사진도 로컬 E2E 빌드와 로컬 PeerJS의 합성 방에서 찍었다. push, GitHub 쓰기, 배포, 운영 방 만들기는 없다.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Resource ownership | 새 레코드 없음. RO-01(이 열차의 자원)과 RO-23(페이지 전환 주인)을 같은 변경에서 고쳤다: RO-01 시간 집(7A-2), 단계 깔때기 둘과 관측 잎 `output-recovery-counters.ts`('관측, 주인 아님'), `context-recovery.ts`의 `Resource owner: RO-01` 머리(7A-1), Status의 Phase 0d 문장(이 기록 커밋), RO-23의 pagehide 콜백 한 문장(7A-1)과 'Allowed requesters'의 `onPageHide`(리뷰 반영), 가드 절 5번(RO-01 시간 집)과 6번(`attemptResume` 필수, 7A-4). T1의 리뷰 반영은 가드 절 6번(래칫이 `context.ts` 안 호출도 셈), Terms의 셈 목록, RO-01 'Missing'을 고쳤다. 정확한 개수는 모두 그대로다(native resume·suspend 11, 간접 재개 `ensureRunning` 4·`restartAudioContextFromGesture` 2·`probeAudioContextHealth` 5, dead-exports 20 / 76, bus-pairing 202 / 202). CHECK 5의 RO-01 계약에 `scalarHome`이 생겨 보고만 하는 같은 값 짝이 45에서 38이 됐다(RO-01 몫 7 → 0).                                                               |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | 준비됨, 머지 전, 배포 전. App 9.0.37 / v810 열차의 첫 증분이다(오너 결정 2026-11-04 새벽: 7A, 아이폰 게스트 YouTube 복귀 고침, 입력칸 디자인 시스템을 한 App 업데이트로). 열차 보고서는 [App 9.0.37 열차](app-9-0-37-train-2026-11-04.md)이고, 2026-11-04 이 보고서의 열여섯 커밋을 그 열차 갈래 `agent/app-9-0-37`로 옮겼다(아래 'SHA 대응'의 9.0.37 열차 열). Phase 7의 첫 App 업데이트다(오너 Q2 '셋': 7A, 7B, 7C). 옮기기 전 갈래 `agent/p7-7a`는 `agent/p7-t1`(끝 `42819c58`: Phase 7 T0 둘째 PR의 시험 커밋 둘, T1의 가드·문서 커밋 넷과 그 리뷰 반영 셋, 릴리스 없음) 위 커밋 열과 기록 커밋들이다: 7A-2, 7A-3, 7A-4, 7A-6, 7A-1 각각 테스트 먼저 커밋과 코드 커밋, 7A-1의 리뷰 반영 짝(코드 끝 `a4d4d383`), 기록 커밋 `66f1288b`, 리뷰 반영을 적은 문서 커밋 `d1e50ca4`, 그 뒤의 다시 검사(QA 라운드 10)를 적은 문서 커밋 `e9da3ceb`, 첫 로딩 크기에 대한 오너 답(아래 '오너 결정')을 적은 이 문서 커밋. 계획의 시작 조건(Phase 6 6D가 머지·배포·기록되고 그 머지 뒤 Full E2E와 배포 뒤 smoke가 통과)은 6D와 그 뒤의 9.0.36으로 채워졌다(아래 '머지 전에 할 일' 1). |
+| Base               | main `432d4ae7`(#564, App 9.0.34 / v807의 배포 기록). 그 App 런타임은 운영 9.0.34의 머지 `cd8eaf47`(#563)과 같다(`git diff cd8eaf47 432d4ae7`는 문서 일곱 파일뿐). 이 갈래는 처음 `cd8eaf47` 위에 만들어 QA 라운드 1 ~ 3을 그 SHA에서 돌렸고, QA 라운드 4에서 `432d4ae7` 위로 옮겼다(패치 열여섯 모두 같음). QA 라운드 9에서 리뷰 반영을 더한 `agent/p7-t1` 위로 7A 열을 다시 옮겼다(아래 'SHA 대응'). 2026-11-04에는 main `34dbe592`(#568, App 9.0.36 / v809의 배포 기록, 문서만, App 런타임은 운영 9.0.36의 머지 `6f9cf6f8`과 같음) 위로 옮겼다: T1을 그 위로 다시 쌓은 `agent/p7-t1`(끝 `1441742e`) 위에 열여섯을 cherry-pick했고, 런타임과 시험 패치는 모두 같으며 충돌은 registry 가드 절 5번과 `docs/README.md`뿐이다(열차 보고서 라운드 1).                                                                                                                                                                                                                                                                                                                          |
+| Version            | 9.0.37 / v810(App 빌드 810). 열차의 버전 올리기 `5d346d64`(9.0.36의 버전 올리기와 같은 여섯 파일 일곱 줄, 마지막 런타임 커밋, 계획의 7A-5)이고, 그 머리에서 `guard:sw-cache-version`이 PASS v810, `guard:release-identity`가 'MUSIXQUARE 9.0.37; service-worker cache epoch v810'이다(열차 보고서 라운드 2). 아래는 버전 올리기 전의 기록이다. QA 라운드 1 ~ 10은 9.0.34 / v807 그대로였다(`guard:release-identity` 'MUSIXQUARE 9.0.34; service-worker cache epoch v807'). App 런타임 경로가 바뀌므로 다음 App 패치와 SW epoch를 함께 올려야 했고(계획의 7A-5), 그 전에는 `guard:sw-cache-version`이 그 이유 하나로 실패했다: '[sw-cache-version] FAIL: committed PWA runtime changes are newer than v807 (cd8eaf47).'와 아래 'Deploy target'의 App 11 파일, 'Bump CACHE_VERSION in scripts/service-worker-asset.ts after these changes, then commit the bump.'(QA 라운드 5). 예상 번호 9.0.37 / v810은 6D가 9.0.35 / v808로, 공개 페이지 글꼴 열차가 9.0.36 / v809로 먼저 나가 그대로 맞았다.                                                                              |
+| Scope              | 계획 §4.5의 7A-1(숫자와 단계 쓰기 깔때기, 이름표 '의도(진단 표시)': `/debug sync` 줄), 7A-2(C1-I1 시간 집과 준비 상태 술어 하나), 7A-3(C1-I2 a·b), 7A-4(`attemptResume` 필수), 7A-6(닿지 않는 재무장 삭제, E5). 7A-2 ~ 7A-6은 중립이다. 7A-5(버전 올리기와 release-record §2 항목)는 릴리스 단계 몫이라 이 갈래에 없고, 9.0.37 열차의 버전 올리기 `5d346d64`와 release-record §2 9.0.37 절(배포 전)이 했다. 7B·7C의 일은 없다.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Deploy target      | `app`. `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`로 바탕 `432d4ae7`과 코드 끝 `dd758372`를 견준 로컬 git 판정(QA 라운드 5, 운영 App의 머지 `cd8eaf47` 대비도 같음): App 11(`src/app.ts`, `src/audio/context-protocol.ts`, `src/audio/context-recovery.ts`, `src/audio/context.ts`, `src/audio/output-recovery-counters.ts`, `src/audio/ui-sounds.ts`, `src/chat/debug-console.ts`, `src/core/navigation-contract.ts`, `src/core/session-reset.ts`, `src/diagnostics/sync-flight-recorder.ts`, `src/types/index.ts`), PRO room 0, remote-share 0, signaling 0, Developer API facade 0, Developer API 0, App 런타임 의존성 변경 없음. `raise_app_build_floor` false, Developer API D1 false, 바닥 795 그대로. 리뷰 반영은 이 가운데 `src/diagnostics/sync-flight-recorder.ts`만 다시 고쳐 목록이 같다(`git diff --name-only 432d4ae7 a4d4d383`).                                                                                                                                                |
+| Operations         | 운영에 닿지 않았다. 로컬 git(`git fetch` 한 번), 로컬 시험·빌드·Playwright(127.0.0.1:5591 앱, 5592 PeerJS, trace 끔, 재시도 0)만이고, 사진도 로컬 E2E 빌드와 로컬 PeerJS의 합성 방에서 찍었다. push, GitHub 쓰기, 배포, 운영 방 만들기는 없다.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Resource ownership | 새 레코드 없음. RO-01(이 열차의 자원)과 RO-23(페이지 전환 주인)을 같은 변경에서 고쳤다: RO-01 시간 집(7A-2), 단계 깔때기 둘과 관측 잎 `output-recovery-counters.ts`('관측, 주인 아님'), `context-recovery.ts`의 `Resource owner: RO-01` 머리(7A-1), Status의 Phase 0d 문장(이 기록 커밋), RO-23의 pagehide 콜백 한 문장(7A-1)과 'Allowed requesters'의 `onPageHide`(리뷰 반영), 가드 절 5번(RO-01 시간 집)과 6번(`attemptResume` 필수, 7A-4). T1의 리뷰 반영은 가드 절 6번(래칫이 `context.ts` 안 호출도 셈), Terms의 셈 목록, RO-01 'Missing'을 고쳤다. 정확한 개수는 모두 그대로다(native resume·suspend 11, 간접 재개 `ensureRunning` 4·`restartAudioContextFromGesture` 2·`probeAudioContextHealth` 5, dead-exports 20 / 76, bus-pairing 202 / 202). CHECK 5의 RO-01 계약에 `scalarHome`이 생겨 보고만 하는 같은 값 짝이 45에서 38이 됐다(RO-01 몫 7 → 0).                                                                                                                                                                                                              |
 
 이 문서는 Phase 7 계획의 첫 App 열차 7A의 증분과 QA를 기록한다. 근거는 공개하지 않는 작업 노트(`docs/private/`)의 Phase 7 계획(2026-11-01)과
 그 영역 조사, 오너 답(2026-11-02 밤)이고, PRE, GO, LP, RL, E 번호와 Q 번호, C1-I 번호는 그 노트와 C1 설계의 번호다. 앞선 Phase 7 단계는 시험만인
@@ -60,8 +60,8 @@ SHA는 리뷰 반영 뒤 옮긴 것이고(QA 라운드 9), 괄호 안은 검사�
 실패하고, `debug-sync-window` 3행(창 아래 안내, 끊김 수를 열 때 한 번 읽음, 창을 다시 열면 다시 읽음)과 `navigation-contract`(새 키),
 `page-lifecycle`(pagehide 콜백), `page-navigation-harness-parity`(고정한 `app.ts` 배선 글자)가 실패했다(모두 여섯 행). 리뷰 반영 짝의 새 행은
 부모에서 '(1 races watched)'를 읽어 실패한다. 7A-6은 동작을 바꾸지 않는 삭제라 새 행이 부모에서도 통과하는 고정이고,
-그 고정이 무엇을 지키는지는 변이로 보였다(확정이 슬롯을 비우지 않게 바꾸면 그 행이 실패). 로그는 저장소 밖 작업 폴더(`mxq-wt/p7-7a-logs`,
-오너 PC)의 `7a/`와 `7a1/`에 있다.
+그 고정이 무엇을 지키는지는 변이로 보였다(확정이 슬롯을 비우지 않게 바꾸면 그 행이 실패). 로그는 저장소 밖 작업 폴더(오너 PC)의
+`7a/`와 `7a1/`에 있다.
 
 ## 증분
 
@@ -182,7 +182,7 @@ Previous page: this tab sessionStorage | app=9.0.34 | resume attempts:4 deadline
    예를 들어 계획의 7B-4가 재생 범위의 둘째 정지를 750 ms에서 1,000 ms로 옮겨도 이름은 `scopeWatchdog750ms`로 남고, 그 열차 보고서가 값이
    바뀐 것을 적는다(이 규칙을 '전' 세트 전에 정함, 리뷰 반영. 코드의 이름 목록 주석도 같은 뜻).
 
-**실제 창 사진(저장소 밖 `mxq-wt/p7-7a-logs/debug-sync`, 오너 PC):** 코드 끝 `dd758372`의 E2E 빌드(2026-11-03 04:53 KST)를 로컬 미리보기(5591)와
+**실제 창 사진(저장소 밖 작업 폴더의 `debug-sync`, 오너 PC):** 코드 끝 `dd758372`의 E2E 빌드(2026-11-03 04:53 KST)를 로컬 미리보기(5591)와
 로컬 PeerJS(5592)로 띄워 Playwright Chromium 153 headless(배율 2, 다크, 한국어)로 찍었다. 휴대폰(390 × 844)과 데스크톱(1440 × 900) 각각: 창 1
 '로컬 방에서 파일 재생 중 복구 창의 버튼을 누른 뒤'(`Resume attempts: 1 | … dialog:1 …`, `Deadline fires: 0 (1 races watched)`, `Recovery dialog
 requests: 1 | play:0 return:1 …`), 창 2 '같은 탭 새로고침 다음 페이지'(내비게이션 종류 reload, 맨 아래 `Previous page: this tab sessionStorage |
@@ -276,7 +276,7 @@ playbackStats 없는 데스크톱)을 같은 설정으로 다시 찍었다(저�
    그대로).
 4. **7A-1 바이트가 증분 상한을 넘는다.** 오너가 그대로 두기로 했다(위 '오너 결정', 아래 '번들 크기'와 '오너에게').
 5. **T0 둘째 PR의 기준선(계획 §4.3 5, PRE-02)과 'T0 첫 PR 시험이 6D 코드에서 통과'는 하지 않았다.** 6D 기록 main이 아직 없어서다. 6D 기록 뒤
-   옮길 때 한다(아래 '머지 전에 할 일').
+   옮길 때 한다(아래 '머지 전에 할 일'). 2026-11-04 9.0.37 열차로 옮기며 'T0 첫 PR 시험이 6D 코드에서 통과'는 채웠고, 기준선은 아직이다.
 6. **T1의 간접 재개 래칫이 `context.ts` 안의 호출도 센다(리뷰 반영, 계획 §4.4는 '`context.ts` 밖만').** 계획은 `context.ts` 안에 세 함수를
    부르는 곳이 없어 밖만 세기로 했지만, 그러면 `context.ts`가 내보낸 감싸개가 다른 파일의 재개를 셈과 RO-01 기록 없이 숨길 수 있었다(가드 자체
    시험이 그 감싸개 `wakeTwice`를 '세지 않음'으로 고정했었다). RO-01 Status의 '새 재개 요청자는 항목과 이 기록의 고침이 필요'가 참이 되도록
@@ -352,28 +352,40 @@ sessionStorage 키 하나다. 업데이트를 적용하는 새로고침에서 9.
 
 ## 열린 항목
 
-release-record는 이 갈래에서 고치지 않았다. 7A-5(버전 올리기 앞의 기록 커밋)가 §2에 이 열차 항목(배포 전)을 더하고, '의존성·호환' 칸의 '저장 키
-변경'에 sessionStorage 키 `mxqr-prev-audio-recovery` 하나를 적는다. 계획이 7A에 걸어 둔 기존 열린 항목은 8.11.12 R 뒤로가기('오디오가 잠시 멈췄어요'는
-뒤로가기로 닫히지 않음)의 자동 근거 하나이고, `back-navigation.test.ts`의 그 행이 7A-3 앞뒤와 리뷰 반영 앞의 코드 끝 `dd758372`에서 통과했다(QA
-라운드 5와 8). 리뷰 반영 뒤 T1 끝과 7A 끝에서도 통과했다(QA 라운드 10). 기기 근거가 없으므로 어느 항목도 지우지 않는다.
+release-record는 이 갈래에서 고치지 않았다. 7A-5의 기록은 9.0.37 열차의 기록 커밋(버전 올리기 `5d346d64` 뒤의 문서 커밋)이 했다:
+release-record §2 맨 위의 9.0.37 절(배포 전)이 이 열차를 적고, 저장 키 변경(sessionStorage 키 `mxqr-prev-audio-recovery` 하나)은 그 절의 '범위와
+상태'에 적었다. §1 '의존성·호환' 칸의 '저장 키 변경'은 §1을 덮어쓰는 배포 기록 PR이 적는다(그 절의 배포 조건 (4)). 계획이 7A에 걸어 둔 기존 열린
+항목은 8.11.12 R 뒤로가기('오디오가 잠시 멈췄어요'는 뒤로가기로 닫히지 않음)의 자동 근거 하나이고, `back-navigation.test.ts`의 그 행이 7A-3 앞뒤와
+리뷰 반영 앞의 코드 끝 `dd758372`에서 통과했다(QA 라운드 5와 8). 리뷰 반영 뒤 T1 끝과 7A 끝에서도, 9.0.37 열차로 옮긴 뒤 7A 끝과 열차 머리에서도
+통과했다(QA 라운드 10, 열차 보고서 라운드 1). 9.0.37 열차의 기록이 그 항목에 이 자동 근거를 더했고, 기기 근거가 없으므로 어느 항목도 지우지 않았다.
 
 ## 머지 전에 할 일 (릴리스 담당)
 
-1. **시작 조건:** 6D가 머지·배포·기록되고, 6D의 머지 뒤 Full E2E 수동 실행과 배포 뒤 smoke가 통과한다(계획 §1.5). 오너가 본 순서대로 공개 페이지
-   글꼴 업데이트가 먼저 나가면 그 열차의 같은 조건도 지난다.
-2. **6D 기록 main 위로 옮기기:** `git rebase --update-refs`로 두 갈래를 함께 옮긴다. 충돌이 예상되는 곳은 6D가 고친 `scripts/check-resource-ownership.mts`
-   (CHECK 5 계약 목록, CHECK 11·12), 그 자체 시험 `resource-ownership-guard.test.ts`(RO-02 상태 글자), registry, `docs/README.md` 증거 목록 맨 위다.
-   옮긴 뒤 다시 돌릴 것: 6D-4가 PRO 관문을 읽는 방식을 바꾸므로 T0 둘째 PR의 `engine-youtube-audio-handoff.test.ts`(계약 (b) parity)와 `player.ts`의
-   관문 처리기 다시 읽기, 가드 자체 시험, T0 둘째 PR의 기준선(PRE-02: 단위 수, eager, `test:e2e:critical`, `demo-output-recovery`·`background-resume`
-   3회, 핵심 커버리지, 가드·mock 수, CI 시간)과 'T0 첫 PR 시험이 6D 코드에서 통과', 이 보고서의 전체 로컬 관문. 같은 때 둘을 더 한다(리뷰 반영).
-   (1) PRE-15(계획 §1.4, §4.3-4): 6B ~ 6D가 Phase 6 계약 (a)(b)(c)의 고정 시험을 더했는지 6D 코드에서 다시 읽고, 더했으면 그 시험을 쓰고 T0 둘째
-   PR의 겹치는 행을 뺀다(계획: 'Phase 6이 이미 더했으면 그것을 쓴다'). (2) 계획 §4.8-8: Phase 순증과 프로그램 순증의 셈법(어느 Phase 보고서를 세는지,
-   4A의 −14.6 KB를 세는지)을 T0 둘째 PR의 기준선 때 정해 이 보고서 머리에 한 줄로 적는다(기본: 각 Phase 보고서가 증분 차로 적은 것만 셈).
-3. **PR 나누기:** T0 둘째 PR(`c95ddd6b`, `835475d2`)과 T1(`b100bd35` ~ `42819c58`, 리뷰 반영 셋 포함)은 릴리스 없는 PR(하나로 묶어도 됨, 보고서
-   없음)로 먼저 넣고, 7A PR은 그 위에서 연다. 열차 창(머지부터 기록까지) 안에는 어떤 PR도 넣지 않는다.
-4. **바이트 결정:** 답을 받았다(2026-11-03, 그대로 두고 셋 다 빼지 않음, 위 '오너 결정'). 7A-5에서 release-record §2 항목에 옮긴다.
-5. **7A-5:** 버전 거울 여섯과 `index.html` 캐시 쿼리를 다음 패치·epoch로 올리고(예상 9.0.37 / v810, bump 직전 origin/main을 다시 봄), release-record §2
-   항목을 더한 뒤 버전 올리기 머리에서 전체 로컬 관문을 다시 돌린다. `raise_app_build_floor` false, Developer API D1 false.
+2026-11-04 9.0.37 열차로 옮기며 각 항목의 상태를 적었다(열차 보고서 라운드 1, 2). 남은 것은 2의 일부와 5의 전체 로컬 관문이다.
+
+1. **시작 조건(채워짐):** 6D가 머지·배포·기록되고(#565, 9.0.35 / v808, 기록 #566 `88550bc4`), 6D의 머지 뒤 Full E2E 41597953240과 배포 뒤
+   smoke가 통과했다(계획 §1.5). 공개 페이지 글꼴 열차도 같은 조건을 지났다(#567, 9.0.36 / v809, 기록 #568 `34dbe592`, 머지 뒤 Full E2E 41643979180
+   통과).
+2. **6D 기록 main 위로 옮기기(했음, 일부 남음):** `git rebase --update-refs` 대신 T1을 main `34dbe592` 위로 다시 쌓은 `agent/p7-t1`(끝 `1441742e`)
+   위에 7A 열을 cherry-pick했다(열차 갈래 `agent/app-9-0-37`). 충돌은 예상한 곳 가운데 registry(가드 절 5번에서 6D의 문장과 7A-2의 문장을 함께 둠)와
+   `docs/README.md` 증거 목록 맨 위였고, `scripts/check-resource-ownership.mts`와 그 자체 시험은 충돌 없이 자동 병합됐다. 옮긴 뒤 다시 돌린 것:
+   T0 둘째 PR의 `engine-youtube-audio-handoff.test.ts`(계약 (b) parity)를 포함한 표 열넷 272 / 272, 가드 자체 시험 117 / 117, T0 첫 PR의 주인 표가
+   6D 코드에서 통과('T0 첫 PR 시험이 6D 코드에서 통과'를 채움), 테스트 먼저 짝 여섯, 오디오 lab 17 / 17과 관찰 줄 36줄(바탕, 7A 끝, 열차 머리에서
+   같음), `background-resume`·`demo-output-recovery` 4 / 4, 복구 창 뒤로가기 행 1 / 1. 아직: `player.ts`의 관문 처리기 다시 읽기, T0 둘째 PR의
+   기준선(PRE-02: 단위 수, eager, `test:e2e:critical`, `demo-output-recovery`·`background-resume` 3회, 핵심 커버리지, 가드·mock 수, CI 시간), 그리고
+   리뷰 반영이 더한 둘: (1) PRE-15(계획 §1.4, §4.3-4): 6B ~ 6D가 Phase 6 계약 (a)(b)(c)의 고정 시험을 더했는지 6D 코드에서 다시 읽고, 더했으면 그
+   시험을 쓰고 T0 둘째 PR의 겹치는 행을 뺀다(계획: 'Phase 6이 이미 더했으면 그것을 쓴다'). (2) 계획 §4.8-8: Phase 순증과 프로그램 순증의
+   셈법(어느 Phase 보고서를 세는지, 4A의 −14.6 KB를 세는지)을 T0 둘째 PR의 기준선 때 정해 이 보고서 머리에 한 줄로 적는다(기본: 각 Phase 보고서가
+   증분 차로 적은 것만 셈). 이 보고서의 전체 로컬 관문은 5가 잇는다.
+3. **PR 나누기(바뀜):** T0 둘째 PR과 T1(옮긴 뒤 `d1a8215f` ~ `1441742e`, 리뷰 반영 셋과 새 바탕의 문서 커밋 하나 포함)은 릴리스 없는 PR 하나(보고서
+   없음)로 먼저 넣는다. 7A는 오너 결정(2026-11-04 새벽)대로 아이폰 게스트 YouTube 복귀 고침, 입력칸 디자인 시스템과 함께 9.0.37 열차 PR로 그 위에서
+   연다(T1의 squash가 main에 들어가면 그 위로 열차 갈래를 옮김, 열차 보고서 §13). 열차 창(머지부터 기록까지) 안에는 어떤 PR도 넣지 않는다.
+4. **바이트 결정(했음):** 답을 받았다(2026-11-03, 그대로 두고 셋 다 빼지 않음, 위 '오너 결정'). release-record §2 9.0.37 절의 '기댄 오너 결정'에
+   옮겼다.
+5. **7A-5(했음, 관문 남음):** 버전 거울 여섯과 `index.html` 캐시 쿼리를 9.0.37 / v810으로 올렸다(버전 올리기 `5d346d64`, 9.0.36의 버전 올리기와
+   같은 여섯 파일 일곱 줄, 마지막 런타임 커밋). 바탕은 릴리스 담당이 알린 main `34dbe592`이고, push 전에 origin/main을 다시 본다. release-record
+   §2 9.0.37 절을 더했다(배포 전). 버전 올리기 머리의 전체 로컬 관문은 열차 보고서의 다음 QA 라운드다. `raise_app_build_floor` false, Developer
+   API D1 false.
 
 ## 배포 뒤 확인 (블라인드, 게이트 아님)
 
@@ -397,7 +409,8 @@ release-record는 이 갈래에서 고치지 않았다. 7A-5(버전 올리기 �
 - `docs/qa-domains.md` QA026 진입점에 7A-1의 숫자 시험과 `/debug sync` 줄 시험(이 기록 커밋).
 - `docs/README.md` 증거 목록에 이 보고서(이 기록 커밋). 결정 기록 [AudioContext ownership](audio-context-ownership.md)은 mock 함정 문장만
   고쳤고(7A-2) Proposed 그대로다.
-- release-record와 release-history는 고치지 않았다(7A-5와 배포 뒤 기록 PR의 몫).
+- release-record와 release-history는 이 갈래에서 고치지 않았다. release-record §2 9.0.37 절(배포 전)과 8.11.12 R 뒤로가기 항목의 자동 근거는
+  9.0.37 열차의 기록 커밋이 적었고, §1과 release-history는 배포 뒤 기록 PR이 적는다.
 
 ## 오너에게
 
@@ -444,10 +457,31 @@ release-record는 이 갈래에서 고치지 않았다. 7A-5(버전 올리기 �
 | 7A-1 리뷰 반영: 경주 하나(시험 먼저 → 코드)                      |                         |                                            | `98da70f0` → `a4d4d383`                     |
 | 기록 커밋                                                        |                         | `93bff43d`                                 | `66f1288b`                                  |
 
+**9.0.37 열차로 옮김(2026-11-04):** T1은 main `34dbe592` 위로 다시 쌓였고(아홉 커밋 가운데 패치 다섯은 같고 넷은 hunk 맥락만 다름, 새 바탕의
+문서 커밋 `1441742e` 하나를 더함, T1의 PR 글), 7A 열여섯은 그 위로 cherry-pick됐다. 런타임과 시험 패치는 모두 같다. 7A-2 코드 커밋은 registry
+가드 절 5번이 6D의 문장과 충돌해 둘을 함께 두고 다시 접었고, 7A-4 코드 커밋은 registry 맥락 한 줄만 달라 stable patch-id가 다르며, 기록 커밋과
+문서 커밋 셋은 `docs/README.md` 맨 위가 충돌했다(열차 보고서 라운드 1).
+
+| 커밋                                  | 리뷰 반영 뒤                                   | 9.0.37 열차(`34dbe592` 위)                     |
+| ------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| T0 둘째 PR: 엔진 YouTube 오디오 넘김  | `c95ddd6b`                                     | `d1a8215f`                                     |
+| T0 둘째 PR: 시작 탭 native resume     | `835475d2`                                     | `bb912550`                                     |
+| T1 가드 시험 먼저 → 간접 재개 래칫    | `b100bd35` → `8ea13eea`                        | `f8dfd6e0` → `6e3e64e3`                        |
+| T1 결정 기록 시작, RO-01·QA025·QA026  | `4837a8e2`, `56d4e2dd`                         | `a17e0a73`, `1e445c40`                         |
+| T1 리뷰 반영(시험 먼저 → 가드), Terms | `af69103e` → `04350e17`, `42819c58`            | `7544076e` → `34b575e6`, `842e0258`            |
+| T1 새 바탕의 문서                     |                                                | `1441742e`                                     |
+| 7A-2 시험 → 코드                      | `63e849d3` → `32ad5b2c`                        | `24aa61dc` → `261524d9`                        |
+| 7A-3 시험 → 코드                      | `88c6b745` → `203edc3c`                        | `58cbf650` → `8d31551e`                        |
+| 7A-4 시험 → 코드                      | `ba6a7ba9` → `a7736158`                        | `24af95d5` → `ecad0946`                        |
+| 7A-6 시험 → 코드                      | `0337ec9e` → `ab353011`                        | `76484109` → `beb4ebbc`                        |
+| 7A-1 시험 → 코드                      | `29c5e292` → `d2bbf715`                        | `4e6eaec5` → `65ab936e`                        |
+| 7A-1 리뷰 반영(시험 먼저 → 코드)      | `98da70f0` → `a4d4d383`                        | `e2337b8e` → `2528cc86`                        |
+| 기록 커밋과 그 뒤 문서 커밋 셋        | `66f1288b`, `d1e50ca4`, `e9da3ceb`, `5d25a761` | `15b44284`, `ee0c8ac4`, `4be44fd2`, `68ecf1e2` |
+
 ## QA 라운드
 
 환경은 모두 Windows 11, Node 24.22.2, npm 12.0.2, vitest 5.0.3(`--maxWorkers=4`), Playwright Chromium(lock의 판, 153) headless, 포트 5591·5592,
-trace 끔, 재시도 0이다. 라운드 1 ~ 6의 로그는 저장소 밖 `mxq-wt/p7-7a-logs`(오너 PC)에 있다. 라운드 7 ~ 10은 같은 툴체인의 다른 작업 PC에서
+trace 끔, 재시도 0이다. 라운드 1 ~ 6의 로그는 저장소 밖 작업 폴더(오너 PC)에 있다. 라운드 7 ~ 10은 같은 툴체인의 다른 작업 PC에서
 돌렸고(라운드 8과 10의 E2E 포트는 4797·9797, 라운드 7·9는 E2E 없음), 로그와 라운드 10의 사진은 그 PC의 저장소 밖 작업 폴더에 있다.
 
 ### 1. T0 둘째 PR과 T1 (옮기기 전 `e529e5d4` ~ `47d7845a`, `cd8eaf47` 위, 2026-11-02 22:45 ~ 23:36 KST)
@@ -624,9 +658,9 @@ trace 끔, 재시도 0이다. 라운드 1 ~ 6의 로그는 저장소 밖 `mxq-wt
 
 ## 하지 않은 것과 확인하지 않은 것
 
-- 버전 올리기, release-record·release-history 기록, push, PR, GitHub CI, 자동 코드 리뷰, Full E2E(머지 뒤 `e2e.yml` 수동 실행), 배포, 운영 확인은
-  하지 않았다(릴리스 단계 몫).
-- 6D 기록 main 위의 다시 돌림과 T0 둘째 PR의 기준선(PRE-02, CI 시간 포함)은 하지 않았다(6D가 아직 main에 없음).
+- 이 보고서의 라운드(1 ~ 10)는 버전 올리기, release-record·release-history 기록, push, PR, GitHub CI, 자동 코드 리뷰, Full E2E(머지 뒤
+  `e2e.yml` 수동 실행), 배포, 운영 확인을 하지 않았다(릴리스 단계 몫). 버전 올리기와 release-record §2는 9.0.37 열차가 했다(열차 보고서).
+- 6D 기록 main 위의 다시 돌림은 9.0.37 열차로 옮기며 일부 했다(위 '머지 전에 할 일' 2). T0 둘째 PR의 기준선(PRE-02, CI 시간 포함)은 아직이다.
 - 기기 확인은 없다. 얼어붙은 시계는 기기와 브라우저에서 일부러 만들 수 없고, 이 열차의 근거는 하네스, T0 표, 로컬 Chromium lab이다. 로컬 Playwright
   WebKit(Windows)에는 AudioContext가 없어 브라우저 근거는 Chromium뿐이다(T0가 확인).
 - 크롬 끊김 수 줄이 실제 기기에서 숫자를 보이는지는 로컬 Playwright Chromium에서만 봤다(0). 'none' 줄은 그 속성을 지운 크롬으로 흉내 냈다.

@@ -10840,7 +10840,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --setup-guide-gap: clamp(12px, 3vh, 24px);
       --setup-guide-svg-max: clamp(240px, 45vh, 400px);
       --setup-guide-svg-h: clamp(80px, 15vh, 140px);
-      --setup-guide-desc: 12px;
       --setup-guide-mt: -10px;
       --setup-icon: clamp(56px, 12vh, 84px);
       --setup-icon-svg: clamp(28px, 6vh, 40px);

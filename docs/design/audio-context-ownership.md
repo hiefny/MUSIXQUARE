@@ -175,6 +175,9 @@ behind a failing test) and 7C (the move behind one owner).
   `src/audio/__tests__/context-health.test.ts`.
 - Lock-screen PLAY: `src/player/__tests__/media-session.test.ts`,
   `src/player/__tests__/media-session-lock-screen-pause.test.ts`.
+- UI sounds ask first (7B-3): `src/audio/__tests__/ui-sounds.test.ts` (while an owner holds the
+  context, no resume and no tone; otherwise a suspended context is resumed once and a running one
+  plays the tone) and the holding table.
 - Start tap (QA025): `src/ui/__tests__/setup-start.test.ts`,
   `src/ui/__tests__/setup-start-native-resume.test.ts`.
 - Engine handoffs to YouTube audio: `src/audio/__tests__/engine-youtube-audio-handoff.test.ts`.

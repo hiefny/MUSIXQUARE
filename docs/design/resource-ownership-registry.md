@@ -348,10 +348,13 @@ RO-54 accepted-exception
 - **Status:** `duplicated`. Phase 7 (one lease, one `statechange` dispatcher, owner gesture
   functions, UI sounds yield); its first train took over the app part of Phase 0d, the shared
   recovery timing and the prepared-state predicate (C1-I1, 7A-2), and it counts the recovery on
-  the device for `/debug sync` (7A-1). UI sounds yield since 7B-3. One suspend lease and one
-  `statechange` dispatcher per context since 7B-4, and one recovery resume for both owners with
-  the dialog's wait on the owner since 7B-5, kept in `context.ts` until 7C moves them into the
-  owner. Fix lane G7. Exceptions RO-36, RO-37, RO-44. The guard counts the native calls per file
+  the device for `/debug sync` (7A-1). Its second train changes the behaviour the owner approved
+  ([Phase 7 train 7B report](phase7-7b-audio-recovery-behaviour-2026-11-05.md)): the play-request
+  attempt parks again after an outside resume since 7B-2, UI sounds yield since 7B-3, one suspend
+  lease and one `statechange` dispatcher per context since 7B-4, and one recovery resume for both
+  owners with the dialog's wait on the owner since 7B-5, kept in `context.ts` until 7C moves them
+  into the owner; one lock-screen PLAY after a local pause rejoins since 7B-6. Fix lane G7.
+  Exceptions RO-36, RO-37, RO-44. The guard counts the native calls per file
   (CHECK 6; since 7B-4 `context-recovery.ts` calls no native suspend, and since 7B-5 one native
   resume, its automatic resume with nothing playing) and, since Phase 7 T1, the callers of
   `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` per file beside
@@ -3680,7 +3683,10 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Behaviour risk:** none.
 - **Revisit when:** Phase 7 makes a committed attempt queryable by token. Phase 7 7B-2's re-notify
   does not: after a re-park the dialog shows the same request again with the same closures, and the
-  owner's re-park query answers only for an attempt still being parked, not a committed one.
+  owner's re-park query answers only for an attempt still being parked, not a committed one. Nor
+  does 7B-5's answer for the dialog's wait (`whenForegroundAudioContextRestartClockRequirement`):
+  it is keyed by the token but settles at the promotion or when the attempt ends, and it reads a
+  committed attempt as gone.
 - **Status:** `accepted-exception`.
 
 ### RO-37 Defensive retry-versus-semantic branch stays in `app.ts`
@@ -3750,11 +3756,13 @@ entry needs the owner's acceptance and is not implied by this registry.
   `resume()` in `app.ts`), and since Phase 7 T1 the ratchet beside it pins, per file, the callers
   of the three `src/audio/context.ts` functions that call native `resume()` for their caller
   (`ensureRunning`, `restartAudioContextFromGesture`, `probeAudioContextHealth`). On `cd8eaf47`
-  (App 9.0.34), and again on `34dbe592` (App 9.0.36) on 2026-11-04, the app creates its one
-  AudioContext in one place (`getAudioContext` in `src/audio/context.ts`),
-  has no `OfflineAudioContext`, never calls `close()` on it and never takes its `resume` or
-  `suspend` as a reference (`.bind`, `.call`, destructuring). A type-resolved form would build a
-  TypeScript program in the CI guard step to find receivers that do not exist.
+  (App 9.0.34), again on `34dbe592` (App 9.0.36) on 2026-11-04, and on the Phase 7 7B code on
+  2026-11-05, the app creates its one AudioContext in one place (`getAudioContext` in
+  `src/audio/context.ts`), has no `OfflineAudioContext`, never calls `close()` on it and never
+  takes its `resume` or `suspend` as a reference (`.bind`, `.call`, destructuring). The recovery
+  attempts' fields named `resume` and `suspend` (since 7B-5 and 7B-4) hold a resume flight and a
+  suspend request, not the context's methods. A type-resolved form would build a TypeScript
+  program in the CI guard step to find receivers that do not exist.
 - **Behaviour risk:** an AudioContext held under the name `controller`, or whose `resume` or
   `suspend` is called through a reference, would escape the count.
 - **Revisit when:** a second construction site or an `OfflineAudioContext` appears, another receiver
@@ -4414,7 +4422,10 @@ and unrelated strings never count, and every baseline is an exact count or list 
    (`src/audio/engine.ts` 2, `src/player/decode.ts` 1, `src/player/transport.ts` 1),
    `restartAudioContextFromGesture` 2 (`src/app.ts`, `src/audio/context-recovery.ts`) and
    `probeAudioContextHealth` 5 (`src/app.ts`, `src/audio/context-recovery.ts`,
-   `src/audio/output-health.ts`, `src/player/media-session.ts`, `src/player/transport.ts`). Phase 7
+   `src/audio/output-health.ts`, `src/player/media-session.ts`, `src/player/transport.ts`). Since
+   Phase 7 7B-5 `restartAudioContextFromGesture` is 1 (`src/app.ts`): the playback-scope owner's
+   gesture resume goes through the one recovery resume in `src/audio/context.ts`, which calls
+   native `resume()` itself (CHECK 6). Phase 7
    moves the dialog, Media Session and transport callers into the owner and lowers these counts in
    each step's change; a count that rises in `context-recovery.ts` updates RO-01 and RO-44 in the
    same change. `initAudio`, which reaches `ensureRunning` through the engine, is reported only (12

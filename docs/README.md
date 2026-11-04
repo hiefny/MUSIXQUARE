@@ -96,6 +96,40 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 7 train 7B: the audio recovery behaviour the owner approved (2026-11-05)](design/phase7-7b-audio-recovery-behaviour-2026-11-05.md):
+  prepared, not merged or released. The second of the three Phase 7 App updates (owner decision
+  Q2), expected as App 9.0.39 / v812 after the owner's UI tidy (9.0.38 / v811). Built on branch
+  `agent/p7-7b` on main `3506dc41` (App 9.0.37 / v810's release record; its App runtime is
+  production 9.0.37's `d1665230`) without a bump or a release record entry: by the owner's
+  decision of 2026-11-04 (evening) it was built beside 9.0.38 and merges only after 9.0.38 is
+  deployed and recorded and its post-merge Full E2E passes, when a later step moves it onto that
+  main, bumps it and records it. Five intended increments, each with its failing test first,
+  approved by the owner from pictures before the build (2026-11-04 early morning): 7B-2 (Q8)
+  parks the play-request attempt again when something wakes the audio while its recovery dialog
+  waits, so one tap plays (a tap inside that short re-park closes the dialog and the same dialog
+  shows once more); 7B-3 (Q9, one unit with 7B-2) makes UI sounds ask the recovery owners first
+  and stay silent, waking nothing, while one holds the context for a local file's dialog; 7B-4
+  (Q6) gives each AudioContext one suspend lease and one `statechange` dispatcher in a fixed
+  order, so the return check's second suspend comes after the late fence (about 1.0 s instead of
+  0.75 s, the give-up at 1.75 s) and two overlapping recoveries make one suspend and one dialog
+  request, the later one's; 7B-5 (Q7) gives both owners one recovery resume and lets the dialog
+  wait on the owner's answer instead of a 50 ms poll, which also closes the I11/I12 known gaps (a
+  return-dialog tap or lock-screen PLAY whose audio wakes after 0.75 s with its running event
+  first now gets one clock check and one alignment, not a second dialog); 7B-6 (Q12, shipped in
+  this train instead of its own fix train by the owner's answer) lets one lock-screen PLAY after a
+  local pause rejoin the room while an interruption is pending. The case found while preparing 7B
+  (screen locked, no call: the room realigns at once but the sound returns only when the app is
+  opened) is pinned as a known gap and not changed, by the owner's decision. Compared with the
+  approved pictures in local Chromium on the head, every row matches; four small timing
+  differences and two changes the pictures did not show are listed for the owner before merge.
+  Guard counts only fell (native resume and suspend 11 to 9, `restartAudioContextFromGesture`
+  callers 2 to 1); no new bus event (202 / 202), dead exports 20 / 75, the contract freeze diff
+  is empty and the build floor stays 795. First load: eager JavaScript +184 B gzip against
+  `3506dc41` (467,353 to 467,537 B); Phase 7 stands at +894 B against the +200 B Phase net judged
+  after 7C. Local evidence only: after every increment the unit suite (773 files), critical
+  coverage, the guards, the audio lab three times (17 rows, 18 from 7B-4) and the CI recovery
+  specs; Chromium only (local WebKit has no AudioContext), no device. `guard:sw-cache-version` fails until the
+  bump, by design. The rounds of the full gate are still to be added.
 - [App 9.0.38 / v811 train: the owner's UI tidy, the demo text sizes, the chat '#1', unused rules, the /debug COPY button and the phone start-screen scrollbar (2026-11-04)](design/app-9-0-38-train-2026-11-04.md):
   released on 2026-11-05 06:14 KST in Release 41913839299 (PR #572, squash `9e62c26c`) as App 9.0.38 / v811 (App build
   811, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

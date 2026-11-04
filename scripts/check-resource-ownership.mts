@@ -47,7 +47,15 @@
  *     one object, `<scalars>`. Constants that only share a value are
  *     report-only (--report lists them).
  *   CHECK 6 AudioContext native resume()/suspend() call sites (RO-01, RO-44),
- *     counted syntactically per file.
+ *     counted syntactically per file. Beside it (RO-01, Phase 7 T1), the
+ *     callers of the three functions of src/audio/context.ts that call
+ *     native resume() for whoever calls them (ensureRunning,
+ *     restartAudioContextFromGesture, probeAudioContextHealth): exact uses
+ *     per file and function, that home included (a wrapper there would hide
+ *     its callers), by name: calls, namespace members, values passed on,
+ *     string keys and renames (an import or export specifier, a
+ *     destructuring). initAudio, which reaches ensureRunning through the
+ *     engine, is reported only (--report lists every use).
  *   CHECK 7 Developer API authority fence writers (RO-25). Writes to
  *     mxqr_developer_api_room_authority_fences stay in the listed functions:
  *     the activator, the clearer and the PRO room decommission. A string or
@@ -185,10 +193,11 @@
  * generated Worker types excluded). The checks walk the TypeScript AST, so
  * comments and unrelated strings never count. Lifecycle-operation callers
  * are counted only for the names above (page-lock claims, SKIP_WAITING sends,
- * AudioContext resume/suspend, armed reception starts, the Worker broadcast
- * endpoint, the duration reader in cloudflare/, the authority fence writers,
- * the system-audio receive slot writers and the YouTube iframe audio
- * writers). Deliberately not checked yet (registry RO-44, RO-45 and
+ * AudioContext resume/suspend and the callers of its indirect resume
+ * functions, armed reception starts, the Worker broadcast endpoint, the
+ * duration reader in cloudflare/, the authority fence writers, the
+ * system-audio receive slot writers and the YouTube iframe audio writers).
+ * Deliberately not checked yet (registry RO-44, RO-45 and
  * "Resource-ownership guard"): callers of the other records' lifecycle
  * operations (YouTube player commands other than the iframe audio writes,
  * claimPlaybackOwner with a literal owner other than 'system-audio',
@@ -601,6 +610,107 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
         'UI sound, without asking an owner (Phase 7 yields)',
     },
   ],
+]);
+
+// ── CHECK 6 beside it: indirect AudioContext resume callers (RO-01) ──────
+// Measured on main cd8eaf47 (App 9.0.34), 2026-11-02 (Phase 7 T1), and again on
+// main 34dbe592 (App 9.0.36), 2026-11-04: the same counts in the same files.
+
+/**
+ * RO-01: the functions of the AudioContext singleton that call native
+ * resume() for whoever calls them, with their callers' exact uses per file
+ * (their home src/audio/context.ts too, which calls none of them today, so
+ * a wrapper there cannot hide a caller):
+ * ensureRunning (a context that is not running),
+ * restartAudioContextFromGesture (inside the caller's gesture) and
+ * probeAudioContextHealth (unless the caller passes attemptResume: false).
+ * Phase 7 moves these callers into the owner (7C-1 to 7C-3); each step
+ * lowers its count here.
+ */
+const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
+  [
+    'ensureRunning',
+    new Map<string, Allowance>([
+      [
+        'src/audio/engine.ts',
+        {
+          count: 2,
+          reason:
+            "initAudio: the first initialization on a context that is not running (the start tap's " +
+            'same-stack resume, QA025) and a built graph whose context is not running',
+        },
+      ],
+      [
+        'src/player/decode.ts',
+        { count: 1, reason: 'file activation: a context still not running after initAudio' },
+      ],
+      [
+        'src/player/transport.ts',
+        { count: 1, reason: 'play(): resume before a file source starts' },
+      ],
+    ]),
+  ],
+  [
+    'restartAudioContextFromGesture',
+    new Map<string, Allowance>([
+      [
+        'src/app.ts',
+        {
+          count: 1,
+          reason:
+            "recovery dialog's ordinary branch, in the button's gesture (moves to the owner, 7C-2)",
+        },
+      ],
+      [
+        'src/audio/context-recovery.ts',
+        { count: 1, reason: "the playback-scope owner's own gesture resume" },
+      ],
+    ]),
+  ],
+  [
+    'probeAudioContextHealth',
+    new Map<string, Allowance>([
+      [
+        'src/app.ts',
+        {
+          count: 1,
+          reason: "recovery dialog's clock check after the gesture, attemptResume false (7C-2)",
+        },
+      ],
+      [
+        'src/audio/context-recovery.ts',
+        { count: 1, reason: "the owner's automatic clock check, attemptResume false" },
+      ],
+      [
+        'src/audio/output-health.ts',
+        {
+          count: 1,
+          reason:
+            'background output check, attemptResume true only after both owners report no attempt ' +
+            '(outside the owner because of the transport import cycle)',
+        },
+      ],
+      [
+        'src/player/media-session.ts',
+        { count: 1, reason: 'lock-screen PLAY clock check, attemptResume false (7C-1)' },
+      ],
+      [
+        'src/player/transport.ts',
+        { count: 1, reason: "failed PLAY's foreground clock check, attemptResume false (7C-3)" },
+      ],
+    ]),
+  ],
+]);
+
+/**
+ * Reported, never enforced (--report): initAudio reaches ensureRunning
+ * through the engine, and its callers are the system-audio routes and the
+ * file paths; a ratchet there would rub every system-audio change.
+ */
+const INDIRECT_RESUME_REPORT_ONLY = 'initAudio';
+const INDIRECT_RESUME_NAMES = new Set([
+  ...INDIRECT_RESUME_BASELINES.keys(),
+  INDIRECT_RESUME_REPORT_ONLY,
 ]);
 
 // ── CHECK 7 baseline: Developer API authority fence writers (RO-25) ──────
@@ -1441,6 +1551,10 @@ interface FileFacts {
   readonly authorityFenceWriteSites: string[];
   /** CHECK 11: `file:line method() in function`, one per write. */
   readonly iframeAudioWriteSites: string[];
+  /** CHECK 6 beside: one per counted use, its site as `file:line name() in function`. */
+  readonly indirectResumeSites: Array<{ readonly name: string; readonly site: string }>;
+  /** Report-only initAudio uses, in the same form. */
+  readonly initAudioSites: string[];
   readonly ownerHeaders: string[];
 }
 
@@ -1546,6 +1660,35 @@ function mayClaimSystemAudio(node: ts.Identifier): boolean {
   return !owner || !ts.isStringLiteralLike(owner) || owner.text === SYSTEM_AUDIO_OWNER;
 }
 
+/**
+ * CHECK 6 beside (RO-01): the indirect resume function a node uses, or null.
+ * By name, so a renamed caller cannot hide: a value use (a call, a namespace
+ * member, the function passed on or placed in an object), a string key
+ * (`context['ensureRunning']`), and a rename (an import or export specifier
+ * `ensureRunning as wake`, a destructuring `{ ensureRunning: wake }`), whose
+ * own calls then go uncounted. Declarations, type positions and member
+ * signatures are not uses. The home's own calls count too: a wrapper it
+ * exported would otherwise resume for callers no count sees.
+ */
+function indirectResumeUse(node: ts.Node): string | null {
+  if (ts.isElementAccessExpression(node)) {
+    const key = unwrap(node.argumentExpression);
+    return ts.isStringLiteralLike(key) && INDIRECT_RESUME_NAMES.has(key.text) ? key.text : null;
+  }
+  if (!ts.isIdentifier(node) || !INDIRECT_RESUME_NAMES.has(node.text)) return null;
+  const parent = node.parent;
+  if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) {
+    return parent.propertyName === node && parent.name.text !== node.text ? node.text : null;
+  }
+  if (ts.isBindingElement(parent) && parent.propertyName === node) {
+    return ts.isIdentifier(parent.name) && parent.name.text === node.text ? null : node.text;
+  }
+  if (ts.isTypeQueryNode(parent) || ts.isQualifiedName(parent) || ts.isMethodSignature(parent)) {
+    return null;
+  }
+  return isValueReference(node) ? node.text : null;
+}
+
 const constInitializerCache = new WeakMap<
   ts.SourceFile,
   ReadonlyMap<string, readonly ts.Expression[]>
@@ -1624,6 +1767,8 @@ function collectFacts(relPath: string, text: string): FileFacts {
     armedReceptionStartSites: [],
     authorityFenceWriteSites: [],
     iframeAudioWriteSites: [],
+    indirectResumeSites: [],
+    initAudioSites: [],
     ownerHeaders: [],
   };
 
@@ -1694,6 +1839,12 @@ function collectFacts(relPath: string, text: string): FileFacts {
       // An object literal that carries the hint or the bitrate, such as a
       // sendEncodings entry or an Object.assign source.
       facts.mediaTuningSites += 1;
+    }
+    const indirectResume = indirectResumeUse(node);
+    if (indirectResume !== null) {
+      const site = `${relPath}:${lineOf(file, node)} ${indirectResume}() in ${enclosingFunctionName(node)}`;
+      if (indirectResume === INDIRECT_RESUME_REPORT_ONLY) facts.initAudioSites.push(site);
+      else facts.indirectResumeSites.push({ name: indirectResume, site });
     }
 
     const member = memberName(node);
@@ -4253,6 +4404,12 @@ export interface ResourceOwnershipReport {
     readonly reportOnly: readonly string[];
   };
   readonly audioContextNativeCalls: number;
+  /** CHECK 6 beside: counted uses per indirect resume function, its home included. */
+  readonly indirectResumeCalls: Readonly<Record<string, number>>;
+  /** CHECK 6 beside: every counted use, `file:line name() in function`. */
+  readonly indirectResumeSites: readonly string[];
+  /** Report-only initAudio uses, in the same form. */
+  readonly initAudioSites: readonly string[];
   readonly defaultLoaderWrites: number;
   readonly receiveSlotWrites: Readonly<Record<string, number>>;
   readonly mediaTuningSites: number;
@@ -4448,6 +4605,28 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     },
     findings,
   );
+  const indirectResumeUses = [...facts.entries()]
+    .filter(([relPath]) => appOnly(relPath))
+    .flatMap(([relPath, f]) => f.indirectResumeSites.map((use) => ({ relPath, ...use })));
+  const indirectResumeCalls: Record<string, number> = {};
+  for (const [name, baseline] of INDIRECT_RESUME_BASELINES) {
+    const measured = tally(
+      indirectResumeUses.filter((use) => use.name === name).map((use) => use.relPath),
+    );
+    compareExact(
+      {
+        label: `indirect AudioContext resume ${name}()`,
+        record: 'RO-01',
+        hint:
+          'ask the AudioContext owner (target src/audio/context-recovery.ts) or an existing ' +
+          'requester instead; a new requester needs a reasoned entry and the RO-01 record update',
+        measured,
+        baseline,
+      },
+      findings,
+    );
+    indirectResumeCalls[name] = total(measured);
+  }
 
   const defaultLoaderWrites = collectDefaultLoaderWrites(input.sources);
   compareExact(
@@ -4629,6 +4808,11 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       reportOnly: pairs.reportOnly,
     },
     audioContextNativeCalls: total(audioContextCalls),
+    indirectResumeCalls,
+    indirectResumeSites: indirectResumeUses.map((use) => use.site),
+    initAudioSites: [...facts.entries()]
+      .filter(([relPath]) => appOnly(relPath))
+      .flatMap(([, f]) => f.initAudioSites),
     defaultLoaderWrites: total(defaultLoaderWrites),
     receiveSlotWrites,
     mediaTuningSites: total(mediaTuningSites),
@@ -4679,7 +4863,9 @@ function main(argv: readonly string[]): void {
       `  copied timing constants: ${timingPairs.copies} copies, ${timingPairs.suspects} suspects; ` +
       `${timingPairs.reportOnly.length} same-value pairs (report-only` +
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +
-      `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.\n` +
+      `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}; indirect AudioContext ` +
+      `resume callers: ${summary(report.indirectResumeCalls)}; initAudio uses ` +
+      `${report.initAudioSites.length} (report-only).\n` +
       `  Developer API authority fence writes: ${report.authorityFenceWrites}.\n` +
       `  Header loader default holder writes: ${report.defaultLoaderWrites}.\n` +
       `  system-audio receive slot writes: ${summary(report.receiveSlotWrites)}.\n` +
@@ -4693,6 +4879,10 @@ function main(argv: readonly string[]): void {
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);
+    for (const site of report.indirectResumeSites) console.log(`    indirect resume: ${site}`);
+    for (const site of report.initAudioSites) {
+      console.log(`    initAudio use (report-only): ${site}`);
+    }
     for (const site of report.iframeAudioWriteSites) console.log(`    iframe audio write: ${site}`);
     for (const site of report.startTimerSites) console.log(`    ${site}`);
     for (const site of report.startOwnerFacadeSites) console.log(`    ${site}`);

@@ -50,7 +50,8 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
   consolidating phase moves ownership; `owner-in-place` records already have it.
 - **Lifecycle operations:** the calls that change the resource (start, stop, resume, close,
   write, retry). The resource-ownership guard counts only some callers today: page-lock claims,
-  `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()`, armed
+  `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()` and, since Phase 7 T1, the callers
+  of `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth`, armed
   `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint, the duration
   reader in `cloudflare/`, the Developer API authority fence writers, the header loader's
   default-holder writers and the YouTube iframe's `mute()`, `unMute()` and `setVolume()`
@@ -134,7 +135,7 @@ each record also states the step in words.
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
 | RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check    |
 | RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)          |
-| RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                        |
+| RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Revisit on an aliased context  |
 | RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round    |
 | RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision                 |
 | RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                       |
@@ -231,7 +232,8 @@ RO-54 accepted-exception
   is not running, on a trusted pointerdown or Enter or Space keydown and before it plays a UI
   sound, without asking either owner.
 - **Target single owner:** `src/audio/context-recovery.ts` as the only native resume and suspend
-  owner; `context.ts` keeps the singleton.
+  owner; `context.ts` keeps the singleton. The rules Phase 7 works to are proposed in
+  [AudioContext ownership](audio-context-ownership.md).
 - **Allowed requesters:** `ensureRunning` callers (transport, decode, engine) and
   `probeAudioContextHealth` (defined in `context.ts`; called from `output-health.ts`, `app.ts`,
   `media-session.ts`, `context-recovery.ts` and `src/player/transport.ts`) may resume only a
@@ -264,10 +266,18 @@ RO-54 accepted-exception
   - Visibility: `context-recovery.test.ts` "never calls native resume while hidden without active
     playback"; `audio-context-ownership.test.ts` "a late resume … that settles while hidden is
     verified on the visible edge" (G7).
-  - Missing: both machines and UI sounds together; no unit test imports `app.ts`.
+  - Both machines and UI sounds together (Phase 7 T0): `audio-output-recovery-boundary.test.ts`,
+    `audio-output-recovery-holding.test.ts` and `audio-output-recovery-parity.test.ts` in
+    `src/audio/__tests__/`, over the owners with no module mocks.
+  - Missing: no unit test loads `app.ts`; the recovery dialog's half is pinned only in a browser,
+    by the local Chromium lab `e2e/audio-lab/output-recovery.lab.ts` (never in CI) and by the CI
+    specs `e2e/back-navigation.test.ts` ('a required audio recovery dialog survives Back'),
+    `e2e/background-resume.test.ts` and `e2e/demo-output-recovery.test.ts`.
 - **Status:** `duplicated`. Phase 0d (shared constants), Phase 7 (one lease, one `statechange`
   dispatcher, owner gesture functions, UI sounds yield). Fix lane G7. Exceptions RO-36, RO-37,
-  RO-44.
+  RO-44. The guard counts the native calls per file (CHECK 6) and, since Phase 7 T1, the callers of
+  `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` per file beside
+  it, so a new requester of a resume needs an entry and this record's update.
 
 ### RO-02 YouTube Standard shared start
 
@@ -3602,13 +3612,26 @@ entry needs the owner's acceptance and is not implied by this registry.
 
 ### RO-44 AudioContext native-call guard is syntactic
 
-- **Parent:** RO-01. The type-checker form of the native-call guard is deferred to Phase 7.
+- **Parent:** RO-01. The type-checker form of the native-call guard was deferred to Phase 7; Phase 7
+  T1 (2026-11-02) re-checked it and kept the syntactic form, with the caller ratchet beside it.
 - **Exception:** the Phase 0b guard counts `resume()` and `suspend()` calls syntactically per file;
   it does not resolve the receiver type.
-- **Evidence:** a syntactic count plus an importer ratchet is cheaper now; `app.ts` already has a
-  `suspend()` and `resume()` on another controller, excluded by receiver.
-- **Behaviour risk:** an aliased AudioContext could escape the count.
-- **Revisit when:** Phase 7.
+- **Evidence:** a syntactic count plus a caller ratchet is cheaper and covers today's code. CHECK 6
+  counts every zero-argument `resume()` and `suspend()` member call whatever its receiver is
+  called, except a receiver named `controller` (the Back guard controller's `suspend()` and
+  `resume()` in `app.ts`), and since Phase 7 T1 the ratchet beside it pins, per file, the callers
+  of the three `src/audio/context.ts` functions that call native `resume()` for their caller
+  (`ensureRunning`, `restartAudioContextFromGesture`, `probeAudioContextHealth`). On `cd8eaf47`
+  (App 9.0.34), and again on `34dbe592` (App 9.0.36) on 2026-11-04, the app creates its one
+  AudioContext in one place (`getAudioContext` in `src/audio/context.ts`),
+  has no `OfflineAudioContext`, never calls `close()` on it and never takes its `resume` or
+  `suspend` as a reference (`.bind`, `.call`, destructuring). A type-resolved form would build a
+  TypeScript program in the CI guard step to find receivers that do not exist.
+- **Behaviour risk:** an AudioContext held under the name `controller`, or whose `resume` or
+  `suspend` is called through a reference, would escape the count.
+- **Revisit when:** a second construction site or an `OfflineAudioContext` appears, another receiver
+  name has to be excluded, or code calls an AudioContext method through a reference; then the
+  guard resolves receivers by type.
 - **Status:** `accepted-exception`.
 
 ### RO-45 No guard for new module-level lifecycle slots
@@ -4245,7 +4268,27 @@ and unrelated strings never count, and every baseline is an exact count or list 
    `authority-arm.ts`, `player.ts` and `iframe.ts` in
    `src/youtube/`. Constants that share only a value are report-only, because round values such as
    1 s, 15 s and 30 s recur across different contracts; `--report` lists them.
-6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44).
+6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44). Beside it,
+   since Phase 7 T1, **indirect AudioContext resume callers, per file** (RO-01): uses of the three
+   functions of `src/audio/context.ts` that call native `resume()` for whoever calls them,
+   `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` (which resumes
+   unless the caller passes `attemptResume: false`), in every file, that home included (it calls
+   none of them, and a wrapper exported there would hide its callers). The match is by name: a
+   call, a namespace member, the function passed on or placed in an object, a string key
+   (`context['ensureRunning']`) and a rename (an import or export specifier, a destructuring),
+   whose own calls then go uncounted, and a local function with one of these names counts too.
+   Exact on 2026-11-02 (main `cd8eaf47`) and again on 2026-11-04 (main `34dbe592`, App 9.0.36):
+   `ensureRunning` 4
+   (`src/audio/engine.ts` 2, `src/player/decode.ts` 1, `src/player/transport.ts` 1),
+   `restartAudioContextFromGesture` 2 (`src/app.ts`, `src/audio/context-recovery.ts`) and
+   `probeAudioContextHealth` 5 (`src/app.ts`, `src/audio/context-recovery.ts`,
+   `src/audio/output-health.ts`, `src/player/media-session.ts`, `src/player/transport.ts`). Phase 7
+   moves the dialog, Media Session and transport callers into the owner and lowers these counts in
+   each step's change; a count that rises in `context-recovery.ts` updates RO-01 and RO-44 in the
+   same change. `initAudio`, which reaches `ensureRunning` through the engine, is reported only (12
+   uses on both dates: 11 calls, mostly the system-audio routes and the file paths, and the
+   development debug object), because a ratchet there would rub every system-audio change.
+   `--report` lists every counted use and every `initAudio` use with its function.
 7. **Developer API authority fence writers, per function** (RO-25): a string or template literal
    that inserts into, replaces into, updates or deletes from
    `mxqr_developer_api_room_authority_fences`, or names it in any other way (a bare table name can

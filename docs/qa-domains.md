@@ -342,7 +342,7 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **대표 구현:** [src/audio/context.ts](../src/audio/context.ts), [src/player/transport.ts](../src/player/transport.ts)
 
-**기존 검사 진입점:** [src/audio/__tests__/context-health.test.ts](../src/audio/__tests__/context-health.test.ts), [e2e/demo-output-recovery.test.ts](../e2e/demo-output-recovery.test.ts)
+**기존 검사 진입점:** [src/audio/__tests__/context-health.test.ts](../src/audio/__tests__/context-health.test.ts), [src/ui/__tests__/setup-start.test.ts](../src/ui/__tests__/setup-start.test.ts), [src/ui/__tests__/setup-start-native-resume.test.ts](../src/ui/__tests__/setup-start-native-resume.test.ts), [e2e/demo-output-recovery.test.ts](../e2e/demo-output-recovery.test.ts)
 
 ### QA026. OS 중단·백그라운드·오디오 시계 복구 — P0
 
@@ -352,7 +352,7 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **대표 구현:** [src/audio/context-recovery.ts](../src/audio/context-recovery.ts), [src/audio/context.ts](../src/audio/context.ts), [src/audio/output-health.ts](../src/audio/output-health.ts)
 
-**기존 검사 진입점:** [src/audio/__tests__/foreground-output-health.test.ts](../src/audio/__tests__/foreground-output-health.test.ts), [e2e/background-resume.test.ts](../e2e/background-resume.test.ts)
+**기존 검사 진입점:** [src/audio/__tests__/foreground-output-health.test.ts](../src/audio/__tests__/foreground-output-health.test.ts), [src/audio/__tests__/audio-context-ownership.test.ts](../src/audio/__tests__/audio-context-ownership.test.ts), [src/audio/__tests__/context-recovery.test.ts](../src/audio/__tests__/context-recovery.test.ts), [src/audio/__tests__/audio-output-recovery-boundary.test.ts](../src/audio/__tests__/audio-output-recovery-boundary.test.ts), [src/audio/__tests__/audio-output-recovery-holding.test.ts](../src/audio/__tests__/audio-output-recovery-holding.test.ts), [src/audio/__tests__/audio-output-recovery-parity.test.ts](../src/audio/__tests__/audio-output-recovery-parity.test.ts), [src/player/__tests__/media-session-lock-screen-pause.test.ts](../src/player/__tests__/media-session-lock-screen-pause.test.ts), [e2e/background-resume.test.ts](../e2e/background-resume.test.ts), [e2e/audio-lab/output-recovery.lab.ts](../e2e/audio-lab/output-recovery.lab.ts) (작업 컴퓨터에서만, CI 밖)
 
 ### QA027. 볼륨·효과·채널 UI의 권한과 gesture — P0
 

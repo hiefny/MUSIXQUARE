@@ -9,7 +9,9 @@
  * Clipboard API write starts before any await, and where the API is missing,
  * throws or rejects, a hidden textarea copies with execCommand('copy') in the
  * same tap. The button then reads COPIED, or COPY FAILED, because a toast
- * would sit under the overlay. The copy on open stays as it was.
+ * would sit under the overlay. The copy on open stays as it was, except that
+ * it no longer replaces what a tap already copied. A tap before the first
+ * sample is on screen copies nothing.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -47,6 +49,7 @@ vi.mock('../../network/system-audio-debug.ts', () => ({
   collectSystemAudioDebugText: vi.fn(async () => 'system audio report'),
 }));
 
+import { collectSystemAudioDebugText } from '../../network/system-audio-debug.ts';
 import { cmdDebug } from '../debug-console.ts';
 
 interface ExecCall {
@@ -84,6 +87,25 @@ async function openSync(): Promise<HTMLButtonElement> {
   cmdDebug(['sync']);
   await flushMicrotasks();
   return copyButton('debug-sync-flight-overlay');
+}
+
+/**
+ * Holds the next two system audio samples, which the overlay asks for when it
+ * opens: the first refresh's, then the copy on open's. Each call of the
+ * returned function hands out the next one.
+ */
+function holdSystemAudioSamples(): (text: string) => void {
+  const pending: Array<(text: string) => void> = [];
+  const held = () =>
+    new Promise<string>((resolve) => {
+      pending.push(resolve);
+    });
+  vi.mocked(collectSystemAudioDebugText).mockImplementationOnce(held).mockImplementationOnce(held);
+  return (text) => {
+    const release = pending.shift();
+    if (!release) throw new Error('no system audio sample is waiting');
+    release(text);
+  };
 }
 
 beforeEach(() => {
@@ -224,6 +246,57 @@ describe('/debug overlay COPY', () => {
 
     overlay('debug-screen-overlay').click();
     expect(document.getElementById('debug-screen-overlay')).toBeNull();
+  });
+
+  it('copies nothing while no sample is on screen yet', async () => {
+    const nextSample = holdSystemAudioSamples();
+    cmdDebug(['sa']);
+    await flushMicrotasks();
+    const button = copyButton('debug-system-audio-overlay');
+    expect(overlay('debug-system-audio-overlay').querySelector('pre')?.textContent).toBe('');
+
+    // An empty copy would wipe the clipboard and still read COPIED.
+    button.click();
+    await flushMicrotasks();
+    expect(mocks.writeText).not.toHaveBeenCalled();
+    expect(execCalls).toEqual([]);
+    expect(button.textContent).toBe('COPY');
+
+    nextSample('sample 1');
+    await flushMicrotasks();
+    button.click();
+    expect(mocks.writeText).toHaveBeenCalledExactlyOnceWith('sample 1');
+    await flushMicrotasks();
+    expect(button.textContent).toBe('COPIED');
+  });
+
+  it('keeps what a tap copied when the copy on open finishes later', async () => {
+    const nextSample = holdSystemAudioSamples();
+    cmdDebug(['sa']);
+    await flushMicrotasks();
+    const button = copyButton('debug-system-audio-overlay');
+    nextSample('sample 1');
+    await flushMicrotasks();
+    button.click();
+    await flushMicrotasks();
+    expect(mocks.writeText).toHaveBeenCalledExactlyOnceWith('sample 1');
+    expect(button.textContent).toBe('COPIED');
+
+    // The copy on open collects its own sample, which can arrive after the tap.
+    nextSample('sample 1, collected again');
+    await flushMicrotasks();
+    expect(mocks.writeText).toHaveBeenCalledOnce();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
+  it('still copies on open when no tap came first', async () => {
+    const nextSample = holdSystemAudioSamples();
+    cmdDebug(['sa']);
+    nextSample('sample 1');
+    nextSample('sample 1, collected again');
+    await flushMicrotasks();
+    expect(mocks.writeText).toHaveBeenCalledExactlyOnceWith('sample 1, collected again');
+    expect(mocks.showToast).toHaveBeenCalledOnce();
   });
 
   it('drops a result that arrives after the overlay closed', async () => {

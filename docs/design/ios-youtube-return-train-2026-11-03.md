@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | 미배포. App 9.0.37 / v810 열차의 한 증분이다(오너 결정 2026-11-04 새벽: Phase 7 7A, 이 고침, 입력칸 디자인 시스템을 한 App 업데이트로, [열차 보고서](app-9-0-37-train-2026-11-04.md)). 처음 브랜치 `agent/ios-yt-return`, main `88550bc4`(App 9.0.35 / v808) 위에서 만들었고, 2026-11-04 열차 갈래 `agent/app-9-0-37`(main `34dbe592` 위)로 옮겼다 |
+| Status | 배포됨: App 9.0.37 / v810 열차의 한 증분으로 2026-11-04 13:51 KST에 나갔다(Release 41775435927, PR #570 squash `d1665230`, [열차 보고서 §14.6](app-9-0-37-train-2026-11-04.md#146-라운드-5-t1-머지-pr-ci-자동-코드-리뷰-머지-exact-main-ci-배포와-smoke-공개-확인-운영-chromium-확인-drift-audit과-머지-뒤-full-e2e-2026-11-04)). 실제 아이폰과 아이패드의 확인은 아직이다(release-record §2 9.0.37 절의 배포 직후 확인). App 9.0.37 / v810 열차의 한 증분이다(오너 결정 2026-11-04 새벽: Phase 7 7A, 이 고침, 입력칸 디자인 시스템을 한 App 업데이트로, [열차 보고서](app-9-0-37-train-2026-11-04.md)). 처음 브랜치 `agent/ios-yt-return`, main `88550bc4`(App 9.0.35 / v808) 위에서 만들었고, 2026-11-04 열차 갈래 `agent/app-9-0-37`(main `34dbe592` 위)로 옮겼다. 배포 기록에서 덧붙임(2026-11-04): T1이 #569로 머지된 뒤 열차 커밋을 T1의 squash `2c6544ff` 위로 다시 옮겼고(머리 트리는 관문을 지난 트리와 바이트로 같음), 문서 커밋 `87abe5e7`이 인용한 SHA를 제자리에서 고쳐 아래 Tested code의 옮긴 뒤 SHA는 `2c6544ff` 위의 것이다(열차 보고서 §4.2가 다시 돌린 것은 `1441742e` 위의 옮기기 전 커밋이고 열차 머리의 트리는 같음. 머지 커밋 본문, 열차 보고서 §13 2와 §16) |
 | Tested code | `e4319843e` (이 보고서가 다루는 런타임 코드와 시험의 마지막 커밋, `88550bc4` 위). 옮긴 뒤 시험 먼저 `872f8bc3`, 고침 `f858db58`, 리뷰 반영 `8399355d`(패치 같음)이고, 그 커밋들과 열차 머리에서 다시 돌린 결과는 열차 보고서 §4.2다 |
-| Environment | Windows 11, Node 24.22.2, Vitest(jsdom), Playwright Chromium(가짜 YouTube 플레이어, 실제 PeerJS). 실제 아이폰과 WebKit은 아직 |
+| Environment | Windows 11, Node 24.22.2, Vitest(jsdom), Playwright Chromium(가짜 YouTube 플레이어, 실제 PeerJS). 머지 뒤 Full E2E 41775760191의 Linux Chromium `e2e`가 통과했다(명세별 행 수는 근거에 없음, 열차 보고서 §14.6). 실제 아이폰과 WebKit은 아직 |
 | Registry | [RO-05](resource-ownership-registry.md#ro-05-guest-youtube-re-align-retry-chains)(주인), [RO-51](resource-ownership-registry.md#ro-51-return-from-background-dialog)(가드의 복귀 판독) |
 | Owner question | 아래 "오너 질문" 한 개, 2026-11-04 새벽 답: 이대로 둔다 |
 

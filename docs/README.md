@@ -142,8 +142,8 @@ runbooks. Neither belongs in a general setup document.
   Round 5 records the release. T1 merged first as #569 (`2c6544ff`, 13:22 KST, its tree equal to `1441742e`), so the
   train's 47 commits moved onto it with the head tree byte-identical to the gated one and docs commit `87abe5e7` rewrote the
   cited SHAs; PR CI 41772916970 passed on `87abe5e7` and the automated review ended with no findings; the merge `d1665230`
-  (13:36 KST) used the prepared squash body; exact-main CI 41774236913 passed all 11 jobs and the release script read its
-  success with no watch error this time; Release 41775435927 passed its smokes on the first try (entry `main-CRPNGkCE.js`,
+  (13:36 KST) used the prepared squash body; exact-main CI 41774236913 passed all 11 jobs, and the release script's log
+  shows no watch error and it dispatched without a hand step; Release 41775435927 passed its smokes on the first try (entry `main-CRPNGkCE.js`,
   862,074 B, 1,782 B larger than 9.0.36's as round 3 measured); the release owner's public reads showed v810 and a desktop
   Chromium look at the code entry screen showed the input system's values (label 13px / 600, code field 32px / 700, line
   12px / 600); Drift Audit

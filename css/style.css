@@ -5880,8 +5880,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   html:lang(ja) .ob-slide .ob-desc,
   html:lang(ja) .ob-desc,
   html:lang(ja) .setup-header-text p,
-  html:lang(ja) .setup-unified-item .setup-inner-desc,
-  html:lang(ja) .setup-inner-desc,
   html:lang(ja) .setup-inline-error,
   html:lang(zh-Hans) .setup-inline-error,
   html:lang(zh-Hant) .setup-inline-error,
@@ -6992,7 +6990,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .ob-desc {
-    font-size: 15.5px;
     color: var(--text-sub);
     line-height: 1.6;
     word-break: keep-all;
@@ -7518,15 +7515,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     box-shadow: none;
   }
 
-  .setup-unified-item .setup-inner-desc {
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--text-sub);
-    font-weight: var(--font-weight-body);
-    line-height: 1.4;
-    word-break: keep-all;
-  }
-
   .setup-code-area-bottom {
     margin-top: 40px;
     padding: 16px 0 32px;
@@ -7562,17 +7550,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .setup-auto-join-area .setup-inline-error {
     margin-top: 0;
-  }
-
-  .setup-inner-desc {
-    font-size: 11.5px;
-    font-weight: var(--font-weight-body);
-    color: var(--text-sub);
-    text-align: center;
-    margin-top: 10px;
-    line-height: 1.4;
-    word-break: keep-all;
-    padding: 0 10px;
   }
 
   /* The hidden role picker remains styled so an explicit selection step can
@@ -8058,7 +8035,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .chat-join-order {
-    font-size: 0.8em;
+    font-size: 9px;
     opacity: 0.5;
     margin-inline-start: 2px;
   }
@@ -9950,11 +9927,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* The icon gives way whenever a label beside it would have less than 4px
      to spare (owner decision 2026-10-29). The widest label, Greek Αριστερό,
-     takes 60px at the phones' 13px and 57.7px at the two-column 12.5px; a
-     container over 448px leaves it 65px and 62px beside the 19px icon, its
-     gap and the 8px padding, and 440px would not (demo-role-icon.test.ts,
+     takes 59px at the phones' 13px and 54.4px at the two-column 12px; a
+     container over 440px leaves it 63px and 60.2px beside the 19px icon, its
+     gap and the 8px padding, and 432px would not (demo-role-icon.test.ts,
      chip-label-width.test.ts). */
-  @container demo-role-options (max-width: 448px) {
+  @container demo-role-options (max-width: 440px) {
     .demo-role-segmented button {
       gap: 0;
       padding-inline: 4px;
@@ -10285,13 +10262,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       gap: clamp(14px, 2.4vh, 24px);
     }
 
+    /* The step title and copy take the desktop start carousel's title and
+       description sizes (--setup-ob-title and --setup-ob-desc in
+       css/desktop.css, scoped to #setup-overlay), and the track names the
+       playlist's .track-name size (demo-wide-type-contract.test.ts). */
     .demo-step-copy h2 {
-      font-size: clamp(22px, 2.2vw, 30px);
+      font-size: clamp(22px, 2.2vw, 28px);
     }
 
     .demo-step-copy p,
     .demo-step-body {
-      font-size: clamp(13.5px, 1.2vw, 15.5px);
+      font-size: clamp(13px, 1.1vw, 15px);
     }
 
     .demo-session-qr {
@@ -10318,7 +10299,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
     .demo-role-segmented button {
       gap: clamp(5px, 0.8vw, 9px);
-      font-size: clamp(12.5px, 1vw, 14.5px);
+      font-size: clamp(12px, 1vw, 14px);
     }
 
     .demo-large-actions {
@@ -10367,7 +10348,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     .demo-track-row strong {
-      font-size: clamp(14px, 1.05vw, 15.5px);
+      font-size: 15px;
     }
 
     .demo-step-nav {
@@ -10859,7 +10840,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --setup-guide-gap: clamp(12px, 3vh, 24px);
       --setup-guide-svg-max: clamp(240px, 45vh, 400px);
       --setup-guide-svg-h: clamp(80px, 15vh, 140px);
-      --setup-guide-desc: 12px;
       --setup-guide-mt: -10px;
       --setup-icon: clamp(56px, 12vh, 84px);
       --setup-icon-svg: clamp(28px, 6vh, 40px);
@@ -12053,6 +12033,28 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       background: #ffffff;
     }
   }
+  /* Phone setup: the step areas (the elements that scroll) and the actions
+     bar span the screen, so a contained area's scrollbar, drawn at the right
+     edge of .setup-mobile-view (src/ui/custom-scrollbar.ts), sits at the
+     screen edge. The card's and the view's 28px insets move inside them:
+     56px in the step areas and 84px in the actions bar, its own 28px more,
+     so no text or button moves. The scrollbar takes no layout width, so both
+     sides stay equal. A width-only query, so phones held sideways under
+     720px get it too; the two-column panel from 720px keeps its own. */
+  @media (max-width: 719px) {
+    #setup-overlay .setup-card.full-screen,
+    #setup-overlay .setup-mobile-view {
+      padding-inline: 0;
+    }
+
+    #setup-overlay .setup-mobile-view > div:not(.ob-actions):not(.cscroll-track) {
+      padding-inline: 56px;
+    }
+
+    #setup-overlay .setup-mobile-view > .ob-actions {
+      padding-inline: 84px;
+    }
+  }
   /* Phone portrait setup: center the middle block (carousel, invite QR, QR
      scanner and code) between the header and the actions by what is visible.
      Auto margins split the free space; the bottom padding balances the gaps
@@ -12793,10 +12795,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       height: var(--setup-guide-svg-h);
     }
 
-    .desktop-diagram-area .setup-unified-item .setup-inner-desc {
-      font-size: var(--setup-guide-desc);
-    }
-
     /* ── Onboarding slider in left panel ── */
     .desktop-diagram-area #ob-slider-area {
       width: 100%;
@@ -12858,6 +12856,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       max-height: 100%;
       margin: 0;
       align-self: center;
+    }
+  }
+
+  /* The /debug text overlays' one COPY (src/chat/debug-console.ts) keeps the
+     350px a 390px phone gives it, in the middle, instead of a pill across
+     the screen (owner decision 2026-11-04): its row stops at 366px with its
+     8px padding, and a tap beside the row lands on the overlay itself.
+     Below 720px wide the row is as before. The onboarding diagnostics share
+     the row's classes and keep theirs. */
+  @media (min-width: 720px) {
+    .debug-memory-overlay:not(.onboarding-diagnostics-overlay) .onboarding-diagnostics-actions {
+      width: 100%;
+      max-width: 366px;
+      margin-inline: auto;
     }
   }
   html:not(.ios-standalone) body {

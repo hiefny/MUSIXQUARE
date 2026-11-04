@@ -326,6 +326,70 @@ function closeActiveTextDebugOverlay(): void {
   }
 }
 
+/**
+ * Copies with execCommand('copy') from a selected, read-only textarea, as
+ * src/ui/dom.ts does (chat modules may not import it). 16px keeps iOS from
+ * zooming into the field; focus and the selection come back afterwards.
+ */
+function copyWithHiddenTextarea(text: string): boolean {
+  if (!document.body || typeof document.execCommand !== 'function') return false;
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  const textarea = document.createElement('textarea');
+  try {
+    textarea.value = text;
+    textarea.readOnly = true;
+    textarea.setAttribute('aria-hidden', 'true');
+    textarea.style.cssText =
+      'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px';
+    document.body.appendChild(textarea);
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+    if (active?.isConnected) active.focus({ preventScroll: true });
+    if (range && selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+}
+
+/**
+ * Copies `text` inside the tap whose click handler calls it, then reports
+ * whether it did. iOS WebKit allows a clipboard write only while it handles
+ * the tap, so the Clipboard API write starts before any await. Where the API
+ * is missing or throws, the hidden textarea copies at once; where the write is
+ * rejected, it copies in the rejection handler, which still has the tap's
+ * activation. WebKit rejects a refused write at once, so that handler runs in
+ * the microtasks right after the click handler, inside the event; Chromium
+ * rejects in a later task but keeps the activation for about 5 s. The note on
+ * copyTextToClipboardWithoutFocus in src/ui/dom.ts says the same.
+ */
+function copyInsideTap(text: string, report: (copied: boolean) => void): void {
+  const clipboard = navigator.clipboard;
+  if (!clipboard?.writeText) {
+    report(copyWithHiddenTextarea(text));
+    return;
+  }
+  let write: Promise<void>;
+  try {
+    write = clipboard.writeText(text);
+  } catch {
+    report(copyWithHiddenTextarea(text));
+    return;
+  }
+  write.then(
+    () => report(true),
+    () => report(copyWithHiddenTextarea(text)),
+  );
+}
+
 function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
   const generation = debugCommandGeneration;
   // Single-overlay invariant across ALL /debug overlays (including memory).
@@ -334,6 +398,12 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
 
   document.getElementById(opts.id)?.remove();
 
+  // Usually the chat field that sent the command. A click focuses COPY in
+  // Chromium and Firefox on Windows; cleanup gives focus back from there.
+  const returnFocus =
+    document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+      ? document.activeElement
+      : null;
   const overlay = document.createElement('div');
   overlay.id = opts.id;
   overlay.className = 'debug-memory-overlay';
@@ -351,12 +421,26 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
   }
   overlay.appendChild(pre);
 
+  // COPY copies the text on screen inside its own tap. iPhone Safari refuses
+  // the copy on open below, which starts after the lazy import and an await.
+  // The result shows on the button, because a toast sits under this overlay.
+  const actions = document.createElement('div');
+  actions.className = 'onboarding-diagnostics-actions';
+  const copyButton = document.createElement('button');
+  copyButton.type = 'button';
+  copyButton.className = 'onboarding-diagnostics-action';
+  copyButton.textContent = 'COPY';
+  actions.appendChild(copyButton);
+  overlay.appendChild(actions);
+
   const hint = document.createElement('div');
   hint.className = 'debug-memory-hint';
   hint.textContent = opts.hint;
   overlay.appendChild(hint);
 
   let disposed = false;
+  // Set by a COPY tap, so the copy on open below does not replace its text.
+  let copiedByTap = false;
   // Re-entrancy + stale-write guard: an async collect (systemaudio awaits
   // RTCStats) can outlast the 1s tick — skip overlapping ticks and drop a
   // resolved write if the overlay was torn down meanwhile.
@@ -401,8 +485,22 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
       window.visualViewport?.removeEventListener('resize', refresh);
       window.visualViewport?.removeEventListener('scroll', refresh);
     }
+    const focusInside = overlay.contains(document.activeElement);
     if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+    // Otherwise focus falls to the page, where Space toggles playback.
+    if (focusInside && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
   };
+
+  copyButton.addEventListener('click', () => {
+    // Before the first sample (systemaudio awaits RTCStats) there is nothing to
+    // copy, and an empty write would wipe the clipboard.
+    const text = pre.textContent ?? '';
+    if (!text) return;
+    copiedByTap = true;
+    copyInsideTap(text, (copied) => {
+      if (!disposed) copyButton.textContent = copied ? 'COPIED' : 'COPY FAILED';
+    });
+  });
 
   if (opts.scrollable) {
     // Backdrop tap only — let the user scroll the content without closing.
@@ -410,7 +508,11 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
       if (e.target === overlay) close();
     });
   } else {
-    overlay.addEventListener('click', close);
+    // Any tap closes, except one on COPY. The COPY click still reaches the
+    // page, where the app plays its button sound.
+    overlay.addEventListener('click', (e) => {
+      if (!copyButton.contains(e.target as Node | null)) close();
+    });
   }
   document.addEventListener('keydown', onKey);
   if (opts.watchViewport) {
@@ -426,7 +528,7 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     interval: true,
   });
 
-  // One-shot clipboard copy of the first sample.
+  // One-shot clipboard copy of the first sample, unless a COPY tap came first.
   (async () => {
     let text: string;
     try {
@@ -434,7 +536,7 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     } catch {
       return;
     }
-    if (disposed || generation !== debugCommandGeneration) return;
+    if (disposed || copiedByTap || generation !== debugCommandGeneration) return;
     try {
       await navigator.clipboard?.writeText(text);
       if (!disposed && generation === debugCommandGeneration) showToast(t('chat.debug_copied'));

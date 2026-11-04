@@ -544,7 +544,6 @@
       --setup-guide-gap: clamp(40px, 6vh, 72px);
       --setup-guide-svg-max: clamp(420px, 55vw, 680px);
       --setup-guide-svg-h: clamp(100px, 16vh, 200px);
-      --setup-guide-desc: clamp(14px, 1.3vw, 18px);
       --setup-guide-mt: 0px;
       --setup-icon: clamp(72px, 8vw, 100px);
       --setup-icon-svg: clamp(32px, 3.5vw, 44px);

@@ -488,10 +488,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: transform 0.15s ease;
   }
 
+  /* The keyboard ring sits inside the button, like the send and search rings. */
   .clearable-editor-button:focus-visible {
     color: var(--text-main);
     outline: 2px solid var(--primary);
-    outline-offset: 1px;
+    outline-offset: -2px;
   }
 
   .clearable-editor-button:active svg {
@@ -5882,6 +5883,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   html:lang(ja) .setup-unified-item .setup-inner-desc,
   html:lang(ja) .setup-inner-desc,
   html:lang(ja) .setup-inline-error,
+  html:lang(zh-Hans) .setup-inline-error,
+  html:lang(zh-Hant) .setup-inline-error,
+  html:lang(ja) .dialog-hint,
+  html:lang(zh-Hans) .dialog-hint,
+  html:lang(zh-Hant) .dialog-hint,
+  html:lang(ja) .yt-preview-meta,
+  html:lang(zh-Hans) .yt-preview-meta,
+  html:lang(zh-Hant) .yt-preview-meta,
   html:lang(ja) .demo-step-copy p,
   html:lang(ja) .demo-step-body {
     word-break: normal;
@@ -5899,7 +5908,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: 0;
     background: none;
     color: var(--text-main);
-    font-size: 15px;
+    /* The entry step of the field family (owner decision 2026-11-03): typed
+       text at 16px on a 20px line, so iOS never zooms on focus. */
+    font-size: 16px;
+    font-weight: var(--font-weight-body);
+    line-height: 20px;
     font-family: inherit;
     outline: none;
     transition: border-bottom-color 0.2s ease;
@@ -5923,18 +5936,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .dialog-input-segment {
     width: 92px;
     min-width: 0;
-    padding: 12px 4px;
+    padding: 8px 4px;
     border: none;
     border-bottom: 2px solid var(--surface-3);
     border-radius: 0;
     background: transparent;
     color: var(--text-main);
     font-family: inherit;
-    font-size: 22px;
-    /* The room PIN entry digits are a display value, like the PIN. */
+    /* The room PIN entry digits are a display value, like the PIN: the
+       display M step (24 / 700 on a 32px line, box 50px). */
+    font-size: 24px;
     font-weight: var(--font-weight-title);
     font-variant-numeric: tabular-nums;
-    line-height: 36px;
+    line-height: 32px;
     letter-spacing: 0.12em;
     text-align: center;
     outline: none;
@@ -5949,11 +5963,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-bottom-color: var(--primary);
   }
 
+  /* The blue underline is the only focus mark of a field; Windows forced
+     colours keep their own Highlight ring. */
+  .dialog-input-segment:focus-visible {
+    outline: none;
+  }
+
   .dialog-input-separator {
     color: var(--text-muted);
-    font-size: 22px;
+    font-size: 24px;
     font-weight: var(--font-weight-title);
-    line-height: 36px;
+    line-height: 32px;
     transform: translateY(4px);
     user-select: none;
   }
@@ -5966,21 +5986,39 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-bottom-color: var(--danger-foreground);
   }
 
-  .dialog-hint {
+  /* Line under a text field (owner decision 2026-11-03): the setup code line,
+     the dialog hint and the YouTube status line share one look. Hints take the
+     body role; progress, result and error lines the label role; errors the one
+     danger red. The line follows the field's alignment. */
+  :is(.setup-inline-error, .dialog-hint, .yt-preview-meta) {
+    margin: 8px 0 0;
+    padding-inline: 4px;
+    color: var(--text-sub);
     font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 8px;
-    min-height: 16px;
-    transition: color 0.2s;
+    font-weight: var(--font-weight-body);
+    line-height: 18px;
+    letter-spacing: normal;
+    text-align: start;
+    white-space: pre-line;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    transition: color 0.2s ease;
   }
 
-  .dialog-input-split + .dialog-hint {
+  :is(.setup-inline-error, .dialog-hint.error, .yt-preview-meta.error) {
+    color: var(--danger-foreground);
+    font-weight: var(--font-weight-label);
+  }
+
+  /* Centred under a code or PIN, and on the invite screen. */
+  :is(.setup-inline-error, .dialog-input-split + .dialog-hint) {
+    padding-inline: 0;
     text-align: center;
   }
 
-  .dialog-hint.error {
-    color: var(--danger-foreground);
-    font-weight: var(--font-weight-label);
+  /* Dialogs keep one line of space, so an error never moves the buttons. */
+  .dialog-hint {
+    min-height: 18px;
   }
 
   .dialog-input.shake {
@@ -7193,6 +7231,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* --- Setup overlay --- */
+  /* A field label: 13 / 600 --text-sub in sentence case at normal tracking
+     (owner decision 2026-11-03). */
   .setup-code-label {
     text-align: center;
     width: 100%;
@@ -7200,9 +7240,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 13px;
     color: var(--text-sub);
     font-weight: var(--font-weight-label);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    opacity: 0.8;
   }
 
   /* Setup Illustrations */
@@ -7518,16 +7555,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
   }
 
+  /* The shared line rule (Line under a text field) styles this line. */
   .setup-inline-error {
     width: 100%;
-    margin: 12px 0 0;
-    color: var(--danger-foreground);
-    font-size: 13px;
-    font-weight: var(--font-weight-label);
-    line-height: 1.45;
-    text-align: center;
-    white-space: pre-line;
-    word-break: keep-all;
   }
 
   .setup-auto-join-area .setup-inline-error {
@@ -7599,7 +7629,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-self: center;
     font-family: inherit;
     font-variant-numeric: tabular-nums;
-    transition: border-bottom-color 0.3s ease;
+    transition: border-bottom-color 0.2s ease;
     outline: none;
     box-shadow: none;
   }
@@ -7613,6 +7643,28 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-bottom-color: var(--primary);
     outline: none;
     box-shadow: none;
+  }
+
+  /* A wrong code also turns the underline red; a connection failure paints only the line. */
+  .setup-join-input:not(.yt-intro-text)[aria-invalid='true'] {
+    border-bottom-color: var(--danger-foreground);
+  }
+
+  /* Joining: the digits fade once. iOS WebKit dims disabled fields on its own. */
+  .setup-join-input:disabled {
+    opacity: 1;
+    color: color-mix(in srgb, var(--text-main) 50%, transparent);
+    -webkit-text-fill-color: color-mix(in srgb, var(--text-main) 50%, transparent);
+  }
+
+  /* Six digits fit beside the clear button at 320px wide; the box stays 56px.
+     The host's read-only code has no clear button and keeps its 32px digits. */
+  @media (max-width: 359px) {
+    .setup-join-input:not(.yt-intro-text):not([readonly]) {
+      padding-block: 11px;
+      font-size: 24px;
+      line-height: 32px;
+    }
   }
 
   .setup-join-area {
@@ -8181,6 +8233,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     word-break: break-all;
   }
 
+  /* Typed text sits on a 20px line, as in the dialog and YouTube boxes. The
+     manual sync value shares .chat-input and keeps its display line. */
+  .chat-input:not(.sync-manual-input),
+  .chat-cmd-ghost {
+    line-height: 20px;
+  }
+
   .chat-input:focus {
     outline: none;
     box-shadow: none;
@@ -8240,6 +8299,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .chat-send-btn:active {
     transform: scale(0.92);
     opacity: 0.8;
+  }
+
+  /* The keyboard ring sits inside the arrow's circle. */
+  .chat-send-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
   }
 
   .chat-send-btn svg {
@@ -9074,7 +9139,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     margin: 12px 0 20px;
     padding: 0;
   }
@@ -9084,18 +9149,27 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding-bottom: 0;
   }
 
-  .sync-col-label {
-    font-size: 12px;
-    font-weight: var(--font-weight-label);
-    color: var(--text-sub);
-    letter-spacing: 0.3px;
+  /* A wrong value turns the underline red until the next keystroke. It must
+     follow .chat-input-wrapper:focus-within to win over the focus blue. */
+  .sync-manual-input-wrapper:has([aria-invalid='true']) {
+    border-bottom-color: var(--danger-foreground);
   }
 
-  /* The manual sync value is a display value, typed like chat input. */
+  /* A field label: 13 / 600 --text-sub at normal tracking. */
+  .sync-col-label {
+    font-size: 13px;
+    font-weight: var(--font-weight-label);
+    color: var(--text-sub);
+    letter-spacing: normal;
+  }
+
+  /* The manual sync value is a display value, typed like chat input: the
+     display M step (24 / 700 on a 32px line, row 50px). */
   .sync-col-value {
-    font-size: 28px;
+    font-size: 24px;
     font-weight: var(--font-weight-title);
     font-variant-numeric: tabular-nums;
+    line-height: 32px;
     color: var(--text-main);
     letter-spacing: 0;
   }
@@ -9108,6 +9182,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     text-align: center;
     white-space: nowrap;
     word-break: normal;
+  }
+
+  /* The emptied "0" fades like the start-screen code placeholder. */
+  .sync-manual-input:empty::before {
+    opacity: 0.3;
   }
 
   .sync-nudge-row[hidden] {
@@ -11218,12 +11297,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     overflow: hidden;
   }
 
-  .yt-preview-meta {
-    font-size: 11px;
-    color: var(--text-sub);
-    text-align: start;
-    margin: 4px 0 0 0;
-    font-weight: var(--font-weight-body);
+  /* The shared line rule in @layer base styles this line. The stack's 10px gap
+     less 2px gives the shared 8px. */
+  .setup-join-area > .yt-preview-meta {
+    margin-top: -2px;
   }
 
   /* The progress, result and error lines come and go with a search or a
@@ -11279,12 +11356,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-bottom-color: var(--primary);
   }
 
+  /* An invalid link turns the underline red (src/youtube/search.ts marks the
+     box aria-invalid); a failed search or lookup paints only the line. */
+  .yt-search-input-wrapper:has([aria-invalid='true']) {
+    border-bottom-color: var(--danger-foreground);
+  }
+
   .yt-search-input-wrapper .yt-intro-text {
     flex: 1;
     width: auto;
     min-width: 0;
-    font-size: 15px;
+    /* The entry step: typed text at 16px on a 20px line, ordinary figures. */
+    font-size: 16px;
     font-weight: var(--font-weight-body);
+    font-variant-numeric: normal;
     letter-spacing: normal;
     line-height: 20px;
     text-align: start;
@@ -13175,6 +13260,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 1 !important;
   }
 
+  /* The joining code fades through -webkit-text-fill-color, which Chromium
+     does not force; its digits take the disabled colour above as well. */
+  .setup-join-input:disabled {
+    -webkit-text-fill-color: GrayText;
+  }
+
   a {
     color: LinkText;
     text-decoration: underline;
@@ -13201,6 +13292,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: Canvas;
     color: CanvasText;
     caret-color: CanvasText;
+  }
+
+  /* Red is not shown here, so a wrong value also thickens the edge. */
+  :is(
+      input:not([type='range']):not([type='hidden']),
+      [contenteditable='true'],
+      [role='textbox'],
+      [role='combobox']
+    )[aria-invalid='true'] {
+    outline-width: 2px;
   }
 
   ::placeholder,

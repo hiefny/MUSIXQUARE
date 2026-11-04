@@ -3,7 +3,7 @@
  * Each context gets its own page with PeerJS server injection.
  * Also provides runtime error tracking for all pages.
  */
-import type { Browser, BrowserContext, Page } from '@playwright/test';
+import type { Browser, BrowserContext, BrowserContextOptions, Page } from '@playwright/test';
 import { isBenignPageError } from './page-errors.ts';
 import { injectPeerServer } from './peer-server.ts';
 
@@ -58,13 +58,17 @@ export function getPageErrors(page: Page): Error[] {
   return errors.filter((error) => !isBenignPageError(error));
 }
 
-export async function createHostGuestContexts(browser: Browser): Promise<HostGuestPair> {
+export async function createHostGuestContexts(
+  browser: Browser,
+  options: { guest?: BrowserContextOptions } = {},
+): Promise<HostGuestPair> {
   const [hostContext, guestContext] = await Promise.all([
     browser.newContext({
       permissions: ['clipboard-read', 'clipboard-write'],
     }),
     browser.newContext({
       permissions: ['clipboard-read', 'clipboard-write'],
+      ...options.guest,
     }),
   ]);
 

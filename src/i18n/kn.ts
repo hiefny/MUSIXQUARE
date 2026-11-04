@@ -76,9 +76,9 @@ const kn: Record<I18nKey, string> = {
   'account.nickname_title': 'ಅಡ್ಡಹೆಸರು ಹೊಂದಿಸಿ',
   'account.nickname_message': 'MUSIXQUARE ನಲ್ಲಿ ಬಳಸುವ ಅಡ್ಡಹೆಸರನ್ನು ಆರಿಸಿ.',
   'account.nickname_placeholder': 'ಅಡ್ಡಹೆಸರು',
-  'account.nickname_hint': 'ಗರಿಷ್ಠ 12 ಅಕ್ಷರಗಳನ್ನು ಬಳಸಿ.',
-  'account.nickname_required': 'ಅಡ್ಡಹೆಸರನ್ನು ನಮೂದಿಸಿ.',
-  'account.nickname_whitespace': 'ಅಡ್ಡಹೆಸರಿನಲ್ಲಿ ಖಾಲಿ ಜಾಗ ಅಥವಾ ಗೋಚರಿಸದ ಅಕ್ಷರಗಳು ಇರಬಾರದು.',
+  'account.nickname_hint': 'ಗರಿಷ್ಠ 12 ಅಕ್ಷರಗಳನ್ನು ಬಳಸಿ',
+  'account.nickname_required': 'ಅಡ್ಡಹೆಸರನ್ನು ನಮೂದಿಸಿ',
+  'account.nickname_whitespace': 'ಅಡ್ಡಹೆಸರಿನಲ್ಲಿ ಖಾಲಿ ಜಾಗ ಅಥವಾ ಗೋಚರಿಸದ ಅಕ್ಷರಗಳು ಇರಬಾರದು',
   'account.nickname_taken': 'ಈ ಅಡ್ಡಹೆಸರು ಈಗಾಗಲೇ ಬಳಕೆಯಲ್ಲಿದೆ',
   'account.nickname_saved': 'ಅಡ್ಡಹೆಸರನ್ನು {{name}} ಎಂದು ಬದಲಿಸಲಾಗಿದೆ',
   'account.action_failed': 'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ನವೀಕರಿಸಲಾಗಲಿಲ್ಲ\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
@@ -269,8 +269,8 @@ const kn: Record<I18nKey, string> = {
   'settings.default_5s': 'ಡೀಫಾಲ್ಟ್ 5.0 ಸೆಕೆಂಡು',
   'settings.invite_code': 'ಆಮಂತ್ರಣ ಕೋಡ್',
   'settings.leave_session': 'ಸೆಷನ್‌ನಿಂದ ಹೊರಡಿ',
-  'connect.rename_reserved': 'ಈ ಅಡ್ಡಹೆಸರನ್ನು ಕಾಯ್ದಿರಿಸಲಾಗಿದೆ.',
-  'connect.rename_profanity': 'ಅನುಚಿತ ಪದಗಳು ಕಂಡುಬಂದಿವೆ.',
+  'connect.rename_reserved': 'ಈ ಅಡ್ಡಹೆಸರನ್ನು ಕಾಯ್ದಿರಿಸಲಾಗಿದೆ',
+  'connect.rename_profanity': 'ಅನುಚಿತ ಪದಗಳು ಕಂಡುಬಂದಿವೆ',
   'settings.invite_share': 'ಆಮಂತ್ರಿಸಿ ಮತ್ತು ಹಂಚಿಕೊಳ್ಳಿ',
   'settings.subtab.general': 'ಸಾಮಾನ್ಯ',
   'settings.subtab.audio': 'ಆಡಿಯೊ',
@@ -761,7 +761,7 @@ const kn: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'ಬೇರೆ ಆ್ಯಪ್‌ಗೆ ಬದಲಾಯಿಸಿದರೆ ಅಥವಾ ಪರದೆ ಆಫ್ ಆದರೆ ಧ್ವನಿ ನಿಲ್ಲಬಹುದು ಅಥವಾ ಸಿಂಕ್ ತಪ್ಪಬಹುದು.',
   'dialog.sw_update_title': 'ನವೀಕರಿಸಿ',
-  'dialog.sw_update_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ.\nನವೀಕರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
+  'dialog.sw_update_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ\nನವೀಕರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ',
   'dialog.sw_update_apply': 'ಅನ್ವಯಿಸಿ',
   'dialog.sw_update_apply_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ.\nಅನ್ವಯಿಸಿದರೆ ಪುಟ ಮರುಲೋಡ್ ಆಗುತ್ತದೆ.',
   'dialog.sw_update_room_host_msg':
@@ -777,14 +777,14 @@ const kn: Record<I18nKey, string> = {
   'dialog.step_back': 'ಹಿಂದೆ',
   'dialog.room_password_title': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿ',
   'dialog.room_password_msg': 'ಈ ರೂಮ್‌ಗೆ ಸೇರಲು ಪಾಸ್‌ವರ್ಡ್ ಅಗತ್ಯವಿದೆ.',
-  'dialog.room_password_retry_msg': 'ಆ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಕೆಯಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'dialog.room_password_retry_msg': 'ಆ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಕೆಯಾಗಲಿಲ್ಲ',
   'dialog.room_password_timeout_msg':
     'ಸಂಪರ್ಕದ ಸಮಯ ಮೀರಿದೆ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಪಾಸ್‌ವರ್ಡ್ ಅನ್ನು ಮರುನಮೂದಿಸಿ.',
   'dialog.room_password_placeholder': '8-ಅಂಕಿಯ ಪಾಸ್‌ವರ್ಡ್',
   'dialog.room_password_rate_limited':
-    'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ. {{count}} ನಿಮಿಷಗಳ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ\n{{count}} ನಿಮಿಷಗಳ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'dialog.room_password_rate_limited_later':
-    'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'dialog.session_lost_msg':
     'ಆ್ಯಪ್ ಸ್ಲೀಪ್ ಮೋಡ್‌ಗೆ ಹೋಗಿದೆ ಅಥವಾ ಸಂಪರ್ಕ ಕಳೆದುಕೊಂಡಿದೆ, ಆದ್ದರಿಂದ ಇತರ ಸಾಧನಗಳು ಈಗಾಗಲೇ ಸಂಪರ್ಕ ಕಳೆದುಕೊಂಡಿವೆ. ಹೊಸ ಸೆಷನ್ ಪ್ರಾರಂಭಿಸಲು ಮರುಪ್ರಾರಂಭಿಸಿ.',
   'dialog.session_lost_guest_msg':
@@ -835,7 +835,7 @@ const kn: Record<I18nKey, string> = {
   'pro.resume_tap': 'ಪ್ಲೇಬ್ಯಾಕ್ ಪುನರಾರಂಭಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ',
   'pro.pin_title': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿ',
   'pro.pin_message': 'ಈ PRO ರೂಮ್‌ನ 8-ಅಂಕಿಯ ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿ.',
-  'pro.pin_retry_message': 'ಆ ಪಾಸ್‌ವರ್ಡ್ ಸರಿಯಾಗಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'pro.pin_retry_message': 'ಆ ಪಾಸ್‌ವರ್ಡ್ ಸರಿಯಾಗಿಲ್ಲ',
   'pro.pin_change_title': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಬದಲಿಸಿ',
   'pro.pin_change_message': 'ಹೊಸ 8-ಅಂಕಿಯ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಿ.',
   'pro.pin_changed': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಬದಲಾಗಿದೆ',
@@ -862,11 +862,11 @@ const kn: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO ರೂಮ್‌ಗೆ ಸಂಪರ್ಕಿಸಲಾಗಲಿಲ್ಲ',
   'pro.room_full': 'ಈ PRO ರೂಮ್ ತುಂಬಿದೆ',
   'pro.room_full_detail':
-    'PRO ರೂಮ್‌ನಲ್ಲಿ ಮಾಲೀಕರೂ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು ಇರಬಹುದು. ಮಾಲೀಕರಿಗಾಗಿ ಯಾವಾಗಲೂ ಒಂದು ಸ್ಥಾನವನ್ನು ಮೀಸಲಿಡಲಾಗುತ್ತದೆ.',
+    'ಮಾಲೀಕರೂ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು ಇರಬಹುದು\nಮಾಲೀಕರಿಗಾಗಿ ಯಾವಾಗಲೂ ಒಂದು ಸ್ಥಾನವನ್ನು ಮೀಸಲಿಡಲಾಗುತ್ತದೆ',
   'pro.join_rate_limited':
-    'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ. {{count}} ನಿಮಿಷಗಳ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ\n{{count}} ನಿಮಿಷಗಳ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'pro.join_rate_limited_later':
-    'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'pro.active_tab_title': 'ಹಿಂದಿನ ಸಂಪರ್ಕ ಉಳಿದಿದೆ',
   'pro.active_tab_message': 'ಇಲ್ಲಿ ಮುಂದುವರಿದರೆ ಹಿಂದಿನ ಸಂಪರ್ಕ ಕಡಿತಗೊಳ್ಳುತ್ತದೆ.',
   'pro.active_tab_replaced': 'ಈ PRO ರೂಮ್ ಈಗಾಗಲೇ ಮತ್ತೊಂದು ಟ್ಯಾಬ್‌ನಲ್ಲಿ ತೆರೆದಿದೆ',
@@ -1014,9 +1014,9 @@ export const pluralMessages = {
     one: 'ಬೆಂಬಲಿಸದ {{count}} ಫೈಲ್ ಅನ್ನು ಸೇರಿಸಲಾಗುವುದಿಲ್ಲ.',
   },
   'pro.join_rate_limited': {
-    one: 'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ. {{count}} ನಿಮಿಷದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    one: 'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ\n{{count}} ನಿಮಿಷದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   },
   'dialog.room_password_rate_limited': {
-    one: 'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ. {{count}} ನಿಮಿಷದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    one: 'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ\n{{count}} ನಿಮಿಷದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   },
 } satisfies LocalePluralMessages;

@@ -525,8 +525,12 @@ describe('PRO room setup flow', () => {
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
     expect(mocks.showDialog).toHaveBeenCalledTimes(2);
+    // Owner decision 2026-11-03: the prompt keeps its own sentence and the
+    // refusal is the red line under the boxes.
+    expect(mocks.showDialog.mock.calls[0]?.[0].inputField.initialError).toBeUndefined();
     expect(mocks.showDialog.mock.calls[1]?.[0]).toMatchObject({
-      message: 'pro.pin_retry_message',
+      message: 'pro.pin_message',
+      inputField: { initialError: 'pro.pin_retry_message' },
     });
     expect(mocks.join).toHaveBeenLastCalledWith(
       expect.objectContaining({ pin: '22222222' }),
@@ -1605,9 +1609,14 @@ describe('PRO room setup after the owner ended this session', () => {
         .mockResolvedValueOnce({});
       await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
       expect(mocks.probeJoin).toHaveBeenCalledOnce();
-      expect(mocks.showDialog.mock.calls.map(([options]) => options.message)).toEqual([
-        firstMessage,
-        'pro.pin_retry_message',
+      expect(
+        mocks.showDialog.mock.calls.map(([options]) => [
+          options.message,
+          options.inputField.initialError,
+        ]),
+      ).toEqual([
+        [firstMessage, undefined],
+        ['pro.pin_message', 'pro.pin_retry_message'],
       ]);
       expect(mocks.showDialog.mock.calls[0]![0]).toMatchObject({ title: 'pro.pin_title' });
       expect(sessionReset.scheduleSessionReset).not.toHaveBeenCalled();

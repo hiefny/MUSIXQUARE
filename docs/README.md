@@ -96,6 +96,108 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.37 / v810 train: Phase 7 7A, the iPhone guest YouTube return and the input design system (2026-11-04)](design/app-9-0-37-train-2026-11-04.md):
+  prepared, not merged or released. By the owner's decision of 2026-11-04 (early morning) one App
+  update (one update dialog, target `app`) carries three increments on branch `agent/app-9-0-37`:
+  Phase 7 T1 (`agent/p7-t1`, tests, guards and docs only, its own release-free pull request first,
+  tip `1441742e`) rebuilt on main `34dbe592` (App 9.0.36 / v809's release record), then the sixteen
+  7A commits, the four iPhone fix commits and the twenty-three input system commits cherry-picked in
+  that order (seven conflicts, all in documents and the design page HTML; every code and test patch
+  unchanged), the bump `51be7509` (9.0.37 / v810, the seven version lines of 9.0.36's bump, the last
+  runtime commit) and documentation commits. 7A (its report below) adds the owner-approved AUDIO
+  RECOVERY lines to `/debug sync` and four neutral cleanups. The iPhone fix (its report below) lets
+  an iPhone or iPad Standard guest that returns at the moment iOS stops the hidden YouTube iframe
+  play again without a tap; the owner kept its trade-off (a pause tapped within 1 s of the return,
+  without focus in the iframe, is aligned over). The input design system, approved from pictures on
+  2026-11-03 and recorded only in this report, makes every text field one underline family in three
+  size steps with one 12px line under it, turns the underline red (and sets `aria-invalid`) only for
+  a wrong value while connection and service failures paint only the line, shows a refused password
+  or a taken nickname as a red line under the field, labels the YouTube sheet's big button Search
+  while a query is typed, ends the under-field copy without a full stop with one sentence per line
+  in 42 languages (586 strings, the PRO room-full detail trimmed) and adds the design system's Input
+  fields card. Deploy target `app`: 74 App runtime paths against production `6f9cf6f8` at the bump
+  head, the other five Workers 0, no runtime dependency change; the build floor stays 795 and the
+  only storage change is 7A's sessionStorage key. Round 1 moved the increments and reran the unit
+  half of every tests-first pair and the E2E halves of I1 and the iPhone fix (each fails on its
+  parent and passes at its code, but for 7A-6's neutral pin, as recorded), the 7A audio lab
+  (17 / 17 on three trees with equal observations) and recovery specs, the iPhone spec (13 / 13)
+  and the input specs. Round 2 bumped, judged the deploy target and recaptured the 139 approved input states on the
+  bump head's build: 134 pixel-identical, the same five expected differences (the room-full trim and
+  the host code kept at 32px), all controls identical. Not verified: real devices, Linux and WebKit,
+  native readers for the 40 trimmed room-full copies outside ko and en, and Tamil's password refusal,
+  which wraps at 320 px. Round 3 ran the full local gate on the bump head `631bff86` (code
+  `51be7509`): typecheck, lint, format, `build:checked` and all 37 guards one by one, both coverage
+  configs, the full unit suite twice (one git-fixture row over its own 30 s cap under load in the
+  second run; that file alone passes twice), 433 E2E rows in 49 files (critical, the YouTube specs,
+  7A's recovery specs and audio lab, the input system's setup, dialog, contrast, design page, chat
+  and playlist groups, the production candidate) and the local partial-release check (compatible);
+  against a clean build of `34dbe592` the eager first load grows by 1,500 B of JavaScript and
+  1,875 B in all (gzip). Round 4 applied a three-lens review to the documents only: 7A's remaining
+  reads before merge are merge conditions in one place (the `player.ts` gate-handler re-read done),
+  the move onto T1's squash names T1's tip SHA, and the release record gains an open item for the
+  new lock-screen case found while preparing 7B (record only, by the owner's decision).
+- [iPhone YouTube return at the moment of the browser stop (2026-11-03)](design/ios-youtube-return-train-2026-11-03.md):
+  not released; one increment of the App 9.0.37 / v810 train above, moved onto main `34dbe592` on
+  2026-11-04 (`872f8bc3`, `f858db58`, `8399355d`, patches unchanged). Built on branch
+  `agent/ios-yt-return` on main `88550bc4` (App 9.0.35 / v808), tested code `e4319843e`. Owner
+  device report of 2026-11-03: an iPhone guest in a Standard room that reopens
+  the app at the very moment iOS stops its hidden YouTube iframe stays paused until a tap on PLAY or
+  Sync. On iPhone and iPad only, a Standard guest's unowned iframe PAUSE processed while hidden, or
+  within `BACKGROUND_STOP_RETURN_GRACE_MS` (1 s) after the return and before focus moves into the
+  iframe, is now the browser's stop: no pause intent, the local pause bit back down, and the RO-05
+  return chain aligns after it (a sub-second bounce included); the hidden period is the background
+  resume guard's one reading (`getLastObservedBackgroundReturn`). Computers, Android phones, hosts,
+  operators and PRO rooms are unchanged. Increments: tests first `570f47229`, the fix `a86ad57bb`,
+  the review fix `e4319843e`. Local evidence only (Vitest, Playwright Chromium with an iPhone user
+  agent and a fake YouTube player); no real iPhone yet and the 1 s grace is unmeasured. The owner
+  answered its one question on 2026-11-04: a pause tapped within 1 s of the return on an iPhone stays
+  aligned over.
+- [Phase 7 train 7A: on-device audio recovery counts in /debug sync and a behaviour-neutral recovery cleanup (2026-11-03)](design/phase7-7a-audio-recovery-counters-2026-11-03.md):
+  prepared, not merged or released; one increment of the App 9.0.37 / v810 train above, moved onto
+  main `34dbe592` on 2026-11-04 with every runtime and test patch unchanged (bump `51be7509`, the
+  release-record §2 9.0.37 section). The first of the three Phase 7 App updates (owner decision Q2),
+  first prepared on branch `agent/p7-7a`: twelve commits on `agent/p7-t1` (the release-free Phase 7
+  T0 second pull request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and four
+  record commits; its start condition (Phase 6 6D shipped, recorded and past its post-merge Full E2E
+  and its post-deploy smoke) holds. 7A-2
+  gives the AudioContext recovery one timing home,
+  the new leaf `src/audio/context-protocol.ts` (not `src/audio/constants.ts`, which sits in another
+  eager chunk), and one prepared-state predicate; 7A-3 deletes the write-only `fallbackEligible` and
+  `fallbackClaimed` and the unused reason `'stale-play-lock'`; 7A-4 makes `attemptResume` a required
+  choice of `probeAudioContextHealth`; 7A-6 deletes the recovery dialog's unreachable retire and
+  re-arm after a failed retry; all four are neutral. 7A-1, an intended diagnostic display the owner
+  approved from pictures, counts the recovery on the device (the mock-free leaf
+  `src/audio/output-recovery-counters.ts`, numbered slots, an RO-01 observer fed by one phase funnel
+  per machine and by read-only owner queries) and shows it in `/debug sync` as the approved AUDIO
+  RECOVERY block after the ten head lines, with Chrome's output underruns read when the window opens
+  and, after a same-tab reload, the previous page's counts kept in one sessionStorage key through the
+  page navigation owner's pagehide; the window's footer reads 'RAM + tab storage'. Sound and every
+  other screen are unchanged. Neutral evidence: the T0 owner tables, the lock-screen pause rows, the
+  T0 second pull request's files and the local Chromium audio lab pass byte for byte (lab observations
+  equal to the base with timings stripped), and the T0 known-gaps list stays as it is. The guard counts
+  are unchanged (native 11; indirect 4 / 2 / 5); the RO-01 timing contract gains its scalar home
+  (report-only pairs 45 to 38). First load +710 B eager JavaScript gzip (+714 B before the review
+  fixes, whose −4 B are hashed lazy chunk names): 7A-1 +903 B, over the +300 B increment cap even
+  without its three optional parts (+580 B), which the owner kept as approved on 2026-11-03 with none
+  of the three removed; the four neutral increments −189 B;
+  the Phase 7 total is judged after the last train. QA rounds 1 to 3 ran
+  on the first base `cd8eaf47`; round 4 moved the stack onto `432d4ae7` with all sixteen patches
+  identical; round 5 ran the full local gate on code tip `dd758372` (types, lint, format,
+  `build:checked` step by step with only `guard:sw-cache-version` failing for the pending bump, the
+  production candidate 19 / 19, every guard, critical coverage 4,504 and Worker coverage 3,325, the
+  unit suite 18,134 of 18,135 with one release-tool timeout passing alone, critical E2E 101 / 101,
+  the recovery specs and the audio lab 17 / 17) and the static subset on `56d4e2dd`; round 6 took
+  real `/debug sync` pictures, phone and desktop, on the code tip. Round 7 checked the record
+  commit's documents, and round 8 was an independent review in two lenses (sound, screen and counts;
+  plan, ownership and records) with no high finding and no sound or timing change found. Round 9
+  applied its medium (this report's unfinished documents round and table padding) and its lows: a
+  single race now reads '1 race watched' in `/debug sync` (its own test-first pair, code tip
+  `a4d4d383`), the T1 indirect-resume ratchet also counts calls inside `src/audio/context.ts`
+  (zero today, its own test-first pair), and record fixes in the registry, the report and this
+  entry. Round 10 reran the full local checks on both tips with no failure but the pending bump's
+  `guard:sw-cache-version` on 7A (the unit suite, critical coverage and E2E, the recovery specs, the
+  audio lab with equal observations, and the size against `432d4ae7`) and retook the `/debug sync`
+  pictures with the singular. The fourth record commit adds the owner's answer on the 7A-1 size.
 - [App 9.0.36 / v809 train: every public page on the app's font system, and the design system Typography section (2026-11-02)](design/public-page-fonts-2026-11-02.md):
   released on 2026-11-03 22:22 KST in Release 41643392133 (PR #567, squash `6f9cf6f8`) as App
   9.0.36 / v809 (App build 809, target `app`, one update dialog; the bump `f47d5733` is the last

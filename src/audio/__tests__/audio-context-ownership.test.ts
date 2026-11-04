@@ -540,7 +540,6 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
     await expect(gesture).resolves.toEqual({
       running: false,
       rejoinEmitted: false,
-      fallbackEligible: false,
     });
     expect(playbackScope(o, token)).toEqual(PARKED);
     expect(o.recovery.getPendingAudioContextClockHealthRequirement()).toBeNull();
@@ -663,7 +662,6 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
         await expect(gesture).resolves.toEqual({
           running: false,
           rejoinEmitted: false,
-          fallbackEligible: false,
         });
       }
       expect(fake.state).toBe('interrupted');
@@ -716,7 +714,6 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       await expect(gesture).resolves.toEqual({
         running: true,
         rejoinEmitted: false,
-        fallbackEligible: false,
       });
       const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
       expect(requirement?.attemptToken).toBe(token);
@@ -1015,7 +1012,6 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     await expect(o.recovery.resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
       running: false,
       rejoinEmitted: false,
-      fallbackEligible: false,
     });
     expect(fake.ops.slice(before)).toEqual([]);
     expect(bus.needed).toEqual([]);
@@ -1163,7 +1159,6 @@ describe('RO-01 supersession and teardown', () => {
     await expect(gesture).resolves.toEqual({
       running: false,
       rejoinEmitted: false,
-      fallbackEligible: false,
     });
     expect(fake.state).toBe('running');
     expect(playbackScope(o, token)).toEqual(NO_ATTEMPT);

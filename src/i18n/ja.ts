@@ -75,9 +75,9 @@ const ja: Record<I18nKey, string> = {
   'account.nickname_title': 'ニックネームを設定',
   'account.nickname_message': 'MUSIXQUAREで使うニックネームを決めてください。',
   'account.nickname_placeholder': 'ニックネーム',
-  'account.nickname_hint': '12文字以内で入力してください。',
-  'account.nickname_required': 'ニックネームを入力してください。',
-  'account.nickname_whitespace': 'ニックネームに空白や不可視文字は使用できません。',
+  'account.nickname_hint': '12文字以内で入力してください',
+  'account.nickname_required': 'ニックネームを入力してください',
+  'account.nickname_whitespace': 'ニックネームに空白や不可視文字は使用できません',
   'account.nickname_taken': 'このニックネームはすでに使用されています',
   'account.nickname_saved': 'ニックネームを{{name}}に変更しました',
   'account.action_failed':
@@ -195,8 +195,8 @@ const ja: Record<I18nKey, string> = {
   'settings.default_5s': '初期値 5.0秒',
   'settings.invite_code': '招待コード',
   'settings.leave_session': 'ルームを退出',
-  'connect.rename_reserved': 'この名前は使用できません。',
-  'connect.rename_profanity': 'この名前には不適切な表現が含まれています。',
+  'connect.rename_reserved': 'この名前は使用できません',
+  'connect.rename_profanity': 'この名前には不適切な表現が含まれています',
   'settings.invite_share': '招待と共有',
   'settings.subtab.general': '一般',
   'settings.subtab.audio': 'オーディオ',
@@ -684,7 +684,7 @@ const ja: Record<I18nKey, string> = {
     '他のアプリに切り替えたり画面がオフになったりすると、音が止まったり同期がずれたりすることがあります。',
   'dialog.sw_update_title': 'アップデート',
   'dialog.sw_update_msg':
-    '新しいバージョンの準備ができました。\nページを再読み込みするとアップデートが適用されます。',
+    '新しいバージョンの準備ができました\nページを再読み込みするとアップデートが適用されます',
   'dialog.sw_update_apply': '適用する',
   'dialog.sw_update_apply_msg':
     '新しいバージョンの準備ができました。\n適用するとページが再読み込みされます。',
@@ -702,14 +702,14 @@ const ja: Record<I18nKey, string> = {
   'dialog.step_back': '戻る',
   'dialog.room_password_title': 'ルームパスワードを入力',
   'dialog.room_password_msg': 'このルームに参加するにはパスワードが必要です。',
-  'dialog.room_password_retry_msg': 'パスワードが一致しません。もう一度入力してください。',
+  'dialog.room_password_retry_msg': 'パスワードが一致しません',
   'dialog.room_password_timeout_msg':
     '接続がタイムアウトしました。パスワードを再入力してください。',
   'dialog.room_password_placeholder': '8桁のパスワード',
   'dialog.room_password_rate_limited':
-    'パスワードを何度も間違えました。{{count}}分後にもう一度お試しください。',
+    'パスワードを何度も間違えました\n{{count}}分後にもう一度お試しください',
   'dialog.room_password_rate_limited_later':
-    'パスワードを何度も間違えました。しばらくしてからもう一度お試しください。',
+    'パスワードを何度も間違えました\nしばらくしてからもう一度お試しください',
   'dialog.session_lost_msg':
     'アプリがスリープしたか接続を失ったため、他のデバイスはすでに切断されています。ページを再読み込みして新しいルームを始めてください。',
   'dialog.session_lost_guest_msg':
@@ -758,7 +758,7 @@ const ja: Record<I18nKey, string> = {
   'pro.resume_tap': 'タップして再生を続ける',
   'pro.pin_title': 'ルームのパスワードを入力',
   'pro.pin_message': 'このPROルームの8桁のパスワードを入力してください。',
-  'pro.pin_retry_message': 'パスワードが正しくありません。もう一度お試しください。',
+  'pro.pin_retry_message': 'パスワードが正しくありません',
   'pro.pin_change_title': 'ルームのパスワードを変更',
   'pro.pin_change_message': '新しい8桁のパスワードを設定してください。',
   'pro.pin_changed': 'ルームのパスワードを変更しました',
@@ -785,10 +785,10 @@ const ja: Record<I18nKey, string> = {
   'pro.connect_failed': 'PROルームに接続できませんでした',
   'pro.room_full': 'このPROルームは満員です',
   'pro.room_full_detail':
-    'PROルームにはオーナーを含め最大100台まで接続できます。オーナー用の枠が常に一つ確保されています。',
-  'pro.join_rate_limited': '参加の試行回数が多すぎます。{{count}}分後にもう一度お試しください。',
+    'オーナーを含め最大100台まで接続できます\nオーナー用の枠が常に一つ確保されています',
+  'pro.join_rate_limited': '参加の試行回数が多すぎます\n{{count}}分後にもう一度お試しください',
   'pro.join_rate_limited_later':
-    '参加の試行回数が多すぎます。しばらくしてからもう一度お試しください。',
+    '参加の試行回数が多すぎます\nしばらくしてからもう一度お試しください',
   'pro.active_tab_title': '前の接続が残っています',
   'pro.active_tab_message': 'ここで続けると、前の接続が切断されます。',
   'pro.active_tab_replaced': 'このPROルームは別のタブで開いています',

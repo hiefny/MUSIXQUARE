@@ -1191,7 +1191,11 @@ async function runAccountNicknameChange(
   try {
     const account = getAccountSnapshot().account;
     let defaultValue = account?.profileComplete ? account.nickname : account?.nickname || '';
-    let hint = () => t('account.nickname_hint');
+    const hint = () => t('account.nickname_hint');
+    // A taken name is the server refusing the value in the box: it reopens
+    // as the red line under the field, and the hint stays the rule (owner
+    // decision 2026-11-03).
+    let initialError: (() => string) | undefined;
     while (true) {
       const result = await showDialog({
         title: () => t('account.nickname_title'),
@@ -1205,6 +1209,7 @@ async function runAccountNicknameChange(
           maxLength: ACCOUNT_NICKNAME_MAX_CODE_POINTS * 2,
           hint,
           validator: validateAccountNickname,
+          initialError,
           preserveWhitespace: true,
         },
         buttonText: () => t('common.ok'),
@@ -1231,7 +1236,7 @@ async function runAccountNicknameChange(
         // validator passes. Keep the attempted spelling and immediately let
         // both first-login and later rename flows try another name.
         defaultValue = result.inputValue || '';
-        hint = () => accountNicknameMutationErrorMessage(error);
+        initialError = () => accountNicknameMutationErrorMessage(error);
       }
     }
   } finally {

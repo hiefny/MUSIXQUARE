@@ -2538,11 +2538,18 @@ describe('optional account UI', () => {
         }),
       }),
     );
-    const retryOptions = vi.mocked(showDialog).mock.calls[1]?.[0];
-    const retryHint = typeof retryOptions === 'object' ? retryOptions.inputField?.hint : undefined;
-    expect(typeof retryHint === 'function' ? retryHint() : retryHint).toBe(
-      'That nickname is already in use',
-    );
+    // Owner decision 2026-11-03: the refusal is the red line under the field
+    // (initialError), and the hint stays the rule, so the first keystroke
+    // brings "Use up to 12 characters" back. The toast above still shows.
+    const fieldOf = (call: number) => {
+      const options = vi.mocked(showDialog).mock.calls[call]?.[0];
+      return typeof options === 'object' ? options.inputField : undefined;
+    };
+    const read = (text: string | (() => string) | undefined) =>
+      typeof text === 'function' ? text() : text;
+    expect(read(fieldOf(0)?.initialError)).toBeUndefined();
+    expect(read(fieldOf(1)?.hint)).toBe('Use up to 12 characters');
+    expect(read(fieldOf(1)?.initialError)).toBe('That nickname is already in use');
   });
 
   it('keeps first-login nickname setup retryable after a uniqueness collision', async () => {

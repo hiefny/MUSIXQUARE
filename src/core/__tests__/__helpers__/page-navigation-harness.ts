@@ -13,7 +13,8 @@
  *
  * `bootPageNavigationShell` wires them the way src/app.ts bootstrap does, in
  * its order: OverlayObservers (app.ts:1131), then PageLifecycle (the release
- * handler, initPageLifecycleHandlers and initPageNavigation, app.ts:1301-1324),
+ * handler, initPageLifecycleHandlers, the previous page's audio recovery
+ * counts and initPageNavigation with their pagehide callback, app.ts:1301-1324),
  * then BackButtonGuard (initBackButtonGuard, app.ts:915-990). The navigation
  * owner's page-transition dispatch (pagehide, pageshow and visibilitychange)
  * uses the capture phase, so it runs before the guard's bubble-phase resume
@@ -42,6 +43,10 @@
  * against, and what it leaves out.
  */
 import { vi, type Mock } from 'vitest';
+import {
+  keepAudioRecoveryForNextPage,
+  takeAudioRecoveryFromPreviousPage,
+} from '../../../audio/output-recovery-counters.ts';
 import * as swHardReset from '../../sw-hard-reset.ts';
 import type { HardResetClaimRequest } from '../../../sw-register.ts';
 import { HARD_RESET_CLAIM_EVENT } from './hard-reset-port.ts';
@@ -505,9 +510,11 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
     const lifecycle = { getRole: () => app.role, leaveSession };
     const handlers = initPageLifecycleHandlers(lifecycle);
     disposers.push(() => handlers.dispose());
+    takeAudioRecoveryFromPreviousPage();
     const navigation = initPageNavigation({
       getRole: lifecycle.getRole,
       bfcacheReloadMessage: () => MSG_REFRESHING,
+      onPageHide: keepAudioRecoveryForNextPage,
       log: { info: lifecycleLog },
     });
     disposers.push(() => navigation.dispose());

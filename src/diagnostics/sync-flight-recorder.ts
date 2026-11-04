@@ -5,9 +5,55 @@
  * minutes of one-second samples and a small event ring, never writes storage,
  * and never sends diagnostics over the network. Queue identifiers are replaced
  * with per-page aliases before they enter the ring or exported report.
+ *
+ * The report's AUDIO RECOVERY block (Phase 7 7A-1, owner decisions Q3 and Q4)
+ * names the numbered counts that audio/output-recovery-counters.ts keeps on
+ * the device; the names live here, in this lazy chunk, and nothing is sent.
  */
 
 import { isAudioReady, getAudioContext } from '../audio/engine.ts';
+import {
+  AUDIO_RECOVERY_LABEL_SET,
+  AUDIO_RECOVERY_SLOTS,
+  CLOCK_CANCELLED,
+  CLOCK_CONFIRMED,
+  CLOCK_RECOVERY_NEEDED,
+  CLOCK_WAIT_MAX_MS,
+  CLOCK_WAIT_TOTAL_MS,
+  CLOCK_WAITS,
+  CONTEXT_RECOVERED_REJOINS,
+  DEADLINE_AUTO_RESUME,
+  DEADLINE_CLOCK_REQUIREMENT,
+  DEADLINE_ENSURE_RUNNING,
+  DEADLINE_GESTURE_FLOW,
+  DEADLINE_GESTURE_RESUME,
+  DEADLINE_LATE_SUSPEND_FENCE,
+  DEADLINE_PLAY_REQUEST_PREPARE,
+  DEADLINE_PLAY_REQUEST_RESUME,
+  DEADLINE_PLAY_REQUEST_WATCHDOG,
+  DEADLINE_PROBE,
+  DEADLINE_RETIRE_CLEANUP,
+  DEADLINE_SCOPE_PREPARE,
+  DEADLINE_SCOPE_WATCHDOG,
+  DEADLINES_WATCHED,
+  DIALOG_REQUESTS_PLAY,
+  DIALOG_REQUESTS_RETURN,
+  LEASES_AT_ONCE_MAX,
+  RESUME_AUTO,
+  RESUME_DIALOG,
+  RESUME_ENSURE_RUNNING,
+  RESUME_PLAY_GESTURE,
+  RESUME_PLAY_REQUEST,
+  RESUME_PROBE,
+  RESUME_RETIRE,
+  RESUME_UI_SOUND,
+  RESUSPENDED_AFTER_RUNNING,
+  SECOND_SUSPENDS,
+  SUSPEND_CALLS,
+  TAPS_REFUSED,
+  UI_SOUND_RESUMES_WHILE_WAITING,
+  readAudioRecoveryCounts,
+} from '../audio/output-recovery-counters.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -453,12 +499,127 @@ function noteProPlaybackCheckpoint(observation: ProPlaybackCheckpointObservation
   });
 }
 
+// -- AUDIO RECOVERY (Phase 7 7A-1) ------------------------------------
+// The label names are frozen once a before set is collected: later trains
+// compare the same names (a renamed label is a new count). A deadline name's
+// value is the wait it had in 7A, not a timing value (those live in
+// audio/context-protocol.ts): a later train that changes a wait keeps the name.
+const RESUME_SOURCES: Labels = [
+  [RESUME_PLAY_REQUEST, 'playRequest'],
+  [RESUME_PLAY_GESTURE, 'playGesture'],
+  [RESUME_DIALOG, 'dialog'],
+  [RESUME_AUTO, 'auto'],
+  [RESUME_ENSURE_RUNNING, 'ensureRunning'],
+  [RESUME_PROBE, 'probe'],
+  [RESUME_RETIRE, 'retire'],
+  [RESUME_UI_SOUND, 'uiSound'],
+];
+const DEADLINES: Labels = [
+  [DEADLINE_PLAY_REQUEST_PREPARE, 'playRequestPrepare500ms'],
+  [DEADLINE_PLAY_REQUEST_RESUME, 'playRequestResume750ms'],
+  [DEADLINE_PLAY_REQUEST_WATCHDOG, 'playRequestWatchdog750ms'],
+  [DEADLINE_LATE_SUSPEND_FENCE, 'lateSuspendFence250ms'],
+  [DEADLINE_RETIRE_CLEANUP, 'retireCleanup500ms'],
+  [DEADLINE_ENSURE_RUNNING, 'ensureRunning500ms'],
+  [DEADLINE_PROBE, 'probe500ms'],
+  [DEADLINE_SCOPE_PREPARE, 'scopePrepare500ms'],
+  [DEADLINE_SCOPE_WATCHDOG, 'scopeWatchdog750ms'],
+  [DEADLINE_AUTO_RESUME, 'autoResume750ms'],
+  [DEADLINE_GESTURE_RESUME, 'playGestureResume750ms'],
+  [DEADLINE_GESTURE_FLOW, 'gestureFlow1s'],
+  [DEADLINE_CLOCK_REQUIREMENT, 'clockRequirement5s'],
+];
+
+/**
+ * Chrome 146 and later count output underruns on the context
+ * (AudioContext.playbackStats). `/debug sync` reads it once, when the window
+ * opens (owner decision Q3 b); null where the browser does not report it,
+ * and also before the audio engine exists (nothing to read yet), which the
+ * window shows with the same approved 'none (not reported by this browser)'.
+ */
+export function readChromeOutputUnderruns(): number | null {
+  if (!isAudioReady()) return null;
+  try {
+    const stats = (
+      getAudioContext() as AudioContext & { playbackStats?: { underrunEvents?: unknown } }
+    ).playbackStats;
+    const underruns = stats?.underrunEvents;
+    return typeof underruns === 'number' && Number.isFinite(underruns) ? underruns : null;
+  } catch {
+    return null;
+  }
+}
+
+type Labels = ReadonlyArray<readonly [number, string]>;
+
+function total(slots: readonly number[], labels: Labels): number {
+  return labels.reduce((sum, [slot]) => sum + slots[slot]!, 0);
+}
+
+/**
+ * The previous page's kept value, "<label set> <build> <every slot>": its
+ * build and slots, or null for another label set or a malformed value.
+ */
+function parsePreviousPage(kept: string): readonly [build: string, slots: number[]] | null {
+  const [labelSet, build, ...fields] = kept.split(' ');
+  if (
+    labelSet !== String(AUDIO_RECOVERY_LABEL_SET) ||
+    !build ||
+    build.length > 40 ||
+    fields.length !== AUDIO_RECOVERY_SLOTS
+  ) {
+    return null;
+  }
+  const slots = fields.map(Number);
+  return fields.every((field, index) => field !== '' && slots[index]! >= 0) &&
+    slots.every(Number.isFinite)
+    ? [build, slots]
+    : null;
+}
+
+function audioRecoveryLines(outputUnderruns: number | null): string[] {
+  const [count, kept] = readAudioRecoveryCounts();
+  const named = (labels: Labels): string =>
+    labels.map(([slot, name]) => `${name}:${count[slot]}`).join(' ');
+  const fired = named(DEADLINES.filter(([slot]) => count[slot]! > 0));
+  const play = count[DIALOG_REQUESTS_PLAY]!;
+  const back = count[DIALOG_REQUESTS_RETURN]!;
+  const watched = count[DEADLINES_WATCHED]!;
+  const lines = [
+    'AUDIO RECOVERY (this page, on device, not sent)',
+    `Resume attempts: ${total(count, RESUME_SOURCES)} | ${named(RESUME_SOURCES)}`,
+    `Deadline fires: ${total(count, DEADLINES)}${fired ? ` | ${fired}` : ''} (${watched} ${watched === 1 ? 'race' : 'races'} watched)`,
+    `Time awaiting clock verification: totalMs:${Math.round(count[CLOCK_WAIT_TOTAL_MS]!)} maxMs:${Math.round(count[CLOCK_WAIT_MAX_MS]!)} | waits:${count[CLOCK_WAITS]} confirmed:${count[CLOCK_CONFIRMED]} cancelled:${count[CLOCK_CANCELLED]} recoveryNeeded:${count[CLOCK_RECOVERY_NEEDED]}`,
+    `Suspend calls: ${count[SUSPEND_CALLS]} | second suspends:${count[SECOND_SUSPENDS]} | re-suspended after running:${count[RESUSPENDED_AFTER_RUNNING]}`,
+    `Recovery dialog requests: ${play + back} | play:${play} return:${back} | audio-context-recovered rejoins:${count[CONTEXT_RECOVERED_REJOINS]} | taps refused:${count[TAPS_REFUSED]}`,
+    `Leases at once (max): ${count[LEASES_AT_ONCE_MAX]} | UI sound resumes while waiting for tap: ${count[UI_SOUND_RESUMES_WHILE_WAITING]}`,
+    outputUnderruns === null
+      ? 'Chrome output underruns: none (not reported by this browser)'
+      : `Chrome output underruns: ${outputUnderruns} (playbackStats.underrunEvents, read when opened)`,
+  ];
+  const previous = kept === null ? null : parsePreviousPage(kept);
+  if (previous) {
+    // Another build's counts keep its build number on their own line; they
+    // are never added to this page's counts.
+    const [build, slots] = previous;
+    lines.push(
+      `Previous page: this tab sessionStorage | app=${build} | resume attempts:${total(slots, RESUME_SOURCES)} deadline fires:${total(slots, DEADLINES)} clock wait totalMs:${Math.round(slots[CLOCK_WAIT_TOTAL_MS]!)} maxMs:${Math.round(slots[CLOCK_WAIT_MAX_MS]!)} dialog requests:${slots[DIALOG_REQUESTS_PLAY]! + slots[DIALOG_REQUESTS_RETURN]!}`,
+    );
+  }
+  return lines;
+}
+
 export function markSyncFlightRecorderIncident(): void {
   appendEvent('user-incident-marker');
   captureSyncFlightRecorderSampleForTests();
 }
 
-export function collectSyncFlightRecorderText(): string {
+/**
+ * The `/debug sync` report. `outputUnderruns` is what readChromeOutputUnderruns
+ * read when the window opened (null: not reported by this browser, or no
+ * audio engine yet).
+ */
+export function collectSyncFlightRecorderText(outputUnderruns: number | null = null): string {
   const proStartObservations = getProStartObservations();
   const standardStartObservations = getStandardStartObservations();
   // These literals belong to the executing bundle. A newer active/waiting SW
@@ -477,6 +638,7 @@ export function collectSyncFlightRecorderText(): string {
     'STANDARD START timelineDriftMs: positive = local YouTube position is ahead of the host prediction after manual offset',
     'STANDARD CLOCK sentAtMs/wallElapsedMs use the current rebased clock; rawSentAtMs/rawWallElapsedMs retain the original ping send time',
     'STANDARD START clockMapping: wall time minus monotonic time; deltas are sample minus release, spans cover plan/schedule/release/sample',
+    ...audioRecoveryLines(outputUnderruns),
     '',
     'EVENTS JSONL',
     ...events.map((event) => JSON.stringify(event)),

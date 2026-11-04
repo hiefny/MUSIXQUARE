@@ -76,9 +76,9 @@ const da: Record<I18nKey, string> = {
   'account.nickname_title': 'Angiv kaldenavn',
   'account.nickname_message': 'Vælg det kaldenavn, du vil bruge på MUSIXQUARE.',
   'account.nickname_placeholder': 'Kaldenavn',
-  'account.nickname_hint': 'Brug højst 12 tegn.',
-  'account.nickname_required': 'Indtast et kaldenavn.',
-  'account.nickname_whitespace': 'Kaldenavne må ikke indeholde mellemrum eller usynlige tegn.',
+  'account.nickname_hint': 'Brug højst 12 tegn',
+  'account.nickname_required': 'Indtast et kaldenavn',
+  'account.nickname_whitespace': 'Kaldenavne må ikke indeholde mellemrum eller usynlige tegn',
   'account.nickname_taken': 'Det kaldenavn er allerede i brug',
   'account.nickname_saved': 'Kaldenavnet er ændret til {{name}}',
   'account.action_failed': 'Kunne ikke opdatere din konto\nPrøv igen',
@@ -264,8 +264,8 @@ const da: Record<I18nKey, string> = {
   'settings.default_5s': 'Standard 5,0 s',
   'settings.invite_code': 'Invitationskode',
   'settings.leave_session': 'Forlad sessionen',
-  'connect.rename_reserved': 'Dette kaldenavn er reserveret.',
-  'connect.rename_profanity': 'Kaldenavnet indeholder upassende ord.',
+  'connect.rename_reserved': 'Dette kaldenavn er reserveret',
+  'connect.rename_profanity': 'Kaldenavnet indeholder upassende ord',
   'settings.invite_share': 'Inviter og del',
   'settings.subtab.general': 'Generelt',
   'settings.subtab.audio': 'Lyd',
@@ -757,7 +757,7 @@ const da: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Hvis du skifter app, eller skærmen slukker, kan lyden stoppe, eller synkroniseringen kan svigte.',
   'dialog.sw_update_title': 'Opdatering',
-  'dialog.sw_update_msg': 'En ny version er klar.\nOpdater siden for at installere den.',
+  'dialog.sw_update_msg': 'En ny version er klar\nOpdater siden for at installere den',
   'dialog.sw_update_apply': 'Anvend',
   'dialog.sw_update_apply_msg': 'En ny version er klar.\nNår du anvender den, genindlæses siden.',
   'dialog.sw_update_room_host_msg':
@@ -774,14 +774,14 @@ const da: Record<I18nKey, string> = {
   'dialog.step_back': 'Tilbage',
   'dialog.room_password_title': 'Indtast adgangskoden til rummet',
   'dialog.room_password_msg': 'Der kræves en adgangskode for at deltage i dette rum.',
-  'dialog.room_password_retry_msg': 'Adgangskoden stemte ikke. Prøv igen.',
+  'dialog.room_password_retry_msg': 'Adgangskoden stemte ikke',
   'dialog.room_password_timeout_msg':
     'Forbindelsen fik timeout. Indtast adgangskoden igen for at prøve på ny.',
   'dialog.room_password_placeholder': '8-cifret adgangskode',
   'dialog.room_password_rate_limited':
-    'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om {{count}} minutter.',
+    'Du har indtastet en forkert adgangskode for mange gange\nPrøv igen om {{count}} minutter',
   'dialog.room_password_rate_limited_later':
-    'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om lidt.',
+    'Du har indtastet en forkert adgangskode for mange gange\nPrøv igen om lidt',
   'dialog.session_lost_msg':
     'Appen gik i dvale eller mistede forbindelsen, så de andre enheder er allerede blevet afbrudt. Genstart for at begynde en ny session.',
   'dialog.session_lost_guest_msg':
@@ -830,7 +830,7 @@ const da: Record<I18nKey, string> = {
   'pro.resume_tap': 'Tryk for at genoptage afspilningen',
   'pro.pin_title': 'Indtast adgangskoden til rummet',
   'pro.pin_message': 'Indtast den 8-cifrede adgangskode til dette PRO-rum.',
-  'pro.pin_retry_message': 'Adgangskoden er ikke korrekt. Prøv igen.',
+  'pro.pin_retry_message': 'Adgangskoden er ikke korrekt',
   'pro.pin_change_title': 'Skift adgangskoden til rummet',
   'pro.pin_change_message': 'Angiv en ny 8-cifret adgangskode.',
   'pro.pin_changed': 'Adgangskoden til rummet er ændret',
@@ -857,9 +857,9 @@ const da: Record<I18nKey, string> = {
   'pro.connect_failed': 'Kunne ikke oprette forbindelse til PRO-rummet',
   'pro.room_full': 'Dette PRO-rum er fuldt',
   'pro.room_full_detail':
-    'Et PRO-rum kan have op til 100 enheder inklusive ejerens. Der er altid én plads reserveret til ejeren.',
-  'pro.join_rate_limited': 'For mange forsøg på at deltage. Prøv igen om {{count}} minutter.',
-  'pro.join_rate_limited_later': 'For mange forsøg på at deltage. Prøv igen om lidt.',
+    'Det kan have op til 100 enheder inklusive ejerens\nDer er altid én plads reserveret til ejeren',
+  'pro.join_rate_limited': 'For mange forsøg på at deltage\nPrøv igen om {{count}} minutter',
+  'pro.join_rate_limited_later': 'For mange forsøg på at deltage\nPrøv igen om lidt',
   'pro.active_tab_title': 'Der er stadig en tidligere forbindelse',
   'pro.active_tab_message': 'Hvis du fortsætter her, afbrydes den tidligere forbindelse.',
   'pro.active_tab_replaced': 'Dette PRO-rum er allerede åbent i en anden fane',
@@ -1000,9 +1000,9 @@ export const pluralMessages = {
     one: '{{count}} fil, der ikke understøttes, bliver ikke tilføjet.',
   },
   'pro.join_rate_limited': {
-    one: 'For mange forsøg på at deltage. Prøv igen om {{count}} minut.',
+    one: 'For mange forsøg på at deltage\nPrøv igen om {{count}} minut',
   },
   'dialog.room_password_rate_limited': {
-    one: 'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om {{count}} minut.',
+    one: 'Du har indtastet en forkert adgangskode for mange gange\nPrøv igen om {{count}} minut',
   },
 } satisfies LocalePluralMessages;

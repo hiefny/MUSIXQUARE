@@ -76,9 +76,9 @@ const ro: Record<I18nKey, string> = {
   'account.nickname_title': 'Alege un pseudonim',
   'account.nickname_message': 'Alege pseudonimul pe care îl vei folosi în MUSIXQUARE.',
   'account.nickname_placeholder': 'Pseudonim',
-  'account.nickname_hint': 'Folosește cel mult 12 caractere.',
-  'account.nickname_required': 'Introdu un pseudonim.',
-  'account.nickname_whitespace': 'Pseudonimele nu pot conține spații sau caractere invizibile.',
+  'account.nickname_hint': 'Folosește cel mult 12 caractere',
+  'account.nickname_required': 'Introdu un pseudonim',
+  'account.nickname_whitespace': 'Pseudonimele nu pot conține spații sau caractere invizibile',
   'account.nickname_taken': 'Acest pseudonim este deja folosit',
   'account.nickname_saved': 'Pseudonimul a fost schimbat în {{name}}',
   'account.action_failed': 'Contul nu a putut fi actualizat\nÎncearcă din nou',
@@ -268,8 +268,8 @@ const ro: Record<I18nKey, string> = {
   'settings.default_5s': 'Implicit 5,0 s',
   'settings.invite_code': 'Cod de invitație',
   'settings.leave_session': 'Părăsește sesiunea',
-  'connect.rename_reserved': 'Acest pseudonim este rezervat.',
-  'connect.rename_profanity': 'Au fost detectate cuvinte nepotrivite.',
+  'connect.rename_reserved': 'Acest pseudonim este rezervat',
+  'connect.rename_profanity': 'Au fost detectate cuvinte nepotrivite',
   'settings.invite_share': 'Invită și distribuie',
   'settings.subtab.general': 'General',
   'settings.subtab.audio': 'Audio',
@@ -770,7 +770,7 @@ const ro: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Dacă treci la altă aplicație sau ecranul se stinge, sunetul se poate întrerupe sau poate pierde sincronizarea.',
   'dialog.sw_update_title': 'Actualizare',
-  'dialog.sw_update_msg': 'Este disponibilă o versiune nouă.\nReîncarcă pentru actualizare.',
+  'dialog.sw_update_msg': 'Este disponibilă o versiune nouă\nReîncarcă pentru actualizare',
   'dialog.sw_update_apply': 'Aplică',
   'dialog.sw_update_apply_msg': 'Este disponibilă o versiune nouă.\nAplicarea reîncarcă pagina.',
   'dialog.sw_update_room_host_msg':
@@ -787,14 +787,14 @@ const ro: Record<I18nKey, string> = {
   'dialog.step_back': 'Înapoi',
   'dialog.room_password_title': 'Introdu parola camerei',
   'dialog.room_password_msg': 'Este necesară o parolă pentru a intra în această cameră.',
-  'dialog.room_password_retry_msg': 'Parola nu corespunde. Încearcă din nou.',
+  'dialog.room_password_retry_msg': 'Parola nu corespunde',
   'dialog.room_password_timeout_msg':
     'Conexiunea a expirat. Introdu din nou parola pentru a reîncerca.',
   'dialog.room_password_placeholder': 'Parolă din 8 cifre',
   'dialog.room_password_rate_limited':
-    'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} minute.',
+    'Ai introdus parola greșită de prea multe ori\nReîncearcă peste {{count}} minute',
   'dialog.room_password_rate_limited_later':
-    'Ai introdus parola greșită de prea multe ori. Reîncearcă puțin mai târziu.',
+    'Ai introdus parola greșită de prea multe ori\nReîncearcă puțin mai târziu',
   'dialog.session_lost_msg':
     'Aplicația a intrat în repaus sau a pierdut conexiunea, iar celelalte dispozitive s-au deconectat deja. Repornește pentru a începe o sesiune nouă.',
   'dialog.session_lost_guest_msg':
@@ -845,7 +845,7 @@ const ro: Record<I18nKey, string> = {
   'pro.resume_tap': 'Apasă pentru a relua redarea',
   'pro.pin_title': 'Introdu parola camerei',
   'pro.pin_message': 'Introdu parola din 8 cifre a acestei camere PRO.',
-  'pro.pin_retry_message': 'Parola nu este corectă. Încearcă din nou.',
+  'pro.pin_retry_message': 'Parola nu este corectă',
   'pro.pin_change_title': 'Schimbă parola camerei',
   'pro.pin_change_message': 'Setează o parolă nouă din 8 cifre.',
   'pro.pin_changed': 'Parola camerei a fost schimbată',
@@ -873,9 +873,9 @@ const ro: Record<I18nKey, string> = {
   'pro.connect_failed': 'Conectarea la camera PRO a eșuat',
   'pro.room_full': 'Această cameră PRO este plină',
   'pro.room_full_detail':
-    'O cameră PRO poate avea cel mult 100 de dispozitive, inclusiv pe cel al proprietarului. Un loc este mereu rezervat pentru proprietar.',
-  'pro.join_rate_limited': 'Prea multe încercări de intrare. Reîncearcă peste {{count}} minute.',
-  'pro.join_rate_limited_later': 'Prea multe încercări de intrare. Reîncearcă puțin mai târziu.',
+    'Poate avea cel mult 100 de dispozitive, inclusiv pe cel al proprietarului\nUn loc este mereu rezervat pentru proprietar',
+  'pro.join_rate_limited': 'Prea multe încercări de intrare\nReîncearcă peste {{count}} minute',
+  'pro.join_rate_limited_later': 'Prea multe încercări de intrare\nReîncearcă puțin mai târziu',
   'pro.active_tab_title': 'Mai există o conexiune anterioară',
   'pro.active_tab_message': 'Dacă vei continua aici, conexiunea anterioară va fi închisă.',
   'pro.active_tab_replaced': 'Această cameră PRO este deja deschisă în altă filă',
@@ -1039,11 +1039,11 @@ export const pluralMessages = {
     other: '{{count}} de fișiere neacceptate nu vor fi adăugate.',
   },
   'pro.join_rate_limited': {
-    one: 'Prea multe încercări de intrare. Reîncearcă peste {{count}} minut.',
-    other: 'Prea multe încercări de intrare. Reîncearcă peste {{count}} de minute.',
+    one: 'Prea multe încercări de intrare\nReîncearcă peste {{count}} minut',
+    other: 'Prea multe încercări de intrare\nReîncearcă peste {{count}} de minute',
   },
   'dialog.room_password_rate_limited': {
-    one: 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} minut.',
-    other: 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} de minute.',
+    one: 'Ai introdus parola greșită de prea multe ori\nReîncearcă peste {{count}} minut',
+    other: 'Ai introdus parola greșită de prea multe ori\nReîncearcă peste {{count}} de minute',
   },
 } satisfies LocalePluralMessages;

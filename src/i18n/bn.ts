@@ -75,9 +75,9 @@ const bn: Record<I18nKey, string> = {
   'account.nickname_title': 'ডাকনাম ঠিক করুন',
   'account.nickname_message': 'MUSIXQUARE-এ যে ডাকনাম ব্যবহার করবেন সেটি বেছে নিন।',
   'account.nickname_placeholder': 'ডাকনাম',
-  'account.nickname_hint': 'সর্বোচ্চ 12টি অক্ষর ব্যবহার করুন।',
-  'account.nickname_required': 'একটি ডাকনাম লিখুন।',
-  'account.nickname_whitespace': 'ডাকনামে স্পেস বা অদৃশ্য অক্ষর রাখা যাবে না।',
+  'account.nickname_hint': 'সর্বোচ্চ 12টি অক্ষর ব্যবহার করুন',
+  'account.nickname_required': 'একটি ডাকনাম লিখুন',
+  'account.nickname_whitespace': 'ডাকনামে স্পেস বা অদৃশ্য অক্ষর রাখা যাবে না',
   'account.nickname_taken': 'এই ডাকনামটি ইতিমধ্যে ব্যবহার করা হচ্ছে',
   'account.nickname_saved': 'ডাকনাম পরিবর্তন করে {{name}} করা হয়েছে',
   'account.action_failed': 'অ্যাকাউন্ট আপডেট করা যায়নি\nআবার চেষ্টা করুন',
@@ -263,8 +263,8 @@ const bn: Record<I18nKey, string> = {
   'settings.default_5s': 'ডিফল্ট 5.0s',
   'settings.invite_code': 'আমন্ত্রণ কোড',
   'settings.leave_session': 'সেশন ছেড়ে যান',
-  'connect.rename_reserved': 'এই ডাকনামটি ব্যবহার করা যাবে না।',
-  'connect.rename_profanity': 'আপত্তিকর শব্দ পাওয়া গেছে।',
+  'connect.rename_reserved': 'এই ডাকনামটি ব্যবহার করা যাবে না',
+  'connect.rename_profanity': 'আপত্তিকর শব্দ পাওয়া গেছে',
   'settings.invite_share': 'আমন্ত্রণ ও শেয়ার',
   'settings.subtab.general': 'সাধারণ',
   'settings.subtab.audio': 'অডিও',
@@ -749,7 +749,7 @@ const bn: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'অন্য অ্যাপে গেলে বা স্ক্রিন বন্ধ করলে অডিও থেমে যেতে পারে বা সিঙ্ক বিগড়ে যেতে পারে।',
   'dialog.sw_update_title': 'আপডেট',
-  'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত।\nআপডেট করতে রিফ্রেশ করুন।',
+  'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত\nআপডেট করতে রিফ্রেশ করুন',
   'dialog.sw_update_apply': 'প্রয়োগ করুন',
   'dialog.sw_update_apply_msg': 'নতুন সংস্করণ প্রস্তুত।\nপ্রয়োগ করলে পেজটি রিফ্রেশ হবে।',
   'dialog.sw_update_room_host_msg': 'নতুন সংস্করণ প্রস্তুত।\nপ্রয়োগ করতে রুমটি আবার খুলতে হবে।',
@@ -764,14 +764,14 @@ const bn: Record<I18nKey, string> = {
   'dialog.step_back': 'পিছনে',
   'dialog.room_password_title': 'রুমের পাসওয়ার্ড লিখুন',
   'dialog.room_password_msg': 'এই রুমে যোগ দিতে পাসওয়ার্ড প্রয়োজন।',
-  'dialog.room_password_retry_msg': 'পাসওয়ার্ডটি মেলেনি। আবার চেষ্টা করুন।',
+  'dialog.room_password_retry_msg': 'পাসওয়ার্ডটি মেলেনি',
   'dialog.room_password_timeout_msg':
     'সংযোগের সময় শেষ হয়েছে। আবার চেষ্টা করতে পাসওয়ার্ডটি পুনরায় লিখুন।',
   'dialog.room_password_placeholder': '8 সংখ্যার পাসওয়ার্ড',
   'dialog.room_password_rate_limited':
-    'আপনি অনেকবার ভুল পাসওয়ার্ড লিখেছেন। {{count}} মিনিট পরে আবার চেষ্টা করুন।',
+    'আপনি অনেকবার ভুল পাসওয়ার্ড লিখেছেন\n{{count}} মিনিট পরে আবার চেষ্টা করুন',
   'dialog.room_password_rate_limited_later':
-    'আপনি অনেকবার ভুল পাসওয়ার্ড লিখেছেন। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
+    'আপনি অনেকবার ভুল পাসওয়ার্ড লিখেছেন\nকিছুক্ষণ পরে আবার চেষ্টা করুন',
   'dialog.session_lost_msg':
     'অ্যাপটি স্লিপ মোডে চলে গিয়েছিল বা সংযোগ হারিয়েছিল, তাই অন্য ডিভাইসগুলো ইতিমধ্যে বিচ্ছিন্ন হয়ে গেছে। নতুন সেশন শুরু করতে আবার চালু করুন।',
   'dialog.session_lost_guest_msg':
@@ -822,7 +822,7 @@ const bn: Record<I18nKey, string> = {
   'pro.resume_tap': 'প্লেব্যাক আবার চালু করতে ট্যাপ করুন',
   'pro.pin_title': 'রুমের পাসওয়ার্ড লিখুন',
   'pro.pin_message': 'এই PRO রুমের 8 সংখ্যার পাসওয়ার্ড লিখুন।',
-  'pro.pin_retry_message': 'পাসওয়ার্ডটি সঠিক নয়। আবার চেষ্টা করুন।',
+  'pro.pin_retry_message': 'পাসওয়ার্ডটি সঠিক নয়',
   'pro.pin_change_title': 'রুমের পাসওয়ার্ড পরিবর্তন করুন',
   'pro.pin_change_message': '8 সংখ্যার নতুন পাসওয়ার্ড ঠিক করুন।',
   'pro.pin_changed': 'রুমের পাসওয়ার্ড পরিবর্তন করা হয়েছে',
@@ -849,11 +849,11 @@ const bn: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO রুমে সংযোগ করা যায়নি',
   'pro.room_full': 'এই PRO রুমটি পূর্ণ হয়ে গেছে',
   'pro.room_full_detail':
-    'একটি PRO রুমে মালিকসহ সর্বোচ্চ 100টি ডিভাইস থাকতে পারে। মালিকের জন্য সবসময় একটি জায়গা সংরক্ষিত থাকে।',
+    'মালিকসহ সর্বোচ্চ 100টি ডিভাইস থাকতে পারে\nমালিকের জন্য সবসময় একটি জায়গা সংরক্ষিত থাকে',
   'pro.join_rate_limited':
-    'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে। {{count}} মিনিট পরে আবার চেষ্টা করুন।',
+    'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে\n{{count}} মিনিট পরে আবার চেষ্টা করুন',
   'pro.join_rate_limited_later':
-    'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
+    'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে\nকিছুক্ষণ পরে আবার চেষ্টা করুন',
   'pro.active_tab_title': 'আগের একটি সংযোগ রয়ে গেছে',
   'pro.active_tab_message': 'এখানে চালিয়ে গেলে আগের সংযোগটি বিচ্ছিন্ন হবে।',
   'pro.active_tab_replaced': 'এই PRO রুম ইতিমধ্যে অন্য একটি ট্যাবে খোলা আছে',

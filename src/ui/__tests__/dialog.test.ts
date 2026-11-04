@@ -464,6 +464,136 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
       await promise;
     });
+
+    // Owner decision 2026-11-03: a server refusal of the value the dialog
+    // opens with (a taken nickname, a refused PIN) is the red line under the
+    // field, with the field marked invalid. Nothing was typed, so no shake.
+    it('opens with a refusal of its value as the red line under the field', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'Nickname',
+        inputField: {
+          defaultValue: 'Studio3',
+          hint: 'Use up to 12 characters',
+          initialError: () => 'That nickname is already in use',
+          validator: () => null,
+        },
+      });
+      vi.advanceTimersByTime(10);
+      try {
+        const input = document.querySelector<HTMLElement>('.dialog-input')!;
+        const hint = document.getElementById('dialog-input-hint')!;
+        expect(hint.textContent).toBe('That nickname is already in use');
+        expect(hint.classList.contains('error')).toBe(true);
+        expect(input.classList.contains('invalid')).toBe(true);
+        expect(input.getAttribute('aria-invalid')).toBe('true');
+        expect(input.classList.contains('shake')).toBe(false);
+        expect(input.textContent).toBe('Studio3');
+
+        // The first keystroke brings the hint back.
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(hint.textContent).toBe('Use up to 12 characters');
+        expect(hint.classList.contains('error')).toBe(false);
+        expect(input.classList.contains('invalid')).toBe(false);
+        expect(input.getAttribute('aria-invalid')).toBe('false');
+      } finally {
+        closeDialog();
+        vi.advanceTimersByTime(10);
+        await promise;
+      }
+    });
+
+    it('still lets OK send the refused value again when its own rules pass it', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'Nickname',
+        inputField: {
+          defaultValue: 'Studio3',
+          hint: 'Use up to 12 characters',
+          initialError: 'That nickname is already in use',
+          validator: () => null,
+        },
+      });
+      vi.advanceTimersByTime(10);
+      try {
+        document.getElementById('btn-dialog-ok')?.click();
+        vi.advanceTimersByTime(10);
+      } finally {
+        closeDialog('close');
+        vi.advanceTimersByTime(10);
+      }
+
+      await expect(promise).resolves.toEqual({ action: 'ok', inputValue: 'Studio3' });
+    });
+
+    it('marks both PIN halves invalid under a refused PIN until a digit is typed', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'Room password',
+        message: 'Enter the 8-digit password',
+        inputField: {
+          maxLength: 8,
+          inputMode: 'numeric',
+          splitEvery: 4,
+          separator: '-',
+          initialError: 'That password is not correct',
+          validator: (value) => (/^\d{8}$/.test(value) ? null : 'Enter 8 digits'),
+        },
+      });
+      vi.advanceTimersByTime(10);
+      try {
+        const group = document.querySelector<HTMLElement>('.dialog-input-split')!;
+        const segments = [...document.querySelectorAll<HTMLInputElement>('.dialog-input-segment')];
+        const hint = document.getElementById('dialog-input-hint')!;
+        // The dialog keeps its own sentence above the boxes.
+        expect(document.getElementById('dialog-message')?.firstChild?.textContent).toBe(
+          'Enter the 8-digit password',
+        );
+        expect(hint.textContent).toBe('That password is not correct');
+        expect(hint.classList.contains('error')).toBe(true);
+        expect(group.classList.contains('invalid')).toBe(true);
+        expect(group.classList.contains('shake')).toBe(false);
+        expect(segments.map((segment) => segment.getAttribute('aria-invalid'))).toEqual([
+          'true',
+          'true',
+        ]);
+
+        segments[0]!.value = '0';
+        segments[0]!.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(hint.textContent).toBe('');
+        expect(hint.classList.contains('error')).toBe(false);
+        expect(group.classList.contains('invalid')).toBe(false);
+        expect(segments.map((segment) => segment.getAttribute('aria-invalid'))).toEqual([
+          'false',
+          'false',
+        ]);
+      } finally {
+        closeDialog();
+        vi.advanceTimersByTime(10);
+        await promise;
+      }
+    });
+
+    it('opens without a refusal as before', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'Nickname',
+        inputField: { hint: 'Use up to 12 characters', validator: () => null },
+      });
+      vi.advanceTimersByTime(10);
+      try {
+        const input = document.querySelector<HTMLElement>('.dialog-input')!;
+        const hint = document.getElementById('dialog-input-hint')!;
+        expect(hint.textContent).toBe('Use up to 12 characters');
+        expect(hint.classList.contains('error')).toBe(false);
+        expect(input.classList.contains('invalid')).toBe(false);
+        expect(input.getAttribute('aria-invalid')).toBe('false');
+      } finally {
+        closeDialog();
+        vi.advanceTimersByTime(10);
+        await promise;
+      }
+    });
   });
 
   describe('closeDialog()', () => {

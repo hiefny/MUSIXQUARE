@@ -827,16 +827,32 @@ describe('setup recovery accessibility', () => {
 
     const input = document.getElementById('setup-join-code');
     const error = document.getElementById('setup-guest-error');
+    const autoJoinError = document.getElementById('setup-auto-join-error');
     const back = document.getElementById('btn-setup-back');
-    expect(input?.getAttribute('aria-invalid')).toBe('true');
+    // A connection failure paints only the line (owner decision 2026-11-03):
+    // the typed code is not wrong, so the field is not marked invalid.
+    expect(input?.hasAttribute('aria-invalid')).toBe(false);
     expect(input?.getAttribute('aria-describedby')).toBe('setup-guest-error');
     expect(error?.hidden).toBe(false);
     expect(error?.getAttribute('role')).toBe('alert');
     expect(back?.getAttribute('aria-label')).toBe('Go back');
 
+    // A wrong code (the six-digit check, a code no room answers) marks it.
+    setupSetGuestJoinError('Check the code.', false, true);
+    expect(input?.getAttribute('aria-invalid')).toBe('true');
+    expect(error?.textContent).toBe('Check the code.');
+
+    // The invite screen has no field: its line never marks the hidden input.
+    setupSetGuestJoinError('Check the code.', true, true);
+    expect(input?.hasAttribute('aria-invalid')).toBe(false);
+    expect(error?.hidden).toBe(true);
+    expect(autoJoinError?.hidden).toBe(false);
+
+    setupSetGuestJoinError('Check the code.', false, true);
     setupSetGuestJoinError(null);
     expect(input?.hasAttribute('aria-invalid')).toBe(false);
     expect(error?.hidden).toBe(true);
+    expect(autoJoinError?.hidden).toBe(true);
   });
 
   it('keeps dynamically rendered setup text bound to future language changes', () => {

@@ -90,7 +90,7 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
-**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 first stayed out of Phase 4 ([Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)). After known-accepted #18 retired, owner decision 2026-10-25 (about 16:30 KST) adds a fourth app update, train 4D: C5-9 (the side route's outage deadline moves into the link-liveness owner, RO-15) and its ratchet, with a forward revert to the 9.0.10 side-route behaviour if the owner's later device check fails ([Phase 4 train 4D report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)). Phase 5 also ships two app updates (owner decision P5-D3 A, 2026-10-25): train 5A moves the system-audio receive slot without changing behaviour (C4-1 to C4-8 and C4-12, with C4-6 and C4-7 inside it because every today-behaviour and gap test of the four receive-slot contract suites stays green), and train 5B carries the behaviour changes the owner picks, each with its failing test first ([Phase 5 train 5A report](phase5-5a-receive-slot-2026-10-25.md#오너-결정)). Phase 6 ships four app updates (owner decision Q1, 2026-10-30): trains 6A to 6D, each after its tests-only and guard-only steps; train 6A (behaviour-neutral: start-timer owner queries, one start-timing home, one verified iframe audio restore) is the first, as App 9.0.30 / v803 after the separate app font update 9.0.29, and a forward revert or a forward fix adds an update outside the four ([Phase 6 train 6A report](phase6-6a-start-constants-owner-queries-2026-10-31.md#오너-결정-2026-10-30-모두-권장)).
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 first stayed out of Phase 4 ([Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)). After known-accepted #18 retired, owner decision 2026-10-25 (about 16:30 KST) adds a fourth app update, train 4D: C5-9 (the side route's outage deadline moves into the link-liveness owner, RO-15) and its ratchet, with a forward revert to the 9.0.10 side-route behaviour if the owner's later device check fails ([Phase 4 train 4D report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)). Phase 5 also ships two app updates (owner decision P5-D3 A, 2026-10-25): train 5A moves the system-audio receive slot without changing behaviour (C4-1 to C4-8 and C4-12, with C4-6 and C4-7 inside it because every today-behaviour and gap test of the four receive-slot contract suites stays green), and train 5B carries the behaviour changes the owner picks, each with its failing test first ([Phase 5 train 5A report](phase5-5a-receive-slot-2026-10-25.md#오너-결정)). Phase 6 ships four app updates (owner decision Q1, 2026-10-30): trains 6A to 6D, each after its tests-only and guard-only steps; train 6A (behaviour-neutral: start-timer owner queries, one start-timing home, one verified iframe audio restore) is the first, as App 9.0.30 / v803 after the separate app font update 9.0.29, and a forward revert or a forward fix adds an update outside the four ([Phase 6 train 6A report](phase6-6a-start-constants-owner-queries-2026-10-31.md#오너-결정-2026-10-30-모두-권장)). Phase 7 ships three app updates (owner decision Q2, 2026-11-02): trains 7A (the on-device audio recovery counts in `/debug sync` and behaviour-neutral recovery cleanup), 7B (the sound recovery changes the owner answered, each with its failing test first) and 7C (one recovery owner, behaviour-neutral), each after its tests-only and guard-only steps; a forward revert or a forward fix adds an update outside the three ([Phase 7 train 7A report](phase7-7a-audio-recovery-counters-2026-11-03.md#오너-결정-2026-11-02-밤과-11-03-아침-모두-권장)).
 
 ## Index
 
@@ -230,7 +230,15 @@ RO-54 accepted-exception
   dialog, and `src/player/media-session.ts` repeats the same gesture sequence (resume, requirement,
   probe, escalate, confirm, rejoin). `src/audio/ui-sounds.ts` resumes the context, only while it
   is not running, on a trusted pointerdown or Enter or Space keydown and before it plays a UI
-  sound, without asking either owner.
+  sound, without asking either owner. Since Phase 7 7A-1 each machine writes its phase only through
+  one funnel (`setRestartPhase` in `context.ts`, `setRecoveryPhase` in `context-recovery.ts`), and
+  `src/audio/output-recovery-counters.ts` observes the resource for `/debug sync`: an observer, not
+  an owner. The owners, the recovery dialog in `app.ts` and UI sounds report events to it (each
+  native resume by its source, native suspends, every deadline race with whether its timer won,
+  clock verification waits entered and left, refused taps, dialog requests, recovered rejoins); it
+  keeps monotonic counts and no copy of owner state, and it calls the read-only queries the two
+  owners register (live suspend leases on a context, an attempt waiting for a tap) at the moment it
+  counts. `context-recovery.ts` carries the `Resource owner: RO-01` header.
 - **Target single owner:** `src/audio/context-recovery.ts` as the only native resume and suspend
   owner; `context.ts` keeps the singleton. The rules Phase 7 works to are proposed in
   [AudioContext ownership](audio-context-ownership.md).
@@ -248,12 +256,19 @@ RO-54 accepted-exception
   verifies an attempt of either cause still awaiting clock verification
   (`continueRecoveryInForeground`). Both use the owner's existing automatic probe, with no new
   timer.
-- **Timing-constant home:** none shared. `context.ts` holds `AUDIO_RESUME_DEADLINE_MS`,
-  `FOREGROUND_SUSPEND_PREPARE_DEADLINE_MS`, `FOREGROUND_GESTURE_RESUME_DEADLINE_MS`,
-  `FOREGROUND_LATE_SUSPEND_FENCE_MS`, `MAX_FOREGROUND_SUSPEND_ATTEMPTS`; `context-recovery.ts`
-  repeats them as `SUSPEND_PREPARE_DEADLINE_MS`, `SUSPEND_WATCHDOG_MS`,
-  `MAX_SEMANTIC_SUSPEND_ATTEMPTS`, `RESUME_DEADLINE_MS`; `app.ts` adds inline 1 s and 5 s waits.
-  Target: a leaf `src/audio/context-protocol.ts` (Phase 0d, C1-I1).
+- **Timing-constant home:** the leaf `src/audio/context-protocol.ts` since Phase 7 7A-2 (C1-I1),
+  one named export per value: `AUDIO_RESUME_DEADLINE_MS` (`ensureRunning` and a probe that may
+  resume), the probe's `AUDIO_CLOCK_SAMPLE_MS` and `AUDIO_CLOCK_MIN_ADVANCE_SECONDS`, both
+  owners' `AUDIO_SUSPEND_PREPARE_DEADLINE_MS`, `AUDIO_LATE_SUSPEND_FENCE_MS`,
+  `AUDIO_SUSPEND_WATCHDOG_MS`, `AUDIO_SUSPEND_MAX_ATTEMPTS` and
+  `AUDIO_RECOVERY_RESUME_DEADLINE_MS` (the gesture's resume, and the playback scope's automatic
+  one), `AUDIO_RETIRED_SUSPEND_CLEANUP_DEADLINE_MS`, and the recovery dialog's waits in `app.ts`
+  (`AUDIO_RECOVERY_GESTURE_WAIT_MS`, `AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS`,
+  `AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS`). The three 500 ms values keep their own names. The
+  leaf also holds the one prepared-state predicate both owners read, `isAudioContextPrepared`. It
+  is not `src/audio/constants.ts` because that file sits in another eager chunk than `context.ts`
+  (importing it there moved every audio constant across the chunks), and none of it may move into
+  `context.ts`, which test files replace with factories.
 - **Anchor tests:**
   - Supersession: `src/audio/__tests__/context-recovery.test.ts` "does not transfer a gesture
     recovery after the playback identity changes"; `src/audio/__tests__/context-health.test.ts`
@@ -273,8 +288,10 @@ RO-54 accepted-exception
     by the local Chromium lab `e2e/audio-lab/output-recovery.lab.ts` (never in CI) and by the CI
     specs `e2e/back-navigation.test.ts` ('a required audio recovery dialog survives Back'),
     `e2e/background-resume.test.ts` and `e2e/demo-output-recovery.test.ts`.
-- **Status:** `duplicated`. Phase 0d (shared constants), Phase 7 (one lease, one `statechange`
-  dispatcher, owner gesture functions, UI sounds yield). Fix lane G7. Exceptions RO-36, RO-37,
+- **Status:** `duplicated`. Phase 7 (one lease, one `statechange` dispatcher, owner gesture
+  functions, UI sounds yield); its first train took over the app part of Phase 0d, the shared
+  recovery timing and the prepared-state predicate (C1-I1, 7A-2), and it counts the recovery on
+  the device for `/debug sync` (7A-1). Fix lane G7. Exceptions RO-36, RO-37,
   RO-44. The guard counts the native calls per file (CHECK 6) and, since Phase 7 T1, the callers of
   `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` per file beside
   it, so a new requester of a resume needs an entry and this record's update.
@@ -1396,47 +1413,91 @@ RO-54 accepted-exception
   listener's visible iframe PAUSE records the local pause without `youtube:set-local-paused`
   (whose PRO handler drops autoplay intent), and its PRO reconciliation retries would otherwise
   release it. A hidden stop of the iframe ends nothing, so a lock-screen PLAY retry outlives a
-  browser stop while locked. Single-shot callers: `src/youtube/iframe.ts`,
+  browser stop while locked. Since the iOS return fix (2026-11-03), on iPhone and iPad only
+  (`IS_IOS`; no other browser stops a hidden iframe), the native-control route
+  (`src/youtube/native-control-authority.ts`) takes a Standard guest's unowned PAUSE for the
+  browser's stop when it processes it while hidden, or within `BACKGROUND_STOP_RETURN_GRACE_MS`
+  after the page shows again and before the participant moves focus into the iframe. Such a stop
+  publishes no intent and ends nothing; once visible the route puts the local pause bit back down
+  (so the heartbeat's play correction covers a second stop that a return rendezvous swallows) and
+  hands the stop to the return chain (`runBackgroundStopSync`, one per return). The chain starts the
+  guest rendezvous chain only for a return the background resume guard did not recover; a
+  recovered return already runs its own. The hidden period is measured once, by the guard
+  (`getLastObservedBackgroundReturn` in `src/core/background-resume-guard.ts`); the route keeps
+  only per-return flags, which the next hidden event resets. On other platforms every unowned
+  PAUSE stays the participant's, as before. Single-shot callers: `src/youtube/iframe.ts`,
   `src/ui/manual-sync-overlay-runtime.ts` and the host- or user-commanded attempts inside
   `youtube/sync.ts`.
 - **Target single owner:** `local-output-rejoin.ts` as the re-align owner for participant-local
   automatic and OS-triggered attempts; `youtube/sync.ts` keeps the rendezvous primitive and
   host- or user-commanded attempts.
 - **Allowed requesters:** OS and lock-screen PLAY (rejoin events), the background return
-  (`app.ts` through `runBackgroundReturnSync`), the Sync button.
+  (`app.ts` through `runBackgroundReturnSync`), an iPhone or iPad Standard guest's browser stop in
+  a return the guard did not recover (the native-control route through `runBackgroundStopSync`),
+  the Sync button.
 - **Lifecycle operations:** start a chain, retry on `busy`, wait for a host snapshot, retire on a
-  new return, a local pause or an identity change.
+  new return (or a bounce's browser stop), a local pause or an identity change.
 - **Deadline owner:** each chain's retry timer; the rendezvous cooldown in `youtube/sync.ts`.
 - **Timing-constant home:** `LOCAL_OUTPUT_REALIGN_RETRY_MS` in `src/youtube/constants.ts`, which
   both chains import (Phase 4 4A, C3-I1); the rendezvous busy retry `MANUAL_RENDEZVOUS_RETRY_MS`
   and cooldown `RENDEZVOUS_COOLDOWN_MS` live beside it. The schedule sits in that startup leaf
   rather than in either lazy chain module: a lazy leaf of its own became an extra chunk whose
-  preload entries grew the eager graph.
+  preload entries grew the eager graph. The browser-stop grace `BACKGROUND_STOP_RETURN_GRACE_MS`
+  (1 s, since 2026-11-03) lives beside it and only the native-control route reads it. The 1 s is an
+  assumption about when WebKit delivers the stop's PAUSED, pending device evidence (the device check
+  is in [the iOS return train report](ios-youtube-return-train-2026-11-03.md)). Neither the route
+  nor the return chain times the hidden period: both read the guard's classification of the last
+  return, `getLastObservedBackgroundReturn()`, whose threshold `DEFAULT_RECOVER_THRESHOLD_MS` in
+  `src/core/background-resume-guard.ts` is the guard's own (RO-51).
 - **Anchor tests:**
   - Supersession: `src/player/__tests__/background-return-sync.test.ts` "replaces the previous
     return retry chain instead of stacking a second one"; `local-output-rejoin.test.ts` "drops a
     scheduled busy retry after the queue occurrence changes".
   - User pause/stop: `background-return-sync.test.ts` "lets a local YouTube pause during the retry
-    wait end the chain"; `local-output-rejoin.test.ts` "cancels a busy YouTube retry on explicit
+    wait end the chain" (a computer or Android phone), "on an iPhone, lets a local YouTube pause
+    after the browser-stop grace end the chain" and "on an iPhone, keeps the retry chain through the
+    browser stop whose PAUSE is processed just after the return"; `native-control-authority.test.ts`
+    "on an iPhone, takes a PAUSE processed $processed for the browser stop: $browserStop" (the grace
+    boundary), "on a computer or Android phone, keeps a PAUSE processed $processed the participant
+    pause" and "on an iPhone, takes a PAUSE after a tap into the iframe for the participant pause,
+    inside the grace"; `local-output-rejoin.test.ts` "cancels a busy YouTube retry on explicit
     PAUSE and permits the next PLAY" and "ends a reserved PRO YouTube retry on a PRO listener
     visible PAUSE and permits the next PLAY"; `native-control-authority.test.ts` "records a
     $visibility $room listener iframe PAUSE as a local pause, published as intent: $published"
     (only the visible PRO row emits the router's end event).
   - Teardown: `local-output-rejoin.test.ts` "does not let a stale busy result schedule work into a
-    restarted session".
+    restarted session"; `native-control-authority.test.ts` "on an iPhone, hands a hidden stop to
+    the next return when the page hides again before the chain loads" and "on an iPhone, lets a
+    pause intent before the chain loads cancel the hand-off".
   - Visibility: `background-return-sync.test.ts` "ignores a sub-second visibility bounce that is
-    not a background return".
+    not a background return", "on an iPhone, aligns a sub-second bounce in which the browser stopped
+    the hidden iframe, its PAUSE processed %s" and "on a computer or Android phone, keeps an iframe
+    PAUSE just after a sub-second bounce the participant pause"; `background-resume-guard.test.ts`
+    "reports a $hiddenMs ms return with the same classification recover() follows: $recovers" (the
+    one measurement).
   - Both chains against the real `youtube/sync.ts` (Phase 4 4A, tests only):
     `src/player/__tests__/local-output-realign-cross-flow.test.ts`, the P4-D7 cases (the P4-D7 B
-    fix, a locked browser-stop row and a Standard-guest row) and the P4-D8 cases. The two unit
-    suites above still mock it.
+    fix, a locked browser-stop row and a Standard-guest row), the P4-D8 cases and "iOS: return at
+    the moment WebKit stops the hidden iframe" (2026-11-03: ten stop rows, one return chain at the
+    guard threshold, two quick trips home, and "a pause the participant taps after the return" on a
+    computer and on an iPhone). `e2e/youtube-background-stop-return.test.ts` runs the stop rows and
+    the two trips in Chromium with an iPhone user agent, and two tap rows with a desktop guest. The
+    two unit suites above still mock it.
 - **Status:** `duplicated`. One schedule since Phase 4 4A (C3-I1); both chains already end on the
   same local pause (G2). Owner decision P4-D7 B (2026-10-25, train 4B): a PRO listener's visible
   iframe PAUSE also ends the router's retries; browser stops while hidden still do not. Owner
   decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3 and C3-I4 are not done), and
   the double alignment after a quick unlock and the return chain's give-up while the host is
   buffering stay as the cross-flow harness pins them. The owner is asked again only if device
-  evidence shows either one disturbing playback. Exception RO-48.
+  evidence shows either one disturbing playback. iOS return fix (2026-11-03, device report): an
+  iPhone Standard guest reopened at the moment WebKit stops its hidden iframe stayed paused until
+  a tap. On iPhone and iPad the browser stop now ends no chain, the local pause bit is down after
+  the return, and a sub-second bounce aligns after it; other platforms are unchanged. Owner
+  decision (2026-11-04, the question in the iOS return train report): keep it as it is, so on iPhone
+  and iPad an iframe PAUSE the guest makes within the 1 s grace without focus moving into the
+  iframe is aligned over, as one made while a return rendezvous owns the iframe (about 2.3 s)
+  already was. The fix ships in the App 9.0.37 train
+  ([train report](app-9-0-37-train-2026-11-04.md)). Exception RO-48.
 
 ### RO-06 Host shared start, playlist queue and guided demo
 
@@ -3066,7 +3127,10 @@ RO-54 accepted-exception
   only its prompt single-flight, its repeated-recovery guard deleted in C6-13 because the owner
   reports a recovery at most once per attempt;
   `src/core/page-lifecycle.ts` keeps only `beforeunload`, the pagehide `leaveSession` and
-  `revealLiveShell`. The navigation intents in
+  `revealLiveShell`. Since Phase 7 7A-1 the dispatch's pagehide listener also calls the one
+  optional `onPageHide` callback `app.ts` passes to `initPageNavigation`, which keeps this page's
+  audio recovery counts for the next page in the tab (`src/audio/output-recovery-counters.ts`, one
+  `sessionStorage` key; it never navigates and adds no listener). The navigation intents in
   `src/core/navigation.ts` (Phase 2, C6-3) run on the reset: `navigateHome` (replace, or push for
   the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
   `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
@@ -3088,7 +3152,8 @@ RO-54 accepted-exception
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
-  back-forward cache recovery once (`initPageNavigation`: the role, the reload message, the log).
+  back-forward cache recovery once (`initPageNavigation`: the role, the reload message, the log
+  and, since Phase 7 7A-1, the `onPageHide` callback).
 - **Lifecycle operations:** schedule a reset or reload, navigate, recover, restore.
 - **Deadline owner:** `session-reset.ts`: `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s) for a prepare
   step, then `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) from the final navigation call.
@@ -3881,7 +3946,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   opened, the host-unresponsive dialog in `src/network/host-presence.ts`) are not withdrawn; the
   forced dialog follows the tap that closes them.
 - **Timing-constant home:** none of its own; the guard's `DEFAULT_RECOVER_THRESHOLD_MS` (1 s) and
-  `DEFAULT_WARN_THRESHOLD_MS` (60 s) in `src/core/background-resume-guard.ts`.
+  `DEFAULT_WARN_THRESHOLD_MS` (60 s) in `src/core/background-resume-guard.ts`. The guard also
+  publishes its classification of the last return (`getLastObservedBackgroundReturn`), the one
+  hidden-period measurement the RO-05 browser-stop path reads (2026-11-03).
 - **Anchor tests:** on the real guard and warning, wired as `app.ts` wires them, in
   `src/core/__tests__/sw-update-transitions.integration.test.ts` "return-time dialogs (RO-51)":
   - Supersession: F25 (a forced request withdraws the warning on screen; the guard's flight ends)
@@ -4259,22 +4326,24 @@ and unrelated strings never count, and every baseline is an exact count or list 
 5. **Copied timing constants** inside the files a record names as its timing home (principle 4):
    same-named constants, identical numeric tuples and shared timing objects form a triaged list.
    A home that holds one named export per value (`src/youtube/constants.ts` for RO-02, RO-03 and
-   RO-12 since Phase 6 6A) takes part in the same-name check with every numeric constant,
-   whatever its suffix, and its values count together as one timing object, so a re-typed object
-   elsewhere in the contract that shares five or more of them is a copy too. That YouTube start
-   contract covers `constants.ts`, `iframe-audio.ts`, `arm-steps.ts` (since Phase 6 6C-4, with no
-   timing of its own), `zero-start-recovery.ts` (since 6D-1, likewise, both recoveries since
-   6D-2), `zero-start.ts`,
-   `authority-arm.ts`, `player.ts` and `iframe.ts` in
-   `src/youtube/`. Constants that share only a value are report-only, because round values such as
+   RO-12 since Phase 6 6A, `src/audio/context-protocol.ts` for RO-01 since Phase 7 7A-2) takes
+   part in the same-name check with every numeric constant, whatever its suffix, and its values
+   count together as one timing object, so a re-typed object elsewhere in the contract that
+   shares five or more of them is a copy too. That YouTube start contract covers `constants.ts`,
+   `iframe-audio.ts`, `arm-steps.ts` (since Phase 6 6C-4, with no timing of its own),
+   `zero-start-recovery.ts` (since 6D-1, likewise, both recoveries since 6D-2), `zero-start.ts`,
+   `authority-arm.ts`, `player.ts` and `iframe.ts` in `src/youtube/`; the AudioContext one covers
+   `context-protocol.ts`, `context.ts` and `context-recovery.ts` in `src/audio/`, and
+   `src/app.ts`. Constants that share only a value are report-only, because round values such as
    1 s, 15 s and 30 s recur across different contracts; `--report` lists them.
 6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44). Beside it,
    since Phase 7 T1, **indirect AudioContext resume callers, per file** (RO-01): uses of the three
    functions of `src/audio/context.ts` that call native `resume()` for whoever calls them,
    `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` (which resumes
-   unless the caller passes `attemptResume: false`), in every file, that home included (it calls
-   none of them, and a wrapper exported there would hide its callers). The match is by name: a
-   call, a namespace member, the function passed on or placed in an object, a string key
+   when its caller passes `attemptResume: true`, a required choice since Phase 7 7A-4), in every
+   file, that home included (it calls none of them, and a wrapper exported there would hide its
+   callers). The match is by name: a call, a namespace member, the function passed on or placed
+   in an object, a string key
    (`context['ensureRunning']`) and a rename (an import or export specifier, a destructuring),
    whose own calls then go uncounted, and a local function with one of these names counts too.
    Exact on 2026-11-02 (main `cd8eaf47`) and again on 2026-11-04 (main `34dbe592`, App 9.0.36):

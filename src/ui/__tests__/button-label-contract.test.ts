@@ -1089,6 +1089,27 @@ const setAttribute =
       });
     };
   };
+/** The YouTube sheet's big button as src/youtube/search.ts sets one mode; null removes. */
+const youtubePrimaryAs =
+  (text: string, attributes: Record<string, string | null>): PageState['apply'] =>
+  (markup) => {
+    const button = markup.getElementById('youtube-play-btn')!;
+    const previousText = button.textContent;
+    const previous = Object.keys(attributes).map((name) => button.getAttribute(name));
+    for (const [name, value] of Object.entries(attributes)) {
+      if (value === null) button.removeAttribute(name);
+      else button.setAttribute(name, value);
+    }
+    button.textContent = text;
+    return () => {
+      Object.keys(attributes).forEach((name, index) => {
+        const before = previous[index];
+        if (before === null || before === undefined) button.removeAttribute(name);
+        else button.setAttribute(name, before);
+      });
+      button.textContent = previousText;
+    };
+  };
 const SHARED_PAGE_STATES: readonly PageState[] = [
   { name: 'at rest', apply: () => () => undefined },
   { name: 'hover pointer', apply: setAttribute('html', 'data-hover-pointer') },
@@ -1930,6 +1951,24 @@ const ROLE_SLOTS: readonly RoleSlot[] = [
     states: [
       ...SHARED_PAGE_STATES,
       { name: 'link entered', apply: removeAttribute('#youtube-play-btn', 'disabled') },
+      // Owner decision (2026-11-03): as src/youtube/search.ts sets the big
+      // button, Search while a query is typed and Please wait... while busy.
+      {
+        name: 'query typed',
+        apply: youtubePrimaryAs('Search', {
+          disabled: null,
+          'data-i18n': 'youtube.search_button',
+          'data-mode': 'search',
+        }),
+      },
+      {
+        name: 'busy',
+        apply: youtubePrimaryAs('Please wait...', {
+          'data-i18n': 'common.wait',
+          'data-mode': 'busy',
+          'aria-busy': 'true',
+        }),
+      },
     ],
     targets: (markup) => roleLabels(markup, '#youtube-url-overlay'),
   },
@@ -3205,11 +3244,16 @@ describe('action button label contract', () => {
     // text and the destructive row icons. (The unreachable disconnected
     // device badge went with the hidden settings device list; settings.test.ts
     // 'hidden settings device list removal' keeps them out.)
+    // Owner decision (2026-11-03): the setup code line, the dialog hint and
+    // the YouTube status line read the red through one shared error rule, and
+    // a wrong manual sync value or an invalid YouTube link turns its
+    // underline red.
     const roleReaders: Array<[string, string]> = [
-      ['.dialog-hint.error', 'color'],
+      [':is(.setup-inline-error, .dialog-hint.error, .yt-preview-meta.error)', 'color'],
       ['.dialog-input.invalid', 'border-bottom-color'],
       ['.dialog-input-split.invalid .dialog-input-segment', 'border-bottom-color'],
-      ['.setup-inline-error', 'color'],
+      [".sync-manual-input-wrapper:has([aria-invalid='true'])", 'border-bottom-color'],
+      [".yt-search-input-wrapper:has([aria-invalid='true'])", 'border-bottom-color'],
     ];
     for (const [selector, property] of roleReaders) {
       expect(ruleValues(appCss, selector, property), selector).toEqual([
@@ -3246,8 +3290,12 @@ describe('action button label contract', () => {
       }
     }
     expect(scriptReds).toEqual([]);
+    // The YouTube line takes the red from .yt-preview-meta.error now (owner
+    // decision 2026-11-03), so src/youtube/search.ts writes no colour (it
+    // wrote the danger foreground inline three times).
     const search = read('src/youtube/search.ts');
-    expect(search.match(/'var\(--danger-foreground\)'/gu) ?? []).toHaveLength(3);
+    expect(search.match(/var\(--danger-foreground\)/gu) ?? []).toEqual([]);
+    expect(search.match(/\.style\.color\s*=/gu) ?? []).toEqual([]);
   });
 
   it('reads a red in every CSS color syntax', () => {

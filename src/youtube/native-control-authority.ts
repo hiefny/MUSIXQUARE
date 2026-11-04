@@ -7,9 +7,11 @@
  * the remaining stable transitions as native iframe controls.
  */
 
+import { getLastObservedBackgroundReturn } from '../core/background-resume-guard.ts';
 import { MSG, type PlaybackActivityValue } from '../core/constants.ts';
 import { bus, createBusScope, type BusScope } from '../core/events.ts';
 import { log } from '../core/log.ts';
+import { IS_IOS } from '../core/platform.ts';
 import { getState } from '../core/state.ts';
 import { getPlaylistSubItems } from './queue-manifest.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -19,7 +21,7 @@ import { isPlaybackActivityValue } from '../player/ownership.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import type { QueueItemId } from '../types/index.ts';
-import { YOUTUBE_FRESH_START_MAX_SEC } from './constants.ts';
+import { BACKGROUND_STOP_RETURN_GRACE_MS, YOUTUBE_FRESH_START_MAX_SEC } from './constants.ts';
 import {
   getYouTubePlayer,
   getCurrentSessionId,
@@ -96,15 +98,120 @@ let nativeSeek: { player: YouTubePlayerInstance; state: number; expiresAt: numbe
 let seekFeedback: { player: YouTubePlayerInstance; state: number } | null = null;
 let hostAdActive = false;
 
+// A Standard guest's browser stop belongs to the page's return from hidden
+// (registry RO-05). Only WebKit on iPhone and iPad stops a hidden page's
+// iframe by itself, and its PAUSED can be processed while hidden or just after
+// the page shows again. Elsewhere every unowned PAUSE stays the participant's.
+// The hidden period is the background resume guard's measurement; this route
+// keeps only per-return flags, which the next hidden event resets.
+/** A stop processed while hidden, handed to the return once visible. */
+let hiddenBrowserStop = false;
+/** This return's stop was handed already: one per return. */
+let returnStopHanded = false;
+/** The participant moved focus into the YouTube iframe after this return. */
+let returnTouched = false;
+/** A participant pause or leaving YouTube mode cancels a hand-off in flight. */
+let browserStopGeneration = 0;
+
 function resetNativeSeekObservation(): void {
   positionSample = null;
   nativeSeek = null;
   seekFeedback = null;
 }
 
-function handleNativeSeekWindowBlur(): void {
+function isYouTubeIframeFocused(): boolean {
+  const focused = document.activeElement;
+  return focused instanceof HTMLIFrameElement && !!focused.closest('#youtube-player-container');
+}
+
+/**
+ * Hand a browser stop to the background-return chain, which is lazy as
+ * app.ts's return Sync step is. The participant did not pause, so the local
+ * pause bit goes back down: if the browser stops the iframe again while the
+ * return's rendezvous owns it (a second quick trip home), the heartbeat's play
+ * correction still resumes the guest.
+ */
+function handBrowserStopToReturn(): void {
+  returnStopHanded = true;
+  setLocalYouTubePaused(false);
+  const generation = browserStopGeneration;
+  void import('../player/background-return-sync.ts')
+    .then(({ runBackgroundStopSync }) => {
+      if (generation !== browserStopGeneration) return;
+      // Hidden again before the chain loaded: the stop belongs to the next
+      // return, and until then the bit keeps heartbeats off the iframe again.
+      if (document.visibilityState === 'hidden') {
+        setLocalYouTubePaused(true);
+        hiddenBrowserStop = true;
+        return;
+      }
+      runBackgroundStopSync();
+    })
+    .catch((error: unknown) => {
+      log.warn('[YouTube Native Control] Browser-stop return Sync failed to start', error);
+    });
+}
+
+function forgetBrowserStop(): void {
+  hiddenBrowserStop = false;
+  browserStopGeneration++;
+}
+
+function handleVisibilityChange(): void {
+  resetNativeSeekObservation();
+  if (document.visibilityState === 'hidden') {
+    returnStopHanded = false;
+    returnTouched = false;
+    return;
+  }
+  if (document.visibilityState !== 'visible' || !hiddenBrowserStop) return;
+  hiddenBrowserStop = false;
+  handBrowserStopToReturn();
+}
+
+/**
+ * Whether a Standard guest's unowned PAUSE is the browser's stop of its
+ * hidden iframe rather than the participant's own pause. On iPhone and iPad
+ * only: processed while hidden, it waits for the return; processed within
+ * BACKGROUND_STOP_RETURN_GRACE_MS after the return the guard observed, before
+ * the participant touched the iframe, it is handed to that return now. Either
+ * way it publishes no pause intent, and the return aligns the guest after it.
+ */
+function takeStandardBrowserStop(): boolean {
+  if (!IS_IOS) return false;
+  if (document.visibilityState === 'hidden') {
+    // Until the page shows again the bit keeps heartbeats off the stopped iframe.
+    setLocalYouTubePaused(true);
+    hiddenBrowserStop = true;
+    return true;
+  }
+  const observed = getLastObservedBackgroundReturn();
+  if (
+    document.visibilityState !== 'visible' ||
+    observed === null ||
+    returnStopHanded ||
+    returnTouched ||
+    Date.now() - observed.visibleAt >= BACKGROUND_STOP_RETURN_GRACE_MS
+  ) {
+    return false;
+  }
+  handBrowserStopToReturn();
+  return true;
+}
+
+function handleNativeControlWindowBlur(): void {
   // Focusing a child iframe blurs this window while the document stays focused.
-  if (!document.hasFocus()) resetNativeSeekObservation();
+  if (!document.hasFocus()) {
+    resetNativeSeekObservation();
+    return;
+  }
+  // A click or tap into the YouTube iframe after the return: a PAUSE from
+  // here on is the participant's, even inside the browser-stop grace.
+  if (document.visibilityState === 'visible' && isYouTubeIframeFocused()) {
+    if (!returnTouched)
+      log.debug('[YouTube Native Control] The iframe took focus after the return');
+    returnTouched = true;
+  }
 }
 
 export function setYouTubeNativeControlHostAdActive(active: boolean): void {
@@ -333,9 +440,7 @@ export function observeYouTubeNativeControlPosition(
       return false;
     const expected = previous.position + (previous.state === 1 ? elapsed / 1000 : 0);
     if (Math.abs(position - expected) <= 1.5) return false;
-    const focused = document.activeElement;
-    if (!(focused instanceof HTMLIFrameElement) || !focused.closest('#youtube-player-container'))
-      return false;
+    if (!isYouTubeIframeFocused()) return false;
     // Keep this participant's manual/Android output lead out of room time.
     // Use the pre-jump stable sample, not a transient seek PAUSED callback.
     const target = Math.max(0, Math.min(position - previous.outputOffset, duration));
@@ -413,14 +518,21 @@ function routeNativeAction(
   rememberNativeAction(action, queueItemId);
 
   if (route === 'local-pause') {
+    // On iPhone and iPad, a Standard guest's stop processed while hidden or
+    // just after the page shows again is the browser's: it publishes no pause
+    // intent, and the return aligns the guest after it (RO-05).
+    if (room.kind === 'standard' && takeStandardBrowserStop()) {
+      log.info('[YouTube Native Control] Took the PAUSE for a browser stop of the hidden iframe');
+      return;
+    }
     setLocalYouTubePaused(true);
     // A visible Standard guest's own iframe PAUSE is an explicit pause, like
     // a lock-screen or media-key PAUSE: publish the same intent so pending
-    // automatic alignment retires. WebKit stops a hidden iframe by itself,
-    // so a hidden stop only records the local pause. A PRO listener's intent
-    // handler drops autoplay intent, which would pause back its next iframe
-    // PLAY before it can rejoin, so a visible PRO PAUSE only ends a pending
-    // local-output rejoin, whose next retry would release it (P4-D7 B).
+    // automatic alignment retires. A hidden PAUSE only records the local
+    // pause. A PRO listener's intent handler drops autoplay intent, which
+    // would pause back its next iframe PLAY before it can rejoin, so a visible
+    // PRO PAUSE only ends a pending local-output rejoin, whose next retry would
+    // release it (P4-D7 B).
     if (document.visibilityState === 'visible') {
       if (room.kind === 'standard') bus.emit('youtube:set-local-paused', true);
       else bus.emit('youtube:pro-listener-visible-pause');
@@ -518,10 +630,13 @@ export function initYouTubeNativeControlAuthority(): void {
   nativeSeek = null;
   seekFeedback = null;
   hostAdActive = false;
-  document.removeEventListener('visibilitychange', resetNativeSeekObservation);
-  document.addEventListener('visibilitychange', resetNativeSeekObservation);
-  window.removeEventListener('blur', handleNativeSeekWindowBlur);
-  window.addEventListener('blur', handleNativeSeekWindowBlur);
+  forgetBrowserStop();
+  returnStopHanded = false;
+  returnTouched = false;
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.removeEventListener('blur', handleNativeControlWindowBlur);
+  window.addEventListener('blur', handleNativeControlWindowBlur);
   clearManagedTimer(LOCAL_REJOIN_TIMER);
 
   scope.on('youtube:player-ready', handlePlayerReady);
@@ -529,6 +644,8 @@ export function initYouTubeNativeControlAuthority(): void {
     if (!paused) return;
     pendingLocalRejoin = null;
     clearManagedTimer(LOCAL_REJOIN_TIMER);
+    // The participant's own pause wins over a browser stop not yet aligned.
+    forgetBrowserStop();
   });
   scope.on('state:playback.mode', () => {
     positionSample = null;
@@ -539,6 +656,7 @@ export function initYouTubeNativeControlAuthority(): void {
       clearYouTubeStableControlExpectations(player);
       pendingLocalRejoin = null;
       recentNativeAction = null;
+      forgetBrowserStop();
       clearManagedTimer(LOCAL_REJOIN_TIMER);
     } else {
       ensureCurrentPlayerInstrumented();

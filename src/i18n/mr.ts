@@ -76,9 +76,9 @@ const mr: Record<I18nKey, string> = {
   'account.nickname_title': 'टोपणनाव ठरवा',
   'account.nickname_message': 'MUSIXQUARE वर वापरण्यासाठी टोपणनाव निवडा.',
   'account.nickname_placeholder': 'टोपणनाव',
-  'account.nickname_hint': 'जास्तीत जास्त 12 अक्षरे वापरा.',
-  'account.nickname_required': 'टोपणनाव प्रविष्ट करा.',
-  'account.nickname_whitespace': 'टोपणनावात रिकाम्या जागा किंवा अदृश्य चिन्हे असू शकत नाहीत.',
+  'account.nickname_hint': 'जास्तीत जास्त 12 अक्षरे वापरा',
+  'account.nickname_required': 'टोपणनाव प्रविष्ट करा',
+  'account.nickname_whitespace': 'टोपणनावात रिकाम्या जागा किंवा अदृश्य चिन्हे असू शकत नाहीत',
   'account.nickname_taken': 'हे टोपणनाव आधीपासून वापरात आहे',
   'account.nickname_saved': 'टोपणनाव बदलून {{name}} केले',
   'account.action_failed': 'तुमचे खाते अद्ययावत करता आले नाही\nपुन्हा प्रयत्न करा',
@@ -263,8 +263,8 @@ const mr: Record<I18nKey, string> = {
   'settings.default_5s': 'डीफॉल्ट 5.0 सेकंद',
   'settings.invite_code': 'आमंत्रण कोड',
   'settings.leave_session': 'सत्रातून बाहेर पडा',
-  'connect.rename_reserved': 'हे टोपणनाव राखीव आहे.',
-  'connect.rename_profanity': 'अयोग्य शब्द आढळले.',
+  'connect.rename_reserved': 'हे टोपणनाव राखीव आहे',
+  'connect.rename_profanity': 'अयोग्य शब्द आढळले',
   'settings.invite_share': 'आमंत्रित करा आणि शेअर करा',
   'settings.subtab.general': 'सामान्य',
   'settings.subtab.audio': 'ऑडिओ',
@@ -748,7 +748,7 @@ const mr: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'दुसऱ्या अ‍ॅपवर गेल्यास किंवा स्क्रीन बंद झाल्यास आवाज थांबू शकतो किंवा सिंक बिघडू शकते.',
   'dialog.sw_update_title': 'अद्ययावत करा',
-  'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे.\nअद्ययावत करण्यासाठी रीफ्रेश करा.',
+  'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे\nअद्ययावत करण्यासाठी रीफ्रेश करा',
   'dialog.sw_update_apply': 'लागू करा',
   'dialog.sw_update_apply_msg': 'नवीन आवृत्ती तयार आहे.\nलागू केल्यावर पेज पुन्हा लोड होईल.',
   'dialog.sw_update_room_host_msg':
@@ -765,14 +765,14 @@ const mr: Record<I18nKey, string> = {
   'dialog.step_back': 'मागे',
   'dialog.room_password_title': 'रूमचा पासवर्ड प्रविष्ट करा',
   'dialog.room_password_msg': 'या रूममध्ये सामील होण्यासाठी पासवर्ड आवश्यक आहे.',
-  'dialog.room_password_retry_msg': 'तो पासवर्ड जुळला नाही. पुन्हा प्रयत्न करा.',
+  'dialog.room_password_retry_msg': 'तो पासवर्ड जुळला नाही',
   'dialog.room_password_timeout_msg':
     'कनेक्शनची वेळ संपली. पुन्हा प्रयत्न करण्यासाठी पासवर्ड पुन्हा प्रविष्ट करा.',
   'dialog.room_password_placeholder': '8-अंकी पासवर्ड',
   'dialog.room_password_rate_limited':
-    'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. {{count}} मिनिटांनी पुन्हा प्रयत्न करा.',
+    'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे\n{{count}} मिनिटांनी पुन्हा प्रयत्न करा',
   'dialog.room_password_rate_limited_later':
-    'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. थोड्या वेळाने पुन्हा प्रयत्न करा.',
+    'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'dialog.session_lost_msg':
     'अ‍ॅप स्लीप मोडमध्ये गेले किंवा त्याचे कनेक्शन तुटले, त्यामुळे इतर डिव्हाइस आधीच डिस्कनेक्ट झाली आहेत. नवीन सत्र सुरू करण्यासाठी पुन्हा सुरू करा.',
   'dialog.session_lost_guest_msg':
@@ -823,7 +823,7 @@ const mr: Record<I18nKey, string> = {
   'pro.resume_tap': 'प्लेबॅक पुन्हा सुरू करण्यासाठी टॅप करा',
   'pro.pin_title': 'रूमचा पासवर्ड प्रविष्ट करा',
   'pro.pin_message': 'या PRO रूमचा 8-अंकी पासवर्ड प्रविष्ट करा.',
-  'pro.pin_retry_message': 'तो पासवर्ड चुकीचा आहे. पुन्हा प्रयत्न करा.',
+  'pro.pin_retry_message': 'तो पासवर्ड चुकीचा आहे',
   'pro.pin_change_title': 'रूमचा पासवर्ड बदला',
   'pro.pin_change_message': 'नवीन 8-अंकी पासवर्ड ठरवा.',
   'pro.pin_changed': 'रूमचा पासवर्ड बदलला',
@@ -850,11 +850,11 @@ const mr: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO रूमशी कनेक्ट करता आले नाही',
   'pro.room_full': 'ही PRO रूम भरली आहे',
   'pro.room_full_detail':
-    'PRO रूममध्ये मालकासह कमाल 100 डिव्हाइस कनेक्ट होऊ शकतात. मालकासाठी नेहमी एक जागा राखीव ठेवली जाते.',
+    'मालकासह कमाल 100 डिव्हाइस कनेक्ट होऊ शकतात\nमालकासाठी नेहमी एक जागा राखीव ठेवली जाते',
   'pro.join_rate_limited':
-    'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. {{count}} मिनिटांनी पुन्हा प्रयत्न करा.',
+    'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत\n{{count}} मिनिटांनी पुन्हा प्रयत्न करा',
   'pro.join_rate_limited_later':
-    'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. थोड्या वेळाने पुन्हा प्रयत्न करा.',
+    'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'pro.active_tab_title': 'आधीचे कनेक्शन शिल्लक आहे',
   'pro.active_tab_message': 'इथे पुढे गेल्यास आधीचे कनेक्शन तुटेल.',
   'pro.active_tab_replaced': 'ही PRO रूम आधीपासून दुसऱ्या टॅबमध्ये उघडी आहे',
@@ -997,9 +997,9 @@ export const pluralMessages = {
     one: '{{count}} असमर्थित फाइल जोडली जाणार नाही.',
   },
   'pro.join_rate_limited': {
-    one: 'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. {{count}} मिनिटाने पुन्हा प्रयत्न करा.',
+    one: 'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत\n{{count}} मिनिटाने पुन्हा प्रयत्न करा',
   },
   'dialog.room_password_rate_limited': {
-    one: 'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. {{count}} मिनिटाने पुन्हा प्रयत्न करा.',
+    one: 'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे\n{{count}} मिनिटाने पुन्हा प्रयत्न करा',
   },
 } satisfies LocalePluralMessages;

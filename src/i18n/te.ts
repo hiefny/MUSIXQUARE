@@ -76,9 +76,9 @@ const te: Record<I18nKey, string> = {
   'account.nickname_title': 'మారుపేరు సెట్ చేయి',
   'account.nickname_message': 'MUSIXQUAREలో ఉపయోగించే మారుపేరును ఎంచుకోండి.',
   'account.nickname_placeholder': 'మారుపేరు',
-  'account.nickname_hint': 'గరిష్ఠంగా 12 అక్షరాలు ఉపయోగించండి.',
-  'account.nickname_required': 'మారుపేరు నమోదు చేయండి.',
-  'account.nickname_whitespace': 'మారుపేరులో ఖాళీలు లేదా కనిపించని అక్షరాలు ఉండకూడదు.',
+  'account.nickname_hint': 'గరిష్ఠంగా 12 అక్షరాలు ఉపయోగించండి',
+  'account.nickname_required': 'మారుపేరు నమోదు చేయండి',
+  'account.nickname_whitespace': 'మారుపేరులో ఖాళీలు లేదా కనిపించని అక్షరాలు ఉండకూడదు',
   'account.nickname_taken': 'ఆ మారుపేరు ఇప్పటికే వాడుకలో ఉంది',
   'account.nickname_saved': 'మారుపేరు {{name}}గా మార్చబడింది',
   'account.action_failed': 'మీ ఖాతాను అప్‌డేట్ చేయడం సాధ్యపడలేదు\nమళ్లీ ప్రయత్నించండి',
@@ -264,8 +264,8 @@ const te: Record<I18nKey, string> = {
   'settings.default_5s': 'డిఫాల్ట్ 5.0s',
   'settings.invite_code': 'ఆహ్వాన కోడ్',
   'settings.leave_session': 'సెషన్ నుండి బయటకు వెళ్లు',
-  'connect.rename_reserved': 'ఈ మారుపేరు రిజర్వ్ చేయబడింది.',
-  'connect.rename_profanity': 'అనుచిత పదాలు గుర్తించబడ్డాయి.',
+  'connect.rename_reserved': 'ఈ మారుపేరు రిజర్వ్ చేయబడింది',
+  'connect.rename_profanity': 'అనుచిత పదాలు గుర్తించబడ్డాయి',
   'settings.invite_share': 'ఆహ్వానం & షేరింగ్',
   'settings.subtab.general': 'సాధారణం',
   'settings.subtab.audio': 'ఆడియో',
@@ -755,7 +755,7 @@ const te: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'వేరే యాప్‌కు మారినా లేదా స్క్రీన్ ఆఫ్ అయినా సౌండ్ ఆగిపోవచ్చు లేదా సింక్ తప్పవచ్చు.',
   'dialog.sw_update_title': 'అప్‌డేట్',
-  'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nఅప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి.',
+  'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది\nఅప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి',
   'dialog.sw_update_apply': 'వర్తింపజేయండి',
   'dialog.sw_update_apply_msg':
     'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేస్తే పేజీ మళ్లీ లోడ్ అవుతుంది.',
@@ -773,14 +773,14 @@ const te: Record<I18nKey, string> = {
   'dialog.step_back': 'వెనుకకు',
   'dialog.room_password_title': 'గది పాస్‌వర్డ్‌ను నమోదు చేయి',
   'dialog.room_password_msg': 'ఈ గదిలో చేరడానికి పాస్‌వర్డ్ అవసరం.',
-  'dialog.room_password_retry_msg': 'ఆ పాస్‌వర్డ్ సరిపోలలేదు. మళ్లీ ప్రయత్నించండి.',
+  'dialog.room_password_retry_msg': 'ఆ పాస్‌వర్డ్ సరిపోలలేదు',
   'dialog.room_password_timeout_msg':
     'కనెక్షన్ సమయం ముగిసింది. మళ్లీ ప్రయత్నించడానికి పాస్‌వర్డ్‌ను నమోదు చేయండి.',
   'dialog.room_password_placeholder': '8 అంకెల పాస్‌వర్డ్',
   'dialog.room_password_rate_limited':
-    'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. {{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి.',
+    'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు\n{{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి',
   'dialog.room_password_rate_limited_later':
-    'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
+    'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు\nకొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి',
   'dialog.session_lost_msg':
     'యాప్ నిద్రలోకి వెళ్లింది లేదా కనెక్షన్ పోయింది, కాబట్టి ఇతర పరికరాలు ఇప్పటికే డిస్‌కనెక్ట్ అయ్యాయి. కొత్త సెషన్‌ను ప్రారంభించడానికి రీస్టార్ట్ చేయండి.',
   'dialog.session_lost_guest_msg':
@@ -830,7 +830,7 @@ const te: Record<I18nKey, string> = {
   'pro.resume_tap': 'ప్లేబ్యాక్‌ను కొనసాగించడానికి ట్యాప్ చేయండి',
   'pro.pin_title': 'గది పాస్‌వర్డ్‌ను నమోదు చేయి',
   'pro.pin_message': 'ఈ PRO గది 8 అంకెల పాస్‌వర్డ్‌ను నమోదు చేయండి.',
-  'pro.pin_retry_message': 'ఆ పాస్‌వర్డ్ సరైనది కాదు. మళ్లీ ప్రయత్నించండి.',
+  'pro.pin_retry_message': 'ఆ పాస్‌వర్డ్ సరైనది కాదు',
   'pro.pin_change_title': 'గది పాస్‌వర్డ్‌ను మార్చు',
   'pro.pin_change_message': 'కొత్త 8 అంకెల పాస్‌వర్డ్‌ను సెట్ చేయండి.',
   'pro.pin_changed': 'గది పాస్‌వర్డ్ మార్చబడింది',
@@ -857,11 +857,11 @@ const te: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO గదికి కనెక్ట్ కాలేకపోయాం',
   'pro.room_full': 'ఈ PRO గది నిండిపోయింది',
   'pro.room_full_detail':
-    'ఒక PRO గదిలో యజమానితో కలిపి గరిష్ఠంగా 100 పరికరాలు ఉండవచ్చు. యజమాని కోసం ఎల్లప్పుడూ ఒక స్థానం ప్రత్యేకంగా ఉంచబడుతుంది.',
+    'యజమానితో కలిపి గరిష్ఠంగా 100 పరికరాలు ఉండవచ్చు\nయజమాని కోసం ఎల్లప్పుడూ ఒక స్థానం ప్రత్యేకంగా ఉంచబడుతుంది',
   'pro.join_rate_limited':
-    'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. {{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి.',
+    'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి\n{{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి',
   'pro.join_rate_limited_later':
-    'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
+    'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి\nకొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి',
   'pro.active_tab_title': 'మునుపటి కనెక్షన్ మిగిలి ఉంది',
   'pro.active_tab_message': 'ఇక్కడ కొనసాగితే మునుపటి కనెక్షన్ నిలిపివేయబడుతుంది.',
   'pro.active_tab_replaced': 'ఈ PRO గది ఇప్పటికే మరో ట్యాబ్‌లో తెరిచి ఉంది',
@@ -1013,9 +1013,9 @@ export const pluralMessages = {
     one: 'మద్దతు లేని {{count}} ఫైల్ జోడించబడదు.',
   },
   'pro.join_rate_limited': {
-    one: 'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. {{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి.',
+    one: 'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి\n{{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి',
   },
   'dialog.room_password_rate_limited': {
-    one: 'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. {{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి.',
+    one: 'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు\n{{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి',
   },
 } satisfies LocalePluralMessages;

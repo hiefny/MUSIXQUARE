@@ -74,9 +74,9 @@ const it: Record<I18nKey, string> = {
   'account.nickname_title': 'Imposta nickname',
   'account.nickname_message': 'Scegli il nickname da usare su MUSIXQUARE.',
   'account.nickname_placeholder': 'Nickname',
-  'account.nickname_hint': 'Usa fino a 12 caratteri.',
-  'account.nickname_required': 'Inserisci un nickname.',
-  'account.nickname_whitespace': 'Il nickname non può contenere spazi o caratteri invisibili.',
+  'account.nickname_hint': 'Usa fino a 12 caratteri',
+  'account.nickname_required': 'Inserisci un nickname',
+  'account.nickname_whitespace': 'Il nickname non può contenere spazi o caratteri invisibili',
   'account.nickname_taken': 'Questo nickname è già in uso',
   'account.nickname_saved': 'Nickname cambiato in {{name}}',
   'account.action_failed': 'Impossibile aggiornare l’account\nRiprova più tardi',
@@ -267,8 +267,8 @@ const it: Record<I18nKey, string> = {
   'settings.default_5s': 'Predefinito 5,0 s',
   'settings.invite_code': 'Codice d’invito',
   'settings.leave_session': 'Esci dalla stanza',
-  'connect.rename_reserved': 'Questo nickname è riservato.',
-  'connect.rename_profanity': 'Il nickname contiene termini inappropriati.',
+  'connect.rename_reserved': 'Questo nickname è riservato',
+  'connect.rename_profanity': 'Il nickname contiene termini inappropriati',
   'settings.invite_share': 'Invito e condivisione',
   'settings.subtab.general': 'Generale',
   'settings.subtab.audio': 'Audio',
@@ -772,7 +772,7 @@ const it: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Se passi a un’altra app o lo schermo si spegne, l’audio può interrompersi o perdere la sincronizzazione.',
   'dialog.sw_update_title': 'Nuovo aggiornamento',
-  'dialog.sw_update_msg': 'È disponibile una nuova versione.\nAggiorna la pagina per applicarla.',
+  'dialog.sw_update_msg': 'È disponibile una nuova versione\nAggiorna la pagina per applicarla',
   'dialog.sw_update_apply': 'Applica',
   'dialog.sw_update_apply_msg':
     'È disponibile una nuova versione.\nApplicandola, la pagina verrà ricaricata.',
@@ -790,14 +790,14 @@ const it: Record<I18nKey, string> = {
   'dialog.step_back': 'Indietro',
   'dialog.room_password_title': 'Inserisci la password della stanza',
   'dialog.room_password_msg': 'Per accedere a questa stanza è necessaria una password.',
-  'dialog.room_password_retry_msg': 'La password inserita è errata. Riprova.',
+  'dialog.room_password_retry_msg': 'La password inserita è errata',
   'dialog.room_password_timeout_msg':
     'Tempo di connessione scaduto. Inserisci di nuovo la password.',
   'dialog.room_password_placeholder': 'Password di 8 cifre',
   'dialog.room_password_rate_limited':
-    'Hai inserito una password errata troppe volte. Riprova tra {{count}} minuti.',
+    'Hai inserito una password errata troppe volte\nRiprova tra {{count}} minuti',
   'dialog.room_password_rate_limited_later':
-    'Hai inserito una password errata troppe volte. Riprova tra poco.',
+    'Hai inserito una password errata troppe volte\nRiprova tra poco',
   'dialog.session_lost_msg':
     'L’app è passata in modalità di risparmio energetico o ha perso la connessione, interrompendo il collegamento con gli altri dispositivi. Riavvia per aprire una nuova stanza.',
   'dialog.session_lost_guest_msg':
@@ -848,7 +848,7 @@ const it: Record<I18nKey, string> = {
   'pro.resume_tap': 'Tocca per riprendere la riproduzione',
   'pro.pin_title': 'Password della stanza',
   'pro.pin_message': 'Inserisci la password di 8 cifre di questa stanza PRO.',
-  'pro.pin_retry_message': 'La password non è corretta. Riprova.',
+  'pro.pin_retry_message': 'La password non è corretta',
   'pro.pin_change_title': 'Cambia password',
   'pro.pin_change_message': 'Imposta una nuova password di 8 cifre.',
   'pro.pin_changed': 'Password della stanza modificata',
@@ -876,9 +876,9 @@ const it: Record<I18nKey, string> = {
   'pro.connect_failed': 'Impossibile connettersi alla stanza PRO',
   'pro.room_full': 'Questa stanza PRO è piena',
   'pro.room_full_detail':
-    'Una stanza PRO accoglie fino a 100 dispositivi, incluso quello del proprietario. Un posto resta sempre riservato al proprietario.',
-  'pro.join_rate_limited': 'Troppi tentativi di accesso. Riprova tra {{count}} minuti.',
-  'pro.join_rate_limited_later': 'Troppi tentativi di accesso. Riprova tra poco.',
+    'Accoglie fino a 100 dispositivi, incluso quello del proprietario\nUn posto resta sempre riservato al proprietario',
+  'pro.join_rate_limited': 'Troppi tentativi di accesso\nRiprova tra {{count}} minuti',
+  'pro.join_rate_limited_later': 'Troppi tentativi di accesso\nRiprova tra poco',
   'pro.active_tab_title': 'È ancora attiva una connessione precedente',
   'pro.active_tab_message': 'Continuando qui, la connessione precedente verrà interrotta.',
   'pro.active_tab_replaced': 'Questa stanza PRO è già aperta in un’altra scheda',
@@ -1020,9 +1020,9 @@ export const pluralMessages = {
     one: '{{count}} file non supportato non verrà aggiunto.',
   },
   'pro.join_rate_limited': {
-    one: 'Troppi tentativi di accesso. Riprova tra {{count}} minuto.',
+    one: 'Troppi tentativi di accesso\nRiprova tra {{count}} minuto',
   },
   'dialog.room_password_rate_limited': {
-    one: 'Hai inserito una password errata troppe volte. Riprova tra {{count}} minuto.',
+    one: 'Hai inserito una password errata troppe volte\nRiprova tra {{count}} minuto',
   },
 } satisfies LocalePluralMessages;

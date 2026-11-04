@@ -6,6 +6,38 @@
 
 import { log } from '../core/log.ts';
 import { delay } from '../core/timers.ts';
+import {
+  AUDIO_CLOCK_MIN_ADVANCE_SECONDS,
+  AUDIO_CLOCK_SAMPLE_MS,
+  AUDIO_LATE_SUSPEND_FENCE_MS,
+  AUDIO_RECOVERY_RESUME_DEADLINE_MS,
+  AUDIO_RESUME_DEADLINE_MS,
+  AUDIO_RETIRED_SUSPEND_CLEANUP_DEADLINE_MS,
+  AUDIO_SUSPEND_MAX_ATTEMPTS,
+  AUDIO_SUSPEND_PREPARE_DEADLINE_MS,
+  AUDIO_SUSPEND_WATCHDOG_MS,
+  isAudioContextPrepared,
+} from './context-protocol.ts';
+import {
+  DEADLINE_ENSURE_RUNNING,
+  DEADLINE_LATE_SUSPEND_FENCE,
+  DEADLINE_PLAY_REQUEST_PREPARE,
+  DEADLINE_PLAY_REQUEST_RESUME,
+  DEADLINE_PLAY_REQUEST_WATCHDOG,
+  DEADLINE_PROBE,
+  DEADLINE_RETIRE_CLEANUP,
+  DEADLINES_WATCHED,
+  RESUME_ENSURE_RUNNING,
+  RESUME_PLAY_REQUEST,
+  RESUME_PROBE,
+  RESUME_RETIRE,
+  TAPS_REFUSED,
+  countAudioRecovery,
+  countAudioRecoveryPhase,
+  countAudioSuspend,
+  raceAudioRecoveryDeadline,
+  registerAudioRecoveryOwner,
+} from './output-recovery-counters.ts';
 
 let _ctx: AudioContext | null = null;
 let foregroundClockHealthGeneration = 0;
@@ -73,16 +105,30 @@ const foregroundLateSuspendFences = new WeakMap<AudioContext, ForegroundLateSusp
 const retiredSuspendRecoveryBindings = new WeakMap<AudioContext, RetiredSuspendRecoveryBinding>();
 const retiredSuspendCleanupFlights = new WeakMap<AudioContext, Promise<void>>();
 
-const AUDIO_RESUME_DEADLINE_MS = 500;
-const AUDIO_CLOCK_SAMPLE_MS = 180;
-const AUDIO_CLOCK_MIN_ADVANCE_SECONDS = 0.01;
-const FOREGROUND_SUSPEND_PREPARE_DEADLINE_MS = 500;
-const FOREGROUND_GESTURE_RESUME_DEADLINE_MS = 750;
-const FOREGROUND_LATE_SUSPEND_FENCE_MS = 250;
-const FOREGROUND_SUSPEND_WATCHDOG_MS =
-  FOREGROUND_SUSPEND_PREPARE_DEADLINE_MS + FOREGROUND_LATE_SUSPEND_FENCE_MS;
-const MAX_FOREGROUND_SUSPEND_ATTEMPTS = 2;
-const RETIRED_SUSPEND_CLEANUP_DEADLINE_MS = 500;
+/** Every phase write of a play-request restart goes through here (the /debug counts). */
+function setRestartPhase(attempt: ForegroundRestartAttempt, phase: ForegroundRestartPhase): void {
+  const from = attempt.phase;
+  if (from === phase) return;
+  attempt.phase = phase;
+  countAudioRecoveryPhase(attempt, from, phase);
+}
+
+registerAudioRecoveryOwner(
+  () => {
+    const attempt = pendingForegroundRestartAttempt;
+    return Boolean(
+      attempt &&
+      foregroundRestartStillCurrent(attempt) &&
+      (attempt.phase === 'preparing-suspend' ||
+        attempt.phase === 'awaiting-gesture' ||
+        attempt.phase === 'gesture-resuming'),
+    );
+  },
+  (context) => {
+    const lease = foregroundSuspendLeases.get(context);
+    return lease && !lease.settled && !lease.abandoned ? 1 : 0;
+  },
+);
 
 export type AudioContextHealthReason =
   | 'healthy'
@@ -153,11 +199,6 @@ export function getExistingAudioContext(): AudioContext | null {
   return _ctx;
 }
 
-function isForegroundRestartPrepared(context: AudioContext): boolean {
-  const state = String(context.state);
-  return state === 'suspended' || state === 'interrupted';
-}
-
 function foregroundRestartStillCurrent(attempt: ForegroundRestartAttempt): boolean {
   const incident = pendingForegroundClockHealthIncident;
   return Boolean(
@@ -200,7 +241,7 @@ export function bindRetiredAudioContextSuspendRecovery(
 export function requestRetiredAudioContextSuspendCleanup(context: AudioContext): void {
   if (
     document.visibilityState !== 'visible' ||
-    !isForegroundRestartPrepared(context) ||
+    !isAudioContextPrepared(context) ||
     isForegroundAudioContextRestartOwned(context) ||
     retiredSuspendCleanupFlights.has(context)
   ) {
@@ -208,6 +249,7 @@ export function requestRetiredAudioContextSuspendCleanup(context: AudioContext):
   }
 
   let nativeResume: Promise<void>;
+  countAudioRecovery(RESUME_RETIRE);
   try {
     nativeResume = context.resume();
   } catch (error) {
@@ -217,9 +259,13 @@ export function requestRetiredAudioContextSuspendCleanup(context: AudioContext):
     () => undefined,
     () => undefined,
   );
-  const operation = Promise.race([cleanupSettled, delay(RETIRED_SUSPEND_CLEANUP_DEADLINE_MS)])
+  const operation = raceAudioRecoveryDeadline(
+    DEADLINE_RETIRE_CLEANUP,
+    cleanupSettled,
+    delay(AUDIO_RETIRED_SUSPEND_CLEANUP_DEADLINE_MS),
+  )
     .then(() => {
-      if (document.visibilityState === 'visible' && isForegroundRestartPrepared(context)) {
+      if (document.visibilityState === 'visible' && isAudioContextPrepared(context)) {
         notifyRetiredSuspendRecovery(context);
       }
     })
@@ -285,7 +331,7 @@ function startFreshForegroundSuspend(attempt: ForegroundRestartAttempt): void {
 
 function handleForegroundLateSuspend(context: AudioContext, fenceToken: object): void {
   const fence = foregroundLateSuspendFences.get(context);
-  if (!fence || fence.token !== fenceToken || !isForegroundRestartPrepared(context)) return;
+  if (!fence || fence.token !== fenceToken || !isAudioContextPrepared(context)) return;
   const fencedSuccessor = fence.successor;
   clearForegroundLateSuspendFence(context);
 
@@ -303,7 +349,7 @@ function handleForegroundLateSuspend(context: AudioContext, fenceToken: object):
     if (successor.suspendLease) {
       settleForegroundSuspendLease(successor.suspendLease);
     } else {
-      successor.phase = 'awaiting-gesture';
+      setRestartPhase(successor, 'awaiting-gesture');
       if (!successor.preparedSettled) {
         successor.preparedSettled = true;
         successor.resolvePrepared(true);
@@ -327,9 +373,11 @@ function installForegroundLateSuspendFence(context: AudioContext): void {
   };
   foregroundLateSuspendFences.set(context, fence);
   context.addEventListener('statechange', handleStateChange);
-  delay(FOREGROUND_LATE_SUSPEND_FENCE_MS)
+  countAudioRecovery(DEADLINES_WATCHED);
+  delay(AUDIO_LATE_SUSPEND_FENCE_MS)
     .then(() => {
       if (foregroundLateSuspendFences.get(context) === fence) {
+        countAudioRecovery(DEADLINE_LATE_SUSPEND_FENCE);
         const successor = fence.successor;
         clearForegroundLateSuspendFence(context);
         if (successor) startFreshForegroundSuspend(successor);
@@ -343,14 +391,14 @@ function retireForegroundRestartAttempt(
   restorePrepared = true,
 ): void {
   if (attempt.phase === 'cancelled' || attempt.phase === 'completed') return;
-  const shouldRestore = restorePrepared && isForegroundRestartPrepared(attempt.context);
+  const shouldRestore = restorePrepared && isAudioContextPrepared(attempt.context);
   attempt.activeResumeToken = null;
   attempt.removeResumeStateListener?.();
   attempt.removeResumeStateListener = null;
   if (attempt.suspendLease?.nativeResolvedWithoutPrepared) {
     abandonForegroundSuspendLease(attempt.suspendLease, true);
   }
-  attempt.phase = 'cancelled';
+  setRestartPhase(attempt, 'cancelled');
   if (!attempt.preparedSettled) {
     attempt.preparedSettled = true;
     attempt.resolvePrepared(false);
@@ -364,7 +412,7 @@ function retireForegroundRestartAttempt(
 
 function settleForegroundSuspendLease(lease: ForegroundSuspendLease, forceFailure = false): void {
   if (lease.settled || lease.abandoned) return;
-  const prepared = isForegroundRestartPrepared(lease.context);
+  const prepared = isAudioContextPrepared(lease.context);
   // A resolved suspend Promise while state is still running is inconclusive.
   // Retain the exact listener because a delayed WebKit statechange may still
   // land; only a rejection/close forces an unprepared terminal result.
@@ -386,7 +434,7 @@ function settleForegroundSuspendLease(lease: ForegroundSuspendLease, forceFailur
     owner.phase === 'preparing-suspend'
   ) {
     owner.suspendLease = null;
-    owner.phase = 'awaiting-gesture';
+    setRestartPhase(owner, 'awaiting-gesture');
     if (!owner.preparedSettled) {
       owner.preparedSettled = true;
       owner.resolvePrepared(true);
@@ -402,12 +450,14 @@ function watchForegroundSuspendLease(lease: ForegroundSuspendLease): void {
   if (lease.settled || lease.abandoned || lease.autoRotateToken) return;
   const rotateToken = {};
   lease.autoRotateToken = rotateToken;
-  delay(FOREGROUND_SUSPEND_WATCHDOG_MS)
+  countAudioRecovery(DEADLINES_WATCHED);
+  delay(AUDIO_SUSPEND_WATCHDOG_MS)
     .then(() => {
       if (lease.settled || lease.abandoned || lease.autoRotateToken !== rotateToken) {
         return;
       }
-      if (isForegroundRestartPrepared(lease.context)) {
+      countAudioRecovery(DEADLINE_PLAY_REQUEST_WATCHDOG);
+      if (isAudioContextPrepared(lease.context)) {
         settleForegroundSuspendLease(lease);
         return;
       }
@@ -421,7 +471,7 @@ function watchForegroundSuspendLease(lease: ForegroundSuspendLease): void {
         abandonForegroundSuspendLease(lease, true);
         return;
       }
-      if (owner.suspendPrepareAttempts >= MAX_FOREGROUND_SUSPEND_ATTEMPTS) {
+      if (owner.suspendPrepareAttempts >= AUDIO_SUSPEND_MAX_ATTEMPTS) {
         abandonForegroundSuspendLease(lease, true);
         retireForegroundRestartAttempt(owner, false);
         return;
@@ -442,7 +492,7 @@ function createForegroundSuspendLease(
 ): ForegroundSuspendLease {
   const handleStateChange = (): void => {
     if (lease.abandoned) return;
-    if (isForegroundRestartPrepared(context)) settleForegroundSuspendLease(lease);
+    if (isAudioContextPrepared(context)) settleForegroundSuspendLease(lease);
     else if (String(context.state) === 'closed') settleForegroundSuspendLease(lease, true);
   };
   const lease: ForegroundSuspendLease = {
@@ -461,6 +511,7 @@ function createForegroundSuspendLease(
   watchForegroundSuspendLease(lease);
 
   let nativeSuspend: Promise<void>;
+  countAudioSuspend(context, owner.suspendPrepareAttempts);
   try {
     nativeSuspend = context.suspend();
   } catch {
@@ -469,7 +520,7 @@ function createForegroundSuspendLease(
   }
   void nativeSuspend.then(
     () => {
-      if (isForegroundRestartPrepared(context)) settleForegroundSuspendLease(lease);
+      if (isAudioContextPrepared(context)) settleForegroundSuspendLease(lease);
       else if (!lease.settled && !lease.abandoned) {
         lease.nativeResolvedWithoutPrepared = true;
       }
@@ -620,8 +671,8 @@ export async function prepareForegroundAudioContextRestart(
     return null;
   }
 
-  if (isForegroundRestartPrepared(attempt.context)) {
-    attempt.phase = 'awaiting-gesture';
+  if (isAudioContextPrepared(attempt.context)) {
+    setRestartPhase(attempt, 'awaiting-gesture');
     attempt.suspendLease = null;
     if (!attempt.preparedSettled) {
       attempt.preparedSettled = true;
@@ -634,7 +685,7 @@ export async function prepareForegroundAudioContextRestart(
   if (attempt.phase === 'preparing-suspend') {
     let lease = foregroundSuspendLeases.get(attempt.context) ?? null;
     if (lease?.nativeResolvedWithoutPrepared) {
-      if (attempt.suspendPrepareAttempts >= MAX_FOREGROUND_SUSPEND_ATTEMPTS) {
+      if (attempt.suspendPrepareAttempts >= AUDIO_SUSPEND_MAX_ATTEMPTS) {
         abandonForegroundSuspendLease(lease, true);
         retireForegroundRestartAttempt(attempt, false);
         return null;
@@ -654,10 +705,11 @@ export async function prepareForegroundAudioContextRestart(
   }
 
   const whenPrepared = attempt.whenPrepared;
-  const initial = await Promise.race([
+  const initial = await raceAudioRecoveryDeadline(
+    DEADLINE_PLAY_REQUEST_PREPARE,
     whenPrepared.then((prepared): 'prepared' | 'stale' => (prepared ? 'prepared' : 'stale')),
-    delay(FOREGROUND_SUSPEND_PREPARE_DEADLINE_MS).then(() => 'preparing' as const),
-  ]);
+    delay(AUDIO_SUSPEND_PREPARE_DEADLINE_MS).then(() => 'preparing' as const),
+  );
   if (initial === 'stale' || !foregroundRestartStillCurrent(attempt)) return null;
   return {
     status: initial,
@@ -692,7 +744,7 @@ function promoteForegroundRestartAfterNativeResume(
     // A retry may have superseded the Promise token, but the exact recovery
     // attempt still owns the context. Running is only provisional here; the
     // caller must pass the clock probe before commit.
-    attempt.phase = 'awaiting-clock-verification';
+    setRestartPhase(attempt, 'awaiting-clock-verification');
     attempt.activeResumeToken = null;
     attempt.removeResumeStateListener?.();
     attempt.removeResumeStateListener = null;
@@ -710,7 +762,7 @@ function promoteForegroundRestartAfterNativeResume(
     foregroundRestartStillCurrent(successor) &&
     successor.phase === 'awaiting-gesture'
   ) {
-    successor.phase = 'preparing-suspend';
+    setRestartPhase(successor, 'preparing-suspend');
     startFreshForegroundSuspend(successor);
   }
 }
@@ -725,13 +777,14 @@ export function resumePreparedForegroundAudioContextRestartFromGesture(
     attempt.attemptToken !== attemptToken ||
     !foregroundRestartStillCurrent(attempt) ||
     attempt.phase !== 'awaiting-gesture' ||
-    !isForegroundRestartPrepared(attempt.context)
+    !isAudioContextPrepared(attempt.context)
   ) {
+    countAudioRecovery(TAPS_REFUSED);
     return Promise.resolve({ running: false, requiresClockVerification: false });
   }
   if (attempt.gestureResume) return attempt.gestureResume;
 
-  attempt.phase = 'gesture-resuming';
+  setRestartPhase(attempt, 'gesture-resuming');
   const resumeToken = {};
   attempt.activeResumeToken = resumeToken;
   attempt.removeResumeStateListener?.();
@@ -744,6 +797,7 @@ export function resumePreparedForegroundAudioContextRestartFromGesture(
   attempt.removeResumeStateListener = () =>
     attempt.context.removeEventListener('statechange', handleResumeStateChange);
   let nativeResume: Promise<void>;
+  countAudioRecovery(RESUME_PLAY_REQUEST);
   try {
     nativeResume = attempt.context.resume();
   } catch (error) {
@@ -753,7 +807,11 @@ export function resumePreparedForegroundAudioContextRestartFromGesture(
     () => promoteForegroundRestartAfterNativeResume(attempt, resumeToken),
     () => undefined,
   );
-  const operation = Promise.race([nativeResume, delay(FOREGROUND_GESTURE_RESUME_DEADLINE_MS)])
+  const operation = raceAudioRecoveryDeadline(
+    DEADLINE_PLAY_REQUEST_RESUME,
+    nativeResume,
+    delay(AUDIO_RECOVERY_RESUME_DEADLINE_MS),
+  )
     .then(() => {
       if (!foregroundRestartStillCurrent(attempt)) {
         return { running: false, requiresClockVerification: false };
@@ -762,16 +820,18 @@ export function resumePreparedForegroundAudioContextRestartFromGesture(
         promoteForegroundRestartAfterNativeResume(attempt, resumeToken);
         return { running: true, requiresClockVerification: true };
       }
-      attempt.phase = isForegroundRestartPrepared(attempt.context)
-        ? 'awaiting-gesture'
-        : 'preparing-suspend';
+      setRestartPhase(
+        attempt,
+        isAudioContextPrepared(attempt.context) ? 'awaiting-gesture' : 'preparing-suspend',
+      );
       return { running: false, requiresClockVerification: false };
     })
     .catch(() => {
       if (foregroundRestartStillCurrent(attempt)) {
-        attempt.phase = isForegroundRestartPrepared(attempt.context)
-          ? 'awaiting-gesture'
-          : 'preparing-suspend';
+        setRestartPhase(
+          attempt,
+          isAudioContextPrepared(attempt.context) ? 'awaiting-gesture' : 'preparing-suspend',
+        );
       }
       if (attempt.activeResumeToken === resumeToken) {
         attempt.activeResumeToken = null;
@@ -818,7 +878,7 @@ export function confirmForegroundAudioContextRestartHealth(attemptToken: object)
   ) {
     return false;
   }
-  attempt.phase = 'completed';
+  setRestartPhase(attempt, 'completed');
   pendingForegroundRestartAttempt = null;
   if (pendingForegroundClockHealthIncident?.token === attempt.checkToken) {
     pendingForegroundClockHealthIncident = null;
@@ -852,8 +912,13 @@ export function getCurrentTime(): number {
 export async function ensureRunning(): Promise<void> {
   const ctx = getAudioContext();
   if (ctx.state !== 'running') {
+    countAudioRecovery(RESUME_ENSURE_RUNNING);
     // Add a race to prevent hanging on browsers that don't resolve resume() without a gesture
-    await Promise.race([ctx.resume(), delay(AUDIO_RESUME_DEADLINE_MS)]);
+    await raceAudioRecoveryDeadline(
+      DEADLINE_ENSURE_RUNNING,
+      ctx.resume(),
+      delay(AUDIO_RESUME_DEADLINE_MS),
+    );
   }
   // A timeout is not a successful resume. Mobile WebKit can leave resume()
   // pending indefinitely after a page suspension, so every caller must gate
@@ -946,14 +1011,14 @@ async function sampleRunningClock(
 /**
  * Verify that WebKit's native audio clock actually advances after foreground.
  * `state === "running"` alone is insufficient on affected iOS releases.
+ * Every caller chooses whether a context that is not running is resumed
+ * first (`attemptResume`); there is no default resume.
  */
-export async function probeAudioContextHealth(
-  options: {
-    attemptResume?: boolean;
-    isCurrent?: () => boolean;
-    context?: AudioContext;
-  } = {},
-): Promise<AudioContextHealthResult> {
+export async function probeAudioContextHealth(options: {
+  attemptResume: boolean;
+  isCurrent?: () => boolean;
+  context?: AudioContext;
+}): Promise<AudioContextHealthResult> {
   const ctx = options.context ?? _ctx;
   if (!ctx) {
     return {
@@ -973,9 +1038,14 @@ export async function probeAudioContextHealth(
     };
   }
 
-  if (String(ctx.state) !== 'running' && options.attemptResume !== false) {
+  if (String(ctx.state) !== 'running' && options.attemptResume) {
+    countAudioRecovery(RESUME_PROBE);
     try {
-      await Promise.race([ctx.resume(), delay(AUDIO_RESUME_DEADLINE_MS)]);
+      await raceAudioRecoveryDeadline(
+        DEADLINE_PROBE,
+        ctx.resume(),
+        delay(AUDIO_RESUME_DEADLINE_MS),
+      );
     } catch {
       // The concrete state below is authoritative.
     }

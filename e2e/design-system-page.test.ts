@@ -242,6 +242,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       const devices = document.querySelector<HTMLElement>('.device-comp')!;
       const messaging = document.querySelector<HTMLElement>('.messaging-comp')!;
       const interfaceSample = document.querySelector<HTMLElement>('.interface-comp')!;
+      const loadingSample = document.querySelector<HTMLElement>('.loading-comp')!;
       const feedback = document.querySelector<HTMLElement>('.feedback-comp')!;
       const navigation = document.querySelector<HTMLElement>('.nav-comp')!;
       const componentGrid = document.querySelector<HTMLElement>('.component-grid')!;
@@ -265,6 +266,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       const devicesRect = devices.getBoundingClientRect();
       const messagingRect = messaging.getBoundingClientRect();
       const interfaceRect = interfaceSample.getBoundingClientRect();
+      const loadingRect = loadingSample.getBoundingClientRect();
       const feedbackRect = feedback.getBoundingClientRect();
       const navigationRect = navigation.getBoundingClientRect();
       const toastRect = toast.getBoundingClientRect();
@@ -365,11 +367,14 @@ test('keeps the Design System rail and examples coherent at every layout size', 
         },
         interfacePatterns: {
           tabCount: document.querySelectorAll('.settings-subtab-sample .subtab-pill').length,
+          // The composer and the search box sit in the Input fields card.
           composerWidth: document
-            .querySelector<HTMLElement>('.chat-input-wrapper')!
+            .querySelector<HTMLElement>(
+              '.input-comp .chat-input-wrapper:not(.sync-manual-input-wrapper)',
+            )!
             .getBoundingClientRect().width,
           searchWidth: document
-            .querySelector<HTMLElement>('.yt-search-input-wrapper')!
+            .querySelector<HTMLElement>('.input-comp .yt-search-input-wrapper')!
             .getBoundingClientRect().width,
           spinnerSize: document
             .querySelector<HTMLElement>('.material-elastic-spinner--large')!
@@ -542,8 +547,16 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           width: messagingRect.width,
         },
         interfaceSample: {
+          bottom: interfaceRect.bottom,
+          left: interfaceRect.left,
           top: interfaceRect.top,
           width: interfaceRect.width,
+        },
+        loadingSample: {
+          bottom: loadingRect.bottom,
+          left: loadingRect.left,
+          top: loadingRect.top,
+          width: loadingRect.width,
         },
         playback: { bottom: playbackRect.bottom, top: playbackRect.top, width: playbackRect.width },
         selection: {
@@ -576,6 +589,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.wrappersFlat).toBe(true);
     expect(components.iconSamplesTransparent).toBe(true);
     expect(components.iconTilesTransparent).toBe(true);
+    // The Input fields card takes its own row, and the loading states join
+    // the settings tabs beside the chat surfaces (owner decision 2026-11-03).
     expect(components.componentDividers.horizontal).toHaveLength(4);
     expect(
       components.componentDividers.horizontal.every(
@@ -709,6 +724,184 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     });
     expect(components.dialogRadii).toEqual(['999px', '999px']);
     expect(components.toastBeforeDialog).toBe(true);
+    // The Input fields card (owner decision 2026-11-03): the app's one field
+    // family, drawn by the page's mirror of css/style.css.
+    await page.locator('.input-comp').scrollIntoViewIfNeeded();
+    const inputFields = await page.evaluate(() => {
+      const card = document.querySelector<HTMLElement>('.input-comp')!;
+      const frame = (title: string): HTMLElement =>
+        [...card.querySelectorAll<HTMLElement>('.input-specimen')].find(
+          (candidate) => candidate.querySelector('.block-title')?.textContent?.trim() === title,
+        )!;
+      const rect = (element: Element): DOMRect => element.getBoundingClientRect();
+      const line = (field: Element, below: Element) => {
+        const style = getComputedStyle(below);
+        return {
+          color: style.color,
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          gap: Math.round((rect(below).top - rect(field).bottom) * 100) / 100,
+          height: rect(below).height,
+          lineHeight: style.lineHeight,
+          textAlign: style.textAlign,
+        };
+      };
+      const underline = (element: Element): string => getComputedStyle(element).borderBottomColor;
+      const code = frame('Code entry');
+      const codeInput = code.querySelector('.setup-join-input')!;
+      const rest = frame('Rest');
+      const restInput = rest.querySelector('.dialog-input')!;
+      const empty = frame('Empty');
+      const emptyWrapper = empty.querySelector('.yt-search-input-wrapper')!;
+      const strip = ['Empty', 'Typing', 'Searching', 'Result picked', 'Search failed'].map(frame);
+      const message = frame('Message').querySelector('.chat-input-wrapper')!;
+      const label = code.querySelector('.setup-code-label')!;
+      return {
+        cardWidth: rect(card).width,
+        codeLabel: {
+          fontSize: getComputedStyle(label).fontSize,
+          fontWeight: getComputedStyle(label).fontWeight,
+          gap: Math.round((rect(codeInput).top - rect(label).bottom) * 100) / 100,
+          textTransform: getComputedStyle(label).textTransform,
+        },
+        codeLine: line(codeInput, code.querySelector('.setup-inline-error')!),
+        displayL: getComputedStyle(frame('Display L').querySelector('.setup-join-input')!).fontSize,
+        entryBox: rect(frame('Entry').querySelector('.yt-search-input-wrapper')!).height,
+        frameOverflow: [...card.querySelectorAll<HTMLElement>('.input-specimen')]
+          .filter((specimen) => specimen.scrollWidth > specimen.clientWidth + 1)
+          .map((specimen) => specimen.querySelector('.block-title')?.textContent?.trim()),
+        gridWidth: rect(document.querySelector('.component-grid')!).width,
+        joiningColor: getComputedStyle(
+          frame('Joining (disabled)').querySelector('.setup-join-input')!,
+        ).color,
+        messageRow: rect(message).height,
+        nicknameBox: rect(restInput).height,
+        nicknameHint: line(restInput, rest.querySelector('.dialog-hint')!),
+        pinBox: rect(frame('Display M').querySelector('.dialog-input-segment')!).height,
+        primary: strip.map((specimen) => {
+          const button = specimen.querySelector<HTMLButtonElement>('.btn-ob-primary')!;
+          return { label: button.textContent?.trim(), opacity: getComputedStyle(button).opacity };
+        }),
+        magnifiers: strip.map(
+          (specimen) => getComputedStyle(specimen.querySelector('.yt-search-submit-btn')!).color,
+        ),
+        stripLine: line(emptyWrapper, empty.querySelector('.yt-preview-meta')!),
+        stripLineWeights: strip.map(
+          (specimen) => getComputedStyle(specimen.querySelector('.yt-preview-meta')!).fontWeight,
+        ),
+        syncRow: rect(frame('Display M').querySelector('.sync-manual-input-wrapper')!).height,
+        underlines: {
+          connection: underline(frame('Connection problem').querySelector('.setup-join-input')!),
+          error: underline(frame('Error').querySelector('.dialog-input')!),
+          focus: underline(frame('Focus').querySelector('.dialog-input')!),
+          rest: underline(restInput),
+          searchFailed: underline(
+            frame('Search failed').querySelector('.yt-search-input-wrapper')!,
+          ),
+          wrongCode: underline(frame('Wrong code').querySelector('.setup-join-input')!),
+        },
+        wrongCodeLine: rect(frame('Wrong code').querySelector('.setup-inline-error')!).height,
+        // Prose whose last line holds a single word.
+        loneLastWords: [
+          ...card.querySelectorAll<HTMLElement>(
+            ':scope > .section-intro, .token-row > span, .input-note, .input-rules li',
+          ),
+        ].flatMap((element) => {
+          const words: Array<{ text: string; top: number }> = [];
+          const range = document.createRange();
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            for (const match of (node.textContent ?? '').matchAll(/\S+/gu)) {
+              range.setStart(node, match.index);
+              range.setEnd(node, match.index + match[0].length);
+              const boxes = range.getClientRects();
+              const last = boxes[boxes.length - 1];
+              if (last) words.push({ text: match[0], top: last.top });
+            }
+          }
+          const lastTop = words.at(-1)?.top ?? 0;
+          const onLastLine = words.filter((word) => Math.abs(word.top - lastTop) < 4);
+          const lines = words.filter(
+            (word, index) => index === 0 || Math.abs(word.top - words[index - 1]!.top) >= 4,
+          ).length;
+          return lines > 1 && onLastLine.length === 1
+            ? [`${element.textContent?.replace(/\s+/gu, ' ').trim()} | ${onLastLine[0]!.text}`]
+            : [];
+        }),
+      };
+    });
+    const SURFACE_3 = 'rgb(64, 64, 64)';
+    const PRIMARY = 'rgb(59, 130, 246)';
+    const DANGER = 'rgb(255, 59, 48)';
+    expect(Math.abs(inputFields.cardWidth - inputFields.gridWidth)).toBeLessThan(1);
+    expect(inputFields.frameOverflow).toEqual([]);
+    // The card shows the rule that no word sits alone on a line.
+    if (viewport.width >= 1280) expect(inputFields.loneLastWords).toEqual([]);
+    // The line under a field: 12px on an 18px line, 8px under the underline.
+    expect(inputFields.codeLine).toEqual({
+      color: DANGER,
+      fontSize: '12px',
+      fontWeight: '600',
+      gap: 8,
+      height: 18,
+      lineHeight: '18px',
+      textAlign: 'center',
+    });
+    expect(inputFields.nicknameHint).toEqual({
+      color: 'rgb(161, 161, 170)',
+      fontSize: '12px',
+      fontWeight: '400',
+      gap: 8,
+      height: 18,
+      lineHeight: '18px',
+      textAlign: 'start',
+    });
+    expect(inputFields.stripLine).toEqual(
+      expect.objectContaining({
+        fontSize: '12px',
+        fontWeight: '400',
+        gap: 8,
+        height: 18,
+        lineHeight: '18px',
+      }),
+    );
+    // One sentence per line: the refused code's line holds two lines.
+    expect(inputFields.wrongCodeLine).toBe(36);
+    expect(inputFields.codeLabel).toEqual({
+      fontSize: '13px',
+      fontWeight: '600',
+      gap: 8,
+      textTransform: 'none',
+    });
+    // The size steps.
+    expect(inputFields.displayL).toBe('32px');
+    expect(inputFields.pinBox).toBe(50);
+    expect(inputFields.syncRow).toBe(50);
+    expect(inputFields.nicknameBox).toBe(46);
+    expect(inputFields.entryBox).toBe(46);
+    expect(inputFields.messageRow).toBe(48);
+    // The underline turns red only for a wrong value.
+    expect(inputFields.underlines).toEqual({
+      connection: SURFACE_3,
+      error: DANGER,
+      focus: PRIMARY,
+      rest: SURFACE_3,
+      searchFailed: SURFACE_3,
+      wrongCode: DANGER,
+    });
+    // Joining: the digits at half strength (--text-main mixed 50% with transparent).
+    expect(inputFields.joiningColor).toBe('color(srgb 0.933333 0.933333 0.933333 / 0.5)');
+    // The magnifier is --surface-3 until it can act; the big button dims
+    // while it cannot act.
+    expect(inputFields.magnifiers).toEqual([SURFACE_3, PRIMARY, SURFACE_3, PRIMARY, PRIMARY]);
+    expect(inputFields.primary).toEqual([
+      { label: 'Add to Playlist', opacity: '0.5' },
+      { label: 'Search', opacity: '1' },
+      { label: 'Please wait...', opacity: '0.5' },
+      { label: 'Add to Playlist', opacity: '1' },
+      { label: 'Search', opacity: '1' },
+    ]);
+    expect(inputFields.stripLineWeights).toEqual(['400', '400', '600', '400', '600']);
     if (viewport.width >= 900) {
       expect(
         components.componentDividers.vertical.every(
@@ -722,6 +915,20 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       expect(Math.abs(components.playlist.top - components.devices.top)).toBeLessThan(1);
       expect(Math.abs(components.playlist.width - components.devices.width)).toBeLessThan(1);
       expect(Math.abs(components.messaging.top - components.interfaceSample.top)).toBeLessThan(1);
+      // The loading states sit under the settings tabs in the same column, so
+      // the column beside the chat surfaces is not mostly empty.
+      expect(
+        Math.abs(components.loadingSample.left - components.interfaceSample.left),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(components.loadingSample.width - components.interfaceSample.width),
+      ).toBeLessThan(1);
+      expect(components.loadingSample.top).toBeGreaterThanOrEqual(
+        components.interfaceSample.bottom,
+      );
+      expect(components.loadingSample.bottom - components.interfaceSample.top).toBeGreaterThan(
+        (components.messaging.bottom - components.messaging.top) / 2,
+      );
       expect(components.messaging.width).toBeGreaterThan(components.interfaceSample.width);
       expect(Math.abs(components.feedback.top - components.navigation.top)).toBeLessThan(1);
       expect(components.navigation.width).toBeGreaterThan(components.feedback.width);
@@ -735,6 +942,9 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       expect(components.ranges.top).toBeGreaterThanOrEqual(components.selection.bottom);
       expect(components.devices.top).toBeGreaterThanOrEqual(components.playlist.bottom);
       expect(components.interfaceSample.top).toBeGreaterThanOrEqual(components.messaging.bottom);
+      expect(components.loadingSample.top).toBeGreaterThanOrEqual(
+        components.interfaceSample.bottom,
+      );
       expect(components.navigation.top).toBeGreaterThanOrEqual(components.feedback.bottom);
     }
   }

@@ -495,5 +495,38 @@ test.describe('OS contrast CSS integration', () => {
     expect(parseFloat(inputFocused.outlineWidth)).toBeGreaterThanOrEqual(3);
     expect(parseFloat(inputFocused.outlineOffset)).toBeGreaterThanOrEqual(2);
     expect(inputFocused.caretColor).not.toBe('rgba(0, 0, 0, 0)');
+
+    // Owner decision (2026-11-03): red is not shown here, so a wrong value
+    // also thickens the field's edge from 1px to 2px while it is not focused.
+    await setupInput.evaluate((input) => {
+      (input as HTMLInputElement).blur();
+      input.setAttribute('aria-invalid', 'true');
+    });
+    await expect(setupInput).not.toBeFocused();
+    const inputInvalid = await controlStyles(page, '#setup-join-code');
+    expect(inputInvalid.outlineStyle).toBe('solid');
+    expect(parseFloat(inputInvalid.outlineWidth)).toBeGreaterThanOrEqual(2);
+
+    // While joining, the digits take the system's disabled colour. Chromium
+    // forces color but not -webkit-text-fill-color, which paints the digits.
+    const joining = await setupInput.evaluate((input) => {
+      const element = input as HTMLInputElement;
+      element.removeAttribute('aria-invalid');
+      element.value = '000000';
+      element.disabled = true;
+      const probe = document.createElement('span');
+      probe.style.color = 'GrayText';
+      document.body.append(probe);
+      const grayText = getComputedStyle(probe).color;
+      probe.remove();
+      const style = getComputedStyle(element);
+      return {
+        color: style.color,
+        fill: style.getPropertyValue('-webkit-text-fill-color'),
+        grayText,
+      };
+    });
+    expect(joining.color).toBe(joining.grayText);
+    expect(joining.fill).toBe(joining.grayText);
   });
 });

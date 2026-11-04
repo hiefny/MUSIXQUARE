@@ -73,9 +73,9 @@ const tr: Record<I18nKey, string> = {
   'account.nickname_title': 'Takma ad belirle',
   'account.nickname_message': 'MUSIXQUARE’de kullanacağın takma adı seç.',
   'account.nickname_placeholder': 'Takma ad',
-  'account.nickname_hint': 'En fazla 12 karakter kullan.',
-  'account.nickname_required': 'Bir takma ad gir.',
-  'account.nickname_whitespace': 'Takma ad boşluk veya görünmez karakter içeremez.',
+  'account.nickname_hint': 'En fazla 12 karakter kullan',
+  'account.nickname_required': 'Bir takma ad gir',
+  'account.nickname_whitespace': 'Takma ad boşluk veya görünmez karakter içeremez',
   'account.nickname_taken': 'Bu takma ad zaten kullanılıyor',
   'account.nickname_saved': 'Takma ad {{name}} olarak değiştirildi',
   'account.action_failed': 'Hesap güncellenemedi\nDaha sonra tekrar dene',
@@ -261,8 +261,8 @@ const tr: Record<I18nKey, string> = {
   'settings.default_5s': 'Varsayılan: 5,0 s',
   'settings.invite_code': 'Davet Kodu',
   'settings.leave_session': 'Bu Odadan Ayrıl',
-  'connect.rename_reserved': 'Bu takma ad kullanılamaz.',
-  'connect.rename_profanity': 'Takma ad uygunsuz ifadeler içeriyor.',
+  'connect.rename_reserved': 'Bu takma ad kullanılamaz',
+  'connect.rename_profanity': 'Takma ad uygunsuz ifadeler içeriyor',
   'settings.invite_share': 'Davet ve Paylaşım',
   'settings.subtab.general': 'Genel',
   'settings.subtab.audio': 'Ses',
@@ -743,7 +743,7 @@ const tr: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Başka bir uygulamaya geçersen veya ekranı kapatırsan ses durabilir ya da senkronizasyon bozulabilir.',
   'dialog.sw_update_title': 'Yeni Güncelleme',
-  'dialog.sw_update_msg': 'Yeni bir sürüm hazır.\nGüncellemek için sayfayı yenile.',
+  'dialog.sw_update_msg': 'Yeni bir sürüm hazır\nGüncellemek için sayfayı yenile',
   'dialog.sw_update_apply': 'Uygula',
   'dialog.sw_update_apply_msg': 'Yeni bir sürüm hazır.\nUygulandığında sayfa yeniden yüklenir.',
   'dialog.sw_update_room_host_msg':
@@ -760,13 +760,13 @@ const tr: Record<I18nKey, string> = {
   'dialog.step_back': 'Geri',
   'dialog.room_password_title': 'Oda şifresini gir',
   'dialog.room_password_msg': 'Bu odaya katılmak için şifre gereklidir.',
-  'dialog.room_password_retry_msg': 'Şifre yanlış. Tekrar dene.',
+  'dialog.room_password_retry_msg': 'Şifre yanlış',
   'dialog.room_password_timeout_msg': 'Bağlantı zaman aşımına uğradı. Şifreyi tekrar gir.',
   'dialog.room_password_placeholder': '8 haneli şifre',
   'dialog.room_password_rate_limited':
-    'Şifreyi çok fazla kez yanlış girdin. {{count}} dakika sonra tekrar dene.',
+    'Şifreyi çok fazla kez yanlış girdin\n{{count}} dakika sonra tekrar dene',
   'dialog.room_password_rate_limited_later':
-    'Şifreyi çok fazla kez yanlış girdin. Biraz sonra tekrar dene.',
+    'Şifreyi çok fazla kez yanlış girdin\nBiraz sonra tekrar dene',
   'dialog.session_lost_msg':
     'Uygulama arka planda uyku moduna geçtiği veya bağlantısı koptuğu için diğer cihazlarla bağlantı kesildi. Yeniden başlatarak yeni bir oda aç.',
   'dialog.session_lost_guest_msg':
@@ -815,7 +815,7 @@ const tr: Record<I18nKey, string> = {
   'pro.resume_tap': 'Oynatmayı sürdürmek için dokun',
   'pro.pin_title': 'Oda parolası',
   'pro.pin_message': 'Bu PRO odasının 8 haneli parolasını gir.',
-  'pro.pin_retry_message': 'Parola yanlış. Tekrar dene.',
+  'pro.pin_retry_message': 'Parola yanlış',
   'pro.pin_change_title': 'Oda parolasını değiştir',
   'pro.pin_change_message': '8 haneli yeni bir parola belirle.',
   'pro.pin_changed': 'Oda parolası değiştirildi',
@@ -842,10 +842,9 @@ const tr: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO odasına bağlanılamadı',
   'pro.room_full': 'Bu PRO odası dolu',
   'pro.room_full_detail':
-    'Bir PRO odasına oda sahibi dâhil en fazla 100 cihaz bağlanabilir. Bir yer her zaman oda sahibine ayrılır.',
-  'pro.join_rate_limited':
-    'Çok fazla katılma denemesi yapıldı. {{count}} dakika sonra tekrar dene.',
-  'pro.join_rate_limited_later': 'Çok fazla katılma denemesi yapıldı. Biraz sonra tekrar dene.',
+    'Oda sahibi dâhil en fazla 100 cihaz bağlanabilir\nBir yer her zaman oda sahibine ayrılır',
+  'pro.join_rate_limited': 'Çok fazla katılma denemesi yapıldı\n{{count}} dakika sonra tekrar dene',
+  'pro.join_rate_limited_later': 'Çok fazla katılma denemesi yapıldı\nBiraz sonra tekrar dene',
   'pro.active_tab_title': 'Önceki bir bağlantı hâlâ mevcut',
   'pro.active_tab_message': 'Burada devam edersen önceki bağlantı sonlandırılır.',
   'pro.active_tab_replaced': 'Bu PRO odası başka bir sekmede zaten açık',

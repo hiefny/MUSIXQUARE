@@ -76,9 +76,9 @@ const ml: Record<I18nKey, string> = {
   'account.nickname_title': 'വിളിപ്പേര് സജ്ജമാക്കുക',
   'account.nickname_message': 'MUSIXQUARE-ൽ ഉപയോഗിക്കേണ്ട വിളിപ്പേര് തിരഞ്ഞെടുക്കുക.',
   'account.nickname_placeholder': 'വിളിപ്പേര്',
-  'account.nickname_hint': 'പരമാവധി 12 അക്ഷരങ്ങൾ ഉപയോഗിക്കുക.',
-  'account.nickname_required': 'ഒരു വിളിപ്പേര് നൽകുക.',
-  'account.nickname_whitespace': 'വിളിപ്പേരിൽ സ്പേസോ കാണാനാകാത്ത അക്ഷരങ്ങളോ പാടില്ല.',
+  'account.nickname_hint': 'പരമാവധി 12 അക്ഷരങ്ങൾ ഉപയോഗിക്കുക',
+  'account.nickname_required': 'ഒരു വിളിപ്പേര് നൽകുക',
+  'account.nickname_whitespace': 'വിളിപ്പേരിൽ സ്പേസോ കാണാനാകാത്ത അക്ഷരങ്ങളോ പാടില്ല',
   'account.nickname_taken': 'ഈ വിളിപ്പേര് ഇതിനകം ഉപയോഗത്തിലാണ്',
   'account.nickname_saved': 'വിളിപ്പേര് {{name}} എന്നാക്കി മാറ്റി',
   'account.action_failed': 'അക്കൗണ്ട് പുതുക്കാനായില്ല\nവീണ്ടും ശ്രമിക്കുക',
@@ -269,8 +269,8 @@ const ml: Record<I18nKey, string> = {
   'settings.default_5s': 'ഡിഫോൾട്ട് 5.0s',
   'settings.invite_code': 'ക്ഷണ കോഡ്',
   'settings.leave_session': 'സെഷനിൽ നിന്ന് പുറത്തുകടക്കുക',
-  'connect.rename_reserved': 'ഈ വിളിപ്പേര് സംവരണം ചെയ്തതാണ്.',
-  'connect.rename_profanity': 'അനുചിതമായ വാക്കുകൾ കണ്ടെത്തി.',
+  'connect.rename_reserved': 'ഈ വിളിപ്പേര് സംവരണം ചെയ്തതാണ്',
+  'connect.rename_profanity': 'അനുചിതമായ വാക്കുകൾ കണ്ടെത്തി',
   'settings.invite_share': 'ക്ഷണിക്കൂ, പങ്കിടൂ',
   'settings.subtab.general': 'ജനറൽ',
   'settings.subtab.audio': 'ഓഡിയോ',
@@ -768,7 +768,7 @@ const ml: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'മറ്റൊരു ആപ്പിലേക്ക് മാറുകയോ സ്ക്രീൻ ഓഫാകുകയോ ചെയ്താൽ ശബ്ദം നിലയ്ക്കുകയോ സിങ്ക് തെറ്റുകയോ ചെയ്യാം.',
   'dialog.sw_update_title': 'അപ്‌ഡേറ്റ്',
-  'dialog.sw_update_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്.\nഅപ്‌ഡേറ്റ് ചെയ്യാൻ പുതുക്കുക.',
+  'dialog.sw_update_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്\nഅപ്‌ഡേറ്റ് ചെയ്യാൻ പുതുക്കുക',
   'dialog.sw_update_apply': 'പ്രയോഗിക്കുക',
   'dialog.sw_update_apply_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്.\nപ്രയോഗിച്ചാൽ പേജ് വീണ്ടും ലോഡ് ചെയ്യും.',
   'dialog.sw_update_room_host_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്.\nപ്രയോഗിക്കാൻ റൂം വീണ്ടും തുറക്കണം.',
@@ -783,14 +783,14 @@ const ml: Record<I18nKey, string> = {
   'dialog.step_back': 'പിന്നോട്ട്',
   'dialog.room_password_title': 'റൂം പാസ്‌വേഡ് നൽകുക',
   'dialog.room_password_msg': 'ഈ റൂമിൽ ചേരാൻ പാസ്‌വേഡ് ആവശ്യമാണ്.',
-  'dialog.room_password_retry_msg': 'ആ പാസ്‌വേഡ് പൊരുത്തപ്പെട്ടില്ല. വീണ്ടും ശ്രമിക്കുക.',
+  'dialog.room_password_retry_msg': 'ആ പാസ്‌വേഡ് പൊരുത്തപ്പെട്ടില്ല',
   'dialog.room_password_timeout_msg':
     'ബന്ധത്തിനുള്ള സമയം കഴിഞ്ഞു. വീണ്ടും ശ്രമിക്കാൻ പാസ്‌വേഡ് വീണ്ടും നൽകുക.',
   'dialog.room_password_placeholder': '8 അക്ക പാസ്‌വേഡ്',
   'dialog.room_password_rate_limited':
-    'നിങ്ങൾ പലതവണ തെറ്റായ പാസ്‌വേഡ് നൽകി. {{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.',
+    'നിങ്ങൾ പലതവണ തെറ്റായ പാസ്‌വേഡ് നൽകി\n{{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക',
   'dialog.room_password_rate_limited_later':
-    'നിങ്ങൾ പലതവണ തെറ്റായ പാസ്‌വേഡ് നൽകി. കുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.',
+    'നിങ്ങൾ പലതവണ തെറ്റായ പാസ്‌വേഡ് നൽകി\nകുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക',
   'dialog.session_lost_msg':
     'ആപ്പ് സ്ലീപ് മോഡിലാകുകയോ ബന്ധം നഷ്ടപ്പെടുകയോ ചെയ്തതിനാൽ മറ്റ് ഡിവൈസുകളുടെ ബന്ധം ഇതിനകം വിച്ഛേദിച്ചിട്ടുണ്ട്. പുതിയ സെഷൻ തുടങ്ങാൻ പുനരാരംഭിക്കുക.',
   'dialog.session_lost_guest_msg':
@@ -840,7 +840,7 @@ const ml: Record<I18nKey, string> = {
   'pro.resume_tap': 'പ്ലേബാക്ക് തുടരാൻ ടാപ്പ് ചെയ്യുക',
   'pro.pin_title': 'റൂം പാസ്‌വേഡ് നൽകുക',
   'pro.pin_message': 'ഈ PRO റൂമിന്റെ 8 അക്ക പാസ്‌വേഡ് നൽകുക.',
-  'pro.pin_retry_message': 'ആ പാസ്‌വേഡ് ശരിയല്ല. വീണ്ടും ശ്രമിക്കുക.',
+  'pro.pin_retry_message': 'ആ പാസ്‌വേഡ് ശരിയല്ല',
   'pro.pin_change_title': 'റൂം പാസ്‌വേഡ് മാറ്റുക',
   'pro.pin_change_message': 'പുതിയ 8 അക്ക പാസ്‌വേഡ് സജ്ജമാക്കുക.',
   'pro.pin_changed': 'റൂം പാസ്‌വേഡ് മാറ്റി',
@@ -867,11 +867,11 @@ const ml: Record<I18nKey, string> = {
   'pro.connect_failed': 'PRO റൂമിലേക്ക് ബന്ധിപ്പിക്കാനായില്ല',
   'pro.room_full': 'ഈ PRO റൂം നിറഞ്ഞു',
   'pro.room_full_detail':
-    'ഒരു PRO റൂമിൽ ഉടമ ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾ ചേരാം. ഉടമയ്ക്കായി എപ്പോഴും ഒരു സ്ഥാനം മാറ്റിവച്ചിരിക്കും.',
+    'ഉടമ ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾ ചേരാം\nഉടമയ്ക്കായി എപ്പോഴും ഒരു സ്ഥാനം മാറ്റിവച്ചിരിക്കും',
   'pro.join_rate_limited':
-    'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്. {{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.',
+    'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്\n{{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക',
   'pro.join_rate_limited_later':
-    'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്. കുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.',
+    'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്\nകുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക',
   'pro.active_tab_title': 'മുമ്പത്തെ കണക്ഷൻ ശേഷിക്കുന്നു',
   'pro.active_tab_message': 'ഇവിടെ തുടർന്നാൽ മുമ്പത്തെ കണക്ഷൻ വിച്ഛേദിക്കപ്പെടും.',
   'pro.active_tab_replaced': 'ഈ PRO റൂം മറ്റൊരു ടാബിൽ ഇതിനകം തുറന്നിരിക്കുന്നു',

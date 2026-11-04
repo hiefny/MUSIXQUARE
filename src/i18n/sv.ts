@@ -77,9 +77,9 @@ const sv: Record<I18nKey, string> = {
   'account.nickname_title': 'Ange smeknamn',
   'account.nickname_message': 'Välj det smeknamn du vill använda på MUSIXQUARE.',
   'account.nickname_placeholder': 'Smeknamn',
-  'account.nickname_hint': 'Använd högst 12 tecken.',
-  'account.nickname_required': 'Ange ett smeknamn.',
-  'account.nickname_whitespace': 'Smeknamn får inte innehålla blanksteg eller osynliga tecken.',
+  'account.nickname_hint': 'Använd högst 12 tecken',
+  'account.nickname_required': 'Ange ett smeknamn',
+  'account.nickname_whitespace': 'Smeknamn får inte innehålla blanksteg eller osynliga tecken',
   'account.nickname_taken': 'Det smeknamnet används redan',
   'account.nickname_saved': 'Smeknamnet har ändrats till {{name}}',
   'account.action_failed': 'Det gick inte att uppdatera kontot\nFörsök igen',
@@ -268,8 +268,8 @@ const sv: Record<I18nKey, string> = {
   'settings.default_5s': 'Standard 5,0 s',
   'settings.invite_code': 'Inbjudningskod',
   'settings.leave_session': 'Lämna sessionen',
-  'connect.rename_reserved': 'Det här smeknamnet är reserverat.',
-  'connect.rename_profanity': 'Smeknamnet innehåller olämpliga ord.',
+  'connect.rename_reserved': 'Det här smeknamnet är reserverat',
+  'connect.rename_profanity': 'Smeknamnet innehåller olämpliga ord',
   'settings.invite_share': 'Bjud in och dela',
   'settings.subtab.general': 'Allmänt',
   'settings.subtab.audio': 'Ljud',
@@ -759,7 +759,7 @@ const sv: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Om du byter app eller skärmen släcks kan ljudet tystna eller synkroniseringen störas.',
   'dialog.sw_update_title': 'Uppdatering',
-  'dialog.sw_update_msg': 'En ny version är klar.\nUppdatera sidan för att installera den.',
+  'dialog.sw_update_msg': 'En ny version är klar\nUppdatera sidan för att installera den',
   'dialog.sw_update_apply': 'Tillämpa',
   'dialog.sw_update_apply_msg': 'En ny version är klar.\nNär du tillämpar den laddas sidan om.',
   'dialog.sw_update_room_host_msg':
@@ -776,14 +776,14 @@ const sv: Record<I18nKey, string> = {
   'dialog.step_back': 'Tillbaka',
   'dialog.room_password_title': 'Ange rumslösenord',
   'dialog.room_password_msg': 'Ett lösenord krävs för att ansluta till rummet.',
-  'dialog.room_password_retry_msg': 'Lösenordet stämde inte. Försök igen.',
+  'dialog.room_password_retry_msg': 'Lösenordet stämde inte',
   'dialog.room_password_timeout_msg':
     'Anslutningens tidsgräns löpte ut. Ange lösenordet igen för att försöka på nytt.',
   'dialog.room_password_placeholder': '8-siffrigt lösenord',
   'dialog.room_password_rate_limited':
-    'Du har angett fel lösenord för många gånger. Försök igen om {{count}} minuter.',
+    'Du har angett fel lösenord för många gånger\nFörsök igen om {{count}} minuter',
   'dialog.room_password_rate_limited_later':
-    'Du har angett fel lösenord för många gånger. Försök igen om en liten stund.',
+    'Du har angett fel lösenord för många gånger\nFörsök igen om en liten stund',
   'dialog.session_lost_msg':
     'Appen försattes i viloläge eller tappade anslutningen, så de andra enheterna har redan kopplats bort. Starta om för att påbörja en ny session.',
   'dialog.session_lost_guest_msg':
@@ -834,7 +834,7 @@ const sv: Record<I18nKey, string> = {
   'pro.resume_tap': 'Tryck för att återuppta uppspelningen',
   'pro.pin_title': 'Ange rumslösenord',
   'pro.pin_message': 'Ange det 8-siffriga lösenordet för PRO-rummet.',
-  'pro.pin_retry_message': 'Lösenordet är inte korrekt. Försök igen.',
+  'pro.pin_retry_message': 'Lösenordet är inte korrekt',
   'pro.pin_change_title': 'Ändra rumslösenord',
   'pro.pin_change_message': 'Ange ett nytt 8-siffrigt lösenord.',
   'pro.pin_changed': 'Rumslösenordet har ändrats',
@@ -861,9 +861,9 @@ const sv: Record<I18nKey, string> = {
   'pro.connect_failed': 'Det gick inte att ansluta till PRO-rummet',
   'pro.room_full': 'PRO-rummet är fullt',
   'pro.room_full_detail':
-    'Ett PRO-rum rymmer upp till 100 enheter, inklusive ägarens. En plats är alltid reserverad för rumsägaren.',
-  'pro.join_rate_limited': 'För många försök att ansluta. Försök igen om {{count}} minuter.',
-  'pro.join_rate_limited_later': 'För många försök att ansluta. Försök igen om en liten stund.',
+    'Det rymmer upp till 100 enheter, inklusive ägarens\nEn plats är alltid reserverad för rumsägaren',
+  'pro.join_rate_limited': 'För många försök att ansluta\nFörsök igen om {{count}} minuter',
+  'pro.join_rate_limited_later': 'För många försök att ansluta\nFörsök igen om en liten stund',
   'pro.active_tab_title': 'En tidigare anslutning finns kvar',
   'pro.active_tab_message': 'Om du fortsätter här avslutas den tidigare anslutningen.',
   'pro.active_tab_replaced': 'PRO-rummet är redan öppet i en annan flik',
@@ -990,9 +990,9 @@ export const pluralMessages = {
     one: '{{count}} fil som inte stöds kommer inte att läggas till.',
   },
   'pro.join_rate_limited': {
-    one: 'För många försök att ansluta. Försök igen om {{count}} minut.',
+    one: 'För många försök att ansluta\nFörsök igen om {{count}} minut',
   },
   'dialog.room_password_rate_limited': {
-    one: 'Du har angett fel lösenord för många gånger. Försök igen om {{count}} minut.',
+    one: 'Du har angett fel lösenord för många gånger\nFörsök igen om {{count}} minut',
   },
 } satisfies LocalePluralMessages;

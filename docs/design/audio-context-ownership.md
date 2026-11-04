@@ -92,7 +92,8 @@ behind one owner).
 
 - **The mock trap (vitest 5).** A factory mock throws when code reads a name the factory does not
   define; a read at module evaluation fails the import itself. So new constants, counters and
-  predicates go in modules no test mocks (`src/audio/constants.ts`, or a new leaf), not in
+  predicates go in modules no test mocks (the timing leaf `src/audio/context-protocol.ts` since
+  7A-2, or another new leaf), not in
   `context.ts` exports; `context-recovery.ts` and new modules read no `context.ts` export at module
   evaluation; and a change whose production path calls a new `context.ts` export updates, in the
   same change, every factory mock of `context.ts` on that path. Two files evaluate the real

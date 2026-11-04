@@ -8,6 +8,7 @@ import {
 
 import { APP_DICTIONARIES } from '../catalogs.ts';
 import { LANGUAGE_OPTIONS, languageDirection, type LanguageCode } from '../locales.ts';
+import { ONE_SENTENCE_UNDER_FIELD } from './helpers/one-sentence-under-field.ts';
 
 type LandingDictionary = Record<string, Record<string, string>>;
 
@@ -165,7 +166,10 @@ describe('completed translation factual contracts', () => {
       // owner. No other number belongs in the capacity explanation.
       expect(dictionary['pro.room_full_detail'].match(/[0-9]+/gu), language).toEqual(['100']);
       expect(dictionary['pro.room_full'], language).toContain('PRO');
-      expect(dictionary['pro.room_full_detail'], language).toContain('PRO');
+      // The detail is the line under pro.room_full, which already names the
+      // PRO room, so it does not name it again. Owner decision 2026-11-03: the
+      // shorter copy leaves no word alone on a line under the code.
+      expect(dictionary['pro.room_full_detail'], language).not.toContain('PRO');
       // The wait is the server Retry-After in whole minutes; the fallback
       // has no number because the server did not provide one.
       expect(dictionary['pro.join_rate_limited'].match(/\{\{\w+\}\}/gu), language).toEqual([
@@ -179,8 +183,15 @@ describe('completed translation factual contracts', () => {
     }
 
     expect(APP_DICTIONARIES.ko['pro.room_full']).toBe('PRO 방이 가득 찼어요');
+    // Lines under a field: no final stop, one sentence per line.
+    expect(APP_DICTIONARIES.ko['pro.room_full_detail']).toBe(
+      '방 소유자를 포함해 100대까지 연결돼요\n한 자리는 항상 방 소유자를 위해 비워 둬요',
+    );
+    expect(english['pro.room_full_detail']).toBe(
+      'Up to 100 devices, owner included\nThe owner always keeps one spot',
+    );
     expect(APP_DICTIONARIES.ko['pro.join_rate_limited_later']).toBe(
-      '입장 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.',
+      '입장 시도가 너무 많아요\n잠시 후 다시 시도해 주세요',
     );
     // Standard rooms keep their own host-inclusive capacity copy.
     expect(APP_DICTIONARIES.en['network.session_full_detail']).toBe(
@@ -232,18 +243,99 @@ describe('completed translation factual contracts', () => {
       }
     }
 
+    // Lines under the code field: no final stop, one sentence per line.
     expect(keys.map((key) => APP_DICTIONARIES.ko[key])).toEqual([
-      '암호를 여러 번 틀렸어요. {{count}}분 후에 다시 시도해 주세요.',
-      '암호를 여러 번 틀렸어요. 잠시 후 다시 시도해 주세요.',
+      '암호를 여러 번 틀렸어요\n{{count}}분 후에 다시 시도해 주세요',
+      '암호를 여러 번 틀렸어요\n잠시 후 다시 시도해 주세요',
     ]);
     expect(keys.map((key) => english[key])).toEqual([
-      'You entered the wrong password too many times. Try again in {{count}} minutes.',
-      'You entered the wrong password too many times. Try again in a little while.',
+      'You entered the wrong password too many times\nTry again in {{count}} minutes',
+      'You entered the wrong password too many times\nTry again in a little while',
     ]);
     // PRO join throttling keeps its own wording.
     expect(APP_DICTIONARIES.ko['pro.join_rate_limited']).toBe(
-      '입장 시도가 너무 많아요. {{count}}분 후에 다시 시도해 주세요.',
+      '입장 시도가 너무 많아요\n{{count}}분 후에 다시 시도해 주세요',
     );
+  });
+
+  it('keeps Thai lines under a field as written and the zh and ar room-full detail in one sentence', () => {
+    // Owner decision 2026-11-03: Thai marks a sentence with a space, so its
+    // lines under a field stay as written until a Thai reader confirms where a
+    // sentence ends. The Chinese and Arabic room-full details join both facts
+    // in one sentence and keep it on one line. The room-full detail is still
+    // the shorter copy, without PRO.
+    const expected: Record<string, Record<string, string>> = {
+      ar: {
+        'pro.room_full_detail':
+          'تتسع لما يصل إلى 100 جهاز، بما فيها جهاز مالك الغرفة، ويبقى مكان واحد محجوزًا له دائمًا',
+      },
+      th: {
+        'dialog.room_password_rate_limited':
+          'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
+        'dialog.room_password_rate_limited_later':
+          'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
+        'pro.join_rate_limited': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
+        'pro.join_rate_limited_later': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในภายหลัง',
+        'pro.room_full_detail':
+          'รองรับอุปกรณ์ได้สูงสุด 100 เครื่องรวมเจ้าของห้อง และจะเว้นที่ไว้ให้เจ้าของห้องหนึ่งที่เสมอ',
+      },
+      'zh-hans': {
+        'pro.room_full_detail': '最多可容纳 100 台设备（包括房主），并始终为房主保留一个位置',
+      },
+      'zh-hant': {
+        'pro.room_full_detail': '最多可容納 100 台裝置（包含房主），且始終為房主保留一個位置',
+      },
+    };
+    const pinned = Object.fromEntries(
+      Object.entries(ONE_SENTENCE_UNDER_FIELD).map(([language, keys]) => [
+        language,
+        Object.fromEntries(
+          [...keys]
+            .sort()
+            .map((key) => [
+              key,
+              (APP_DICTIONARIES as Record<string, Record<string, string>>)[language]![key],
+            ]),
+        ),
+      ]),
+    );
+    expect(pinned).toEqual(expected);
+  });
+
+  it('keeps a refused room password to its first sentence in every locale', () => {
+    // Owner decision 2026-11-03: a refused password is the red line under the
+    // PIN boxes, under the dialog's own prompt. It keeps only the refusal (the
+    // empty boxes already ask for a retry), cut from each locale's existing
+    // copy rather than translated again.
+    const keys = ['dialog.room_password_retry_msg', 'pro.pin_retry_message'] as const;
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      for (const key of keys) {
+        const text = dictionary[key];
+        expect(text.trim(), `${language}.${key}`).toBe(text);
+        expect(text, `${language}.${key}`).not.toBe('');
+        expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]/u);
+        // It is not the prompt above the boxes.
+        expect(text, `${language}.${key}`).not.toBe(dictionary['dialog.room_password_msg']);
+        expect(text, `${language}.${key}`).not.toBe(dictionary['pro.pin_message']);
+      }
+    }
+    expect(keys.map((key) => APP_DICTIONARIES.ko[key])).toEqual([
+      '암호가 맞지 않아요',
+      '암호가 올바르지 않아요',
+    ]);
+    expect(keys.map((key) => APP_DICTIONARIES.en[key])).toEqual([
+      'That password did not match',
+      'That password is not correct',
+    ]);
+    expect(keys.map((key) => APP_DICTIONARIES.th[key])).toEqual([
+      'รหัสผ่านไม่ตรงกัน',
+      'รหัสผ่านไม่ถูกต้อง',
+    ]);
+    expect(keys.map((key) => APP_DICTIONARIES['zh-hans'][key])).toEqual([
+      '密码不正确',
+      '密码不正确',
+    ]);
   });
 
   it('gives the update dialog an Apply action and one message per place in every locale', () => {
@@ -263,13 +355,17 @@ describe('completed translation factual contracts', () => {
       expect(apply, `${language} apply label`).not.toBe(dictionary['common.refresh']);
       // Every message opens with the same news as the existing update copy,
       // then says what applying does there: reload the page, reopen the room
-      // (a host), or enter the room again (anyone else in a room).
-      const ready = dictionary['dialog.sw_update_msg'].split('\n')[0];
+      // (a host), or enter the room again (anyone else in a room). The update
+      // copy is a line under the start-screen code, so it has no final stop
+      // (owner decision 2026-11-03); the dialog message is body text and keeps
+      // its own.
+      const ready = dictionary['dialog.sw_update_msg'].split('\n')[0] ?? '';
+      expect(ready, `${language} update line`).not.toMatch(/[.。．।۔]$/u);
       const consequences = new Set<string>();
       for (const key of messageKeys) {
         const lines = dictionary[key].split('\n');
         expect(lines, `${language}.${key} lines`).toHaveLength(2);
-        expect(lines[0], `${language}.${key} first line`).toBe(ready);
+        expect(lines[0]?.replace(/[.。．।۔]$/u, ''), `${language}.${key} first line`).toBe(ready);
         const consequence = lines[1] ?? '';
         expect(consequence.trim(), `${language}.${key}`).toBe(consequence);
         expect(consequence, `${language}.${key}`).not.toBe('');
@@ -347,11 +443,12 @@ describe('completed translation factual contracts', () => {
       'Refresh needed',
       'MUSIXQUARE has been updated.\nRefresh to keep using it normally.',
     ]);
-    // The regular update dialog keeps its copy, one sentence per line.
+    // The regular update copy keeps one sentence per line, without final
+    // stops: it is the line under the start-screen code (2026-11-03).
     expect([
       APP_DICTIONARIES.ko['dialog.sw_update_title'],
       APP_DICTIONARIES.ko['dialog.sw_update_msg'],
-    ]).toEqual(['업데이트', '새 버전이 준비되었어요.\n새로고침하면 업데이트가 적용돼요.']);
+    ]).toEqual(['업데이트', '새 버전이 준비되었어요\n새로고침하면 업데이트가 적용돼요']);
     for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
       expect(
         dictionary['dialog.sw_update_msg'].split('\n'),

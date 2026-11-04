@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { APP_DICTIONARIES, type TranslationDictionary } from '../catalogs.ts';
 import { LANGUAGE_OPTIONS, type LanguageCode } from '../locales.ts';
+import { isOneSentenceUnderField } from './helpers/one-sentence-under-field.ts';
 
 const EXPANDED_LANGUAGE_CODES = [
   'ar',
@@ -132,8 +133,10 @@ describe('expanded translation catalog integrity', () => {
         expect(placeholders(value), `${language}.${key} placeholders`).toEqual(
           placeholders(englishValue),
         );
+        // A line under a field this locale says in one sentence stays on one
+        // line (helpers/one-sentence-under-field.ts).
         expect(value.split('\n').length, `${language}.${key} line breaks`).toBe(
-          englishValue.split('\n').length,
+          isOneSentenceUnderField(language, key) ? 1 : englishValue.split('\n').length,
         );
         expect(tags(value), `${language}.${key} functional markup`).toEqual(tags(englishValue));
         if (!NATURAL_LANGUAGE_NUMBER_KEYS.has(key)) {

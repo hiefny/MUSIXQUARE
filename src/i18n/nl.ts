@@ -76,9 +76,9 @@ const nl: Record<I18nKey, string> = {
   'account.nickname_title': 'Bijnaam instellen',
   'account.nickname_message': 'Kies de bijnaam die je op MUSIXQUARE gebruikt.',
   'account.nickname_placeholder': 'Bijnaam',
-  'account.nickname_hint': 'Gebruik maximaal 12 tekens.',
-  'account.nickname_required': 'Voer een bijnaam in.',
-  'account.nickname_whitespace': 'Een bijnaam mag geen spaties of onzichtbare tekens bevatten.',
+  'account.nickname_hint': 'Gebruik maximaal 12 tekens',
+  'account.nickname_required': 'Voer een bijnaam in',
+  'account.nickname_whitespace': 'Een bijnaam mag geen spaties of onzichtbare tekens bevatten',
   'account.nickname_taken': 'Deze bijnaam is al in gebruik',
   'account.nickname_saved': 'Bijnaam gewijzigd in {{name}}',
   'account.action_failed': 'Het account kon niet worden bijgewerkt\nProbeer het later opnieuw',
@@ -267,8 +267,8 @@ const nl: Record<I18nKey, string> = {
   'settings.default_5s': 'Standaard 5,0 s',
   'settings.invite_code': 'Uitnodigingscode',
   'settings.leave_session': 'Kamer verlaten',
-  'connect.rename_reserved': 'Deze bijnaam is gereserveerd.',
-  'connect.rename_profanity': 'Ongepaste woorden gedetecteerd.',
+  'connect.rename_reserved': 'Deze bijnaam is gereserveerd',
+  'connect.rename_profanity': 'Ongepaste woorden gedetecteerd',
   'settings.invite_share': 'Uitnodigen en delen',
   'settings.subtab.general': 'Algemeen',
   'settings.subtab.audio': 'Audio',
@@ -769,7 +769,7 @@ const nl: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Als je naar een andere app overschakelt of het scherm uitgaat, kan het geluid stoppen of de synchronisatie niet meer kloppen.',
   'dialog.sw_update_title': 'Update',
-  'dialog.sw_update_msg': 'Er staat een nieuwe versie klaar.\nVernieuw om deze bij te werken.',
+  'dialog.sw_update_msg': 'Er staat een nieuwe versie klaar\nVernieuw om deze bij te werken',
   'dialog.sw_update_apply': 'Toepassen',
   'dialog.sw_update_apply_msg':
     'Er staat een nieuwe versie klaar.\nToepassen laadt de pagina opnieuw.',
@@ -787,13 +787,13 @@ const nl: Record<I18nKey, string> = {
   'dialog.step_back': 'Terug',
   'dialog.room_password_title': 'Kamerwachtwoord invoeren',
   'dialog.room_password_msg': 'Je hebt een wachtwoord nodig om aan deze kamer deel te nemen.',
-  'dialog.room_password_retry_msg': 'Dat wachtwoord klopt niet. Probeer opnieuw.',
+  'dialog.room_password_retry_msg': 'Dat wachtwoord klopt niet',
   'dialog.room_password_timeout_msg': 'Verbinding duurde te lang. Voer het wachtwoord opnieuw in.',
   'dialog.room_password_placeholder': '8-cijferig wachtwoord',
   'dialog.room_password_rate_limited':
-    'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het over {{count}} minuten opnieuw.',
+    'Je hebt te vaak een verkeerd wachtwoord ingevoerd\nProbeer het over {{count}} minuten opnieuw',
   'dialog.room_password_rate_limited_later':
-    'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het straks opnieuw.',
+    'Je hebt te vaak een verkeerd wachtwoord ingevoerd\nProbeer het straks opnieuw',
   'dialog.session_lost_msg':
     'De app ging in de slaapstand of verloor de verbinding, waardoor de andere apparaten al zijn losgekoppeld. Start opnieuw om een nieuwe kamer te maken.',
   'dialog.session_lost_guest_msg':
@@ -843,7 +843,7 @@ const nl: Record<I18nKey, string> = {
   'pro.resume_tap': 'Tik om het afspelen te hervatten',
   'pro.pin_title': 'Kamerwachtwoord invoeren',
   'pro.pin_message': 'Voer het 8-cijferige wachtwoord van deze PRO-kamer in.',
-  'pro.pin_retry_message': 'Het wachtwoord klopt niet. Probeer het opnieuw.',
+  'pro.pin_retry_message': 'Het wachtwoord klopt niet',
   'pro.pin_change_title': 'Kamerwachtwoord wijzigen',
   'pro.pin_change_message': 'Stel een nieuw wachtwoord van 8 cijfers in.',
   'pro.pin_changed': 'Kamerwachtwoord gewijzigd',
@@ -870,10 +870,10 @@ const nl: Record<I18nKey, string> = {
   'pro.connect_failed': 'Kan geen verbinding maken met de PRO-kamer',
   'pro.room_full': 'Deze PRO-kamer is vol',
   'pro.room_full_detail':
-    'Een PRO-kamer biedt plaats aan maximaal 100 apparaten, inclusief dat van de kamereigenaar. Er is altijd één plek gereserveerd voor de kamereigenaar.',
+    'Er is plaats voor maximaal 100 apparaten, inclusief dat van de kamereigenaar\nEr is altijd één plek gereserveerd voor de kamereigenaar',
   'pro.join_rate_limited':
-    'Te veel pogingen om deel te nemen. Probeer het over {{count}} minuten opnieuw.',
-  'pro.join_rate_limited_later': 'Te veel pogingen om deel te nemen. Probeer het straks opnieuw.',
+    'Te veel pogingen om deel te nemen\nProbeer het over {{count}} minuten opnieuw',
+  'pro.join_rate_limited_later': 'Te veel pogingen om deel te nemen\nProbeer het straks opnieuw',
   'pro.active_tab_title': 'Er is nog een eerdere verbinding',
   'pro.active_tab_message': 'Als je hier doorgaat, wordt de eerdere verbinding verbroken.',
   'pro.active_tab_replaced': 'Deze PRO-kamer is al geopend in een ander tabblad',
@@ -1004,9 +1004,9 @@ export const pluralMessages = {
     one: '{{count}} niet-ondersteund bestand wordt niet toegevoegd.',
   },
   'pro.join_rate_limited': {
-    one: 'Te veel pogingen om deel te nemen. Probeer het over {{count}} minuut opnieuw.',
+    one: 'Te veel pogingen om deel te nemen\nProbeer het over {{count}} minuut opnieuw',
   },
   'dialog.room_password_rate_limited': {
-    one: 'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het over {{count}} minuut opnieuw.',
+    one: 'Je hebt te vaak een verkeerd wachtwoord ingevoerd\nProbeer het over {{count}} minuut opnieuw',
   },
 } satisfies LocalePluralMessages;

@@ -7,6 +7,7 @@
  */
 
 import { getAudioContext } from './context.ts';
+import { countUiSoundResume } from './output-recovery-counters.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
@@ -132,7 +133,10 @@ function resumeFromGesture(): void {
   if (!canPlayUiSound()) return;
   try {
     const context = getAudioContext();
-    if (context.state !== 'running') void context.resume().catch(() => undefined);
+    if (context.state !== 'running') {
+      countUiSoundResume();
+      void context.resume().catch(() => undefined);
+    }
   } catch {
     /* Web Audio is optional UI enhancement. */
   }
@@ -143,6 +147,7 @@ async function readyOutput(force = false): Promise<OutputGraph | null> {
   try {
     const context = getAudioContext();
     if (context.state !== 'running') {
+      countUiSoundResume();
       await context.resume().catch(() => undefined);
     }
     if (context.state !== 'running' || !canPlayUiSound(force)) {

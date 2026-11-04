@@ -388,7 +388,14 @@ function bindSearchScrollMask(): void {
   resultsEl.addEventListener('scroll', () => updateSearchScrollMask(), { passive: true });
 }
 
-function setStatus(key: I18nKey, color = 'var(--text-sub)'): void {
+/**
+ * The line under the YouTube box. The shared line rule in css/style.css
+ * colours it; 'error' adds .error (the danger red at the label weight) for a
+ * failed search, an invalid link or a failed lookup. Only an invalid link is
+ * a wrong value, so only it marks the box aria-invalid, which also turns the
+ * underline red (owner decision 2026-11-03).
+ */
+function setStatus(key: I18nKey, tone: 'rest' | 'error' = 'rest'): void {
   const status = getStatusText();
   if (!status) return;
   // Search completion and failure are asynchronous, so visual text alone is
@@ -400,27 +407,73 @@ function setStatus(key: I18nKey, color = 'var(--text-sub)'): void {
   status.style.display = 'block';
   status.setAttribute('data-i18n', key);
   status.textContent = t(key);
-  status.style.color = color;
+  status.classList.toggle('error', tone === 'error');
+  const input = document.getElementById('youtube-url-input');
+  if (key === 'youtube.invalid_link') input?.setAttribute('aria-invalid', 'true');
+  else input?.removeAttribute('aria-invalid');
 }
 
-function setYouTubePrimaryButton(enabled: boolean, busy = false): void {
+type YouTubePrimaryMode = 'off' | 'search' | 'busy' | 'add';
+
+const YOUTUBE_PRIMARY_LABELS: Record<YouTubePrimaryMode, I18nKey> = {
+  off: 'player.play_start',
+  search: 'youtube.search_button',
+  busy: 'common.wait',
+  add: 'player.play_start',
+};
+
+/**
+ * A busy button is disabled, and the browser then moves focus off it to the
+ * page. Each button remembers that it had focus when it went busy and takes
+ * it back once it can act again, so a keyboard user's next Enter acts on the
+ * results. It never takes focus from another element the person moved to.
+ */
+const _focusedWhenBusy = new WeakSet<HTMLButtonElement>();
+
+function setButtonBusyFocus(button: HTMLButtonElement, state: 'busy' | 'on' | 'off'): void {
+  if (state === 'busy') {
+    if (document.activeElement === button) _focusedWhenBusy.add(button);
+    return;
+  }
+  if (!_focusedWhenBusy.delete(button) || state === 'off') return;
+  const active = document.activeElement;
+  if (active === null || active === document.body) button.focus({ preventScroll: true });
+}
+
+/**
+ * The one writer of the YouTube sheet's big button (owner decision
+ * 2026-11-03): 'off' on an empty box or a link it cannot add, 'search' while
+ * a query is typed and nothing is picked (it runs the same search as Enter
+ * and the magnifier), 'busy' while a search, a link lookup or the iOS prime
+ * wait runs, and 'add' once a result is picked or a link previews.
+ * data-mode tells src/ui/player-controls.ts which action a click takes.
+ */
+export function setYouTubePrimaryButton(mode: YouTubePrimaryMode): void {
   const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
   if (!playBtn) return;
+  const enabled = mode === 'search' || mode === 'add';
+  if (mode === 'busy') setButtonBusyFocus(playBtn, 'busy');
   playBtn.disabled = !enabled;
   playBtn.style.opacity = enabled ? '1' : '0.5';
-  const label: I18nKey = busy ? 'common.wait' : 'player.play_start';
+  const label = YOUTUBE_PRIMARY_LABELS[mode];
   playBtn.setAttribute('data-i18n', label);
   playBtn.textContent = t(label);
+  playBtn.dataset.mode = mode;
+  if (mode === 'busy') playBtn.setAttribute('aria-busy', 'true');
+  else playBtn.removeAttribute('aria-busy');
+  if (mode !== 'busy') setButtonBusyFocus(playBtn, enabled ? 'on' : 'off');
 }
 
 function setYouTubeSearchButton(enabled: boolean, busy = false): void {
   const searchBtn = document.getElementById('youtube-search-btn') as HTMLButtonElement | null;
   if (!searchBtn) return;
+  if (busy) setButtonBusyFocus(searchBtn, 'busy');
   searchBtn.disabled = !enabled;
   if (busy) {
     searchBtn.setAttribute('aria-busy', 'true');
   } else {
     searchBtn.removeAttribute('aria-busy');
+    setButtonBusyFocus(searchBtn, enabled ? 'on' : 'off');
   }
 }
 
@@ -506,7 +559,7 @@ function selectSearchResult(result: YouTubeSearchResult, query: string): void {
   }
 
   setStatus('youtube.search_selected');
-  setYouTubePrimaryButton(true);
+  setYouTubePrimaryButton('add');
 }
 
 function renderSearchResults(query: string, results: YouTubeSearchResult[]): void {
@@ -560,7 +613,7 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
   } else {
     clearSearchResults();
     setStatus('youtube.search_no_results');
-    setYouTubePrimaryButton(false);
+    setYouTubePrimaryButton('search');
   }
 }
 
@@ -581,7 +634,7 @@ export async function searchYouTubeFromInput(inputValue: string): Promise<void> 
   clearSearchResults();
   _latestSearchQuery = intent.query;
   setStatus('youtube.searching');
-  setYouTubePrimaryButton(false);
+  setYouTubePrimaryButton('busy');
   setYouTubeSearchButton(false, true);
   renderSearchSkeleton();
 
@@ -594,18 +647,18 @@ export async function searchYouTubeFromInput(inputValue: string): Promise<void> 
     renderSearchResults(intent.query, results);
   } catch (e) {
     if (abort.signal.aborted) return;
-    // User-initiated Turnstile cancel is not a search failure — silently
-    // restore the idle state instead of flashing the red error toast.
+    // User-initiated Turnstile cancel is not a search failure: the query is
+    // still typed, so offer the search again without the red error line.
     if (isCapabilityChallengeCancelled(e)) {
       clearSearchResults();
-      setStatus('youtube.enter_link_prompt');
-      setYouTubePrimaryButton(false);
+      setStatus('youtube.search_prompt');
+      setYouTubePrimaryButton('search');
       return;
     }
     log.warn('[YouTube Search] Fetch failed:', e);
     clearSearchResults();
-    setStatus('youtube.search_failed', 'var(--danger-foreground)');
-    setYouTubePrimaryButton(false);
+    setStatus('youtube.search_failed', 'error');
+    setYouTubePrimaryButton('search');
   } finally {
     if (_searchAbort === abort) {
       _searchAbort = null;
@@ -621,7 +674,7 @@ export function clearYouTubeInputState(): void {
   _latestSearchQuery = '';
   hidePreviewCard();
   setStatus('youtube.enter_link_prompt');
-  setYouTubePrimaryButton(false);
+  setYouTubePrimaryButton('off');
   setYouTubeSearchButton(false);
 
   const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
@@ -720,7 +773,7 @@ export function fetchYouTubePreview(url: string): void {
     clearSearchResults();
     hidePreviewCard();
     setStatus('youtube.enter_link_prompt');
-    setYouTubePrimaryButton(false);
+    setYouTubePrimaryButton('off');
     setYouTubeSearchButton(false);
     return;
   }
@@ -740,7 +793,8 @@ export function fetchYouTubePreview(url: string): void {
           ? 'youtube.search_selected'
           : 'youtube.search_prompt',
     );
-    setYouTubePrimaryButton(selected !== null);
+    // The same query drawn again while its search runs stays busy.
+    setYouTubePrimaryButton(_searchAbort ? 'busy' : selected ? 'add' : 'search');
     setYouTubeSearchButton(_searchAbort === null, _searchAbort !== null);
     return;
   }
@@ -758,13 +812,13 @@ export function fetchYouTubePreview(url: string): void {
 
   if (intent.kind === 'invalid-url' || (!videoId && !playlistId)) {
     hidePreviewCard();
-    setStatus('youtube.invalid_link', 'var(--danger-foreground)');
-    setYouTubePrimaryButton(false);
+    setStatus('youtube.invalid_link', 'error');
+    setYouTubePrimaryButton('off');
     return;
   }
 
   setStatus('youtube.fetching_info');
-  setYouTubePrimaryButton(false, true);
+  setYouTubePrimaryButton('busy');
 
   setManagedTimer(
     'yt-preview-debounce',
@@ -772,14 +826,6 @@ export function fetchYouTubePreview(url: string): void {
       // Re-query DOM refs (overlay may have been destroyed and recreated during debounce)
       const freshPreview = document.getElementById('youtube-preview');
       const freshStatus = document.getElementById('youtube-preview-status');
-      const freshPlayBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
-      const freshSetPlayBtnEnabled = (enabled: boolean): void => {
-        if (!freshPlayBtn) return;
-        freshPlayBtn.disabled = !enabled;
-        freshPlayBtn.style.opacity = enabled ? '1' : '0.5';
-        freshPlayBtn.setAttribute('data-i18n', 'player.play_start');
-        freshPlayBtn.textContent = t('player.play_start');
-      };
       if (!freshPreview || !freshStatus) return;
 
       // Cancel previous in-flight fetch to prevent stale results overwriting newer ones
@@ -855,17 +901,14 @@ export function fetchYouTubePreview(url: string): void {
           }
         }
 
-        freshSetPlayBtnEnabled(true);
+        setYouTubePrimaryButton('add');
       } catch (e) {
         if (!isCurrentPreview()) return;
         log.error('[YouTube Preview] Error:', e);
         freshPreview.hidden = true;
         freshPreview.style.removeProperty('display');
-        freshStatus.style.display = 'block';
-        freshStatus.setAttribute('data-i18n', 'youtube.fetch_failed');
-        freshStatus.innerText = t('youtube.fetch_failed');
-        freshStatus.style.color = 'var(--danger-foreground)';
-        freshSetPlayBtnEnabled(false);
+        setStatus('youtube.fetch_failed', 'error');
+        setYouTubePrimaryButton('off');
         abort.abort();
       } finally {
         if (_previewAbort === abort) {

@@ -76,10 +76,10 @@ const ms: Record<I18nKey, string> = {
   'account.nickname_title': 'Tetapkan nama panggilan',
   'account.nickname_message': 'Pilih nama panggilan yang akan anda gunakan di MUSIXQUARE.',
   'account.nickname_placeholder': 'Nama panggilan',
-  'account.nickname_hint': 'Gunakan sehingga 12 aksara.',
-  'account.nickname_required': 'Masukkan nama panggilan.',
+  'account.nickname_hint': 'Gunakan sehingga 12 aksara',
+  'account.nickname_required': 'Masukkan nama panggilan',
   'account.nickname_whitespace':
-    'Nama panggilan tidak boleh mengandungi ruang atau aksara halimunan.',
+    'Nama panggilan tidak boleh mengandungi ruang atau aksara halimunan',
   'account.nickname_taken': 'Nama panggilan itu sudah digunakan',
   'account.nickname_saved': 'Nama panggilan ditukar kepada {{name}}',
   'account.action_failed': 'Tidak dapat mengemas kini akaun anda\nSila cuba lagi',
@@ -270,8 +270,8 @@ const ms: Record<I18nKey, string> = {
   'settings.default_5s': 'Lalai 5.0s',
   'settings.invite_code': 'Kod jemputan',
   'settings.leave_session': 'Tinggalkan Sesi',
-  'connect.rename_reserved': 'Nama panggilan ini dikhaskan.',
-  'connect.rename_profanity': 'Perkataan tidak sesuai dikesan.',
+  'connect.rename_reserved': 'Nama panggilan ini dikhaskan',
+  'connect.rename_profanity': 'Perkataan tidak sesuai dikesan',
   'settings.invite_share': 'Jemput & Kongsi',
   'settings.subtab.general': 'Umum',
   'settings.subtab.audio': 'Audio',
@@ -767,7 +767,7 @@ const ms: Record<I18nKey, string> = {
   'dialog.keep_open_message_pro':
     'Beralih ke aplikasi lain atau mematikan skrin boleh menyebabkan bunyi terhenti atau penyegerakan terganggu.',
   'dialog.sw_update_title': 'Kemas Kini',
-  'dialog.sw_update_msg': 'Versi baharu sudah sedia.\nMuat semula untuk mengemas kini.',
+  'dialog.sw_update_msg': 'Versi baharu sudah sedia\nMuat semula untuk mengemas kini',
   'dialog.sw_update_apply': 'Gunakan',
   'dialog.sw_update_apply_msg':
     'Versi baharu sudah sedia.\nMenggunakannya akan memuat semula halaman.',
@@ -785,14 +785,14 @@ const ms: Record<I18nKey, string> = {
   'dialog.step_back': 'Kembali',
   'dialog.room_password_title': 'Masukkan Kata Laluan Bilik',
   'dialog.room_password_msg': 'Kata laluan diperlukan untuk menyertai bilik ini.',
-  'dialog.room_password_retry_msg': 'Kata laluan itu tidak sepadan. Cuba lagi.',
+  'dialog.room_password_retry_msg': 'Kata laluan itu tidak sepadan',
   'dialog.room_password_timeout_msg':
     'Masa sambungan tamat. Masukkan semula kata laluan untuk mencuba lagi.',
   'dialog.room_password_placeholder': 'Kata laluan 8 digit',
   'dialog.room_password_rate_limited':
-    'Anda telah memasukkan kata laluan yang salah terlalu banyak kali. Cuba lagi dalam {{count}} minit.',
+    'Anda telah memasukkan kata laluan yang salah terlalu banyak kali\nCuba lagi dalam {{count}} minit',
   'dialog.room_password_rate_limited_later':
-    'Anda telah memasukkan kata laluan yang salah terlalu banyak kali. Cuba lagi sebentar nanti.',
+    'Anda telah memasukkan kata laluan yang salah terlalu banyak kali\nCuba lagi sebentar nanti',
   'dialog.session_lost_msg':
     'Aplikasi memasuki mod tidur atau kehilangan sambungan, jadi peranti lain sudah terputus. Mulakan semula untuk membuka sesi baharu.',
   'dialog.session_lost_guest_msg':
@@ -843,7 +843,7 @@ const ms: Record<I18nKey, string> = {
   'pro.resume_tap': 'Ketik untuk menyambung main balik',
   'pro.pin_title': 'Masukkan kata laluan bilik',
   'pro.pin_message': 'Masukkan kata laluan 8 digit untuk bilik PRO ini.',
-  'pro.pin_retry_message': 'Kata laluan itu tidak betul. Cuba lagi.',
+  'pro.pin_retry_message': 'Kata laluan itu tidak betul',
   'pro.pin_change_title': 'Tukar kata laluan bilik',
   'pro.pin_change_message': 'Tetapkan kata laluan 8 digit baharu.',
   'pro.pin_changed': 'Kata laluan bilik ditukar',
@@ -870,11 +870,11 @@ const ms: Record<I18nKey, string> = {
   'pro.connect_failed': 'Tidak dapat menyambung ke bilik PRO',
   'pro.room_full': 'Bilik PRO ini sudah penuh',
   'pro.room_full_detail':
-    'Bilik PRO boleh memuatkan sehingga 100 peranti, termasuk peranti pemilik. Satu tempat sentiasa dikhaskan untuk pemilik bilik.',
+    'Boleh memuatkan sehingga 100 peranti, termasuk peranti pemilik\nSatu tempat sentiasa dikhaskan untuk pemilik bilik',
   'pro.join_rate_limited':
-    'Terlalu banyak percubaan untuk menyertai. Cuba lagi dalam {{count}} minit.',
+    'Terlalu banyak percubaan untuk menyertai\nCuba lagi dalam {{count}} minit',
   'pro.join_rate_limited_later':
-    'Terlalu banyak percubaan untuk menyertai. Cuba lagi sebentar nanti.',
+    'Terlalu banyak percubaan untuk menyertai\nCuba lagi sebentar nanti',
   'pro.active_tab_title': 'Sambungan sebelumnya masih ada',
   'pro.active_tab_message': 'Jika anda meneruskan di sini, sambungan sebelumnya akan diputuskan.',
   'pro.active_tab_replaced': 'Bilik PRO ini sudah dibuka dalam tab lain',

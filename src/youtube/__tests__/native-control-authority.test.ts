@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   routeProPlaybackCommand: vi.fn(() => true),
   safeSend: vi.fn(() => true),
+  runBackgroundStopSync: vi.fn(() => undefined),
 }));
+const platform = vi.hoisted(() => ({ ios: false }));
 
 vi.mock('../../pro-room/playback-authority-hooks.ts', () => ({
   routeProPlaybackCommand: mocks.routeProPlaybackCommand,
@@ -17,6 +19,22 @@ vi.mock('../../network/peer.ts', () => ({
   safeSend: mocks.safeSend,
 }));
 
+vi.mock('../../player/background-return-sync.ts', () => ({
+  runBackgroundStopSync: mocks.runBackgroundStopSync,
+}));
+
+// Only WebKit on iPhone and iPad stops a hidden iframe; most rows run elsewhere.
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_IOS() {
+    return platform.ios;
+  },
+}));
+
+import {
+  initBackgroundResumeGuard,
+  type BackgroundResumeGuardHandle,
+} from '../../core/background-resume-guard.ts';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -31,6 +49,7 @@ import {
   setYtAutoplayIntent,
   type YouTubePlayerInstance,
 } from '../_state.ts';
+import { BACKGROUND_STOP_RETURN_GRACE_MS } from '../constants.ts';
 import { initYouTubeNativeControlAuthority } from '../native-control-authority.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -211,6 +230,234 @@ describe('iframe-native YouTube control authority', () => {
       }
     },
   );
+
+  describe('a Standard listener iframe PAUSE around a return from hidden (RO-05)', () => {
+    let guard: BackgroundResumeGuardHandle | null = null;
+
+    function showPage(visibility: DocumentVisibilityState): void {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: visibility });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+
+    function installStandardListener(): FakePlayer {
+      const player = createPlayer();
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', { open: true, peer: 'host', send: vi.fn() } as never);
+      setState('network.isOperator', false);
+      setState('network.standardRoomCapabilities', []);
+      installCurrentYouTube(player);
+      // The guard measures the hidden period; the route reads its classification.
+      guard = initBackgroundResumeGuard({ recover: () => undefined, warn: () => undefined });
+      return player;
+    }
+
+    function pauseInIframe(player: FakePlayer): void {
+      player.state = 2;
+      setPlaybackYouTubePaused();
+    }
+
+    /** A click or tap into the YouTube iframe moves focus into it and blurs the window. */
+    function tapIntoIframe(): void {
+      const container = document.createElement('div');
+      container.id = 'youtube-player-container';
+      const iframe = document.createElement('iframe');
+      container.append(iframe);
+      document.body.append(container);
+      iframe.focus();
+      window.dispatchEvent(new Event('blur'));
+    }
+
+    afterEach(() => {
+      guard?.dispose();
+      guard = null;
+      platform.ios = false;
+      vi.useRealTimers();
+      document.getElementById('youtube-player-container')?.remove();
+      Reflect.deleteProperty(document, 'visibilityState');
+    });
+
+    it.each([
+      { processed: 'while hidden', afterReturnMs: null, browserStop: true },
+      { processed: 'at the return', afterReturnMs: 0, browserStop: true },
+      {
+        processed: 'just inside the grace',
+        afterReturnMs: BACKGROUND_STOP_RETURN_GRACE_MS - 1,
+        browserStop: true,
+      },
+      {
+        processed: 'at the end of the grace',
+        afterReturnMs: BACKGROUND_STOP_RETURN_GRACE_MS,
+        browserStop: false,
+      },
+    ] as const)(
+      'on an iPhone, takes a PAUSE processed $processed for the browser stop: $browserStop',
+      async ({ afterReturnMs, browserStop }) => {
+        platform.ios = true;
+        vi.useFakeTimers();
+        showPage('visible');
+        const player = installStandardListener();
+        const pauseIntent = vi.fn();
+        bus.on('youtube:set-local-paused', pauseIntent);
+
+        showPage('hidden');
+        vi.advanceTimersByTime(800);
+        if (afterReturnMs === null) {
+          pauseInIframe(player);
+          // While hidden the bit keeps heartbeats off the stopped iframe.
+          expect(isLocalYouTubePaused()).toBe(true);
+          expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+        }
+        showPage('visible');
+        if (afterReturnMs !== null) {
+          vi.advanceTimersByTime(afterReturnMs);
+          pauseInIframe(player);
+        }
+        await vi.dynamicImportSettled();
+
+        if (browserStop) {
+          // Handed once to the return, no pause intent, and the bit is down
+          // again so a later stop cannot leave heartbeats off.
+          expect(mocks.runBackgroundStopSync).toHaveBeenCalledOnce();
+          expect(pauseIntent).not.toHaveBeenCalled();
+          expect(isLocalYouTubePaused()).toBe(false);
+        } else {
+          expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+          expect(pauseIntent).toHaveBeenCalledExactlyOnceWith(true);
+          expect(isLocalYouTubePaused()).toBe(true);
+        }
+      },
+    );
+
+    it.each([
+      { processed: 'while hidden', afterReturnMs: null },
+      { processed: 'at the return', afterReturnMs: 0 },
+      { processed: 'inside the iPhone grace', afterReturnMs: BACKGROUND_STOP_RETURN_GRACE_MS / 2 },
+    ] as const)(
+      'on a computer or Android phone, keeps a PAUSE processed $processed the participant pause',
+      async ({ afterReturnMs }) => {
+        // These browsers never stop a hidden iframe, so no grace opens.
+        vi.useFakeTimers();
+        showPage('visible');
+        const player = installStandardListener();
+        const pauseIntent = vi.fn();
+        bus.on('youtube:set-local-paused', pauseIntent);
+
+        showPage('hidden');
+        vi.advanceTimersByTime(800);
+        if (afterReturnMs === null) pauseInIframe(player);
+        showPage('visible');
+        if (afterReturnMs !== null) {
+          vi.advanceTimersByTime(afterReturnMs);
+          pauseInIframe(player);
+        }
+        await vi.dynamicImportSettled();
+
+        expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+        expect(isLocalYouTubePaused()).toBe(true);
+        if (afterReturnMs === null) expect(pauseIntent).not.toHaveBeenCalled();
+        else expect(pauseIntent).toHaveBeenCalledExactlyOnceWith(true);
+      },
+    );
+
+    it('on an iPhone, takes a PAUSE after a tap into the iframe for the participant pause, inside the grace', async () => {
+      platform.ios = true;
+      vi.useFakeTimers();
+      showPage('visible');
+      const player = installStandardListener();
+      const pauseIntent = vi.fn();
+      bus.on('youtube:set-local-paused', pauseIntent);
+
+      showPage('hidden');
+      vi.advanceTimersByTime(800);
+      showPage('visible');
+      vi.advanceTimersByTime(BACKGROUND_STOP_RETURN_GRACE_MS / 4);
+      tapIntoIframe();
+      vi.advanceTimersByTime(BACKGROUND_STOP_RETURN_GRACE_MS / 4);
+      pauseInIframe(player);
+      await vi.dynamicImportSettled();
+
+      expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+      expect(pauseIntent).toHaveBeenCalledExactlyOnceWith(true);
+      expect(isLocalYouTubePaused()).toBe(true);
+    });
+
+    it('on an iPhone, keeps a tap from before the trip home out of the next return', async () => {
+      platform.ios = true;
+      vi.useFakeTimers();
+      showPage('visible');
+      const player = installStandardListener();
+      const pauseIntent = vi.fn();
+      bus.on('youtube:set-local-paused', pauseIntent);
+
+      tapIntoIframe();
+      showPage('hidden');
+      vi.advanceTimersByTime(800);
+      showPage('visible');
+      pauseInIframe(player);
+      await vi.dynamicImportSettled();
+
+      expect(mocks.runBackgroundStopSync).toHaveBeenCalledOnce();
+      expect(pauseIntent).not.toHaveBeenCalled();
+    });
+
+    it('on an iPhone, hands a hidden stop to the next return when the page hides again before the chain loads', async () => {
+      platform.ios = true;
+      vi.useFakeTimers();
+      showPage('visible');
+      const player = installStandardListener();
+
+      showPage('hidden');
+      vi.advanceTimersByTime(800);
+      pauseInIframe(player);
+      showPage('visible');
+      // Hidden again in the same task, before the lazy chain module settles.
+      showPage('hidden');
+      await vi.dynamicImportSettled();
+      expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+      // Hidden, the bit keeps heartbeats off the stopped iframe again.
+      expect(isLocalYouTubePaused()).toBe(true);
+
+      vi.advanceTimersByTime(800);
+      showPage('visible');
+      await vi.dynamicImportSettled();
+      expect(mocks.runBackgroundStopSync).toHaveBeenCalledOnce();
+      expect(isLocalYouTubePaused()).toBe(false);
+    });
+
+    it('on an iPhone, lets a pause intent before the chain loads cancel the hand-off', async () => {
+      platform.ios = true;
+      vi.useFakeTimers();
+      showPage('visible');
+      const player = installStandardListener();
+
+      showPage('hidden');
+      vi.advanceTimersByTime(800);
+      pauseInIframe(player);
+      showPage('visible');
+      // A lock-screen or media-key PAUSE in the same task.
+      bus.emit('youtube:set-local-paused', true);
+      await vi.dynamicImportSettled();
+
+      expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+    });
+
+    it('on an iPhone, takes a visible PAUSE without an observed hidden period for the participant pause', async () => {
+      platform.ios = true;
+      vi.useFakeTimers();
+      showPage('visible');
+      const player = installStandardListener();
+      const pauseIntent = vi.fn();
+      bus.on('youtube:set-local-paused', pauseIntent);
+
+      // A visibility event that ends no hidden period opens no grace.
+      showPage('visible');
+      pauseInIframe(player);
+      await vi.dynamicImportSettled();
+
+      expect(mocks.runBackgroundStopSync).not.toHaveBeenCalled();
+      expect(pauseIntent).toHaveBeenCalledExactlyOnceWith(true);
+    });
+  });
 
   it('does not promote an application-owned pauseVideo transition', () => {
     const player = createPlayer();

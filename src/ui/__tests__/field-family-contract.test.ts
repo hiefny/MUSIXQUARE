@@ -1,0 +1,1050 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { parse as parseCss, type AtRule, type Node, type Rule } from 'postcss';
+import { describe, expect, it } from 'vitest';
+
+// Owner decision (2026-11-03, the input system): every text field in the app
+// is one quiet underline field. Fields differ only by size step:
+//   - display L, the start-screen invite code: 32 / 700, 24 on a 32px line at
+//     359px wide or less for the join code only (the host's read-only code has
+//     no clear button and keeps 32px), box 56;
+//   - display M, values in dialogs and panels (PIN halves, manual sync):
+//     24 / 700 on a 32px line, boxes 50;
+//   - entry, typed text (nickname, YouTube, message): 16 / 400 on a 20px line,
+//     so no field is below 16px.
+// Labels above a field are 13 / 600 --text-sub in sentence case at normal
+// tracking. The one line under a field (the setup code line, the dialog hint
+// and the YouTube status line) is 12px on an 18px line, 8px under the field:
+// hints 400 --text-sub, progress, result and error lines 600, errors the one
+// danger red. The underline is --surface-3 at rest and --primary on focus,
+// the only focus mark; a wrong value turns it --danger-foreground. In Windows
+// forced colours, where red is not shown, a wrong value thickens the edge.
+// The rules read existing roles only: no new token, palette or component.
+
+const SHEET_PATHS = [
+  'css/style.css',
+  'css/desktop.css',
+  'css/rtl.css',
+  'css/playback-actions.css',
+] as const;
+const APP = 'css/style.css';
+const BASE = '@layer base';
+const COMPONENTS = '@layer components';
+const FORCED = '@media (forced-colors: active)';
+const NARROW = `${BASE} > @media (max-width: 359px)`;
+
+// The values a pinned rule may read through var(): the roles the field family
+// is built from.
+const ALLOWED_VARS = new Set([
+  '--text-main',
+  '--text-sub',
+  '--text-muted',
+  '--surface-3',
+  '--primary',
+  '--danger-foreground',
+  '--font-weight-title',
+  '--font-weight-selected',
+  '--font-weight-unselected',
+  '--font-weight-label',
+  '--font-weight-body',
+]);
+
+const LINE = ':is(.setup-inline-error, .dialog-hint, .yt-preview-meta)';
+const LINE_ERROR = ':is(.setup-inline-error, .dialog-hint.error, .yt-preview-meta.error)';
+const LINE_CENTRED = ':is(.setup-inline-error, .dialog-input-split + .dialog-hint)';
+const JOIN_NARROW = '.setup-join-input:not(.yt-intro-text):not([readonly])';
+const SYNC_INVALID = ".sync-manual-input-wrapper:has([aria-invalid='true'])";
+const JOIN_INVALID = ".setup-join-input:not(.yt-intro-text)[aria-invalid='true']";
+const YOUTUBE_INVALID = ".yt-search-input-wrapper:has([aria-invalid='true'])";
+const ENTRY_LINE = '.chat-input:not(.sync-manual-input)';
+const FORCED_INVALID =
+  ":is(input:not([type='range']):not([type='hidden']), [contenteditable='true'], [role='textbox'], [role='combobox'])[aria-invalid='true']";
+const FORCED_FIELDS =
+  ":is(input:not([type='range']):not([type='hidden']), textarea, select, [contenteditable='true'], [contenteditable='plaintext-only'], [role='textbox'], [role='combobox'])";
+const HALF_TEXT = 'color-mix(in srgb, var(--text-main) 50%, transparent)';
+const YOUTUBE_STATUS_WEIGHT =
+  ".yt-preview-meta:is([data-i18n='youtube.searching'], [data-i18n='youtube.fetching_info'], [data-i18n='youtube.search_no_results'], [data-i18n='youtube.invalid_link'], [data-i18n='youtube.search_failed'], [data-i18n='youtube.fetch_failed'])";
+
+const read = (path: string): string => readFileSync(resolve(path), 'utf8');
+const collapse = (value: string): string => value.replace(/\s+/gu, ' ').trim();
+const normalizeSelector = (selector: string): string =>
+  collapse(selector).replace(/\(\s+/gu, '(').replace(/\s+\)/gu, ')');
+
+interface FoundRule {
+  path: string;
+  selectors: string[];
+  /** The at-rules around the rule, outermost first; '' when unlayered. */
+  context: string;
+  /** Source order across the four sheets. */
+  index: number;
+  declarations: Record<string, string>;
+  rule: Rule;
+}
+
+function contextOf(node: Node): string | null {
+  const atRules: string[] = [];
+  for (let parent = node.parent; parent && parent.type !== 'root'; parent = parent.parent) {
+    if (parent.type !== 'atrule') continue;
+    const atRule = parent as AtRule;
+    if (/keyframes$/u.test(atRule.name)) return null;
+    atRules.unshift(`@${atRule.name} ${collapse(atRule.params)}`);
+  }
+  return atRules.join(' > ');
+}
+
+const RULES: FoundRule[] = [];
+for (const path of SHEET_PATHS) {
+  parseCss(read(path)).walkRules((rule) => {
+    const context = contextOf(rule);
+    if (context === null) return;
+    const declarations: Record<string, string> = {};
+    rule.each((node) => {
+      if (node.type !== 'decl') return;
+      declarations[node.prop] = `${collapse(node.value)}${node.important ? ' !important' : ''}`;
+    });
+    RULES.push({
+      path,
+      selectors: rule.selectors.map(normalizeSelector),
+      context,
+      index: RULES.length,
+      declarations,
+      rule,
+    });
+  });
+}
+
+const describeRule = (found: FoundRule): string =>
+  `${found.path}:${found.rule.source?.start?.line ?? '?'} ${found.context || '(unlayered)'} | ${found.selectors.join(', ')}`;
+
+function rulesFor(selector: string, context?: string, path: string = APP): FoundRule[] {
+  return RULES.filter(
+    (found) =>
+      found.path === path &&
+      found.selectors.includes(selector) &&
+      (context === undefined || found.context === context),
+  );
+}
+
+/** The one rule with this selector in this context. */
+function theRule(selector: string, context: string): FoundRule {
+  const found = rulesFor(selector, context);
+  expect(found.map(describeRule), `${context} ${selector}`).toHaveLength(1);
+  return found[0]!;
+}
+
+function pick(found: FoundRule, properties: readonly string[]): Record<string, string | undefined> {
+  return Object.fromEntries(properties.map((property) => [property, found.declarations[property]]));
+}
+
+/** Drop the arguments of :not(...): a negated class does not style that class. */
+function withoutNegations(selector: string): string {
+  let result = '';
+  for (let index = 0; index < selector.length; index += 1) {
+    if (!selector.startsWith(':not(', index)) {
+      result += selector[index];
+      continue;
+    }
+    index = closingParen(selector, index + 4);
+  }
+  return result;
+}
+
+function closingParen(text: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < text.length; index += 1) {
+    if (text[index] === '(') depth += 1;
+    else if (text[index] === ')') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return text.length - 1;
+}
+
+function splitTopLevel(list: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const character of list) {
+    if (character === '(') depth += 1;
+    if (character === ')') depth -= 1;
+    if (character === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+    } else current += character;
+  }
+  parts.push(current);
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+type Specificity = [number, number, number];
+
+const higher = (left: Specificity, right: Specificity): boolean =>
+  left[0] !== right[0]
+    ? left[0] > right[0]
+    : left[1] !== right[1]
+      ? left[1] > right[1]
+      : left[2] > right[2];
+
+const LEGACY_PSEUDO_ELEMENTS = new Set(['before', 'after', 'first-line', 'first-letter']);
+
+/** Selectors Level 4 specificity, enough for the selectors this contract reads. */
+function specificity(selector: string): Specificity {
+  const total: Specificity = [0, 0, 0];
+  const identEnd = (from: number): number => {
+    let index = from;
+    while (index < selector.length && /[\w-]/u.test(selector[index]!)) index += 1;
+    return index;
+  };
+  let index = 0;
+  while (index < selector.length) {
+    const character = selector[index]!;
+    if (character === '#') {
+      total[0] += 1;
+      index = identEnd(index + 1);
+    } else if (character === '.') {
+      total[1] += 1;
+      index = identEnd(index + 1);
+    } else if (character === '[') {
+      total[1] += 1;
+      index = selector.indexOf(']', index) + 1;
+    } else if (character === ':' && selector[index + 1] === ':') {
+      total[2] += 1;
+      index = identEnd(index + 2);
+      if (selector[index] === '(') index = closingParen(selector, index) + 1;
+    } else if (character === ':') {
+      const end = identEnd(index + 1);
+      const name = selector.slice(index + 1, end).toLowerCase();
+      if (selector[end] === '(') {
+        const close = closingParen(selector, end);
+        if (['is', 'not', 'has', 'matches'].includes(name)) {
+          let max: Specificity = [0, 0, 0];
+          for (const argument of splitTopLevel(selector.slice(end + 1, close))) {
+            const candidate = specificity(argument);
+            if (higher(candidate, max)) max = candidate;
+          }
+          total[0] += max[0];
+          total[1] += max[1];
+          total[2] += max[2];
+        } else if (name !== 'where') total[1] += 1;
+        index = close + 1;
+      } else {
+        if (LEGACY_PSEUDO_ELEMENTS.has(name)) total[2] += 1;
+        else total[1] += 1;
+        index = end;
+      }
+    } else if (/[a-z]/iu.test(character)) {
+      total[2] += 1;
+      index = identEnd(index);
+    } else index += 1;
+  }
+  return total;
+}
+
+const LINE_CLASS = /\.(?:setup-inline-error|dialog-hint|yt-preview-meta)(?![\w-])/u;
+const TYPE_PROPERTY =
+  /^(?:font|font-size|font-weight|line-height|color|margin(?:-(?:top|bottom|left|right|block|inline)(?:-(?:start|end))?)?)$/u;
+
+describe('one field family (owner decision 2026-11-03)', () => {
+  it('draws the line under every field from one shared rule', () => {
+    expect(theRule(LINE, BASE).declarations).toEqual({
+      margin: '8px 0 0',
+      'padding-inline': '4px',
+      color: 'var(--text-sub)',
+      'font-size': '12px',
+      'font-weight': 'var(--font-weight-body)',
+      'line-height': '18px',
+      'letter-spacing': 'normal',
+      'text-align': 'start',
+      'white-space': 'pre-line',
+      'word-break': 'keep-all',
+      'overflow-wrap': 'anywhere',
+      transition: 'color 0.2s ease',
+    });
+  });
+
+  it('turns an error line red at the label weight', () => {
+    const shared = theRule(LINE, BASE);
+    const error = theRule(LINE_ERROR, BASE);
+    expect(error.declarations).toEqual({
+      color: 'var(--danger-foreground)',
+      'font-weight': 'var(--font-weight-label)',
+    });
+    expect(higher(specificity(LINE_ERROR), specificity(LINE))).toBe(true);
+    expect(error.index).toBeGreaterThan(shared.index);
+  });
+
+  it('centres the line under a code or a PIN and keeps one dialog line of space', () => {
+    const shared = theRule(LINE, BASE);
+    expect(theRule(LINE_CENTRED, BASE).declarations).toEqual({
+      'padding-inline': '0',
+      'text-align': 'center',
+    });
+    expect(higher(specificity(LINE_CENTRED), specificity(LINE))).toBe(true);
+    expect(theRule('.dialog-hint', BASE).declarations).toEqual({ 'min-height': '18px' });
+    expect(rulesFor('.dialog-hint').map(describeRule)).toHaveLength(1);
+    expect(theRule('.setup-inline-error', BASE).declarations).toEqual({ width: '100%' });
+    expect(theRule('.setup-inline-error', BASE).index).toBeGreaterThan(shared.index);
+  });
+
+  it('lets no other rule restyle the size, line, colour, weight or margin of the line', () => {
+    const styling = RULES.filter((found) =>
+      Object.keys(found.declarations).some((property) => TYPE_PROPERTY.test(property)),
+    ).flatMap((found) =>
+      found.selectors
+        .filter((selector) => LINE_CLASS.test(withoutNegations(selector)))
+        .map((selector) => `${found.path} ${found.context} | ${selector}`),
+    );
+    // Source order: the base rules, then the components rules.
+    expect(styling).toEqual([
+      `${APP} ${BASE} | ${LINE}`,
+      `${APP} ${BASE} | ${LINE_ERROR}`,
+      `${APP} ${BASE} | .setup-auto-join-area .setup-inline-error`,
+      `${APP} ${COMPONENTS} | .setup-join-area > .yt-preview-meta`,
+      `${APP} ${COMPONENTS} | ${YOUTUBE_STATUS_WEIGHT}`,
+    ]);
+    expect(theRule('.setup-auto-join-area .setup-inline-error', BASE).declarations).toEqual({
+      'margin-top': '0',
+    });
+    // The YouTube stack keeps its 10px gap; the line moves up 2px to sit 8px
+    // under the underline like every other line.
+    expect(theRule('.setup-join-area > .yt-preview-meta', COMPONENTS).declarations).toEqual({
+      'margin-top': '-2px',
+    });
+    expect(theRule('.setup-join-area', BASE).declarations.gap).toBe('10px');
+    expect(theRule(YOUTUBE_STATUS_WEIGHT, COMPONENTS).declarations).toEqual({
+      'font-weight': 'var(--font-weight-label)',
+    });
+    // The old components rule (11px, a 4px margin) is gone.
+    expect(rulesFor('.yt-preview-meta').map(describeRule)).toEqual([]);
+  });
+
+  it('breaks the line between any two characters in Japanese and Chinese', () => {
+    const cjk = theRule('html:lang(ja) .dialog-message', BASE);
+    for (const lang of ['ja', 'zh-Hans', 'zh-Hant']) {
+      for (const line of ['.setup-inline-error', '.dialog-hint', '.yt-preview-meta']) {
+        const selector = `html:lang(${lang}) ${line}`;
+        expect(cjk.selectors, selector).toContain(selector);
+        expect(higher(specificity(selector), specificity(LINE)), selector).toBe(true);
+      }
+    }
+    expect(pick(cjk, ['word-break', 'overflow-wrap', 'line-break'])).toEqual({
+      'word-break': 'normal',
+      'overflow-wrap': 'anywhere',
+      'line-break': 'strict',
+    });
+  });
+
+  it('sets the display steps: the start-screen code and the values in dialogs and panels', () => {
+    expect(
+      pick(theRule('.setup-join-input', BASE), [
+        'padding',
+        'font-size',
+        'font-weight',
+        'letter-spacing',
+        'font-variant-numeric',
+        'transition',
+      ]),
+    ).toEqual({
+      padding: '8px 0',
+      'font-size': '32px',
+      'font-weight': 'var(--font-weight-title)',
+      'letter-spacing': '0.12em',
+      'font-variant-numeric': 'tabular-nums',
+      transition: 'border-bottom-color 0.2s ease',
+    });
+
+    // At 359px wide or less six join digits fit beside the clear button; the
+    // box stays 56px (11 + 32 + 11 + 2). The host's read-only code keeps 32px.
+    const narrow = RULES.filter(
+      (found) =>
+        found.context === NARROW &&
+        found.selectors.some((selector) => selector.includes('.setup-join-input')),
+    );
+    expect(narrow.map(describeRule)).toHaveLength(1);
+    expect(narrow[0]!.selectors).toEqual([JOIN_NARROW]);
+    expect(narrow[0]!.declarations).toEqual({
+      'padding-block': '11px',
+      'font-size': '24px',
+      'line-height': '32px',
+    });
+    const hostReaching = RULES.filter(
+      (found) => found.context !== BASE || !found.selectors.includes('.setup-join-input'),
+    )
+      .filter((found) => 'font-size' in found.declarations)
+      .flatMap((found) =>
+        found.selectors
+          .filter((selector) =>
+            /\.setup-join-input(?![\w-])|#setup-code(?![\w-])|\.code-input-active(?![\w-])/u.test(
+              selector,
+            ),
+          )
+          .filter((selector) => !selector.includes(':not([readonly])'))
+          .map((selector) => `${describeRule(found)} -> ${selector}`),
+      );
+    expect(hostReaching).toEqual([]);
+
+    expect(
+      pick(theRule('.dialog-input-segment', BASE), [
+        'padding',
+        'font-size',
+        'font-weight',
+        'line-height',
+        'letter-spacing',
+      ]),
+    ).toEqual({
+      padding: '8px 4px',
+      'font-size': '24px',
+      'font-weight': 'var(--font-weight-title)',
+      'line-height': '32px',
+      'letter-spacing': '0.12em',
+    });
+    expect(
+      pick(theRule('.dialog-input-separator', BASE), [
+        'color',
+        'font-size',
+        'line-height',
+        'transform',
+      ]),
+    ).toEqual({
+      color: 'var(--text-muted)',
+      'font-size': '24px',
+      'line-height': '32px',
+      transform: 'translateY(4px)',
+    });
+    expect(
+      pick(theRule('.sync-col-value', BASE), ['font-size', 'font-weight', 'line-height']),
+    ).toEqual({
+      'font-size': '24px',
+      'font-weight': 'var(--font-weight-title)',
+      'line-height': '32px',
+    });
+  });
+
+  it('sets the entry step: typed text at 16px on a 20px line, nothing smaller', () => {
+    expect(
+      pick(theRule('.dialog-input', BASE), ['padding', 'font-size', 'font-weight', 'line-height']),
+    ).toEqual({
+      padding: '12px 4px',
+      'font-size': '16px',
+      'font-weight': 'var(--font-weight-body)',
+      'line-height': '20px',
+    });
+    expect(
+      pick(theRule('.yt-search-input-wrapper .yt-intro-text', COMPONENTS), [
+        'padding',
+        'font-size',
+        'font-weight',
+        'line-height',
+        'font-variant-numeric',
+      ]),
+    ).toEqual({
+      padding: '12px 4px 10px',
+      'font-size': '16px',
+      'font-weight': 'var(--font-weight-body)',
+      'line-height': '20px',
+      'font-variant-numeric': 'normal',
+    });
+    // The message composer and its command ghost text share the 20px line;
+    // the manual sync value shares .chat-input and keeps its display line.
+    const composer = theRule(ENTRY_LINE, BASE);
+    expect(composer.selectors).toEqual([ENTRY_LINE, '.chat-cmd-ghost']);
+    expect(composer.declarations).toEqual({ 'line-height': '20px' });
+    expect(composer.index).toBeGreaterThan(theRule('.chat-input', BASE).index);
+
+    // No entry field is below 16px, so iOS never zooms on focus.
+    const belowEntry = (found: FoundRule): boolean => {
+      const size = /^(\d+(?:\.\d+)?)px$/u.exec(found.declarations['font-size'] ?? '');
+      return !size || Number(size[1]) < 16;
+    };
+    const small = RULES.filter(
+      (found) => 'font-size' in found.declarations && belowEntry(found),
+    ).flatMap((found) =>
+      found.selectors
+        .filter((selector) => !selector.includes('::'))
+        .filter((selector) =>
+          /\.(?:dialog-input|yt-intro-text|chat-input)(?![\w-])/u.test(withoutNegations(selector)),
+        )
+        .map((selector) => `${describeRule(found)} -> ${selector}`),
+    );
+    expect(small).toEqual([]);
+  });
+
+  it('labels a field in sentence case at 13 / 600 --text-sub', () => {
+    expect(pick(theRule('.setup-code-label', BASE), ['font-size', 'font-weight', 'color'])).toEqual(
+      {
+        'font-size': '13px',
+        'font-weight': 'var(--font-weight-label)',
+        color: 'var(--text-sub)',
+      },
+    );
+    const dressed = RULES.filter((found) =>
+      found.selectors.some((selector) => /\.setup-code-label(?![\w-])/u.test(selector)),
+    ).flatMap((found) =>
+      ['text-transform', 'letter-spacing', 'opacity']
+        .filter((property) => property in found.declarations)
+        .map((property) => `${describeRule(found)} { ${property} }`),
+    );
+    expect(dressed).toEqual([]);
+    expect(theRule('.sync-col-label', BASE).declarations).toEqual({
+      'font-size': '13px',
+      'font-weight': 'var(--font-weight-label)',
+      color: 'var(--text-sub)',
+      'letter-spacing': 'normal',
+    });
+    // The label sits 8px above the field, through the display's flex gap.
+    expect(theRule('.sync-manual-display', BASE).declarations.gap).toBe('8px');
+  });
+
+  it('fades the manual sync placeholder like the start-screen code placeholder', () => {
+    const placeholder = theRule('.sync-manual-input:empty::before', BASE);
+    expect(placeholder.declarations).toEqual({ opacity: '0.3' });
+    expect(theRule('.setup-join-input::placeholder', BASE).declarations.opacity).toBe('0.3');
+    for (const shared of rulesFor('.chat-input:empty::before', BASE)) {
+      expect(placeholder.index, describeRule(shared)).toBeGreaterThan(shared.index);
+      expect(
+        higher(specificity('.chat-input:empty::before'), specificity(placeholder.selectors[0]!)),
+      ).toBe(false);
+    }
+  });
+
+  it('turns the underline red for a wrong value and fades a disabled code once', () => {
+    const invalid = theRule(SYNC_INVALID, BASE);
+    const focused = theRule('.chat-input-wrapper:focus-within', BASE);
+    expect(invalid.declarations).toEqual({ 'border-bottom-color': 'var(--danger-foreground)' });
+    // Equal specificity: the red follows the focus blue in source order.
+    expect(higher(specificity('.chat-input-wrapper:focus-within'), specificity(SYNC_INVALID))).toBe(
+      false,
+    );
+    expect(invalid.index).toBeGreaterThan(focused.index);
+
+    // The start-screen code turns red only when the code itself is wrong (the
+    // script sets aria-invalid for value errors only), even while focused.
+    const join = theRule(JOIN_INVALID, BASE);
+    expect(join.declarations).toEqual({ 'border-bottom-color': 'var(--danger-foreground)' });
+    expect(higher(specificity(JOIN_INVALID), specificity('.setup-join-input:focus'))).toBe(true);
+    expect(join.index).toBeGreaterThan(theRule('.setup-join-input:focus', BASE).index);
+    expect(join.index).toBeGreaterThan(theRule('.setup-join-input', BASE).index);
+    // The YouTube box draws its underline on its wrapper: an invalid link (the
+    // only value error there) turns it red, after the focus blue in source
+    // order; a failed search or lookup paints only the line.
+    const youtube = theRule(YOUTUBE_INVALID, COMPONENTS);
+    expect(youtube.declarations).toEqual({ 'border-bottom-color': 'var(--danger-foreground)' });
+    expect(
+      higher(specificity('.yt-search-input-wrapper:focus-within'), specificity(YOUTUBE_INVALID)),
+    ).toBe(false);
+    expect(youtube.index).toBeGreaterThan(
+      theRule('.yt-search-input-wrapper:focus-within', COMPONENTS).index,
+    );
+    // So no .setup-join-input rule other than the code's reads aria-invalid.
+    expect(
+      RULES.filter(
+        (found) =>
+          found.path === APP &&
+          found.selectors.some((selector) => /\.setup-join-input[^,]*aria-invalid/u.test(selector)),
+      ).flatMap((found) => found.selectors),
+    ).toEqual([JOIN_INVALID]);
+
+    // Joining: the digits fade once (iOS WebKit dims disabled fields itself).
+    expect(theRule('.setup-join-input:disabled', BASE).declarations).toEqual({
+      opacity: '1',
+      color: HALF_TEXT,
+      '-webkit-text-fill-color': HALF_TEXT,
+    });
+    // The dialog fields keep their own invalid rules.
+    expect(theRule('.dialog-input.invalid', BASE).declarations).toEqual({
+      'border-bottom-color': 'var(--danger-foreground)',
+    });
+    expect(theRule('.dialog-input-split.invalid .dialog-input-segment', BASE).declarations).toEqual(
+      { 'border-bottom-color': 'var(--danger-foreground)' },
+    );
+  });
+
+  it('makes the blue underline the only focus mark and draws button rings inside', () => {
+    const segmentFocus = theRule('.dialog-input-segment:focus-visible', BASE);
+    expect(segmentFocus.declarations).toEqual({ outline: 'none' });
+    expect(
+      higher(specificity('.dialog-input-segment:focus-visible'), specificity(':focus-visible')),
+    ).toBe(true);
+    expect(theRule(':focus-visible', BASE).declarations.outline).toBe('2px solid var(--primary)');
+    expect(theRule('.clearable-editor-button:focus-visible', BASE).declarations).toEqual({
+      color: 'var(--text-main)',
+      outline: '2px solid var(--primary)',
+      'outline-offset': '-2px',
+    });
+    expect(theRule('.chat-send-btn:focus-visible', BASE).declarations).toEqual({
+      outline: '2px solid var(--primary)',
+      'outline-offset': '-2px',
+    });
+  });
+
+  it('thickens a wrong field to a 2px edge in Windows forced colours', () => {
+    const fields = theRule(FORCED_FIELDS, FORCED);
+    const invalid = theRule(FORCED_INVALID, FORCED);
+    expect(fields.declarations.outline).toBe('1px solid CanvasText');
+    expect(invalid.declarations).toEqual({ 'outline-width': '2px' });
+    expect(specificity(FORCED_INVALID)).toEqual([0, 3, 1]);
+    expect(specificity(FORCED_FIELDS)).toEqual([0, 2, 1]);
+    expect(invalid.index).toBeGreaterThan(fields.index);
+  });
+
+  it('paints the joining digits in the system disabled colour in Windows forced colours', () => {
+    // The joining fade sets -webkit-text-fill-color, which Chromium does not
+    // force: without this rule the digits keep the faded --text-main mix
+    // instead of the GrayText that forced colours give a disabled field.
+    expect(theRule('.setup-join-input:disabled', BASE).declarations).toMatchObject({
+      '-webkit-text-fill-color': HALF_TEXT,
+    });
+    const forced = theRule('.setup-join-input:disabled', FORCED);
+    expect(forced.declarations).toEqual({ '-webkit-text-fill-color': 'GrayText' });
+    expect(theRule(':is(input, textarea, select):disabled', FORCED).declarations.color).toBe(
+      'GrayText !important',
+    );
+  });
+
+  it('reads only the existing roles in the rules it pins', () => {
+    const pinned: Array<[string, string]> = [
+      [LINE, BASE],
+      [LINE_ERROR, BASE],
+      [LINE_CENTRED, BASE],
+      ['.dialog-hint', BASE],
+      ['.setup-inline-error', BASE],
+      ['.setup-join-input', BASE],
+      ['.setup-join-input:disabled', BASE],
+      [JOIN_NARROW, NARROW],
+      ['.dialog-input', BASE],
+      ['.dialog-input-segment', BASE],
+      ['.dialog-input-segment:focus-visible', BASE],
+      ['.dialog-input-separator', BASE],
+      [ENTRY_LINE, BASE],
+      ['.chat-send-btn:focus-visible', BASE],
+      ['.clearable-editor-button:focus-visible', BASE],
+      ['.setup-code-label', BASE],
+      ['.sync-col-label', BASE],
+      ['.sync-col-value', BASE],
+      [SYNC_INVALID, BASE],
+      [JOIN_INVALID, BASE],
+      [YOUTUBE_INVALID, COMPONENTS],
+      ['.sync-manual-input:empty::before', BASE],
+      ['.yt-search-input-wrapper .yt-intro-text', COMPONENTS],
+      ['.setup-join-area > .yt-preview-meta', COMPONENTS],
+      [FORCED_INVALID, FORCED],
+    ];
+    const strays: string[] = [];
+    for (const [selector, context] of pinned) {
+      const found = theRule(selector, context);
+      for (const [property, value] of Object.entries(found.declarations)) {
+        for (const match of value.matchAll(/var\(\s*(--[\w-]+)/gu)) {
+          if (!ALLOWED_VARS.has(match[1]!))
+            strays.push(`${describeRule(found)} ${property}: ${value}`);
+        }
+        if (property.startsWith('--')) strays.push(`${describeRule(found)} defines ${property}`);
+      }
+    }
+    expect(strays).toEqual([]);
+  });
+});
+
+// The design-system page shows the same family in its Input fields card
+// (public/designsystem/index.html). public/editorial-design.css mirrors the
+// app rules; its sizes read the documentation scale of
+// public/designsystem/colors_and_type.css (--fs-N), and 32px, which has no
+// step, stays raw. [data-state='focus'] draws focus on a static specimen.
+const DESIGN = 'public/editorial-design.css';
+const DESIGN_NARROW = '@media (max-width: 359px)';
+const FOCUS_SPECIMEN = "[data-state='focus']";
+
+const DOCUMENTATION_STEPS = new Map<string, string>();
+parseCss(read('public/designsystem/colors_and_type.css')).walkRules(':root', (rule) => {
+  rule.walkDecls(/^--fs-\d+$/u, (declaration) => {
+    DOCUMENTATION_STEPS.set(declaration.prop, declaration.value.trim());
+  });
+});
+
+interface PageRule {
+  selectors: string[];
+  context: string;
+  index: number;
+  declarations: Record<string, string>;
+  line: number;
+}
+
+const PAGE_RULES: PageRule[] = [];
+parseCss(read(DESIGN)).walkRules((rule) => {
+  const context = contextOf(rule);
+  if (context === null) return;
+  const declarations: Record<string, string> = {};
+  rule.each((node) => {
+    if (node.type !== 'decl') return;
+    declarations[node.prop] = `${collapse(node.value)}${node.important ? ' !important' : ''}`;
+  });
+  PAGE_RULES.push({
+    selectors: rule.selectors.map(normalizeSelector),
+    context,
+    index: PAGE_RULES.length,
+    declarations,
+    line: rule.source?.start?.line ?? 0,
+  });
+});
+
+const describePageRule = (found: PageRule): string =>
+  `${DESIGN}:${found.line} ${found.context || '(unlayered)'} | ${found.selectors.join(', ')}`;
+
+function pageRulesFor(selector: string, context = ''): PageRule[] {
+  return PAGE_RULES.filter(
+    (found) => found.context === context && found.selectors.includes(selector),
+  );
+}
+
+/** What the page gives this selector, in source order, with the scale steps resolved. */
+function pageDeclarations(selector: string, context = ''): Record<string, string> {
+  const found = pageRulesFor(selector, context);
+  expect(found.map(describePageRule), `${DESIGN} ${selector}`).not.toEqual([]);
+  const merged: Record<string, string> = {};
+  for (const rule of found) {
+    for (const [property, value] of Object.entries(rule.declarations)) {
+      merged[property] = value.replace(
+        /var\((--fs-\d+)\)/gu,
+        (whole, step: string) => DOCUMENTATION_STEPS.get(step) ?? whole,
+      );
+    }
+  }
+  return merged;
+}
+
+const MIRROR_CLASS =
+  /\.(?:setup-join-input|setup-inline-error|setup-code-label|setup-join-area|dialog-input|dialog-input-split|dialog-input-segment|dialog-input-separator|dialog-hint|yt-search-input-wrapper|yt-intro-text|yt-search-submit-btn|yt-preview-meta|yt-search-results?|yt-search-thumb|yt-search-meta|yt-search-title|yt-search-channel|chat-input-wrapper|chat-input|chat-send-btn|clearable-editor-button|clearable-editor-active|sync-col-label|sync-col-value|sync-manual-display|sync-manual-input-wrapper|sync-manual-input|ob-actions|btn-ob-primary|btn-ob-secondary)(?![\w-])/u;
+
+/** Every property of the one app rule with this selector. */
+const all = (selector: string, context: string): string[] =>
+  Object.keys(theRule(selector, context).declarations);
+
+describe('the design-system page mirrors the field family', () => {
+  it('mirrors the line under a field, the labels and the three size steps', () => {
+    const mirrored: Array<[string, string, string, readonly string[], string?]> = [
+      [LINE, BASE, LINE, all(LINE, BASE)],
+      [LINE_ERROR, BASE, LINE_ERROR, all(LINE_ERROR, BASE)],
+      [LINE_CENTRED, BASE, LINE_CENTRED, all(LINE_CENTRED, BASE)],
+      ['.dialog-hint', BASE, '.dialog-hint', ['min-height']],
+      ['.setup-inline-error', BASE, '.setup-inline-error', ['width']],
+      ['.setup-join-area', BASE, '.setup-join-area', ['display', 'flex-direction', 'gap']],
+      [
+        '.setup-join-area > .yt-preview-meta',
+        COMPONENTS,
+        '.setup-join-area > .yt-preview-meta',
+        ['margin-top'],
+      ],
+      [YOUTUBE_STATUS_WEIGHT, COMPONENTS, YOUTUBE_STATUS_WEIGHT, ['font-weight']],
+      [
+        '.setup-code-label',
+        BASE,
+        '.setup-code-label',
+        ['width', 'margin-bottom', 'font-size', 'color', 'font-weight', 'text-align'],
+      ],
+      ['.sync-col-label', BASE, '.sync-col-label', all('.sync-col-label', BASE)],
+      [
+        '.sync-manual-display',
+        BASE,
+        '.sync-manual-display',
+        ['display', 'flex-direction', 'align-items', 'gap', 'margin'],
+      ],
+      ['.sync-manual-input-wrapper', BASE, '.sync-manual-input-wrapper', ['padding-bottom']],
+      [
+        '.setup-join-input',
+        BASE,
+        '.setup-join-input',
+        [
+          'padding',
+          'border-bottom',
+          'color',
+          'caret-color',
+          'font-size',
+          'font-weight',
+          'letter-spacing',
+          'font-variant-numeric',
+          'text-align',
+          'transition',
+        ],
+      ],
+      [
+        '.setup-join-input::placeholder',
+        BASE,
+        '.setup-join-input::placeholder',
+        ['color', 'opacity'],
+      ],
+      [
+        '.setup-join-input:disabled',
+        BASE,
+        '.setup-join-input:disabled',
+        all('.setup-join-input:disabled', BASE),
+      ],
+      [JOIN_NARROW, NARROW, JOIN_NARROW, all(JOIN_NARROW, NARROW), DESIGN_NARROW],
+      [
+        '.dialog-input-split',
+        BASE,
+        '.dialog-input-split',
+        ['display', 'align-items', 'justify-content', 'gap', 'margin-top'],
+      ],
+      [
+        '.dialog-input-segment',
+        BASE,
+        '.dialog-input-segment',
+        [
+          'width',
+          'padding',
+          'border-bottom',
+          'color',
+          'font-size',
+          'font-weight',
+          'font-variant-numeric',
+          'line-height',
+          'letter-spacing',
+          'text-align',
+          'transition',
+        ],
+      ],
+      [
+        '.dialog-input-separator',
+        BASE,
+        '.dialog-input-separator',
+        all('.dialog-input-separator', BASE),
+      ],
+      ['.sync-col-value', BASE, '.sync-col-value', all('.sync-col-value', BASE)],
+      [
+        '.sync-manual-input',
+        BASE,
+        '.sync-manual-input',
+        ['padding-block', 'text-align', 'white-space'],
+      ],
+      [
+        '.dialog-input',
+        BASE,
+        '.dialog-input',
+        [
+          'margin-top',
+          'padding',
+          'border-bottom',
+          'color',
+          'font-size',
+          'font-weight',
+          'line-height',
+          'transition',
+        ],
+      ],
+      [
+        '.yt-search-input-wrapper .yt-intro-text',
+        COMPONENTS,
+        '.yt-intro-text',
+        [
+          'padding',
+          'font-size',
+          'font-weight',
+          'line-height',
+          'letter-spacing',
+          'font-variant-numeric',
+          'text-align',
+        ],
+      ],
+      [
+        '.yt-search-input-wrapper',
+        COMPONENTS,
+        '.yt-search-input-wrapper',
+        ['display', 'align-items', 'border-bottom', 'transition'],
+      ],
+      ['.chat-input', BASE, '.chat-input', ['padding', 'font-size', 'font-weight']],
+      [ENTRY_LINE, BASE, '.chat-input', ['line-height']],
+      [
+        '.chat-input-wrapper',
+        BASE,
+        '.chat-input-wrapper',
+        ['display', 'align-items', 'border-bottom', 'padding-bottom'],
+      ],
+    ];
+    const drift: string[] = [];
+    for (const [appSelector, appContext, pageSelector, properties, pageContext] of mirrored) {
+      const app = pick(theRule(appSelector, appContext), properties);
+      const page = pageDeclarations(pageSelector, pageContext);
+      for (const property of properties) {
+        if (page[property] !== app[property]) {
+          drift.push(
+            `${pageSelector} ${property}: page ${page[property]}, app ${appSelector} ${app[property]}`,
+          );
+        }
+      }
+    }
+    expect(drift).toEqual([]);
+    // No label on the page goes back to uppercase, tracking or a fade.
+    const dressed = PAGE_RULES.filter((found) =>
+      found.selectors.some((selector) =>
+        /\.(?:setup-code-label|sync-col-label)(?![\w-])/u.test(selector),
+      ),
+    ).flatMap((found) =>
+      Object.entries(found.declarations)
+        .filter(
+          ([property, value]) =>
+            property === 'text-transform' ||
+            property === 'opacity' ||
+            (property === 'letter-spacing' && value !== 'normal'),
+        )
+        .map(([property, value]) => `${describePageRule(found)} { ${property}: ${value} }`),
+    );
+    expect(dressed).toEqual([]);
+  });
+
+  it('mirrors the underline states and the buttons inside a field', () => {
+    const underlined = [
+      '.setup-join-input',
+      '.dialog-input',
+      '.dialog-input-segment',
+      '.chat-input-wrapper',
+      '.yt-search-input-wrapper',
+    ];
+    for (const selector of underlined) {
+      expect(pageDeclarations(selector)['border-bottom'], selector).toBe(
+        '2px solid var(--surface-3)',
+      );
+    }
+    const focus = [
+      '.setup-join-input:focus',
+      '.dialog-input:focus',
+      '.dialog-input-segment:focus',
+      '.chat-input-wrapper:focus-within',
+      '.yt-search-input-wrapper:focus-within',
+      ...underlined.map((selector) => `${selector}${FOCUS_SPECIMEN}`),
+    ];
+    for (const selector of focus) {
+      expect(pageDeclarations(selector)['border-bottom-color'], selector).toBe('var(--primary)');
+    }
+    // The red follows the focus blue: later in source order and never less
+    // specific than the focus rule of the same field.
+    const lastFocus = Math.max(
+      ...focus.flatMap((selector) => pageRulesFor(selector).map((found) => found.index)),
+    );
+    const invalid: Array<[string, string]> = [
+      [JOIN_INVALID, '.setup-join-input:focus'],
+      ['.dialog-input.invalid', '.dialog-input:focus'],
+      ['.dialog-input-split.invalid .dialog-input-segment', '.dialog-input-segment:focus'],
+      [SYNC_INVALID, '.chat-input-wrapper:focus-within'],
+      [YOUTUBE_INVALID, '.yt-search-input-wrapper:focus-within'],
+    ];
+    for (const [selector, focused] of invalid) {
+      expect(pageDeclarations(selector)['border-bottom-color'], selector).toBe(
+        'var(--danger-foreground)',
+      );
+      expect(
+        Math.min(...pageRulesFor(selector).map((found) => found.index)),
+        selector,
+      ).toBeGreaterThan(lastFocus);
+      expect(higher(specificity(focused), specificity(selector)), selector).toBe(false);
+    }
+    // Disabled: the joining code, the app's one disabled field, at half
+    // strength. The page adds no disabled look the app does not have.
+    expect(pageDeclarations('.setup-join-input:disabled')).toEqual(
+      theRule('.setup-join-input:disabled', BASE).declarations,
+    );
+    expect(
+      PAGE_RULES.filter((found) =>
+        found.selectors.some((selector) => selector.includes('aria-disabled')),
+      ).map(describePageRule),
+    ).toEqual([]);
+
+    // The clear, search and send buttons: --surface-3 until they can act,
+    // then --primary; the clear button --text-muted. Rings sit inside.
+    const buttons: Array<[string, string, string, readonly string[]]> = [
+      ['.yt-search-submit-btn', COMPONENTS, '.yt-search-submit-btn', ['width', 'height', 'color']],
+      [
+        '.yt-search-submit-btn:not(:disabled)',
+        COMPONENTS,
+        '.yt-search-submit-btn:not(:disabled)',
+        ['color'],
+      ],
+      ['.yt-search-submit-btn svg', COMPONENTS, '.yt-search-submit-btn svg', ['width', 'height']],
+      [
+        '.yt-search-submit-btn:focus-visible',
+        COMPONENTS,
+        '.yt-search-submit-btn:focus-visible',
+        ['outline', 'outline-offset'],
+      ],
+      ['.chat-send-btn', BASE, '.chat-send-btn', ['width', 'height', 'color', 'margin-bottom']],
+      [
+        '.chat-input:not(:empty) ~ .chat-send-btn',
+        BASE,
+        '.chat-input:not(:empty) ~ .chat-send-btn',
+        ['color'],
+      ],
+      ['.chat-send-btn svg', BASE, '.chat-send-btn svg', ['width', 'height']],
+      [
+        '.chat-send-btn:focus-visible',
+        BASE,
+        '.chat-send-btn:focus-visible',
+        ['outline', 'outline-offset'],
+      ],
+      [
+        '.chat-send-btn:focus-visible',
+        BASE,
+        `.chat-send-btn${FOCUS_SPECIMEN}`,
+        ['outline', 'outline-offset'],
+      ],
+      ['.clearable-editor-button', BASE, '.clearable-editor-button', ['color', 'border-radius']],
+      ['.clearable-editor-button svg', BASE, '.clearable-editor-button svg', ['width', 'height']],
+      [
+        '.clearable-editor-button:focus-visible',
+        BASE,
+        '.clearable-editor-button:focus-visible',
+        all('.clearable-editor-button:focus-visible', BASE),
+      ],
+    ];
+    const drift: string[] = [];
+    for (const [appSelector, appContext, pageSelector, properties] of buttons) {
+      const app = pick(theRule(appSelector, appContext), properties);
+      const page = pageDeclarations(pageSelector);
+      for (const property of properties) {
+        if (page[property] !== app[property]) {
+          drift.push(
+            `${pageSelector} ${property}: page ${page[property]}, app ${appSelector} ${app[property]}`,
+          );
+        }
+      }
+    }
+    expect(drift).toEqual([]);
+    // The clear button's 44px target, which the app's script sizes.
+    const clear = pageDeclarations('.clearable-editor-button');
+    expect([clear.width, clear.height]).toEqual(['44px', '44px']);
+  });
+
+  it('reads only existing roles and the documentation size steps', () => {
+    const allowed = new Set([
+      ...ALLOWED_VARS,
+      ...DOCUMENTATION_STEPS.keys(),
+      '--surface-2',
+      '--primary-filled',
+      '--radius-pill',
+      '--button-label-size',
+      '--button-label-line-height',
+      '--button-label-letter-spacing',
+    ]);
+    const mirror = PAGE_RULES.filter((found) =>
+      found.selectors.some((selector) => MIRROR_CLASS.test(selector)),
+    );
+    expect(mirror.length).toBeGreaterThan(40);
+    const strays: string[] = [];
+    for (const found of mirror) {
+      for (const [property, value] of Object.entries(found.declarations)) {
+        if (property.startsWith('--'))
+          strays.push(`${describePageRule(found)} defines ${property}`);
+        for (const match of value.matchAll(/var\(\s*(--[\w-]+)/gu)) {
+          if (!allowed.has(match[1]!))
+            strays.push(`${describePageRule(found)} ${property}: ${value}`);
+        }
+        // A size with a documentation step reads the step; 32px has none.
+        const size = /^(\d+)px$/u.exec(property === 'font-size' ? value : '');
+        if (size && DOCUMENTATION_STEPS.has(`--fs-${size[1]}`)) {
+          strays.push(`${describePageRule(found)} font-size: ${value} (use var(--fs-${size[1]}))`);
+        }
+      }
+    }
+    expect(strays).toEqual([]);
+    expect(DOCUMENTATION_STEPS.has('--fs-32')).toBe(false);
+    expect(pageDeclarations('.setup-join-input')['font-size']).toBe('32px');
+  });
+});

@@ -76,6 +76,35 @@ const SETTINGS_CHIP_BOXES: readonly LabelBox[] = [{ screen: '320×568', fontSize
 /** Two-column demo layouts read --demo-panel-max: clamp(340px, 40vw, 640px). */
 const DEMO_PANEL_SHARE = 0.4;
 
+const clampPx = (min: number, value: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
+/** A demo role switch column: four minmax(0, 1fr) columns with 8px gaps share the container. */
+const demoRoleColumn = (container: number): number => (container - 3 * 8) / 4;
+
+/**
+ * The demo role switch from 720px: font-size clamp(12px, 1vw, 14px), and the
+ * icon clamp(5px, 0.8vw, 9px) from the label.
+ */
+const demoRoleTwoColumns = (vw: number) => ({
+  fontSize: clampPx(12, vw / 100, 14),
+  iconGap: clampPx(5, 0.008 * vw, 9),
+});
+
+/**
+ * The demo role switch container in the two-column layout
+ * (DEMO_PANEL_SOURCES): the shell's two columns share the viewport less its
+ * inline padding and the column gap clamp(18px, 3vw, 44px); the control
+ * stage's end margin gives that padding back, its padding clamp(28px, 4vw,
+ * 56px) comes off both sides, and .demo-step-content stops at
+ * --demo-panel-max. The shell padding cancels out: 291.6px at 720px wide
+ * (the 720×360 box), 340px from 840px and 40vw from 850px.
+ */
+function demoTwoColumnContainer(vw: number): number {
+  const stage = (vw - clampPx(18, 0.03 * vw, 44)) / 2;
+  return Math.min(stage - 2 * clampPx(28, 0.04 * vw, 56), clampPx(340, DEMO_PANEL_SHARE * vw, 640));
+}
+
 /**
  * The demo role switch boxes (css/style.css .demo-role-segmented). Four
  * columns of minmax(0, 1fr) with an 8px gap share the container. The icon is
@@ -85,10 +114,9 @@ const DEMO_PANEL_SHARE = 0.4;
  * padding 0 5px.
  */
 function demoRoleBoxes(iconHiddenUpTo: number): LabelBox[] {
-  const column = (container: number) => (container - 3 * 8) / 4;
+  const column = demoRoleColumn;
   const vw = iconHiddenUpTo / DEMO_PANEL_SHARE;
-  const twoColumnGap = Math.min(9, Math.max(5, 0.008 * vw));
-  const twoColumnFont = Math.min(14.5, Math.max(12.5, vw / 100));
+  const twoColumns = demoRoleTwoColumns(vw);
   return [
     // @media (max-width: 420px): font-size 12px, padding 0 5px, no icon. The
     // demo shell's 10px padding and the control stage's 18px inset leave
@@ -98,7 +126,11 @@ function demoRoleBoxes(iconHiddenUpTo: number): LabelBox[] {
     // gives the control stage a 331.2px column, which its −18px end margin
     // widens to 349.2px; less its 2 × 28.8px padding: 291.6px, under the
     // icon threshold.
-    { screen: '720×360', fontSize: 12.5, width: column(291.6) - 2 * 4 },
+    {
+      screen: '720×360',
+      fontSize: demoRoleTwoColumns(720).fontSize,
+      width: column(291.6) - 2 * 4,
+    },
     // The narrowest container that shows the icon, on a phone (13px)...
     {
       screen: `${iconHiddenUpTo}px container, phone`,
@@ -108,13 +140,13 @@ function demoRoleBoxes(iconHiddenUpTo: number): LabelBox[] {
     // ...and in the two-column layout, where the container is 40vw.
     {
       screen: `${iconHiddenUpTo}px container, ${Math.round(vw)}px wide`,
-      fontSize: twoColumnFont,
-      width: column(iconHiddenUpTo) - 2 * 8 - 19 - twoColumnGap,
+      fontSize: twoColumns.fontSize,
+      width: column(iconHiddenUpTo) - 2 * 8 - 19 - twoColumns.iconGap,
     },
     // Desktop: 1280px (12.8px, 512px container, 9px icon gap) and 1480px
-    // (the 14.5px cap, 592px container).
+    // (the 14px cap, 592px container).
     { screen: '1280×800', fontSize: 12.8, width: column(512) - 2 * 8 - 19 - 9 },
-    { screen: '1480×720', fontSize: 14.5, width: column(592) - 2 * 8 - 19 - 9 },
+    { screen: '1480×720', fontSize: 14, width: column(592) - 2 * 8 - 19 - 9 },
   ];
 }
 
@@ -348,10 +380,15 @@ const LABEL_BOX_SOURCES: Readonly<Record<string, readonly BoxSource[]>> = {
     source('css/style.css', '.demo-role-segmented button', null, {
       'letter-spacing': 'var(--button-label-letter-spacing)',
     }),
-    // The phone rule; demo-role-icon.test.ts pins the switch's other values.
+    // The phone rule and the two-column size and icon gap the boxes and the
+    // 12px bands take; demo-role-icon.test.ts pins the switch's other values.
     source('css/style.css', '.demo-role-segmented button', PHONES, {
       padding: '0 5px',
       'font-size': '12px',
+    }),
+    source('css/style.css', '.demo-role-segmented button', TWO_COLUMNS, {
+      gap: 'clamp(5px, 0.8vw, 9px)',
+      'font-size': 'clamp(12px, 1vw, 14px)',
     }),
   ],
   'bottom navigation': [
@@ -463,10 +500,10 @@ interface AcceptedLabel {
  * its screen, text and width: the ones the owner accepted (decisions
  * 2026-10-29 (d) and (e)), the Tamil Manual chips of decision (c), whose
  * catalog word கைமுறை leaves 2.31px like the near misses of (e) and which the
- * owner confirmed on 2026-10-29, and the two demo role near misses at
- * 720×360. The app font switch (2026-10-31: Inter, and the CJK families at
- * 94%) moved their widths and adds 13 near misses that still fit their box;
- * those wait for the owner's review of the switch, as their reasons say.
+ * owner confirmed on 2026-10-29. The app font switch (2026-10-31: Inter, and
+ * the CJK families at 94%) moved their widths and adds 12 near misses that
+ * still fit their box; those wait for the owner's review of the switch, as
+ * their reasons say.
  * Widths come from the switch's fonts, Korean first in the Han order. An
  * entry covers only its own screen's box, so a label that is
  * accepted at 320px still has to fit every other box. A changed text, or a
@@ -594,26 +631,6 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     why: 'shared with the chat role names; no shorter Greek word; accepted at 320px',
   },
   {
-    locale: 'el',
-    group: 'demo-role-segmented',
-    key: 'common.left',
-    screen: '720×360',
-    text: 'Αριστερό',
-    width: 56.72,
-    box: 58.9,
-    why: 'the word accepted at 320px; a near miss in the two-column layout; one line',
-  },
-  {
-    locale: 'pt-br',
-    group: 'demo-role-segmented',
-    key: 'common.left',
-    screen: '720×360',
-    text: 'Esquerda',
-    width: 56.01,
-    box: 58.9,
-    why: 'the word accepted at 320px; a near miss in the two-column layout; one line',
-  },
-  {
     locale: 'es',
     group: 'grid-lang',
     key: 'settings.language_select',
@@ -692,16 +709,6 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     width: 53.64,
     box: 57.6,
     why: 'app font switch near miss (2026-10-31): 3.96px to spare in its box; waits for the owner review of the switch',
-  },
-  {
-    locale: 'es',
-    group: 'demo-role-segmented',
-    key: 'common.left',
-    screen: '720×360',
-    text: 'Izquierda',
-    width: 55.24,
-    box: 58.9,
-    why: 'app font switch near miss (2026-10-31): 3.66px to spare in its box; waits for the owner review of the switch',
   },
   {
     locale: 'ru',
@@ -878,6 +885,44 @@ describe('chip label width guard', () => {
     const tooWide = checks
       .filter((check) => check.width + SPARE > check.box && !acceptedFor(check))
       .map(describeCheck);
+    expect(tooWide).toEqual([]);
+  });
+
+  it('fits the demo role labels with 4px to spare at every whole width of the 12px bands', () => {
+    // The two-column widths where the labels at a flat 14px ran out of their
+    // 4px (2026-11-04): 720 to 805px, icon hidden, and 1121 to 1175px, icon
+    // shown, here from the first width that shows it. The switch is 12px at
+    // all of them, as in the 720×360 box, whose widths serve every one.
+    // Safe-area insets (a notched phone held sideways) narrow the stage and
+    // are not modelled here.
+    const iconHiddenUpTo = demoRoleIconThreshold(css);
+    const measured = checks.filter(
+      (check) => check.group === 'demo-role-segmented' && check.screen === '720×360',
+    );
+    expect(measured).toHaveLength(42 * 4);
+    expect(demoTwoColumnContainer(720)).toBeCloseTo(291.6, 6);
+    const bands = [
+      [720, 805],
+      [Math.floor(iconHiddenUpTo / DEMO_PANEL_SHARE) + 1, 1175],
+    ] as const;
+    const tooWide: string[] = [];
+    for (const [from, to] of bands) {
+      expect(from, `the band from ${from} to ${to}px`).toBeLessThanOrEqual(to);
+      for (let vw = from; vw <= to; vw += 1) {
+        const { fontSize, iconGap } = demoRoleTwoColumns(vw);
+        expect(fontSize, `${vw}px wide`).toBe(demoRoleTwoColumns(720).fontSize);
+        const container = demoTwoColumnContainer(vw);
+        const box =
+          container > iconHiddenUpTo
+            ? demoRoleColumn(container) - 2 * 8 - 19 - iconGap
+            : demoRoleColumn(container) - 2 * 4;
+        for (const check of measured) {
+          if (check.width + SPARE <= box) continue;
+          const screen = `${vw}px wide, ${container.toFixed(2)}px container`;
+          tooWide.push(describeCheck({ ...check, box, screen }));
+        }
+      }
+    }
     expect(tooWide).toEqual([]);
   });
 

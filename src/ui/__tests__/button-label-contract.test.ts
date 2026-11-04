@@ -2435,7 +2435,7 @@ describe('action button label contract', () => {
       '13px',
       '14px',
       '15px',
-      'clamp(12.5px, 1vw, 14.5px)',
+      'clamp(12px, 1vw, 14px)',
       'clamp(13px, 1vw, 15px)',
     ]);
   }, 240_000);

@@ -71,12 +71,12 @@ const besideIcon = (container: number, iconGap: number): number =>
  * The two-column layout's container is the panel, --demo-panel-max:
  * clamp(340px, 40vw, 640px), so a container width gives the viewport, and
  * the viewport gives the icon gap clamp(5px, 0.8vw, 9px) and the font size
- * clamp(12.5px, 1vw, 14.5px).
+ * clamp(12px, 1vw, 14px).
  */
 function twoColumnsAt(container: number): { readonly fontSize: number; readonly iconGap: number } {
   const vw = container / 0.4;
   return {
-    fontSize: Math.min(14.5, Math.max(12.5, vw / 100)),
+    fontSize: Math.min(14, Math.max(12, vw / 100)),
     iconGap: Math.min(9, Math.max(5, 0.008 * vw)),
   };
 }
@@ -155,7 +155,7 @@ describe('demo role switch icon threshold', () => {
     });
     expect(declarations(root, '.demo-role-segmented button', TWO_COLUMNS)).toMatchObject({
       gap: 'clamp(5px, 0.8vw, 9px)',
-      'font-size': 'clamp(12.5px, 1vw, 14.5px)',
+      'font-size': 'clamp(12px, 1vw, 14px)',
     });
     expect(declarations(root, '.demo-mobile-shell', TWO_COLUMNS)).toMatchObject({
       '--demo-panel-max': 'clamp(340px, 40vw, 640px)',
@@ -175,7 +175,9 @@ describe('demo role switch icon threshold', () => {
       gap: '0',
       'padding-inline': '4px',
     });
-    expect(threshold.width).toBe(448);
+    // At the two-column 12px the Greek Left fits beside the icon from a 433px
+    // container, so the phones' 13px sets the threshold: there it needs 440px.
+    expect(threshold.width).toBe(440);
   });
 
   it('leaves every label 4px beside the icon from the threshold on', () => {

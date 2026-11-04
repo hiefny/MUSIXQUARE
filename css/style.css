@@ -10285,13 +10285,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       gap: clamp(14px, 2.4vh, 24px);
     }
 
+    /* The step title and copy take the desktop start carousel's title and
+       description sizes (--setup-ob-title and --setup-ob-desc in
+       css/desktop.css, scoped to #setup-overlay), and the track names the
+       playlist's .track-name size (demo-wide-type-contract.test.ts). */
     .demo-step-copy h2 {
-      font-size: clamp(22px, 2.2vw, 30px);
+      font-size: clamp(22px, 2.2vw, 28px);
     }
 
     .demo-step-copy p,
     .demo-step-body {
-      font-size: clamp(13.5px, 1.2vw, 15.5px);
+      font-size: clamp(13px, 1.1vw, 15px);
     }
 
     .demo-session-qr {
@@ -10367,7 +10371,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     .demo-track-row strong {
-      font-size: clamp(14px, 1.05vw, 15.5px);
+      font-size: 15px;
     }
 
     .demo-step-nav {

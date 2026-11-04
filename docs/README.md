@@ -121,13 +121,19 @@ runbooks. Neither belongs in a general setup document.
   Round 2 bumped, judged the deploy target, checked that each part alone reverses cleanly, reran the unit half
   of every tests-first pair on the moved commits (each fails on its parent and passes at its code, with the
   same counts as before the move) and retook the pictures on the bump head's E2E build: the demo, chat and
-  start carousel captures (34) and the start-screen scrollbar captures (24) are byte-identical to the pictures
-  sent to the owner, and the `/debug` COPY row is pixel-identical. Round 3 ran the full local gate on the
+  start carousel captures (34) are byte-identical to the pictures sent to the owner; the 24 start-screen
+  scrollbar captures equal the pair's and the proposal's captures (12 of them are the pictures on the sheets the
+  owner approved, the six views at rest at 390 × 600 and 320 × 568 come from the same proposal run but were not
+  on the sheets, and the six 667 × 375 ones, which the owner did not see, equal the proposal's prototype
+  captures); and the `/debug` COPY row is pixel-identical. Round 3 ran the full local gate on the
   documentation commit `37e2deef` after the bump (code `74b2cec7`): typecheck, lint, format, `build:checked` and all 37 guards
   one by one, both coverage configs, the full unit suite twice (777 files, 18,693 passed and 1 skipped each time), 202 E2E rows in
   29 file runs (critical, the demo, chat, `/debug` and setup specs, the production candidate) and the local partial-release check
   with the deployed SHAs (compatible); against a clean build of `3506dc41` the eager first load is 16 B smaller in JavaScript and
-  60 B smaller in all (gzip), with the main CSS 195 B larger raw.
+  60 B smaller in all (gzip), with the main CSS 195 B larger raw. Round 4 applied a two-lens review to the
+  documents only (the code is still `74b2cec7`): the start-screen picture counts above, the 9.0.33 record
+  sentence on the 14.5 px CJK case that this train removes, the tested heads of the sub-rounds before the move,
+  the phone COPY that fills its row, and this entry's status in the deploy record's list.
   Not verified: real devices (the iPhone COPY with the keyboard up, touch scrolling from the side
   margins), Linux, and WebKit beyond the local Playwright lane.
 - [App 9.0.37 / v810 train: Phase 7 7A, the iPhone guest YouTube return and the input design system (2026-11-04)](design/app-9-0-37-train-2026-11-04.md):

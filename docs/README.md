@@ -1136,13 +1136,13 @@ runbooks. Neither belongs in a general setup document.
   the App 9.0.30 / v803 Phase 6 6A (2026-11-01 05:17 KST), the App 9.0.31 / v804 line box train
   (2026-11-01 23:17 KST), the App 9.0.32 / v805 Phase 6 6B (2026-11-02 05:34 KST), the App 9.0.33 / v806 Hangul train (2026-11-02 13:12 KST), the App 9.0.34 / v807 train (2026-11-02 21:20 KST), the App 9.0.35 / v808 train (2026-11-03 16:40 KST), the App 9.0.36 / v809 train (22:22 KST) and the App 9.0.37 / v810 train (2026-11-04 13:51 KST, entries above) shipped before those checks, so they now run on 9.0.37, as
   none changes the system audio code, reading the build line as `app=9.0.37 | cacheEpoch=v810`; the
-  9.0.29 to 9.0.36 records have no result for them. On the evening of 2026-11-03 the owner ran
+  9.0.29 to 9.0.35 records have no result for them. On the evening of 2026-11-03 the owner ran
   three same-Wi-Fi shares on 9.0.35 with the 9.0.27 procedure's set-up (an Edge sharer and an
   iPhone Safari listener; not the full blind list): all three ended on the SFU without a break in
   the sound, none ended LAN-direct, and in the two whose lines show it the held fallback was
   released after 0 and 1 ms, so late RTP after a trackless negotiation is still unseen; the
   off-Wi-Fi shares, the rest of both blind lists, the playlist checks and the R4 late check still
-  wait (the release record's 9.0.27 and 9.0.28 sections). The Full E2E run 41229806902 on main `e51dd292` (the 9.0.29
+  wait (the release record's 9.0.27 and 9.0.28 sections), and the 9.0.37 record adds no result. The Full E2E run 41229806902 on main `e51dd292` (the 9.0.29
   runtime) passed before 6A merged and closed the chat Tab cycle item. The
   release record's §2 carries the train as post-deploy items (scope and status, the held SFU fallback
   moved from the 9.0.27 section, the post-deploy check and the open owner questions, with the
@@ -1259,13 +1259,14 @@ runbooks. Neither belongs in a general setup document.
   32 pass / 0 fail / 5 manual-only. The owner delegated the release before going to sleep, so the
   blind post-deploy check did not run then; it was for the morning, and 9.0.28 to 9.0.37 shipped
   first (2026-10-31 11:29 and 23:39 KST, 2026-11-01 05:17 and 23:17 KST, 2026-11-02 05:34, 13:12 and 21:20 KST, 2026-11-03 16:40 and 22:22 KST, 2026-11-04 13:51 KST, entries above), so the
-  rest of the blind check now runs on 9.0.37 reading only its build line; the 9.0.28 to 9.0.36 records have no result for
+  rest of the blind check now runs on 9.0.37 reading only its build line; the 9.0.28 to 9.0.35 records have no result for
   it. On the evening of 2026-11-03 the owner ran three same-Wi-Fi shares with its set-up on 9.0.35
   (not the full blind list), the first production sight of the new diagnostic lines and
   `no-lan-candidate`: all three ended on the SFU without a break in the sound and none proved
   LAN-direct (two read as the reading table's row for a sharer that sent no mDNS candidate, with
   the site's camera permission granted in Edge; the third, after the site permissions were reset,
-  is not in the table), so the five-share check stays open and a read-only diagnosis is running.
+  is not in the table), so the five-share check stays open and a read-only diagnosis is running; the
+  9.0.37 record adds no result.
   The full E2E run that closes the chat Tab cycle item, 41229806902 on main `e51dd292` (the
   9.0.29 runtime, which carries this fix), passed on 2026-11-01 before 6A merged, so the release
   record closed that item. The release record's §2 carries the train as post-deploy items (scope and status, the

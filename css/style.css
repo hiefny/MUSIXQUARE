@@ -12837,6 +12837,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       align-self: center;
     }
   }
+
+  /* The /debug text overlays' one COPY (src/chat/debug-console.ts) keeps the
+     350px a 390px phone gives it, in the middle, instead of a pill across
+     the screen (owner decision 2026-11-04): its row stops at 366px with its
+     8px padding, and a tap beside the row lands on the overlay itself.
+     Below 720px wide the row is as before. The onboarding diagnostics share
+     the row's classes and keep theirs. */
+  @media (min-width: 720px) {
+    .debug-memory-overlay:not(.onboarding-diagnostics-overlay) .onboarding-diagnostics-actions {
+      width: 100%;
+      max-width: 366px;
+      margin-inline: auto;
+    }
+  }
   html:not(.ios-standalone) body {
     max-height: var(--app-height, 100dvh);
   }

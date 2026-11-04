@@ -246,6 +246,14 @@ export async function pageNow(page: Page): Promise<number> {
   return page.evaluate(() => Math.round(performance.now()));
 }
 
+/** Log `ms <label>` in the op log now, to split it at a test step. */
+export async function markOps(page: Page, label: string): Promise<void> {
+  await page.evaluate((name) => {
+    const lab = (window as unknown as LabWindow).__audioLab;
+    lab.ops.push(`${Math.round(performance.now())} ${name}`);
+  }, label);
+}
+
 export async function unfreeze(page: Page): Promise<void> {
   await page.evaluate(() => (window as unknown as LabWindow).__audioLab.unfreeze());
 }

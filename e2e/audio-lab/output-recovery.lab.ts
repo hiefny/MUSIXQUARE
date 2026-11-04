@@ -46,6 +46,7 @@ import {
   emitNewerPlayRequest,
   holdResume,
   holdSuspend,
+  markOps,
   openPlayRequestDialog,
   openPlaying,
   openPreparedDialog,
@@ -179,7 +180,7 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     expect(lab.activity).toEqual(['paused', 'playing']);
   });
 
-  test('(d-1) a newer recovery request aborts the wait: cleanup resume in a later task, the new dialog opens', async ({
+  test("(d-1) a newer recovery request aborts the wait: cleanup resume within the abort's own task, the new dialog opens", async ({
     page,
   }) => {
     const before = await openPlayRequestDialog(page);
@@ -196,15 +197,17 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
 
     expect(lab.resumeHeld).toBe(1);
     expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
-    // Known gap (C1-I12, the wait polls; owner decision pending): the retired
-    // attempt's cleanup resume waits for the wait's next 50 ms check, a timer
-    // task, so it comes after every microtask the abort queued (the marker).
-    // A wait that settles on the owner's promise would put it before.
+    // C1-I12 (Phase 7 7B-5, owner answer Q7; it was a Known gap, the wait
+    // polled): the wait ends on the dialog's AbortSignal, so the retired
+    // attempt's cleanup resume follows through promises alone, before the
+    // marker logged after every microtask the abort queued. Before, it waited
+    // for the wait's next 50 ms check, a timer task after the marker.
     const ops = fromTap(lab);
     const marker = ops.findIndex((op) => op.endsWith(' abort+microtasks'));
     const cleanupAt = ops.findIndex((op) => op.includes('resume@task:'));
     expect(marker).toBeGreaterThan(-1);
-    expect(cleanupAt).toBeGreaterThan(marker);
+    expect(cleanupAt).toBeGreaterThan(-1);
+    expect(cleanupAt).toBeLessThan(marker);
     const cleanup = timesOf(ops, 'resume@task:');
     expect(cleanup).toHaveLength(1);
     expect(cleanup[0]! - abortAt).toBeGreaterThanOrEqual(0);
@@ -223,6 +226,7 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     await holdResume(page, ['click']);
     await page.locator(OK).click();
     await page.waitForTimeout(1_500);
+    await markOps(page, 'next-track');
     await page.locator('#btn-next').click();
     await page.waitForTimeout(7_000);
     const lab = await readLab(page);
@@ -230,14 +234,21 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     await releaseGates(page);
 
     // The one new start is the next track's: the old retry never runs and no
-    // dialog comes back. (The retired attempt's cleanup resume runs after the
-    // change; its time is not pinned here.)
+    // dialog comes back. Before the change, one resume: the dialog tap's.
+    // (The retired attempt's cleanup resume runs after the change; its time
+    // is not pinned here. Since Phase 7 7B-5 the wait ends on the abort at
+    // once, so it can run inside the next-track click itself, logged as
+    // `resume@click`; it came at the wait's next 50 ms poll, `resume@task`.)
     expect(await readState(page, 'playlist.currentQueueItemId')).not.toBe(queueItem);
     expect(await readState(page, 'playback.activity')).toBe('playing');
     expect(lab.starts - before).toBe(1);
     expect(lab.dialogShows).toBe(1);
     expect(lab.needed).toEqual(['play:clock-stalled']);
-    expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
+    const ops = fromTap(lab);
+    const next = ops.findIndex((op) => op.endsWith(' next-track'));
+    expect(next).toBeGreaterThan(-1);
+    expect(countOps(ops.slice(0, next), 'resume@')).toBe(1);
+    expect(countOps(ops.slice(0, next), 'resume@click:')).toBe(1);
   });
 
   test('(d-2) the page hides while the dialog waits: no cleanup resume, then PLAY starts the track', async ({

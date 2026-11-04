@@ -838,7 +838,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       const copies = [
         ['src/audio/context.ts', 'AUDIO_SUSPEND_MAX_ATTEMPTS', '2'],
         ['src/audio/context-recovery.ts', 'AUDIO_CLOCK_MIN_ADVANCE_SECONDS', '0.01'],
-        ['src/app.ts', 'AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS', '50'],
+        ['src/app.ts', 'AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS', '5_000'],
       ] as const;
       const findings = findingsOf(
         withSources((sources) => {
@@ -862,8 +862,8 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
       expect(findings).toContain(
         'COPIED TIMING CONSTANT (principle 4): RO-01 ' +
-          'AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS@src/app.ts = ' +
-          'AUDIO_RECOVERY_CLOCK_REQUIREMENT_POLL_MS@src/audio/context-protocol.ts (50)',
+          'AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS@src/app.ts = ' +
+          'AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS@src/audio/context-protocol.ts (5000)',
       );
     });
 
@@ -903,16 +903,18 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
 
     it('pins the callers of the three functions that can resume for their caller on the real tree', () => {
       const report = analyzeResourceOwnership(realInput());
+      // Phase 7 7B-5: the playback scope's gesture resume goes through the
+      // one recovery resume in context.ts, which calls native resume() itself
+      // (CHECK 6), not restartAudioContextFromGesture (2 -> 1).
       expect(report.indirectResumeCalls).toEqual({
         ensureRunning: 4,
-        restartAudioContextFromGesture: 2,
+        restartAudioContextFromGesture: 1,
         probeAudioContextHealth: 5,
       });
       expect(usesOf(report.indirectResumeSites)).toEqual([
         'src/app.ts probeAudioContextHealth()',
         'src/app.ts restartAudioContextFromGesture()',
         'src/audio/context-recovery.ts probeAudioContextHealth()',
-        'src/audio/context-recovery.ts restartAudioContextFromGesture()',
         'src/audio/engine.ts ensureRunning()',
         'src/audio/engine.ts ensureRunning()',
         'src/audio/output-health.ts probeAudioContextHealth()',
@@ -1049,7 +1051,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       const listed = runGuard('--report');
       expect(listed.status, listed.stderr).toBe(0);
       expect(listed.stdout).toContain(
-        'indirect AudioContext resume callers: ensureRunning 4, restartAudioContextFromGesture 2, ' +
+        'indirect AudioContext resume callers: ensureRunning 4, restartAudioContextFromGesture 1, ' +
           'probeAudioContextHealth 5; initAudio uses',
       );
       expect(listed.stdout).toMatch(

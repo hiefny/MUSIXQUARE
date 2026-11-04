@@ -22,9 +22,10 @@
  * Not covered here:
  * - src/app.ts is import-terminal, so its recovery dialog has no unit seam.
  *   Where a test says what the dialog reads, it pins the owner's answer at
- *   the moment app.ts reads it (its 1 s flight race, its 5 s / 50 ms
- *   requirement poll). Browser evidence for the dialog stays in
- *   e2e/background-resume.test.ts and e2e/demo-output-recovery.test.ts.
+ *   the moment app.ts reads it (its 1 s flight race, and since Phase 7 7B-5
+ *   its wait of at most 5 s on the owner's answer for the requirement).
+ *   Browser evidence for the dialog stays in e2e/background-resume.test.ts,
+ *   e2e/demo-output-recovery.test.ts and the local lab in e2e/audio-lab/.
  * - The trusted pointerdown/keydown path in ui-sounds.ts: jsdom cannot
  *   create a trusted event. Its readyOutput path asks the owners the same
  *   question first (Phase 7 7B-3) and issues the same resume() when no owner
@@ -451,78 +452,56 @@ describe('RO-01 play-request foreground restart', () => {
 });
 
 describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', () => {
+  /** The owner verifies its own late resume and rejoins once, with no further native call. */
+  const RECOVERED = {
+    state: 'running',
+    scope: COMPLETED,
+    requirement: 'none',
+    rejoins: ['audio-context-recovered'],
+    needed: [] as string[],
+    suspends: 1,
+    resumes: 1,
+  };
   it.each([
     {
       label: 'state flips silently at settlement',
       resume: { statechange: 'silent' } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
-      end: {
-        state: 'running',
-        scope: COMPLETED,
-        requirement: 'none',
-        rejoins: ['audio-context-recovered'],
-        needed: [] as string[],
-        suspends: 1,
-        resumes: 1,
-      },
+      end: RECOVERED,
     },
     {
       label: 'state flips at settlement, statechange 100 ms later',
       resume: { statechange: 'deferred-event', stateDelayMs: 100 } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
-      end: {
-        state: 'running',
-        scope: COMPLETED,
-        requirement: 'none',
-        rejoins: ['audio-context-recovered'],
-        needed: [],
-        suspends: 1,
-        resumes: 1,
-      },
+      end: RECOVERED,
     },
     {
-      // The fake's zero-latency default; no browser applies suspend() inside
-      // the same microtask checkpoint. The 50 ms row is the realistic one.
+      // The fake's zero-latency default for the re-suspend that no longer
+      // comes. Before Phase 7 7B-5 (Known gap C1-I11/I12) the owner suspended
+      // again and asked for a second gesture: state suspended, PARKED, a
+      // clock-stalled notice, 2 suspends.
       label: 'statechange before settlement, re-suspend on a microtask',
       resume: { statechange: 'before-settle' } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
-      end: {
-        state: 'suspended',
-        scope: PARKED,
-        requirement: 'none',
-        rejoins: [],
-        needed: ['background-resume:clock-stalled'],
-        suspends: 2,
-        resumes: 1,
-      },
+      end: RECOVERED,
     },
     {
+      // Before 7B-5 (Known gap C1-I11/I12) the settlement's promotion
+      // stranded the re-suspend's lease, the attempt retired and the cleanup
+      // resumed it with no clock proof or rejoin: running, NO_ATTEMPT,
+      // 2 suspends, 2 resumes.
       label: 'statechange before settlement, re-suspend after 50 ms',
       resume: { statechange: 'before-settle' } as FakeNativeCallPlan,
       reSuspend: { latencyMs: 50 } as FakeNativeCallPlan,
-      end: {
-        state: 'running',
-        scope: NO_ATTEMPT,
-        requirement: 'none',
-        rejoins: [],
-        needed: [],
-        suspends: 2,
-        resumes: 2,
-      },
+      end: RECOVERED,
     },
     {
+      // Before 7B-5 (Known gap C1-I11/I12) as the microtask row: a second
+      // gesture asked for.
       label: 'statechange 100 ms after settlement',
       resume: { statechange: 'after-settle', stateDelayMs: 100 } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
-      end: {
-        state: 'suspended',
-        scope: PARKED,
-        requirement: 'none',
-        rejoins: [],
-        needed: ['background-resume:clock-stalled'],
-        suspends: 2,
-        resumes: 1,
-      },
+      end: RECOVERED,
     },
   ])('stalled cause: resume settles at 1200 ms, $label', async ({ resume, reSuspend, end }) => {
     const fake = new FakeNativeAudioContext();
@@ -547,19 +526,19 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
 
     await vi.advanceTimersByTimeAsync(10_000);
 
-    // Fix lane G7: the gesture caller gave up at the deadline, so when the
-    // state is already running at settlement (no event, or an event after
-    // it) the owner runs its own exact clock probe (handleNativeResumeSettlement)
-    // and commits one rejoin with no further native call. Before G7 these two
-    // rows stayed in awaiting-clock-verification with no prober and no gesture
-    // token until a reload.
-    // Known gaps (Phase 7, one statechange dispatcher, C1-I11/I12): when the
-    // running event comes first or alone, the binding takes it for a late
-    // automatic resume and re-prepares the attempt. With a microtask (fake
-    // only) or after-settle suspend that re-prompts for a second gesture; with
-    // a 50 ms re-suspend the settlement's promotion strands the lease, the
-    // attempt is retired and the retired-suspend cleanup resumes without any
-    // clock proof or rejoin.
+    // Fix lane G7: the gesture caller gave up at the deadline, so the owner
+    // runs its own exact clock probe on its late running state and commits
+    // one rejoin with no further native call. Before G7 the silent and
+    // deferred-event rows stayed in awaiting-clock-verification with no
+    // prober and no gesture token until a reload.
+    // C1-I11/I12 (Phase 7 7B-5, owner answer Q7; they were Known gaps): the
+    // owner hears its own late resume as its own whichever way the running
+    // state arrives, through the one recovery resume's promotion (the
+    // dispatcher's last part, or the native promise). Before, when the
+    // running event came first or alone, the binding took it for an outside
+    // resume and prepared the attempt again (the three rows' notes say what
+    // followed). An outside resume while this resume is still pending looks
+    // the same to the owner and is verified the same way.
     const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
     expect(fake.state).toBe(end.state);
     expect(playbackScope(o, token)).toEqual(end.scope);
@@ -675,12 +654,13 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       expect(fake.state).toBe('running');
       // Already completed, so this read promotes nothing.
       const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
-      // A running statechange that finds awaiting-resume starts the binding's
-      // automatic probe (scheduleAutomaticClockVerification). Fix lane G7: when
-      // the state is already running at settlement (deferred-event, silent),
-      // the late gesture-source promotion (handleNativeResumeSettlement) now
-      // starts the same probe, because the gesture caller gave up at the
-      // deadline. Before G7 those rows stayed in awaiting-clock-verification
+      // Fix lane G7: the gesture caller gave up at the deadline, so the late
+      // promotion starts the owner's automatic probe
+      // (scheduleAutomaticClockVerification). Since Phase 7 7B-5 the gesture's
+      // own recovery resume promotes it whichever way the running state
+      // arrives; before, a running statechange reached the binding, which
+      // found awaiting-resume and started the same probe. Before G7 the
+      // deferred-event and silent rows stayed in awaiting-clock-verification
       // until a visibility bounce or one more PLAY.
       expect(playbackScope(o, token)).toEqual(COMPLETED);
       expect(requirement).toBeNull();
@@ -845,9 +825,14 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
     },
   );
 
-  it.each(['before-settle', 'deferred-event', 'after-settle', 'silent'] as Orders[])(
-    'play-request scope: resume settles at 1200 ms (%s) and is promoted for the dialog poll',
-    async (order) => {
+  it.each([
+    { order: 'before-settle', promotedAtMs: 1_200 },
+    { order: 'deferred-event', promotedAtMs: 1_200 },
+    { order: 'after-settle', promotedAtMs: 1_300 },
+    { order: 'silent', promotedAtMs: 1_200 },
+  ] as Array<{ order: Orders; promotedAtMs: number }>)(
+    "play-request scope: resume settles at 1200 ms ($order); the dialog's wait settles at the promotion",
+    async ({ order, promotedAtMs }) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
       stageFilePlayback(o);
@@ -856,6 +841,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       const { preparation } = await parkPlayRequestRestart(o, fake);
       fake.planResume({ latencyMs: 1_200, statechange: order, stateDelayMs: 100 });
 
+      const tapAt = Date.now();
       const gesture = o.context.resumePreparedForegroundAudioContextRestartFromGesture(
         preparation.attemptToken,
       );
@@ -863,13 +849,23 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       await expect(gesture).resolves.toEqual({ running: false, requiresClockVerification: false });
       expect(o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()).toBeNull();
       expect(preparation.isCurrent()).toBe(true);
+      // app.ts's 1 s race has the tap's answer: its wait on the owner starts.
+      const answers: string[] = [];
+      void o.context
+        .whenForegroundAudioContextRestartClockRequirement(preparation.attemptToken)
+        .then(
+          (outcome) => answers.push(`${outcome}@${Date.now() - tapAt}`),
+          () => undefined,
+        );
 
       await vi.advanceTimersByTimeAsync(10_000);
 
-      // The resume listener stays armed past the deadline, so every ordering
-      // reaches awaiting-clock-verification. Only app.ts's 5 s / 50 ms poll
-      // (waitForForegroundRestartClockRequirement) reads it; the owner has no
-      // deadline of its own, so it stays exposed until someone retires it.
+      // The promotion stays armed past the deadline, so every ordering
+      // reaches awaiting-clock-verification, and the dialog's wait settles in
+      // that task (C1-I12, Phase 7 7B-5, owner answer Q7: it was app.ts's next
+      // 50 ms poll). The owner has no deadline of its own, so the requirement
+      // stays exposed until someone retires it.
+      expect(answers).toEqual([`promoted@${promotedAtMs}`]);
       const requirement = o.context.getPendingForegroundAudioContextRestartClockHealthRequirement();
       expect(requirement?.attemptToken).toBe(preparation.attemptToken);
       expect(requirement?.isCurrent()).toBe(true);

@@ -362,11 +362,18 @@ export interface PlayRequest {
   /** The dialog's trusted tap. Call it after `first` settled. */
   tap(): Promise<{ running: boolean }>;
   /**
-   * The post-tap clock requirement the dialog reads (today polled every
-   * 50 ms): for this attempt and current, for this attempt but no longer
-   * current, for another attempt, or none.
+   * The post-tap clock requirement the dialog reads once its wait settles:
+   * for this attempt and current, for this attempt but no longer current,
+   * for another attempt, or none.
    */
   requirement(): Requirement;
+  /**
+   * What the dialog waits on after its tap (Phase 7 7B-5, in place of a
+   * 50 ms poll): the owner's answer for this attempt, 'promoted' once its
+   * requirement is exposed, or how it ended ('cancelled', 'superseded',
+   * 'retired').
+   */
+  clockWait(): Promise<string>;
   /** Whether a dialog may still act for this attempt. */
   isCurrent(): boolean;
   /**
@@ -403,6 +410,10 @@ function startPlayRequest(o: Owners, incident: object): PlayRequest {
       if (!attempt || requirement.attemptToken !== attempt.attemptToken) return 'other';
       return requirement.isCurrent() ? 'same' : 'not-current';
     },
+    clockWait: () =>
+      attempt
+        ? o.context.whenForegroundAudioContextRestartClockRequirement(attempt.attemptToken)
+        : Promise.resolve('retired'),
     isCurrent: () => attempt?.isCurrent() ?? false,
     retire: () =>
       attempt ? o.context.retireForegroundAudioContextRestart(attempt.attemptToken) : false,
@@ -441,6 +452,12 @@ export function foregroundIncident(o: Owners): object | null {
 /** A new foreground incident, as a later hidden/visible bounce arms one. */
 export function armNewIncident(o: Owners, fake: FakeNativeAudioContext): object | null {
   return o.context.armForegroundAudioContextClockHealthCheck(fake.native);
+}
+
+/** A PLAY whose clock check found the clock healthy consumes the pending incident (transport). */
+export function consumeIncident(o: Owners): boolean {
+  const incident = foregroundIncident(o);
+  return incident ? o.context.consumeForegroundAudioContextClockHealthCheck(incident) : false;
 }
 
 // ─── Driver: the playback-scope attempt ───────────────────────────

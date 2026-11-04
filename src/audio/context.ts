@@ -65,14 +65,14 @@ interface ForegroundRestartAttempt {
   readonly attemptToken: object;
   readonly generation: number;
   phase: ForegroundRestartPhase;
-  suspendLease: ForegroundSuspendLease | null;
+  /** Its side of the context's one suspend ledger (Phase 7 7B-4). */
+  readonly suspend: AudioContextSuspendRequest;
   gestureResume: Promise<ForegroundAudioContextRestartResumeResult> | null;
   activeResumeToken: object | null;
-  removeResumeStateListener: (() => void) | null;
+  clearResumePromotion: (() => void) | null;
   resolvePrepared: (prepared: boolean) => void;
   readonly whenPrepared: Promise<boolean>;
   preparedSettled: boolean;
-  suspendPrepareAttempts: number;
   reprepare: ForegroundRestartReprepare | null;
 }
 
@@ -82,34 +82,93 @@ interface ForegroundRestartReprepare {
   readonly settle: (parked: boolean) => void;
 }
 
-interface ForegroundSuspendLease {
+/**
+ * One recovery attempt's side of a context's suspend ledger (RO-01, Phase 7
+ * 7B-4): the play-request restart in this file and the playback scope's
+ * attempt in context-recovery.ts. The ledger keeps one lease and one
+ * late-suspend fence per context, so one native suspend at a time; it counts
+ * the attempt's suspends and asks the attempt's owner, through these
+ * callbacks, about everything that concerns the attempt itself.
+ */
+export interface AudioContextSuspendRequest {
+  /** Native suspends the ledger started for this attempt (AUDIO_SUSPEND_MAX_ATTEMPTS at most). */
+  suspendPrepareAttempts: number;
+  /** The lease it waits on now; only the ledger sets it. */
+  suspendLease: AudioContextSuspendLease | null;
+  /** The deadline slot (output-recovery-counters.ts) its lease watchdog counts. */
+  readonly watchdogSlot: number;
+  /** Current and still waiting for its suspend, so a landed suspend parks the context for it. */
+  readonly preparing: () => boolean;
+  /** A suspend that lands inside the late fence parks the context for it. */
+  readonly takesLateSuspend: () => boolean;
+  /** The context is parked for it. */
+  readonly parked: () => void;
+  /** Its lease ended for nobody, or a later request took its place: the attempt retires. */
+  readonly lost: () => void;
+  /** It no longer waited when its lease watchdog or the late fence ran out. */
+  readonly stale: () => void;
+  /** Its two suspends were lost. */
+  readonly exhausted: () => void;
+  /** Its suspend was lost; the next one waits for the late fence to close. */
+  readonly retrying: () => void;
+}
+
+interface AudioContextSuspendLease {
   readonly context: AudioContext;
-  owner: ForegroundRestartAttempt | null;
+  owner: AudioContextSuspendRequest | null;
   settled: boolean;
   abandoned: boolean;
   nativeResolvedWithoutPrepared: boolean;
-  autoRotateToken: object | null;
-  removeStateListener: () => void;
+  watchdogToken: object | null;
+  /** Its first owner's slot, counted when no owner is left at its watchdog. */
+  readonly watchdogSlot: number;
 }
 
-interface ForegroundLateSuspendFence {
-  readonly context: AudioContext;
-  readonly token: object;
-  remove: () => void;
-  successor: ForegroundRestartAttempt | null;
+/** The 250 ms after a lease was given up, in which its suspend may still land. */
+interface AudioContextLateSuspendFence {
+  /** The attempt whose next suspend waits for the fence to close. */
+  successor: AudioContextSuspendRequest | null;
 }
 
-interface RetiredSuspendRecoveryBinding {
-  readonly token: object;
-  readonly recover: (context: AudioContext) => void;
+/** The playback scope's binding (context-recovery.ts) in a context's dispatcher. */
+interface AudioContextStateBinding {
+  /**
+   * First in every dispatch. `ledgerKeepsState` is true for a parked state
+   * that a live lease, the late fence or a play-request restart owns, which
+   * the dispatch hands to them next.
+   */
+  readonly judge: (ledgerKeepsState: boolean) => void;
+  /** After the retired-suspend cleanup: adopt a context it left parked, or re-park a woken one. */
+  readonly adoptRetiredSuspend: () => void;
+  /**
+   * A suspend landed inside the late fence with no attempt to take it. True
+   * when the binding handled it: as an interruption, as outside the fence,
+   * for playback that has no recovery dialog; otherwise by undoing it.
+   */
+  readonly takeLateSuspend: () => boolean;
+}
+
+/** A play-request gesture resume still in flight, promoted on `running`. */
+interface ForegroundResumePromotion {
+  readonly attempt: ForegroundRestartAttempt;
+  readonly resumeToken: object;
+}
+
+/** A context's one statechange listener and the parts it calls in its fixed order. */
+interface AudioContextStateDispatcher {
+  binding: AudioContextStateBinding | null;
+  promotion: ForegroundResumePromotion | null;
+  listening: boolean;
+  readonly listener: () => void;
 }
 
 let pendingForegroundClockHealthIncident: ForegroundClockHealthIncident | null = null;
 let pendingForegroundRestartAttempt: ForegroundRestartAttempt | null = null;
 let foregroundRestartGeneration = 0;
-const foregroundSuspendLeases = new WeakMap<AudioContext, ForegroundSuspendLease>();
-const foregroundLateSuspendFences = new WeakMap<AudioContext, ForegroundLateSuspendFence>();
-const retiredSuspendRecoveryBindings = new WeakMap<AudioContext, RetiredSuspendRecoveryBinding>();
+/** The suspend ledger: one lease and one late fence per context (RO-01, Phase 7 7B-4). */
+const suspendLeases = new WeakMap<AudioContext, AudioContextSuspendLease>();
+const lateSuspendFences = new WeakMap<AudioContext, AudioContextLateSuspendFence>();
+const stateDispatchers = new WeakMap<AudioContext, AudioContextStateDispatcher>();
 const retiredSuspendCleanupFlights = new WeakMap<AudioContext, Promise<void>>();
 
 /**
@@ -129,10 +188,10 @@ function setRestartPhase(attempt: ForegroundRestartAttempt, phase: ForegroundRes
   }
 }
 
-registerAudioRecoveryOwner(isForegroundAudioContextRestartHolding, (context) => {
-  const lease = foregroundSuspendLeases.get(context);
-  return lease && !lease.settled && !lease.abandoned ? 1 : 0;
-});
+// The ledger's live lease on a context (one at most since Phase 7 7B-4).
+registerAudioRecoveryOwner(isForegroundAudioContextRestartHolding, (context) =>
+  liveSuspendLease(context) ? 1 : 0,
+);
 
 export type AudioContextHealthReason =
   | 'healthy'
@@ -216,24 +275,29 @@ function foregroundRestartStillCurrent(attempt: ForegroundRestartAttempt): boole
 }
 
 function notifyRetiredSuspendRecovery(context: AudioContext): void {
-  retiredSuspendRecoveryBindings.get(context)?.recover(context);
+  stateDispatchers.get(context)?.binding?.adoptRetiredSuspend();
 }
 
 /**
- * Register the exact context binder that may adopt an orphaned physical
- * suspension after best-effort cleanup fails. Disposing an older engine can
- * never notify its successor through this token fence.
+ * Seat the playback scope's binding first in this context's one statechange
+ * dispatcher (RO-01, Phase 7 7B-4): it judges every change before the
+ * suspend lease, the late fence and the play-request resume promotion, and
+ * it may adopt an orphaned physical suspension after best-effort cleanup
+ * fails. The disposer removes exactly this seat, so disposing an older
+ * engine can never touch its successor's.
  */
-export function bindRetiredAudioContextSuspendRecovery(
+export function bindAudioContextStateDispatch(
   context: AudioContext,
-  recover: (context: AudioContext) => void,
+  binding: AudioContextStateBinding,
 ): () => void {
-  const binding: RetiredSuspendRecoveryBinding = { token: {}, recover };
-  retiredSuspendRecoveryBindings.set(context, binding);
+  const dispatcher = stateDispatcherFor(context);
+  const seat: AudioContextStateBinding = { ...binding };
+  dispatcher.binding = seat;
+  syncStateDispatcher(context);
   return () => {
-    if (retiredSuspendRecoveryBindings.get(context)?.token === binding.token) {
-      retiredSuspendRecoveryBindings.delete(context);
-    }
+    if (dispatcher.binding !== seat) return;
+    dispatcher.binding = null;
+    syncStateDispatcher(context);
   };
 }
 
@@ -293,44 +357,295 @@ export function requestRetiredAudioContextSuspendCleanup(context: AudioContext):
   );
 }
 
-function clearForegroundLateSuspendFence(context: AudioContext): void {
-  const fence = foregroundLateSuspendFences.get(context);
-  if (!fence) return;
-  fence.remove();
-  foregroundLateSuspendFences.delete(context);
+// ── The suspend ledger and the statechange dispatcher (RO-01, Phase 7 7B-4) ──
+// Both recovery owners park the context through one lease and one
+// late-suspend fence per context, and every statechange reaches them
+// through one listener per context, in the fixed order binding, lease,
+// fence, resume promotion. The lease watchdog and the fence time the
+// suspend itself (AUDIO_SUSPEND_WATCHDOG_MS, AUDIO_LATE_SUSPEND_FENCE_MS), so
+// either owner's second suspend comes after the fence; what an attempt does
+// when its suspend is lost stays its owner's choice.
+
+function liveSuspendLease(context: AudioContext): AudioContextSuspendLease | null {
+  const lease = suspendLeases.get(context);
+  return lease && !lease.settled && !lease.abandoned ? lease : null;
 }
 
-function abandonForegroundSuspendLease(
-  lease: ForegroundSuspendLease,
-  installLateFence: boolean,
+function stateDispatcherFor(context: AudioContext): AudioContextStateDispatcher {
+  const existing = stateDispatchers.get(context);
+  if (existing) return existing;
+  const dispatcher: AudioContextStateDispatcher = {
+    binding: null,
+    promotion: null,
+    listening: false,
+    listener: () => dispatchAudioContextState(context, dispatcher),
+  };
+  stateDispatchers.set(context, dispatcher);
+  return dispatcher;
+}
+
+/** One listener per context, there exactly while it has a part to call. */
+function syncStateDispatcher(context: AudioContext): void {
+  const dispatcher = stateDispatchers.get(context);
+  const needed = Boolean(
+    dispatcher?.binding ||
+    dispatcher?.promotion ||
+    liveSuspendLease(context) ||
+    lateSuspendFences.has(context),
+  );
+  if (needed) {
+    const active = dispatcher ?? stateDispatcherFor(context);
+    if (active.listening) return;
+    active.listening = true;
+    context.addEventListener('statechange', active.listener);
+  } else if (dispatcher?.listening) {
+    dispatcher.listening = false;
+    context.removeEventListener('statechange', dispatcher.listener);
+  }
+}
+
+/**
+ * Every statechange of a context, in one fixed order (a behaviour change of
+ * Phase 7 7B-4: the order no longer follows which listener was added first):
+ * the binding's judgement, the suspend lease, the late-suspend fence, the
+ * play-request gesture resume promotion. Each part is the one present when
+ * the change arrived, as a listener added during a dispatch hears only the
+ * next change.
+ */
+function dispatchAudioContextState(
+  context: AudioContext,
+  dispatcher: AudioContextStateDispatcher,
 ): void {
+  const binding = dispatcher.binding;
+  const lease = liveSuspendLease(context);
+  const fence = lateSuspendFences.get(context) ?? null;
+  const promotion = dispatcher.promotion;
+  binding?.judge(
+    isAudioContextPrepared(context) &&
+      (lease !== null || fence !== null || isForegroundAudioContextRestartOwned(context)),
+  );
+  if (lease) {
+    if (isAudioContextPrepared(context)) settleSuspendLease(lease);
+    else if (String(context.state) === 'closed') settleSuspendLease(lease, true);
+  }
+  if (fence && lateSuspendFences.get(context) === fence) handleLateSuspend(context, fence);
+  if (promotion && dispatcher.promotion === promotion && String(context.state) === 'running') {
+    promoteForegroundRestartAfterNativeResume(promotion.attempt, promotion.resumeToken);
+  }
+}
+
+/**
+ * Park the context for this attempt's gesture (RO-01, Phase 7 7B-4). Both
+ * recovery owners ask here, so a context has one lease and one native
+ * suspend in flight. Inside a late fence the attempt waits for the fence to
+ * close; with a lease in flight it takes that lease over. Either way an
+ * earlier attempt in that place retires: the later request stays (owner
+ * answer Q6). Otherwise a fresh lease starts one native suspend.
+ */
+export function requestAudioContextSuspend(
+  context: AudioContext,
+  request: AudioContextSuspendRequest,
+): void {
+  const fence = lateSuspendFences.get(context);
+  if (fence) {
+    const previous = fence.successor;
+    fence.successor = request;
+    if (previous && previous !== request) previous.lost();
+    return;
+  }
+  const lease = liveSuspendLease(context);
+  if (lease) {
+    const previous = lease.owner;
+    lease.owner = request;
+    request.suspendLease = lease;
+    if (previous && previous !== request) {
+      if (previous.suspendLease === lease) previous.suspendLease = null;
+      previous.lost();
+    }
+    return;
+  }
+  createSuspendLease(context, request);
+}
+
+function createSuspendLease(context: AudioContext, owner: AudioContextSuspendRequest): void {
+  const lease: AudioContextSuspendLease = {
+    context,
+    owner,
+    settled: false,
+    abandoned: false,
+    nativeResolvedWithoutPrepared: false,
+    watchdogToken: null,
+    watchdogSlot: owner.watchdogSlot,
+  };
+  owner.suspendLease = lease;
+  owner.suspendPrepareAttempts += 1;
+  suspendLeases.set(context, lease);
+  syncStateDispatcher(context);
+  watchSuspendLease(lease);
+
+  let nativeSuspend: Promise<void>;
+  countAudioSuspend(context, owner.suspendPrepareAttempts);
+  try {
+    nativeSuspend = context.suspend();
+  } catch (error) {
+    log.debug('[Audio] Failed to park the context for a gesture resume', error);
+    settleSuspendLease(lease, true);
+    return;
+  }
+  void nativeSuspend.then(
+    () => {
+      if (isAudioContextPrepared(context)) settleSuspendLease(lease);
+      else if (!lease.settled && !lease.abandoned) {
+        lease.nativeResolvedWithoutPrepared = true;
+      }
+      // Otherwise retain the lease: a delayed WebKit statechange may still
+      // land after this Promise and must remain token fenced.
+    },
+    (error: unknown) => {
+      log.debug('[Audio] Failed to park the context for a gesture resume', error);
+      settleSuspendLease(lease, true);
+    },
+  );
+}
+
+function settleSuspendLease(lease: AudioContextSuspendLease, forceFailure = false): void {
   if (lease.settled || lease.abandoned) return;
+  const prepared = isAudioContextPrepared(lease.context);
+  // A resolved suspend Promise while state is still running is inconclusive.
+  // Keep the lease because a delayed WebKit statechange may still land; only
+  // a rejection or close forces an unprepared terminal result.
+  if (!prepared && !forceFailure && String(lease.context.state) !== 'closed') return;
+
+  lease.settled = true;
+  lease.watchdogToken = null;
+  if (suspendLeases.get(lease.context) === lease) suspendLeases.delete(lease.context);
+  syncStateDispatcher(lease.context);
+  const owner = lease.owner;
+  lease.owner = null;
+  if (prepared && owner && owner.suspendLease === lease && owner.preparing()) {
+    owner.suspendLease = null;
+    owner.parked();
+    return;
+  }
+  if (owner?.suspendLease === lease) owner.suspendLease = null;
+  owner?.lost();
+  if (prepared) requestRetiredAudioContextSuspendCleanup(lease.context);
+}
+
+/** End a lease that did not settle; returns the attempt it served. */
+function abandonSuspendLease(
+  lease: AudioContextSuspendLease,
+  installLateFence: boolean,
+): AudioContextSuspendRequest | null {
+  if (lease.settled || lease.abandoned) return null;
   lease.abandoned = true;
   lease.settled = true;
-  lease.autoRotateToken = null;
-  lease.removeStateListener();
-  if (foregroundSuspendLeases.get(lease.context) === lease) {
-    foregroundSuspendLeases.delete(lease.context);
-  }
-  if (lease.owner?.suspendLease === lease) lease.owner.suspendLease = null;
+  lease.watchdogToken = null;
+  if (suspendLeases.get(lease.context) === lease) suspendLeases.delete(lease.context);
+  const owner = lease.owner;
   lease.owner = null;
-  if (installLateFence) installForegroundLateSuspendFence(lease.context);
+  if (owner?.suspendLease === lease) owner.suspendLease = null;
+  if (installLateFence) installLateSuspendFence(lease.context);
+  syncStateDispatcher(lease.context);
+  return owner;
+}
+
+function watchSuspendLease(lease: AudioContextSuspendLease): void {
+  if (lease.settled || lease.abandoned || lease.watchdogToken) return;
+  const watchdogToken = {};
+  lease.watchdogToken = watchdogToken;
+  countAudioRecovery(DEADLINES_WATCHED);
+  delay(AUDIO_SUSPEND_WATCHDOG_MS)
+    .then(() => {
+      if (lease.settled || lease.abandoned || lease.watchdogToken !== watchdogToken) return;
+      countAudioRecovery(lease.owner?.watchdogSlot ?? lease.watchdogSlot);
+      if (isAudioContextPrepared(lease.context)) {
+        settleSuspendLease(lease);
+        return;
+      }
+      if (String(lease.context.state) === 'closed') {
+        settleSuspendLease(lease, true);
+        return;
+      }
+      // The attempt keeps its identity (and the play-request its
+      // whenPrepared). The late fence either hands an old physical suspend
+      // to it or, once the old operation's bounded quarantine closes, starts
+      // one fresh native suspend for it: never two in flight.
+      const owner = abandonSuspendLease(lease, true);
+      if (!owner?.preparing()) {
+        owner?.stale();
+        return;
+      }
+      if (owner.suspendPrepareAttempts >= AUDIO_SUSPEND_MAX_ATTEMPTS) {
+        owner.exhausted();
+        return;
+      }
+      owner.retrying();
+      requestAudioContextSuspend(lease.context, owner);
+    })
+    .catch((error) => log.warn('[Audio] Suspend lease watchdog failed', error));
+}
+
+function installLateSuspendFence(context: AudioContext): void {
+  const fence: AudioContextLateSuspendFence = {
+    successor: lateSuspendFences.get(context)?.successor ?? null,
+  };
+  lateSuspendFences.set(context, fence);
+  syncStateDispatcher(context);
+  countAudioRecovery(DEADLINES_WATCHED);
+  delay(AUDIO_LATE_SUSPEND_FENCE_MS)
+    .then(() => {
+      if (lateSuspendFences.get(context) !== fence) return;
+      countAudioRecovery(DEADLINE_LATE_SUSPEND_FENCE);
+      const successor = fence.successor;
+      clearLateSuspendFence(context);
+      if (!successor) return;
+      if (successor.preparing()) requestAudioContextSuspend(context, successor);
+      else successor.stale();
+    })
+    .catch((error) => log.warn('[Audio] Late suspend fence failed', error));
+}
+
+function clearLateSuspendFence(context: AudioContext): void {
+  if (lateSuspendFences.delete(context)) syncStateDispatcher(context);
+}
+
+/** A parked state inside the late fence: the attempt waiting there takes it, else the binding judges it. */
+function handleLateSuspend(context: AudioContext, fence: AudioContextLateSuspendFence): void {
+  if (!isAudioContextPrepared(context)) return;
+  const fenced = fence.successor;
+  clearLateSuspendFence(context);
+  const pending = pendingForegroundRestartAttempt;
+  const successor = fenced ?? (pending?.context === context ? pending.suspend : null);
+  if (successor?.takesLateSuspend()) {
+    // The old operation cannot commit anything by itself, but its concrete
+    // suspended state is exactly the safe precondition the waiting attempt
+    // needs. Hand the physical state to it instead of resume -> suspend
+    // self-quarantining in a loop.
+    if (successor.suspendLease) settleSuspendLease(successor.suspendLease);
+    else successor.parked();
+    return;
+  }
+  fenced?.stale();
+  // No attempt takes it. The binding judges what it is: an interruption,
+  // as outside the fence, for playback that has no recovery dialog;
+  // otherwise the retired suspend is undone.
+  if (stateDispatchers.get(context)?.binding?.takeLateSuspend()) return;
+  requestRetiredAudioContextSuspendCleanup(context);
+}
+
+/** The context is parked for this attempt: it waits for its gesture. */
+function parkForegroundRestart(attempt: ForegroundRestartAttempt): void {
+  setRestartPhase(attempt, 'awaiting-gesture');
+  if (!attempt.preparedSettled) {
+    attempt.preparedSettled = true;
+    attempt.resolvePrepared(true);
+  }
 }
 
 function startFreshForegroundSuspend(attempt: ForegroundRestartAttempt): void {
   if (!foregroundRestartStillCurrent(attempt) || attempt.phase !== 'preparing-suspend') return;
-  const lateFence = foregroundLateSuspendFences.get(attempt.context);
-  if (lateFence) {
-    lateFence.successor = attempt;
-    return;
-  }
-  const existing = foregroundSuspendLeases.get(attempt.context);
-  if (existing && !existing.settled) {
-    existing.owner = attempt;
-    attempt.suspendLease = existing;
-    return;
-  }
-  createForegroundSuspendLease(attempt.context, attempt);
+  requestAudioContextSuspend(attempt.context, attempt.suspend);
 }
 
 /**
@@ -348,207 +663,29 @@ function reparkForegroundRestart(attempt: ForegroundRestartAttempt): void {
   startFreshForegroundSuspend(attempt);
 }
 
-function handleForegroundLateSuspend(context: AudioContext, fenceToken: object): void {
-  const fence = foregroundLateSuspendFences.get(context);
-  if (!fence || fence.token !== fenceToken || !isAudioContextPrepared(context)) return;
-  const fencedSuccessor = fence.successor;
-  clearForegroundLateSuspendFence(context);
-
-  const successor = fencedSuccessor ?? pendingForegroundRestartAttempt;
-  if (
-    successor &&
-    successor.context === context &&
-    foregroundRestartStillCurrent(successor) &&
-    (successor.phase === 'preparing-suspend' || successor.phase === 'awaiting-gesture')
-  ) {
-    // The old operation cannot commit anything by itself, but its concrete
-    // suspended state is exactly the safe precondition the current successor
-    // needs. Hand the physical state to B instead of resume -> suspend
-    // self-quarantining in a loop.
-    if (successor.suspendLease) {
-      settleForegroundSuspendLease(successor.suspendLease);
-    } else {
-      setRestartPhase(successor, 'awaiting-gesture');
-      if (!successor.preparedSettled) {
-        successor.preparedSettled = true;
-        successor.resolvePrepared(true);
-      }
-    }
-    return;
-  }
-
-  requestRetiredAudioContextSuspendCleanup(context);
-}
-
-function installForegroundLateSuspendFence(context: AudioContext): void {
-  clearForegroundLateSuspendFence(context);
-  const token = {};
-  const handleStateChange = (): void => handleForegroundLateSuspend(context, token);
-  const fence: ForegroundLateSuspendFence = {
-    context,
-    token,
-    remove: () => context.removeEventListener('statechange', handleStateChange),
-    successor: null,
-  };
-  foregroundLateSuspendFences.set(context, fence);
-  context.addEventListener('statechange', handleStateChange);
-  countAudioRecovery(DEADLINES_WATCHED);
-  delay(AUDIO_LATE_SUSPEND_FENCE_MS)
-    .then(() => {
-      if (foregroundLateSuspendFences.get(context) === fence) {
-        countAudioRecovery(DEADLINE_LATE_SUSPEND_FENCE);
-        const successor = fence.successor;
-        clearForegroundLateSuspendFence(context);
-        if (successor) startFreshForegroundSuspend(successor);
-      }
-    })
-    .catch((error) => log.warn('[Audio] Late suspend fence failed', error));
-}
-
 function retireForegroundRestartAttempt(
   attempt: ForegroundRestartAttempt,
   restorePrepared = true,
 ): void {
   if (attempt.phase === 'cancelled' || attempt.phase === 'completed') return;
   const shouldRestore = restorePrepared && isAudioContextPrepared(attempt.context);
+  const { suspend } = attempt;
   attempt.activeResumeToken = null;
-  attempt.removeResumeStateListener?.();
-  attempt.removeResumeStateListener = null;
-  if (attempt.suspendLease?.nativeResolvedWithoutPrepared) {
-    abandonForegroundSuspendLease(attempt.suspendLease, true);
+  attempt.clearResumePromotion?.();
+  attempt.clearResumePromotion = null;
+  if (suspend.suspendLease?.nativeResolvedWithoutPrepared) {
+    abandonSuspendLease(suspend.suspendLease, true);
   }
   setRestartPhase(attempt, 'cancelled');
   if (!attempt.preparedSettled) {
     attempt.preparedSettled = true;
     attempt.resolvePrepared(false);
   }
-  if (attempt.suspendLease?.owner === attempt) attempt.suspendLease.owner = null;
-  attempt.suspendLease = null;
+  if (suspend.suspendLease?.owner === suspend) suspend.suspendLease.owner = null;
+  suspend.suspendLease = null;
   if (pendingForegroundRestartAttempt === attempt) pendingForegroundRestartAttempt = null;
   if (attempt.generation === foregroundRestartGeneration) foregroundRestartGeneration += 1;
   if (shouldRestore) requestRetiredAudioContextSuspendCleanup(attempt.context);
-}
-
-function settleForegroundSuspendLease(lease: ForegroundSuspendLease, forceFailure = false): void {
-  if (lease.settled || lease.abandoned) return;
-  const prepared = isAudioContextPrepared(lease.context);
-  // A resolved suspend Promise while state is still running is inconclusive.
-  // Retain the exact listener because a delayed WebKit statechange may still
-  // land; only a rejection/close forces an unprepared terminal result.
-  if (!prepared && !forceFailure && String(lease.context.state) !== 'closed') return;
-
-  lease.settled = true;
-  lease.autoRotateToken = null;
-  lease.removeStateListener();
-  if (foregroundSuspendLeases.get(lease.context) === lease) {
-    foregroundSuspendLeases.delete(lease.context);
-  }
-  const owner = lease.owner;
-  lease.owner = null;
-  if (
-    prepared &&
-    owner &&
-    foregroundRestartStillCurrent(owner) &&
-    owner.suspendLease === lease &&
-    owner.phase === 'preparing-suspend'
-  ) {
-    owner.suspendLease = null;
-    setRestartPhase(owner, 'awaiting-gesture');
-    if (!owner.preparedSettled) {
-      owner.preparedSettled = true;
-      owner.resolvePrepared(true);
-    }
-  } else {
-    if (owner?.suspendLease === lease) owner.suspendLease = null;
-    if (owner && foregroundRestartStillCurrent(owner)) retireForegroundRestartAttempt(owner);
-    if (prepared) requestRetiredAudioContextSuspendCleanup(lease.context);
-  }
-}
-
-function watchForegroundSuspendLease(lease: ForegroundSuspendLease): void {
-  if (lease.settled || lease.abandoned || lease.autoRotateToken) return;
-  const rotateToken = {};
-  lease.autoRotateToken = rotateToken;
-  countAudioRecovery(DEADLINES_WATCHED);
-  delay(AUDIO_SUSPEND_WATCHDOG_MS)
-    .then(() => {
-      if (lease.settled || lease.abandoned || lease.autoRotateToken !== rotateToken) {
-        return;
-      }
-      countAudioRecovery(DEADLINE_PLAY_REQUEST_WATCHDOG);
-      if (isAudioContextPrepared(lease.context)) {
-        settleForegroundSuspendLease(lease);
-        return;
-      }
-      if (String(lease.context.state) === 'closed') {
-        settleForegroundSuspendLease(lease, true);
-        return;
-      }
-
-      const owner = lease.owner;
-      if (!owner || !foregroundRestartStillCurrent(owner) || owner.phase !== 'preparing-suspend') {
-        abandonForegroundSuspendLease(lease, true);
-        return;
-      }
-      if (owner.suspendPrepareAttempts >= AUDIO_SUSPEND_MAX_ATTEMPTS) {
-        abandonForegroundSuspendLease(lease, true);
-        retireForegroundRestartAttempt(owner, false);
-        return;
-      }
-
-      // Preserve the same attempt/whenPrepared identity. The late fence either
-      // hands an old physical suspend to this owner or starts one fresh native
-      // suspend after the old operation's bounded quarantine closes.
-      abandonForegroundSuspendLease(lease, true);
-      startFreshForegroundSuspend(owner);
-    })
-    .catch((error) => log.warn('[Audio] Foreground suspend watchdog failed', error));
-}
-
-function createForegroundSuspendLease(
-  context: AudioContext,
-  owner: ForegroundRestartAttempt,
-): ForegroundSuspendLease {
-  const handleStateChange = (): void => {
-    if (lease.abandoned) return;
-    if (isAudioContextPrepared(context)) settleForegroundSuspendLease(lease);
-    else if (String(context.state) === 'closed') settleForegroundSuspendLease(lease, true);
-  };
-  const lease: ForegroundSuspendLease = {
-    context,
-    owner,
-    settled: false,
-    abandoned: false,
-    nativeResolvedWithoutPrepared: false,
-    autoRotateToken: null,
-    removeStateListener: () => context.removeEventListener('statechange', handleStateChange),
-  };
-  owner.suspendLease = lease;
-  owner.suspendPrepareAttempts += 1;
-  foregroundSuspendLeases.set(context, lease);
-  context.addEventListener('statechange', handleStateChange);
-  watchForegroundSuspendLease(lease);
-
-  let nativeSuspend: Promise<void>;
-  countAudioSuspend(context, owner.suspendPrepareAttempts);
-  try {
-    nativeSuspend = context.suspend();
-  } catch {
-    settleForegroundSuspendLease(lease, true);
-    return lease;
-  }
-  void nativeSuspend.then(
-    () => {
-      if (isAudioContextPrepared(context)) settleForegroundSuspendLease(lease);
-      else if (!lease.settled && !lease.abandoned) {
-        lease.nativeResolvedWithoutPrepared = true;
-      }
-      // Otherwise retain the state listener: a delayed WebKit statechange may
-      // still land after this Promise and must remain token fenced.
-    },
-    () => settleForegroundSuspendLease(lease, true),
-  );
-  return lease;
 }
 
 function createForegroundRestartAttempt(
@@ -564,14 +701,32 @@ function createForegroundRestartAttempt(
     attemptToken: {},
     generation: ++foregroundRestartGeneration,
     phase: 'preparing-suspend',
-    suspendLease: null,
+    // What this owner does with the ledger's answers: after two lost
+    // suspends, or when a later request takes its place, the attempt retires
+    // without restoring the parked context (the next owner parks it anyway).
+    suspend: {
+      suspendPrepareAttempts: 0,
+      suspendLease: null,
+      watchdogSlot: DEADLINE_PLAY_REQUEST_WATCHDOG,
+      preparing: () =>
+        foregroundRestartStillCurrent(attempt) && attempt.phase === 'preparing-suspend',
+      takesLateSuspend: () =>
+        foregroundRestartStillCurrent(attempt) &&
+        (attempt.phase === 'preparing-suspend' || attempt.phase === 'awaiting-gesture'),
+      parked: () => parkForegroundRestart(attempt),
+      lost: () => {
+        if (foregroundRestartStillCurrent(attempt)) retireForegroundRestartAttempt(attempt, false);
+      },
+      stale: () => undefined,
+      exhausted: () => retireForegroundRestartAttempt(attempt, false),
+      retrying: () => undefined,
+    },
     gestureResume: null,
     activeResumeToken: null,
-    removeResumeStateListener: null,
+    clearResumePromotion: null,
     resolvePrepared,
     whenPrepared,
     preparedSettled: false,
-    suspendPrepareAttempts: 0,
     reprepare: null,
   };
   pendingForegroundRestartAttempt = attempt;
@@ -603,16 +758,6 @@ export function isForegroundAudioContextRestartHolding(): boolean {
     (attempt.phase === 'preparing-suspend' ||
       attempt.phase === 'awaiting-gesture' ||
       attempt.phase === 'gesture-resuming'),
-  );
-}
-
-/** Let the shared statechange binder defer to an exact generic restart owner. */
-export function isForegroundAudioContextRestartSuspendOwned(context: AudioContext): boolean {
-  const lease = foregroundSuspendLeases.get(context);
-  return Boolean(
-    isForegroundAudioContextRestartOwned(context) ||
-    (lease && !lease.settled && !lease.abandoned) ||
-    foregroundLateSuspendFences.has(context),
   );
 }
 
@@ -711,36 +856,28 @@ export async function prepareForegroundAudioContextRestart(
   }
 
   if (isAudioContextPrepared(attempt.context)) {
-    setRestartPhase(attempt, 'awaiting-gesture');
-    attempt.suspendLease = null;
-    if (!attempt.preparedSettled) {
-      attempt.preparedSettled = true;
-      attempt.resolvePrepared(true);
-    }
+    attempt.suspend.suspendLease = null;
+    parkForegroundRestart(attempt);
   } else if (attempt.phase !== 'preparing-suspend') {
     return null;
   }
 
   if (attempt.phase === 'preparing-suspend') {
-    let lease = foregroundSuspendLeases.get(attempt.context) ?? null;
+    const lease = liveSuspendLease(attempt.context);
     if (lease?.nativeResolvedWithoutPrepared) {
-      if (attempt.suspendPrepareAttempts >= AUDIO_SUSPEND_MAX_ATTEMPTS) {
-        abandonForegroundSuspendLease(lease, true);
+      // An inconclusive suspend in flight, of this attempt or of another
+      // owner's: the next one waits behind its late fence, and the attempt
+      // it served retires (the later request stays, owner answer Q6).
+      const previous = abandonSuspendLease(lease, true);
+      if (previous && previous !== attempt.suspend) previous.lost();
+      if (attempt.suspend.suspendPrepareAttempts >= AUDIO_SUSPEND_MAX_ATTEMPTS) {
         retireForegroundRestartAttempt(attempt, false);
         return null;
       }
-      abandonForegroundSuspendLease(lease, true);
-      lease = null;
     }
-    if (!lease || lease.settled) {
-      startFreshForegroundSuspend(attempt);
-    } else {
-      if (lease.owner && lease.owner !== attempt) {
-        retireForegroundRestartAttempt(lease.owner, false);
-      }
-      lease.owner = attempt;
-      attempt.suspendLease = lease;
-    }
+    // A late fence keeps it waiting for its next suspend; a lease in flight
+    // (either owner's) is taken over; otherwise one fresh native suspend.
+    startFreshForegroundSuspend(attempt);
   }
 
   const whenPrepared = attempt.whenPrepared;
@@ -785,8 +922,8 @@ function promoteForegroundRestartAfterNativeResume(
     // caller must pass the clock probe before commit.
     setRestartPhase(attempt, 'awaiting-clock-verification');
     attempt.activeResumeToken = null;
-    attempt.removeResumeStateListener?.();
-    attempt.removeResumeStateListener = null;
+    attempt.clearResumePromotion?.();
+    attempt.clearResumePromotion = null;
     return;
   }
 
@@ -812,7 +949,7 @@ function promoteForegroundRestartAfterNativeResume(
  * again at once, as the playback scope re-suspends its own (C1-I13 a, Phase
  * 7 7B-2), so the gesture resumes a parked context instead of finding it
  * running. The attempt's own gesture resume, still unsettled after its
- * deadline, is promoted by its listener instead.
+ * deadline, is promoted by the dispatcher's last part instead.
  */
 export function reparkForegroundAudioContextRestartAfterResume(context: AudioContext): void {
   const attempt = pendingForegroundRestartAttempt;
@@ -861,15 +998,8 @@ export function resumePreparedForegroundAudioContextRestartFromGesture(
   setRestartPhase(attempt, 'gesture-resuming');
   const resumeToken = {};
   attempt.activeResumeToken = resumeToken;
-  attempt.removeResumeStateListener?.();
-  const handleResumeStateChange = (): void => {
-    if (String(attempt.context.state) === 'running') {
-      promoteForegroundRestartAfterNativeResume(attempt, resumeToken);
-    }
-  };
-  attempt.context.addEventListener('statechange', handleResumeStateChange);
-  attempt.removeResumeStateListener = () =>
-    attempt.context.removeEventListener('statechange', handleResumeStateChange);
+  attempt.clearResumePromotion?.();
+  attempt.clearResumePromotion = armForegroundResumePromotion(attempt, resumeToken);
   let nativeResume: Promise<void>;
   countAudioRecovery(RESUME_PLAY_REQUEST);
   try {
@@ -909,8 +1039,8 @@ export function resumePreparedForegroundAudioContextRestartFromGesture(
       }
       if (attempt.activeResumeToken === resumeToken) {
         attempt.activeResumeToken = null;
-        attempt.removeResumeStateListener?.();
-        attempt.removeResumeStateListener = null;
+        attempt.clearResumePromotion?.();
+        attempt.clearResumePromotion = null;
       }
       return { running: false, requiresClockVerification: false };
     })
@@ -919,6 +1049,26 @@ export function resumePreparedForegroundAudioContextRestartFromGesture(
     });
   attempt.gestureResume = operation;
   return operation;
+}
+
+/**
+ * Promote this gesture resume when the context turns `running`, as the
+ * dispatcher's last part (Phase 7 7B-4: no listener of its own). It stays
+ * while the native resume is unsettled, past the resume deadline.
+ */
+function armForegroundResumePromotion(
+  attempt: ForegroundRestartAttempt,
+  resumeToken: object,
+): () => void {
+  const dispatcher = stateDispatcherFor(attempt.context);
+  const promotion: ForegroundResumePromotion = { attempt, resumeToken };
+  dispatcher.promotion = promotion;
+  syncStateDispatcher(attempt.context);
+  return () => {
+    if (dispatcher.promotion !== promotion) return;
+    dispatcher.promotion = null;
+    syncStateDispatcher(attempt.context);
+  };
 }
 
 export function getPendingForegroundAudioContextRestartClockHealthRequirement(): ForegroundAudioContextRestartClockHealthRequirement | null {

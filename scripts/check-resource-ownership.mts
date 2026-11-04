@@ -611,8 +611,24 @@ const NON_AUDIO_CONTEXT_RECEIVERS = new Map<string, string>([
 ]);
 
 const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>([
-  ['src/audio/context.ts', { count: 6, reason: 'singleton and foreground restart (Phase 7)' }],
-  ['src/audio/context-recovery.ts', { count: 3, reason: 'interruption recovery, target owner' }],
+  [
+    'src/audio/context.ts',
+    {
+      count: 6,
+      reason:
+        "singleton, foreground restart and, since Phase 7 7B-4, both owners' one suspend " +
+        'lease per context (its single suspend())',
+    },
+  ],
+  [
+    'src/audio/context-recovery.ts',
+    {
+      count: 2,
+      reason:
+        'interruption recovery, target owner: its automatic resumes; its suspend asks the one ' +
+        'lease in context.ts since Phase 7 7B-4 (3 -> 2)',
+    },
+  ],
   [
     'src/audio/ui-sounds.ts',
     {

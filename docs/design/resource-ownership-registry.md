@@ -225,8 +225,18 @@ RO-54 accepted-exception
   (`prepareForegroundAudioContextRestart*`, `resumePreparedForegroundAudioContextRestartFromGesture`,
   phase union `ForegroundRestartPhase`) and playback-scope interruption recovery in
   `src/audio/context-recovery.ts` (`bindAudioContextInterruptionRecovery`,
-  `resumePendingAudioContextInterruptionFromGesture`, phase union `RecoveryPhase`). Each keeps its
-  own suspend lease and `statechange` listeners. Since Phase 7 7B-2 the binding also hands each
+  `resumePendingAudioContextInterruptionFromGesture`, phase union `RecoveryPhase`). Since Phase 7
+  7B-4 both park the context through one suspend ledger in `context.ts`
+  (`requestAudioContextSuspend`: one lease and one late-suspend fence per context, so one native
+  suspend in flight; a later request takes the lease, or the place behind the fence, over and the
+  earlier attempt retires, owner answer Q6), and every `statechange` reaches them through one
+  listener per context, the ledger's dispatcher, in a fixed order: the binding
+  (`bindAudioContextStateDispatch`), the lease, the late fence, the play-request gesture resume
+  promotion. The loading indicator's reader in `src/ui/file-start-loading.ts` stays outside it.
+  Each owner still decides what its attempt does when its suspend is lost (the play-request attempt
+  retires; the playback scope's also arms the next PLAY's clock check), and a parked state inside
+  the fence that no attempt waits for goes to the binding, which takes a YouTube room's as the
+  interruption it would be outside the fence. Since Phase 7 7B-2 the binding also hands each
   `running` statechange to the play-request owner, which parks its attempt waiting for a tap again
   with the same attempt (`reparkForegroundAudioContextRestartAfterResume`), as the playback scope
   re-suspends its own; a dialog tap that meets that re-park keeps the attempt
@@ -248,9 +258,10 @@ RO-54 accepted-exception
   sounds report events to it (each
   native resume by its source, native suspends, every deadline race with whether its timer won,
   clock verification waits entered and left, refused taps, dialog requests, recovered rejoins); it
-  keeps monotonic counts and no copy of owner state, and it calls the read-only queries the two
-  owners register (live suspend leases on a context, an attempt waiting for a tap: since 7B-3 each
-  owner's holding answer, so a UI sound resume while waiting stays 0) at the moment it counts.
+  keeps monotonic counts and no copy of owner state, and it calls the read-only queries the owners
+  register (the ledger's live suspend lease on a context, one at most since 7B-4; an attempt
+  waiting for a tap: since 7B-3 each owner's holding answer, so a UI sound resume while waiting
+  stays 0) at the moment it counts.
   `context-recovery.ts` carries the `Resource owner: RO-01` header.
 - **Target single owner:** `src/audio/context-recovery.ts` as the only native resume and suspend
   owner; `context.ts` keeps the singleton. The rules Phase 7 works to are proposed in
@@ -264,20 +275,25 @@ RO-54 accepted-exception
   file's ownership checks report no attempt. The recovery dialog and media session call the
   owner's gesture functions. UI sounds ask the owner first and wake the context only while no
   owner holds it for a tap (Phase 7 7B-3).
-- **Lifecycle operations:** native `resume()` and `suspend()` (today in `context.ts`,
-  `context-recovery.ts` and `ui-sounds.ts`), suspend lease create, settle and abandon,
-  clock-health arm and consume, confirm, retire and cancel.
+- **Lifecycle operations:** native `resume()` (today in `context.ts`, `context-recovery.ts` and
+  `ui-sounds.ts`) and `suspend()` (since Phase 7 7B-4 only the ledger's, in `context.ts`), suspend
+  lease create, settle and abandon, the late-suspend fence, clock-health arm and consume, confirm,
+  retire and cancel.
 - **Deadline owner:** each machine times its own gesture resume (750 ms) and suspend preparation
-  (500 ms). Fix lane G7: once that deadline has returned the gesture caller, the playback-scope
-  owner verifies a late `running` itself (`handleNativeResumeSettlement`), and its visible edge
-  verifies an attempt of either cause still awaiting clock verification
-  (`continueRecoveryInForeground`). Both use the owner's existing automatic probe, with no new
-  timer.
+  (500 ms). Since Phase 7 7B-4 the suspend ledger times the suspend itself for both, its lease
+  watchdog (750 ms) and the late fence after it (250 ms): either owner's second suspend comes after
+  the fence, about 1,000 ms after the first, and two lost suspends end the attempt at about
+  1,750 ms (the playback scope's came at 750 ms and ended at 1,500 ms before). Fix lane G7: once
+  that deadline has returned the gesture caller, the playback-scope owner verifies a late
+  `running` itself (`handleNativeResumeSettlement`), and its visible edge verifies an attempt of
+  either cause still awaiting clock verification (`continueRecoveryInForeground`). Both use the
+  owner's existing automatic probe, with no new timer.
 - **Timing-constant home:** the leaf `src/audio/context-protocol.ts` since Phase 7 7A-2 (C1-I1),
   one named export per value: `AUDIO_RESUME_DEADLINE_MS` (`ensureRunning` and a probe that may
   resume), the probe's `AUDIO_CLOCK_SAMPLE_MS` and `AUDIO_CLOCK_MIN_ADVANCE_SECONDS`, both
-  owners' `AUDIO_SUSPEND_PREPARE_DEADLINE_MS`, `AUDIO_LATE_SUSPEND_FENCE_MS`,
-  `AUDIO_SUSPEND_WATCHDOG_MS`, `AUDIO_SUSPEND_MAX_ATTEMPTS` and
+  owners' `AUDIO_SUSPEND_PREPARE_DEADLINE_MS`, the suspend ledger's `AUDIO_LATE_SUSPEND_FENCE_MS`,
+  `AUDIO_SUSPEND_WATCHDOG_MS` and `AUDIO_SUSPEND_MAX_ATTEMPTS` (the second suspend at about
+  1,000 ms and the give-up at about 1,750 ms are their sums, not values of their own),
   `AUDIO_RECOVERY_RESUME_DEADLINE_MS` (the gesture's resume, and the playback scope's automatic
   one), `AUDIO_RETIRED_SUSPEND_CLEANUP_DEADLINE_MS`, and the recovery dialog's waits in `app.ts`
   (`AUDIO_RECOVERY_GESTURE_WAIT_MS`, `AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS`,
@@ -308,10 +324,12 @@ RO-54 accepted-exception
 - **Status:** `duplicated`. Phase 7 (one lease, one `statechange` dispatcher, owner gesture
   functions, UI sounds yield); its first train took over the app part of Phase 0d, the shared
   recovery timing and the prepared-state predicate (C1-I1, 7A-2), and it counts the recovery on
-  the device for `/debug sync` (7A-1). UI sounds yield since 7B-3. Fix lane G7. Exceptions RO-36,
-  RO-37, RO-44. The guard counts the native calls per file (CHECK 6) and, since Phase 7 T1, the
-  callers of `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` per
-  file beside it, so a new requester of a resume needs an entry and this record's update.
+  the device for `/debug sync` (7A-1). UI sounds yield since 7B-3. One suspend lease and one
+  `statechange` dispatcher per context since 7B-4, kept in `context.ts` until 7C moves them into
+  the owner. Fix lane G7. Exceptions RO-36, RO-37, RO-44. The guard counts the native calls per
+  file (CHECK 6; since 7B-4 `context-recovery.ts` calls no native suspend) and, since Phase 7 T1,
+  the callers of `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth`
+  per file beside it, so a new requester of a resume needs an entry and this record's update.
 
 ### RO-02 YouTube Standard shared start
 

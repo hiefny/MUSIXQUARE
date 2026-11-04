@@ -153,13 +153,17 @@ type LiveSuspendLeases = (context: AudioContext) => number;
 const waitingForTap: WaitingForTap[] = [];
 const liveSuspendLeases: LiveSuspendLeases[] = [];
 
-/** An owner's read-only queries, registered once when its module loads. */
+/**
+ * An owner's read-only queries, registered once when its module loads. Since
+ * Phase 7 7B-4 the one suspend ledger (context.ts) answers for the live
+ * leases, so the playback scope registers its holding answer alone.
+ */
 export function registerAudioRecoveryOwner(
   isWaitingForTap: WaitingForTap,
-  countLiveSuspendLeases: LiveSuspendLeases,
+  countLiveSuspendLeases?: LiveSuspendLeases,
 ): void {
   waitingForTap.push(isWaitingForTap);
-  liveSuspendLeases.push(countLiveSuspendLeases);
+  if (countLiveSuspendLeases) liveSuspendLeases.push(countLiveSuspendLeases);
 }
 
 /** A native suspend on `context`; `attempts` is its attempt's suspends so far, this one included. */

@@ -431,6 +431,8 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
   overlay.appendChild(hint);
 
   let disposed = false;
+  // Set by a COPY tap, so the copy on open below does not replace its text.
+  let copiedByTap = false;
   // Re-entrancy + stale-write guard: an async collect (systemaudio awaits
   // RTCStats) can outlast the 1s tick — skip overlapping ticks and drop a
   // resolved write if the overlay was torn down meanwhile.
@@ -481,7 +483,12 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
   copyButton.addEventListener('click', (event) => {
     // The screen and system audio overlays close on any click.
     event.stopPropagation();
-    copyInsideTap(pre.textContent ?? '', (copied) => {
+    // Before the first sample (systemaudio awaits RTCStats) there is nothing to
+    // copy, and an empty write would wipe the clipboard.
+    const text = pre.textContent ?? '';
+    if (!text) return;
+    copiedByTap = true;
+    copyInsideTap(text, (copied) => {
       if (!disposed) copyButton.textContent = copied ? 'COPIED' : 'COPY FAILED';
     });
   });
@@ -508,7 +515,7 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     interval: true,
   });
 
-  // One-shot clipboard copy of the first sample.
+  // One-shot clipboard copy of the first sample, unless a COPY tap came first.
   (async () => {
     let text: string;
     try {
@@ -516,7 +523,7 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     } catch {
       return;
     }
-    if (disposed || generation !== debugCommandGeneration) return;
+    if (disposed || copiedByTap || generation !== debugCommandGeneration) return;
     try {
       await navigator.clipboard?.writeText(text);
       if (!disposed && generation === debugCommandGeneration) showToast(t('chat.debug_copied'));

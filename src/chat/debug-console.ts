@@ -365,9 +365,11 @@ function copyWithHiddenTextarea(text: string): boolean {
  * whether it did. iOS WebKit allows a clipboard write only while it handles
  * the tap, so the Clipboard API write starts before any await. Where the API
  * is missing or throws, the hidden textarea copies at once; where the write is
- * rejected, it copies in the rejection handler. WebKit rejects a refused write
- * at once, so that handler runs in the microtasks right after the click
- * handler, while the tap is still being handled.
+ * rejected, it copies in the rejection handler, which still has the tap's
+ * activation. WebKit rejects a refused write at once, so that handler runs in
+ * the microtasks right after the click handler, inside the event; Chromium
+ * rejects in a later task but keeps the activation for about 5 s. The note on
+ * copyTextToClipboardWithoutFocus in src/ui/dom.ts says the same.
  */
 function copyInsideTap(text: string, report: (copied: boolean) => void): void {
   const clipboard = navigator.clipboard;

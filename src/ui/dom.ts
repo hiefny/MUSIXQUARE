@@ -1033,9 +1033,11 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
  *
  * Chat uses this path from a trusted click/key event because focusing the
  * legacy textarea can make iOS resize the visual viewport and chat drawer.
- * Do not fall back after a rejected Clipboard API promise: by then the user
- * activation has ended, and touching Selection/focus would reintroduce the UI
- * instability this path exists to avoid.
+ * Do not fall back after a rejected Clipboard API promise: touching
+ * Selection/focus would reintroduce the UI instability this path exists to
+ * avoid. A lost user activation is not the reason: WebKit rejects a refused
+ * write at once, inside the event, and Chromium rejects in a later task but
+ * keeps the activation for about 5 s.
  */
 export async function copyTextToClipboardWithoutFocus(text: string): Promise<boolean> {
   if (!navigator.clipboard?.writeText) return false;

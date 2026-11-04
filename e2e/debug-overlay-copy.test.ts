@@ -175,6 +175,11 @@ test('COPY copies through a hidden textarea inside the tap when the Clipboard AP
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
   });
+  // The first tap left COPIED: start from COPY, so the label shows this tap's result.
+  await copy.evaluate((button) => {
+    button.textContent = 'COPY';
+  });
+  await expect(copy).toHaveText('COPY');
   await copy.tap();
   calls = (await copyCalls(page)).slice(3);
   expect(calls).toHaveLength(1);

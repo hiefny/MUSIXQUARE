@@ -96,6 +96,35 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.38 / v811 train: the owner's UI tidy, the demo text sizes, the chat '#1', unused rules, the /debug COPY button and the phone start-screen scrollbar (2026-11-04)](design/app-9-0-38-train-2026-11-04.md):
+  prepared, not merged or released. By the owner's decisions of 2026-11-04 (afternoon and evening) one App
+  update (one update dialog, target `app`) carries five parts on branch `agent/app-next`: twenty-two commits
+  (ten tests-first pairs, one tests-only and one comments-only commit) built and tested on `d1665230` and
+  moved without conflict onto main `3506dc41` (App 9.0.37 / v810's release record), the bump `74b2cec7`
+  (9.0.38 / v811, the seven version lines of 9.0.37's bump, the last runtime commit) and documentation
+  commits. (1) From 720 px wide the demo tour's step title, step copy and track names take the sizes of the
+  app's text in the same role (the start carousel's title and description, the playlist's track name), and its
+  role switch takes `clamp(12px, 1vw, 14px)`; under the 4 px rule of 2026-10-29 the switch's icon threshold
+  comes down from a 448 px to a 440 px container, so the icon newly shows in two-column windows 1101 to 1120
+  px wide and phone-layout windows 525 to 532 px wide. The phone demo is byte-identical. (2) The chat join
+  order '#1' is 9 px instead of 0.8em (8.8 px). (3) Two half-pixel start-screen text rules that drew nothing
+  and the two `--setup-guide-desc` declarations nothing read are removed; the start carousel is
+  byte-identical. (4) The `/debug` text overlays get a COPY button that copies the text on screen inside the
+  tap (the Clipboard API first, a hidden textarea where it is missing or refused) and then reads COPIED; from
+  720 px wide it is a 350 px button in the middle. It is the candidate fix for the release record's iPhone
+  `/debug console` copy item. (5) Under 720 px wide the start screen's step areas and actions bar span the
+  screen with the 56 px side spacing moved inside them, so the scrollbar sits at the screen edge instead of 30
+  px in while no text or button moves; 720 px and wider is unchanged. The owner cancelled the broad 13-step
+  type scale; only fixed decimal sizes are tidied. Deploy target `app`: 8 App runtime paths against production
+  `d1665230` at the bump head (4 before it), the other five Workers 0, no runtime dependency change; the build
+  floor stays 795. Round 1 moved the branch with every patch-id equal and the whole-train diff byte-identical.
+  Round 2 bumped, judged the deploy target, checked that each part alone reverses cleanly, reran the unit half
+  of every tests-first pair on the moved commits (each fails on its parent and passes at its code, with the
+  same counts as before the move) and retook the pictures on the bump head's E2E build: the demo, chat and
+  start carousel captures (34) and the start-screen scrollbar captures (24) are byte-identical to the pictures
+  sent to the owner, and the `/debug` COPY row is pixel-identical. The full local gate on the bump head is the
+  next round. Not verified: real devices (the iPhone COPY with the keyboard up, touch scrolling from the side
+  margins), Linux, and WebKit beyond the local Playwright lane.
 - [App 9.0.37 / v810 train: Phase 7 7A, the iPhone guest YouTube return and the input design system (2026-11-04)](design/app-9-0-37-train-2026-11-04.md):
   released on 2026-11-04 13:51 KST in Release 41775435927 (PR #570, squash `d1665230`) as App 9.0.37 / v810 (App build
   810, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

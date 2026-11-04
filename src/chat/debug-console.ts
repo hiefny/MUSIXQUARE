@@ -396,6 +396,12 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
 
   document.getElementById(opts.id)?.remove();
 
+  // Usually the chat field that sent the command. A click focuses COPY in
+  // Chromium and Firefox on Windows; cleanup gives focus back from there.
+  const returnFocus =
+    document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+      ? document.activeElement
+      : null;
   const overlay = document.createElement('div');
   overlay.id = opts.id;
   overlay.className = 'debug-memory-overlay';
@@ -477,12 +483,13 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
       window.visualViewport?.removeEventListener('resize', refresh);
       window.visualViewport?.removeEventListener('scroll', refresh);
     }
+    const focusInside = overlay.contains(document.activeElement);
     if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+    // Otherwise focus falls to the page, where Space toggles playback.
+    if (focusInside && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
   };
 
-  copyButton.addEventListener('click', (event) => {
-    // The screen and system audio overlays close on any click.
-    event.stopPropagation();
+  copyButton.addEventListener('click', () => {
     // Before the first sample (systemaudio awaits RTCStats) there is nothing to
     // copy, and an empty write would wipe the clipboard.
     const text = pre.textContent ?? '';
@@ -499,7 +506,11 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
       if (e.target === overlay) close();
     });
   } else {
-    overlay.addEventListener('click', close);
+    // Any tap closes, except one on COPY. The COPY click still reaches the
+    // page, where the app plays its button sound.
+    overlay.addEventListener('click', (e) => {
+      if (!copyButton.contains(e.target as Node | null)) close();
+    });
   }
   document.addEventListener('keydown', onKey);
   if (opts.watchViewport) {

@@ -11,7 +11,9 @@
  * same tap. The button then reads COPIED, or COPY FAILED, because a toast
  * would sit under the overlay. The copy on open stays as it was, except that
  * it no longer replaces what a tap already copied. A tap before the first
- * sample is on screen copies nothing.
+ * sample is on screen copies nothing. The COPY click reaches the page like
+ * any button click, and focus that a click put on COPY goes back to where it
+ * was when the overlay closes.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -297,6 +299,54 @@ describe('/debug overlay COPY', () => {
     await flushMicrotasks();
     expect(mocks.writeText).toHaveBeenCalledExactlyOnceWith('sample 1, collected again');
     expect(mocks.showToast).toHaveBeenCalledOnce();
+  });
+
+  it('lets the COPY click reach the page, as every button click does', async () => {
+    cmdDebug(['screen']);
+    await flushMicrotasks();
+    const button = copyButton('debug-screen-overlay');
+    const reached: Array<EventTarget | null> = [];
+    const onClick = (event: Event): void => {
+      reached.push(event.target);
+    };
+    // src/audio/ui-sounds.ts plays the button sound from a document listener.
+    document.addEventListener('click', onClick);
+    try {
+      button.click();
+      await flushMicrotasks();
+    } finally {
+      document.removeEventListener('click', onClick);
+    }
+    expect(reached).toEqual([button]);
+    // The tap-to-close screen overlay still stays open.
+    expect(document.getElementById('debug-screen-overlay')).not.toBeNull();
+    expect(button.textContent).toBe('COPIED');
+  });
+
+  it('gives focus back to where it was when the overlay closes with focus inside', async () => {
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    field.focus();
+    const button = await openSync();
+    // Chromium and Firefox on Windows focus a button when it is clicked.
+    button.focus();
+    button.click();
+    await flushMicrotasks();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.getElementById('debug-sync-flight-overlay')).toBeNull();
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('leaves focus alone when it is outside the overlay at close', async () => {
+    const field = document.createElement('input');
+    const other = document.createElement('input');
+    document.body.append(field, other);
+    field.focus();
+    await openSync();
+    other.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.getElementById('debug-sync-flight-overlay')).toBeNull();
+    expect(document.activeElement).toBe(other);
   });
 
   it('drops a result that arrives after the overlay closed', async () => {

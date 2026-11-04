@@ -117,11 +117,11 @@ runbooks. Neither belongs in a general setup document.
   in 42 languages (586 strings, the PRO room-full detail trimmed) and adds the design system's Input
   fields card. Deploy target `app`: 74 App runtime paths against production `6f9cf6f8` at the bump
   head, the other five Workers 0, no runtime dependency change; the build floor stays 795 and the
-  only storage change is 7A's sessionStorage key. Round 1 moved the increments and reran every
-  tests-first pair (each fails on its parent and passes at its code, but for 7A-6's neutral pin, as
-  recorded), the 7A audio lab (17 / 17 on
-  three trees with equal observations) and recovery specs, the iPhone spec (13 / 13) and the input
-  specs. Round 2 bumped, judged the deploy target and recaptured the 139 approved input states on the
+  only storage change is 7A's sessionStorage key. Round 1 moved the increments and reran the unit
+  half of every tests-first pair and the E2E halves of I1 and the iPhone fix (each fails on its
+  parent and passes at its code, but for 7A-6's neutral pin, as recorded), the 7A audio lab
+  (17 / 17 on three trees with equal observations) and recovery specs, the iPhone spec (13 / 13)
+  and the input specs. Round 2 bumped, judged the deploy target and recaptured the 139 approved input states on the
   bump head's build: 134 pixel-identical, the same five expected differences (the room-full trim and
   the host code kept at 32px), all controls identical. Not verified: real devices, Linux and WebKit,
   native readers for the 40 trimmed room-full copies outside ko and en, and Tamil's password refusal,
@@ -132,7 +132,10 @@ runbooks. Neither belongs in a general setup document.
   7A's recovery specs and audio lab, the input system's setup, dialog, contrast, design page, chat
   and playlist groups, the production candidate) and the local partial-release check (compatible);
   against a clean build of `34dbe592` the eager first load grows by 1,500 B of JavaScript and
-  1,875 B in all (gzip).
+  1,875 B in all (gzip). Round 4 applied a three-lens review to the documents only: 7A's remaining
+  reads before merge are merge conditions in one place (the `player.ts` gate-handler re-read done),
+  the move onto T1's squash names T1's tip SHA, and the release record gains an open item for the
+  new lock-screen case found while preparing 7B (record only, by the owner's decision).
 - [iPhone YouTube return at the moment of the browser stop (2026-11-03)](design/ios-youtube-return-train-2026-11-03.md):
   not released; one increment of the App 9.0.37 / v810 train above, moved onto main `34dbe592` on
   2026-11-04 (`e60f2f9a`, `f5785ff6`, `7bf5c5ef`, patches unchanged). Built on branch

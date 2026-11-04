@@ -524,6 +524,27 @@ describe('suspends, refused taps and overlaps', () => {
     ]);
   });
 
+  it('an outside resume while a play-request restart waits for its tap: the owner parks it again', async () => {
+    const s = await scene();
+    bind(s.o, s.fake);
+    await parkPlayRequest(s);
+    const before = s.read();
+    s.fake.transition('running');
+    await vi.advanceTimersByTimeAsync(2_000);
+    // Phase 7 7B-2: the re-park is the attempt's next suspend, counted as a
+    // re-suspend after running and a second suspend, with no resume of its own.
+    expect(s.fake.state).toBe('suspended');
+    expect(
+      delta(s, before, [
+        'RESUSPENDED_AFTER_RUNNING',
+        'SUSPEND_CALLS',
+        'SECOND_SUSPENDS',
+        'TAPS_REFUSED',
+        ...RESUME_NAMES,
+      ]),
+    ).toEqual(['RESUSPENDED_AFTER_RUNNING:1', 'SUSPEND_CALLS:1', 'SECOND_SUSPENDS:1']);
+  });
+
   it('a UI sound with no attempt, or with a YouTube attempt parked, is not counted as waiting', async () => {
     const s = await scene();
     s.fake.freezeClock();

@@ -122,18 +122,20 @@ const ROWS: Row[] = [
     end: { state: 'suspended', request: 'owned', scope: NONE },
   },
   {
-    // Flipped by 7B-3 if approved (owner decision pending): today the sound
-    // resumes the context the dialog's tap needs.
+    // The sound resumes the context the dialog's tap needs, and since 7B-2
+    // (owner answer Q8) the play-request owner parks it again at once, as
+    // the playback scope does in H8. 7B-3 (Q9) then silences the sound here
+    // and issues no resume.
     phase: 'H4 play-request awaiting-gesture',
     arrange: async (o, fake) => {
       await parkPlayRequest(o, fake);
     },
     before: { state: 'suspended', request: 'owned', scope: NONE },
     immediate: ['resume()'],
-    after: RESUMED,
+    after: RESUMED_THEN_RE_SUSPENDED,
     needed: [],
     rejoins: [],
-    end: { state: 'running', request: 'owned', scope: NONE },
+    end: { state: 'suspended', request: 'owned', scope: NONE },
   },
   {
     phase: 'H5 play-request gesture-resuming (resume in flight)',

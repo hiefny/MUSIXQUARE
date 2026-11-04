@@ -10,17 +10,19 @@
  * - (i)/(ii) the two dialogs' outcomes: one retried source start, or one
  *   recovered rejoin;
  * - (a)-(d) app.ts's part of the play-request dialog, which unit tests cannot
- *   load: an outside resume while it waits, its re-suspend, and how its wait
- *   for the clock requirement ends (a newer request, a track change, a hidden
- *   page, the 5 s limit);
+ *   load: an outside resume while it waits and the owner parking it again, a
+ *   tap inside that re-park (the same request shown once more), and how its
+ *   wait for the clock requirement ends (a newer request, a track change, a
+ *   hidden page, the 5 s limit);
  * - T1-T9 trusted input with UI sounds on: slow and fast finger, Space and
  *   Enter, on both dialogs.
  *
- * One room PLAY and one retry() per tap is not pinned directly: a host alone
- * has no peer to receive the room PLAY, and a second retry() is refused
- * inside transport with nothing the lab can read. (i) and T4 pin one source
- * start and one paused-to-playing move per tap; a second activation cannot
- * reach the dialog, which closes inside its first one.
+ * One room PLAY and one retry() per failed PLAY is not pinned directly: a
+ * host alone has no peer to receive the room PLAY, and a second retry() is
+ * refused inside transport with nothing the lab can read. (i), (a), (b) and
+ * T4 pin one source start and one paused-to-playing move per failed PLAY; a
+ * second activation cannot reach the dialog, which closes inside its first
+ * one.
  *
  * Only the window from the return to the tap is frozen, and rows assert
  * counts and origin-tagged calls, not whole op arrays; times are bounded
@@ -75,10 +77,6 @@ async function okButtonCenter(page: Page): Promise<{ x: number; y: number }> {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-async function contextState(page: Page): Promise<string | null> {
-  return (await readLab(page)).state;
-}
-
 test.describe('play-request dialog (paused round trip, then PLAY)', () => {
   test('(i) the tap retries once: one source start, paused to playing', async ({ page }) => {
     const before = await openPlayRequestDialog(page);
@@ -99,55 +97,79 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     expect(lab.rejoins).toEqual([]);
   });
 
-  test('(a) Known gap (C1-I13a): a page script resumes while the dialog waits, the tap plays nothing', async ({
+  test('(a) a page script resumes while the dialog waits: the owner parks it again, one tap plays', async ({
     page,
   }) => {
     const before = await openPlayRequestDialog(page);
     await unfreeze(page);
     await resumeFromPageScript(page);
+    // Phase 7 7B-2 (C1-I13a, owner answer Q8; it was a Known gap): the
+    // play-request owner parks the woken context again at once, and the
+    // dialog stays as it was. Tap once it is parked.
+    await expect
+      .poll(async () => countOps(fromTap(await readLab(page)), 'statechange:suspended'))
+      .toBe(1);
     await page.locator(OK).click();
-    await page.waitForTimeout(6_500);
+    await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);
+    await page.waitForTimeout(1_500);
     const lab = await readLab(page);
     report('(a)', lab, before);
 
-    // The attempt still claims the context but nothing listens: the tap's
-    // owner resume is refused without a native call, the wait for its clock
-    // requirement runs out, and no dialog comes back.
-    expect(countOps(fromTap(lab), 'resume@task:')).toBe(1);
-    expect(countOps(fromTap(lab), 'resume@click:')).toBe(0);
-    expect(lab.starts - before).toBe(0);
-    expect(lab.activity).toEqual(['paused']);
+    // One wake (the page script's; no cleanup resume follows), one re-park,
+    // then the tap's owner resume, and one retried start.
+    const ops = fromTap(lab);
+    expect(countOps(ops, 'resume@task:')).toBe(1);
+    expect(countOps(ops, ' suspend:')).toBe(1);
+    expect(countOps(ops, 'resume@click:')).toBe(1);
+    const woke = ops.findIndex((op) => op.includes('resume@task:'));
+    const parked = ops.findIndex((op) => op.includes(' suspend:'));
+    const tapped = ops.findIndex((op) => op.includes('resume@click:'));
+    expect(parked).toBeGreaterThan(woke);
+    expect(tapped).toBeGreaterThan(parked);
+    expect(lab.needed).toEqual(['play:clock-stalled']);
     expect(lab.dialogShows).toBe(1);
+    expect(lab.starts - before).toBe(1);
+    expect(lab.activity).toEqual(['paused', 'playing']);
     await expect(page.locator(DIALOG)).toHaveCount(0);
-
-    // A second PLAY starts the track.
-    await clickPlayButton(page);
-    await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);
-    const after = await readLab(page);
-    expect(after.starts - before).toBe(1);
-    expect(after.dialogShows).toBe(1);
   });
 
-  test('(b) Known gap (C1-I13a, no re-suspend): after the outside resume nothing suspends again', async ({
+  test('(b) a tap while the owner parks it again only closes the dialog; the same dialog shows once more and its tap plays', async ({
     page,
   }) => {
     const before = await openPlayRequestDialog(page);
     await unfreeze(page);
     await holdSuspend(page);
     await resumeFromPageScript(page);
-    await page.waitForTimeout(500);
+    // The page signals the held re-park, so the tap lands inside it. The
+    // release follows within the owner's 750 ms suspend watchdog.
+    await waitForSuspendHeld(page);
     await page.locator(OK).click();
-    await page.waitForTimeout(6_500);
+    await page.waitForTimeout(150);
+    const refused = await readLab(page);
+    await releaseGates(page);
+    await expect(page.locator(DIALOG)).toBeVisible();
+    await page.locator(OK).click();
+    await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);
+    await page.waitForTimeout(1_500);
     const lab = await readLab(page);
     report('(b)', lab, before);
-    await releaseGates(page);
 
-    expect(lab.suspendHeld).toBe(0);
-    expect(countOps(fromTap(lab), ' suspend:')).toBe(0);
-    expect(countOps(fromTap(lab), 'resume@click:')).toBe(0);
-    expect(lab.starts - before).toBe(0);
-    expect(lab.dialogShows).toBe(1);
-    await expect(page.locator(DIALOG)).toHaveCount(0);
+    // Phase 7 7B-2 (C1-I13a, owner answer Q8; it was a Known gap, no
+    // re-suspend): the tap inside the held re-park issued no resume and only
+    // closed the dialog. app.ts kept the attempt (no cleanup resume) and,
+    // once the owner had parked it, showed the same request again with no
+    // new notice; that dialog's tap retried the failed PLAY once.
+    expect(refused.suspendHeld).toBe(1);
+    expect(dialogMoves(fromTap(refused)).at(-1)).toBe('dialog:hidden');
+    expect(countOps(fromTap(refused), 'resume@')).toBe(1);
+    expect(countOps(fromTap(lab), 'resume@task:')).toBe(1);
+    expect(countOps(fromTap(lab), ' suspend:')).toBe(1);
+    expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
+    expect(dialogMoves(fromTap(lab))).toEqual(['dialog:hidden', 'dialog:shown', 'dialog:hidden']);
+    expect(lab.needed).toEqual(['play:clock-stalled']);
+    expect(lab.dialogShows).toBe(2);
+    expect(lab.starts - before).toBe(1);
+    expect(lab.activity).toEqual(['paused', 'playing']);
   });
 
   test('(d-1) a newer recovery request aborts the wait: cleanup resume in a later task, the new dialog opens', async ({
@@ -303,7 +325,7 @@ test.describe('prepared dialog (playing round trip)', () => {
 });
 
 test.describe('trusted input with UI sounds on, play-request dialog', () => {
-  test('T1 Known gap (C1-I13b): a slow finger wakes the context on pointerdown, the tap plays nothing', async ({
+  test('T1 Known gap (C1-I13b): a slow finger wakes the context on pointerdown; the owner parks it again and the release plays', async ({
     page,
   }) => {
     const before = await openPlayRequestDialog(page, { uiSounds: true });
@@ -311,16 +333,23 @@ test.describe('trusted input with UI sounds on, play-request dialog', () => {
     const { x, y } = await okButtonCenter(page);
     await page.mouse.move(x, y);
     await page.mouse.down();
-    await expect.poll(() => contextState(page)).toBe('running');
+    // The touch sound's resume still wakes the context (7B-3, Q9, removes
+    // that); since 7B-2 (Q8) the play-request owner parks it again at once.
+    await expect
+      .poll(async () => countOps(fromTap(await readLab(page)), 'statechange:suspended'))
+      .toBe(1);
     await page.mouse.up();
-    await page.waitForTimeout(6_500);
+    await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);
+    await page.waitForTimeout(1_500);
     const lab = await readLab(page);
     report('T1', lab, before);
 
     expect(countOps(fromTap(lab), 'resume@pointerdown:')).toBe(1);
-    expect(countOps(fromTap(lab), 'resume@click:')).toBe(0);
-    expect(lab.starts - before).toBe(0);
-    expect(lab.activity).toEqual(['paused']);
+    expect(countOps(fromTap(lab), ' suspend:')).toBe(1);
+    // The owner's resume and the UI touch sound's.
+    expect(countOps(fromTap(lab), 'resume@click:')).toBe(2);
+    expect(lab.starts - before).toBe(1);
+    expect(lab.activity).toEqual(['paused', 'playing']);
     expect(lab.dialogShows).toBe(1);
     await expect(page.locator(DIALOG)).toHaveCount(0);
   });
@@ -345,22 +374,29 @@ test.describe('trusted input with UI sounds on, play-request dialog', () => {
     expect(lab.dialogShows).toBe(1);
   });
 
-  test('T3 Known gap (C1-I13b): Space held wakes the context on keydown, the release plays nothing', async ({
+  test('T3 Known gap (C1-I13b): Space held wakes the context on keydown; the owner parks it again and the release plays', async ({
     page,
   }) => {
     const before = await openPlayRequestDialog(page, { uiSounds: true });
     await unfreeze(page);
     await page.keyboard.down(' ');
-    await expect.poll(() => contextState(page)).toBe('running');
+    // As T1: the keydown sound wakes the context, the owner parks it again
+    // (7B-2), and the dialog stays open under the held key.
+    await expect
+      .poll(async () => countOps(fromTap(await readLab(page)), 'statechange:suspended'))
+      .toBe(1);
     await page.keyboard.up(' ');
-    await page.waitForTimeout(6_500);
+    await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);
+    await page.waitForTimeout(1_500);
     const lab = await readLab(page);
     report('T3', lab, before);
 
     expect(countOps(fromTap(lab), 'resume@keydown:')).toBe(1);
-    expect(countOps(fromTap(lab), 'resume@')).toBe(1);
-    expect(lab.starts - before).toBe(0);
-    expect(lab.activity).toEqual(['paused']);
+    expect(countOps(fromTap(lab), ' suspend:')).toBe(1);
+    // The release's click: the owner's resume and the UI touch sound's.
+    expect(countOps(fromTap(lab), 'resume@click:')).toBe(2);
+    expect(lab.starts - before).toBe(1);
+    expect(lab.activity).toEqual(['paused', 'playing']);
     expect(lab.dialogShows).toBe(1);
     await expect(page.locator(DIALOG)).toHaveCount(0);
   });

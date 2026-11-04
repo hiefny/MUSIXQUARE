@@ -907,7 +907,7 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
   ];
 
   it.each(outsideResumers)(
-    'play-request restart parked for its gesture is defeated by %s',
+    'play-request restart parked for its gesture parks again after %s, and its gesture resumes it',
     async (_label, resumeOutside) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
@@ -916,19 +916,24 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
 
       await resumeOutside(o, fake);
       await vi.advanceTimersByTimeAsync(0);
-      expect(fake.state).toBe('running');
 
-      // Known gap (C1-I13 a/b, owner decision pending): nothing listens in
-      // awaiting-gesture, so the attempt still claims the context and the
-      // Restore gesture is refused without a native resume. app.ts then
-      // polls 5 s for a requirement that never appears and re-arms.
+      // C1-I13 a (Phase 7 7B-2, owner answer Q8; it was a Known gap): the
+      // binding hands the running edge to the play-request owner, which parks
+      // the same attempt again at once, as the playback scope re-suspends its
+      // own (the next row). The Restore gesture then resumes it with one
+      // native call and exposes the clock requirement app.ts waits for.
+      // 7B-3 (Q9) changes the UI-sound case again: no resume at all.
+      expect(fake.state).toBe('suspended');
+      expect(fake.calls('suspend')).toBe(2);
       expect(preparation.isCurrent()).toBe(true);
       const before = fake.ops.length;
       await expect(
         o.context.resumePreparedForegroundAudioContextRestartFromGesture(preparation.attemptToken),
-      ).resolves.toEqual({ running: false, requiresClockVerification: false });
-      expect(fake.ops.slice(before)).toEqual([]);
-      expect(o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()).toBeNull();
+      ).resolves.toEqual({ running: true, requiresClockVerification: true });
+      expect(fake.ops.slice(before).filter((op) => op.endsWith('()'))).toEqual(['resume()']);
+      expect(
+        o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()?.attemptToken,
+      ).toBe(preparation.attemptToken);
     },
   );
 
@@ -1019,6 +1024,113 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(bus.needed).toEqual(['background-resume:clock-stalled']);
     expect(playbackScope(o, token).gestureToken).toBe('same');
+  });
+});
+
+/**
+ * The play-request attempt parked again (C1-I13 a, Phase 7 7B-2, owner answer
+ * Q8), owner half. While the owner parks the same attempt again its
+ * preparation reads not current, so the recovery dialog's tap fails its
+ * currency gate in app.ts before it reaches the owner; the dialog then asks
+ * the owner whether it is preparing that same attempt again. A promise means
+ * the owner keeps the attempt: the dialog's close does not retire it, and the
+ * same request shows again once the promise settles true. app.ts's half (the
+ * close without retirement, the same request shown once more, one retry) is
+ * pinned by the local Chromium lab, rows (a) and (b).
+ */
+describe('RO-01 the play-request attempt parked again (C1-I13 a)', () => {
+  it('a tap during the re-park finds the same attempt being prepared again, kept until it is parked', async () => {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    const bus = recordBus(o);
+    bind(o, fake);
+    const { preparation } = await parkPlayRequestRestart(o, fake);
+    const token = preparation.attemptToken;
+    // Parked for its gesture: nothing is being prepared again.
+    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBeNull();
+    fake.planSuspend({ latencyMs: 50 });
+
+    fake.transition('running');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fake.ops.slice(-2)).toEqual(['statechange:running', 'suspend()']);
+    expect(preparation.isCurrent()).toBe(false);
+    expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(true);
+    const reprepared = o.context.whenForegroundAudioContextRestartReprepared(token);
+    expect(reprepared).toBeInstanceOf(Promise);
+    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBe(reprepared);
+    expect(o.context.whenForegroundAudioContextRestartReprepared({})).toBeNull();
+    const settled: boolean[] = [];
+    void reprepared!.then(
+      (parked) => settled.push(parked),
+      () => undefined,
+    );
+    // A gesture that does reach the owner now is refused with no native call,
+    // as the playback scope refuses one during its re-suspend (row above).
+    const before = fake.ops.length;
+    await expect(
+      o.context.resumePreparedForegroundAudioContextRestartFromGesture(token),
+    ).resolves.toEqual({ running: false, requiresClockVerification: false });
+    expect(fake.ops.slice(before)).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(settled).toEqual([true]);
+    expect(fake.state).toBe('suspended');
+    expect(preparation.isCurrent()).toBe(true);
+    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBeNull();
+
+    // The same request's next tap: one native resume, and the exact token
+    // commits once (transport's confirm closure asks this owner with it).
+    const tap = fake.ops.length;
+    await expect(
+      o.context.resumePreparedForegroundAudioContextRestartFromGesture(token),
+    ).resolves.toEqual({ running: true, requiresClockVerification: true });
+    expect(fake.ops.slice(tap).filter((op) => op.endsWith('()'))).toEqual(['resume()']);
+    expect(o.context.confirmForegroundAudioContextRestartHealth({})).toBe(false);
+    expect(o.context.confirmForegroundAudioContextRestartHealth(token)).toBe(true);
+    expect(o.context.confirmForegroundAudioContextRestartHealth(token)).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(settled).toEqual([true]);
+    expect(fake.calls('suspend')).toBe(2);
+    expect(bus).toEqual(QUIET_BUS);
+  });
+
+  it('a re-park whose suspend never lands retires the attempt at its watchdog; the promise settles false', async () => {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    bind(o, fake);
+    const { preparation } = await parkPlayRequestRestart(o, fake);
+    fake.planSuspend({ outcome: 'never' });
+
+    fake.transition('running');
+    await vi.advanceTimersByTimeAsync(0);
+    const reprepared = o.context.whenForegroundAudioContextRestartReprepared(
+      preparation.attemptToken,
+    );
+    const settled: boolean[] = [];
+    void reprepared!.then(
+      (parked) => settled.push(parked),
+      () => undefined,
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toEqual([]);
+    await vi.advanceTimersByTimeAsync(900);
+
+    // The re-park's suspend is the attempt's second: it shares the two-suspend
+    // budget of its first preparation, as the playback scope's re-suspend
+    // does, so a re-park that cannot land retires at the lease watchdog
+    // instead of trying again.
+    expect(settled).toEqual([false]);
+    expect(preparation.isCurrent()).toBe(false);
+    expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(false);
+    expect(
+      o.context.whenForegroundAudioContextRestartReprepared(preparation.attemptToken),
+    ).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fake.calls('suspend')).toBe(2);
+    expect(fake.calls('resume')).toBe(0);
+    expect(fake.state).toBe('running');
   });
 });
 

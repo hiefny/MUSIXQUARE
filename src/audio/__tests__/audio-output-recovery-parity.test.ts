@@ -36,6 +36,7 @@ import {
   playRequest,
   playbackScope,
   recordBus,
+  setVisibility,
   setupOwnerTest,
   stageFile,
   startTimeline,
@@ -838,5 +839,115 @@ describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait
     }
 
     expect({ exposedAt, atSixSeconds, giveUp: gaveUp }).toEqual(result);
+  });
+});
+
+/**
+ * How the dialog's wait after its tap ends, owner half: the same with the
+ * 50 ms poll and with a wait on the owner (C1-I12, Phase 7 7B-5). app.ts
+ * ends its wait when its dialog is aborted (a newer request, a track change)
+ * or the page hides, then retires its token; or the attempt was retired
+ * elsewhere, and the token it then retires is gone. These rows pin what the
+ * owner does at that retirement, in the same task. app.ts's half (the
+ * cleanup resume after an abort, nothing while hidden) is the browser lab's
+ * rows (d-1) and (d-2); a retirement elsewhere has no browser row.
+ */
+describe('RO-01 I12 the dialog wait ends: the owner side (parity)', () => {
+  /** The tap, then the dialog's wait: 900 ms is past the 750 ms resume deadline. */
+  async function tapAndWait(plan: FakeNativeCallPlan) {
+    const { fake, o } = await newFileOwners();
+    const restart = playRequest.arm(o, fake);
+    await expect(restart.first).resolves.toBe('prepared');
+    fake.planResume(plan);
+    whenSettled(restart.tap(), () => undefined);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(restart.isCurrent()).toBe(true);
+    expect(fake.ops.slice(-1)).toEqual(['resume()']);
+    return { fake, o, restart };
+  }
+
+  it("the dialog's abort: retiring its token ends the attempt and undoes the parked state in that task", async () => {
+    const { fake, o, restart } = await tapAndWait({ latencyMs: 1_230 });
+    const before = fake.ops.length;
+
+    const retired = restart.retire();
+    const sameTask = {
+      retired,
+      current: restart.isCurrent(),
+      requirement: restart.requirement(),
+      incident: incidentCell(o, restart.incident),
+      ops: fake.ops.slice(before),
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // The cleanup resume is issued inside the retire call (the context was
+    // parked, the page visible); the late resume at 1,230 ms promotes nothing.
+    expect(sameTask).toEqual({
+      retired: true,
+      current: false,
+      requirement: 'none',
+      incident: 'none',
+      ops: ['resume()'],
+    });
+    expect(fake.ops.slice(before)).toEqual([
+      'resume()',
+      'statechange:running',
+      'resume:resolved',
+      'resume:resolved',
+    ]);
+    expect(restart.requirement()).toBe('none');
+    expect(fake.statechangeListenerCount).toBe(1);
+  });
+
+  it('the page hides: retiring the token makes no native call and leaves no incident; the binding arms one on return', async () => {
+    const { fake, o, restart } = await tapAndWait({ outcome: 'never' });
+    setVisibility('hidden');
+    const before = fake.ops.length;
+
+    const retired = restart.retire();
+    const hidden = {
+      retired,
+      current: restart.isCurrent(),
+      incident: incidentCell(o, restart.incident),
+      ops: fake.ops.slice(before),
+      state: fake.state,
+    };
+    setVisibility('visible');
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // app.ts arms nothing while hidden; the visible edge's fallback incident
+    // is the binding's. Nothing undoes the parked state until a PLAY.
+    expect(hidden).toEqual({
+      retired: true,
+      current: false,
+      incident: 'none',
+      ops: [],
+      state: 'suspended',
+    });
+    expect(incidentCell(o, restart.incident)).toBe('new');
+    expect(fake.ops.slice(before)).toEqual([]);
+    expect(fake.state).toBe('suspended');
+  });
+
+  it("retired elsewhere (a newer foreground incident): the attempt ends at that moment, and the dialog's retire finds it gone", async () => {
+    const { fake, o, restart } = await tapAndWait({ latencyMs: 1_200 });
+
+    armNewIncident(o, fake);
+    const atOnce = {
+      current: restart.isCurrent(),
+      requirement: restart.requirement(),
+      incident: incidentCell(o, restart.incident),
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+    const before = fake.ops.length;
+    const retired = restart.retire();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(atOnce).toEqual({ current: false, requirement: 'none', incident: 'new' });
+    // The late resume at 1,200 ms promoted nothing; the dialog arms nothing.
+    expect(restart.requirement()).toBe('none');
+    expect(retired).toBe(false);
+    expect(fake.ops.slice(before)).toEqual([]);
+    expect(incidentCell(o, restart.incident)).toBe('new');
   });
 });

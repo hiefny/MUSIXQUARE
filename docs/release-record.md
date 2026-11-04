@@ -80,8 +80,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
       보고서의 시험, 입력칸의 만들기·검증·리뷰, 보고서 §14.1), 이 열차의 라운드 1(옮기기와 충실도: 테스트 먼저 짝은 부모 실패·코드
       통과이고 7A-6의 중립 고정만 기록대로 부모에서도 통과, 7A lab 17 / 17 세 트리와 관찰 줄 같음, 아이폰 명세 13 / 13, `field-family` 8 / 8, 정적 가드)과 라운드 2(버전 올리기, 배포 판정,
       버전 올리기 머리의 E2E 빌드에서 입력칸 승인 사진 139 상태: 134 같음, 예상한 5 다름, 대조 139 같음)다. 버전 올리기 머리의 전체 로컬
-      관문(아래 배포 조건 (2))은 아직이다. PR, PR CI, 자동 코드 리뷰, exact-main CI, 배포도 아직이고 로컬 결과는 exact-main-SHA 후보를
-      대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
+      관문(아래 배포 조건 (2))은 라운드 3(2026-11-04, 시험한 머리 `8137c862`, 코드 `5d346d64`)에서 통과했다: 가드 37, 커버리지 둘, 단위
+      전체 두 번(두 번째에 git 고정물 행 하나가 부하로 자체 30초 한도를 넘었고 그 파일 혼자 두 번 통과), E2E 49개 파일 433 / 433(후보 19
+      포함), 배포 SHA를 넣은 로컬 부분 릴리스 판정 compatible, eager JS gzip은 `34dbe592` 대비 +1,500 B. PR, PR CI, 자동 코드 리뷰,
+      exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
       [보고서](design/app-9-0-37-train-2026-11-04.md),
       [7A 보고서](design/phase7-7a-audio-recovery-counters-2026-11-03.md),
       [아이폰 보고서](design/ios-youtube-return-train-2026-11-03.md),
@@ -117,7 +119,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       YouTube 명세(아이폰 고침의 `youtube-background-stop-return`과 검색 버튼 명세 포함), 7A의 오디오 복구 명세와 lab, 입력칸 명세
       (`field-family`, `accessibility-contrast`, `design-system-page`, 바뀐 설정·대화상자 명세), 운영 빌드의 후보 E2E가 통과하고, 배포 대상이
       App뿐(App 74, 다른 Worker 0, 의존성 변경 없음)이며, eager 크기를 `34dbe592`의 깨끗한 빌드와 견준다. 결과는 보고서의 새 QA 라운드와 PR
-      본문에 둔다. 머지 전에 런타임 커밋이 더해지면 버전 올리기를 다시 마지막에 두고 다시 돈다. (3) PR CI, 자동 코드 리뷰, dispatch 직전
+      본문에 둔다(2026-11-04 보고서 라운드 3: 통과). 머지 전에 런타임 커밋이 더해지면 버전 올리기를 다시 마지막에 두고 다시 돈다. (3) PR CI, 자동 코드 리뷰, dispatch 직전
       머지, exact-main CI success, 그 뒤 Release target `app`, Developer API D1 false, `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와
       deploy job 시작 사이에 머지하지 않는다. (4) 배포 직후 공개 최소 빌드 상태(저장·유효 795, live App 810), `/service-worker.js`의
       `CACHE_VERSION = "v810"`, `index.html`의 `/bootstrap.js?cache=v810`, Operations Drift Audit을 보고, 머지 뒤 main SHA에서 Full E2E를 한 번

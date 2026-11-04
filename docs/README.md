@@ -125,7 +125,14 @@ runbooks. Neither belongs in a general setup document.
   bump head's build: 134 pixel-identical, the same five expected differences (the room-full trim and
   the host code kept at 32px), all controls identical. Not verified: real devices, Linux and WebKit,
   native readers for the 40 trimmed room-full copies outside ko and en, and Tamil's password refusal,
-  which wraps at 320 px. The full local gate on the bump head is the next round.
+  which wraps at 320 px. Round 3 ran the full local gate on the bump head `8137c862` (code
+  `5d346d64`): typecheck, lint, format, `build:checked` and all 37 guards one by one, both coverage
+  configs, the full unit suite twice (one git-fixture row over its own 30 s cap under load in the
+  second run; that file alone passes twice), 433 E2E rows in 49 files (critical, the YouTube specs,
+  7A's recovery specs and audio lab, the input system's setup, dialog, contrast, design page, chat
+  and playlist groups, the production candidate) and the local partial-release check (compatible);
+  against a clean build of `34dbe592` the eager first load grows by 1,500 B of JavaScript and
+  1,875 B in all (gzip).
 - [iPhone YouTube return at the moment of the browser stop (2026-11-03)](design/ios-youtube-return-train-2026-11-03.md):
   not released; one increment of the App 9.0.37 / v810 train above, moved onto main `34dbe592` on
   2026-11-04 (`e60f2f9a`, `f5785ff6`, `7bf5c5ef`, patches unchanged). Built on branch

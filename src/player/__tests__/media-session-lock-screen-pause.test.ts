@@ -208,6 +208,38 @@ describe('Media Session lock-screen PAUSE then PLAY (C1-I5)', () => {
     expect(o.getState('playback.activity')).toBe('paused');
   });
 
+  it('with an OS interruption pending: PAUSE while locked, then the app opens with no PLAY: the stale attempt goes and the guest stays paused until a PLAY', async () => {
+    const { fake, o, bus, router, mediaSession } = await openGuest();
+    setVisibility('hidden');
+    fake.planResume({ outcome: 'reject' });
+    fake.transition('interrupted');
+    await vi.advanceTimersByTimeAsync(1_000);
+    mediaSession.pause();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(playbackScope.view(o)).toEqual({ attempt: 'file', gesture: true });
+
+    const before = fake.ops.length;
+    setVisibility('visible');
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    // Opening the app retires the attempt the local pause made stale; nothing
+    // resumes, rejoins or asks, and the local pause stays.
+    expect(playbackScope.view(o)).toEqual({ attempt: 'none', gesture: false });
+    expect(fake.ops.slice(before)).toEqual([]);
+    expect(bus.rejoins).toEqual([]);
+    expect(bus.needed).toEqual([]);
+    expect(router.resyncs()).toBe(0);
+    expect(o.playerState.isLocalFilePaused()).toBe(true);
+
+    // A PLAY then finds no pending attempt and rejoins at once.
+    mediaSession.play();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fake.ops.slice(before)).toEqual([]);
+    expect(bus.rejoins).toEqual(['media-session-play']);
+    expect(router.resyncs()).toBe(1);
+    expect(o.playerState.isLocalFilePaused()).toBe(false);
+  });
+
   it('control: with no interruption PAUSE then PLAY rejoins at once', async () => {
     const { fake, bus, mediaSession } = await openGuest();
     setVisibility('hidden');

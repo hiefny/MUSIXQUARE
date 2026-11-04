@@ -95,8 +95,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       고쳤고, hotfix-procedure의 9.0.25 문단에 9.0.38의 머지 SHA, Release ID, App 버전을 적고, §2와 §4 다른 항목의 다음 되돌리기 번호를 9.0.39 / v812로
       옮겼으며, 9.0.37·9.0.36·9.0.35 절과 9.0.33·9.0.31·9.0.29·9.0.21 절의 문장 넷, iPhone `/debug console` 복사 항목, §4의 두 문장에서 이 열차를 배포
       전으로 적은 것을 배포 뒤로 고치고, 다른 절의 기기 확인이 이제 9.0.38에서 한다고 적고(빌드 줄 `app=9.0.38 | cacheEpoch=v811`), 9.0.29 절의 낮은 epoch 항목에 이 릴리스 checkpoint의 9.0.37을 더하고, 바뀐 §2 항목마다 이 열차 보고서를 걸고, 이 열차 보고서의
-      상태와 QA 라운드 5, `docs/README.md`의 항목을 배포됨으로 고치고, `release-history.md`에 한 행을 더했다. 로컬 결과는 exact-main-SHA 후보를 대신하지
-      않았다.
+      상태와 QA 라운드 5, `docs/README.md`의 항목을 배포됨으로 고치고, 9.0.37 보고서의 상태·버전·되돌리기에 이 배포를 적고, `release-history.md`에 한
+      행을 더했다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
       [보고서](design/app-9-0-38-train-2026-11-04.md),
       [부분 한눈에](design/app-9-0-38-train-2026-11-04.md#2-부분-한눈에),
       [라운드 5](design/app-9-0-38-train-2026-11-04.md#156-라운드-5-pr-ci-자동-코드-리뷰-머지-exact-main-ci-배포와-smoke-공개-확인-운영-chromium-확인-drift-audit과-머지-뒤-full-e2e-2026-11-05).

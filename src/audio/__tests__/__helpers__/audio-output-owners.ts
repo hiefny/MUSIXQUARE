@@ -188,6 +188,51 @@ export async function loadUiTouchSound(): Promise<() => void> {
   return () => ui.playUiTouchSound();
 }
 
+/**
+ * Count the UI tones started on `fake` from now on (one per started source;
+ * the touch sound is one). The native double models no node graph, so a UI
+ * sound otherwise fails silently at its first node; this gives the fake the
+ * few nodes UI sounds build. `fake.ops` stays the native log.
+ */
+export function countUiTones(fake: FakeNativeAudioContext): () => number {
+  let tones = 0;
+  const param = () => ({
+    value: 0,
+    setValueAtTime: () => undefined,
+    exponentialRampToValueAtTime: () => undefined,
+  });
+  const node = () => ({
+    connect: () => undefined,
+    gain: param(),
+    threshold: param(),
+    knee: param(),
+    ratio: param(),
+    attack: param(),
+    release: param(),
+    pan: param(),
+    frequency: param(),
+    buffer: null,
+    type: 'sine',
+    start: () => {
+      tones += 1;
+    },
+    stop: () => undefined,
+  });
+  Object.assign(fake, {
+    destination: node(),
+    createGain: node,
+    createDynamicsCompressor: node,
+    createStereoPanner: node,
+    createOscillator: node,
+    createBufferSource: node,
+    createBuffer: (_channels: number, length: number) => {
+      const samples = new Float32Array(length);
+      return { getChannelData: () => samples };
+    },
+  });
+  return () => tones;
+}
+
 /** The native calls (not their settlements or state changes) in an op slice. */
 export function nativeCalls(ops: readonly string[]): string[] {
   return ops.filter((op) => op.endsWith('()'));

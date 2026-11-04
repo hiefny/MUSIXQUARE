@@ -7,6 +7,8 @@ import { resetState, setState } from '../../core/state.ts';
 
 const contextMock = vi.hoisted(() => ({
   getAudioContext: vi.fn(),
+  // Read when UI sounds ask the recovery owners first (Phase 7 7B-3).
+  isForegroundAudioContextRestartHolding: vi.fn(() => false),
 }));
 
 vi.mock('../context.ts', () => contextMock);
@@ -102,6 +104,7 @@ describe('UI sounds', () => {
     localStorage.clear();
     context = createFakeContext();
     contextMock.getAudioContext.mockReset().mockReturnValue(context);
+    contextMock.isForegroundAudioContextRestartHolding.mockReset().mockReturnValue(false);
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   });
 
@@ -309,5 +312,72 @@ describe('UI sounds', () => {
     await flushSounds();
 
     expect(scheduledFrequencies(context)).toEqual([523.25, 523.25]);
+  });
+
+  /**
+   * Phase 7 7B-3 (owner answer Q9): every sound asks the recovery owners
+   * (context-recovery.ts isAudioOutputRecoveryHolding) whether one holds the
+   * context for a recovery dialog's tap before it wakes the context or
+   * plays. That query reads one context.ts name when it is called, the
+   * play-request owner's answer, which this file's factory defines and these
+   * rows set; the playback scope holds nothing here. Both directions are
+   * asserted, because the sounds' try/catch would hide a query that threw on
+   * a factory lacking that name: a sound that cannot ask stays silent in both.
+   */
+  describe('while a recovery owner holds the context for its tap', () => {
+    const hold = (held: boolean): void => {
+      contextMock.isForegroundAudioContextRestartHolding.mockReturnValue(held);
+    };
+
+    const play = (kind: 'touch' | 'announcement' | 'session'): void => {
+      resetUiSoundsForTests();
+      setUiSoundsEnabled(true);
+      if (kind === 'touch') playUiTouchSound();
+      else if (kind === 'announcement') playAnnouncementSound();
+      else playChatSystemEventSound('chat.peer_connected', { name: 'Peer 2' });
+    };
+
+    it.each(['touch', 'announcement', 'session'] as const)(
+      'the %s sound wakes a suspended context only when no owner holds it',
+      async (kind) => {
+        Object.defineProperty(context, 'state', { configurable: true, value: 'suspended' });
+        for (const held of [true, false, true]) {
+          hold(held);
+          vi.mocked(context.resume).mockClear();
+          play(kind);
+          await flushSounds();
+          expect(context.resume).toHaveBeenCalledTimes(held ? 0 : 1);
+        }
+      },
+    );
+
+    it.each([
+      ['touch', 'createBufferSource', 1],
+      ['announcement', 'createOscillator', 2],
+      ['session', 'createOscillator', 2],
+    ] as const)(
+      'the %s sound on a running context plays only when no owner holds it',
+      async (kind, factory, sources) => {
+        for (const held of [true, false]) {
+          hold(held);
+          context[factory].mockClear();
+          play(kind);
+          await flushSounds();
+          expect(context[factory]).toHaveBeenCalledTimes(held ? 0 : sources);
+          expect(context.resume).not.toHaveBeenCalled();
+        }
+      },
+    );
+
+    it('the settings preview stays silent too while an owner holds the context', async () => {
+      hold(true);
+      playUiTouchSound({ force: true });
+      await flushSounds();
+      expect(context.createBufferSource).not.toHaveBeenCalled();
+      hold(false);
+      playUiTouchSound({ force: true });
+      await flushSounds();
+      expect(context.createBufferSource).toHaveBeenCalledOnce();
+    });
   });
 });

@@ -26,8 +26,9 @@
  *   requirement poll). Browser evidence for the dialog stays in
  *   e2e/background-resume.test.ts and e2e/demo-output-recovery.test.ts.
  * - The trusted pointerdown/keydown path in ui-sounds.ts: jsdom cannot
- *   create a trusted event. Its readyOutput path issues the same unowned
- *   resume() and is used instead.
+ *   create a trusted event. Its readyOutput path asks the owners the same
+ *   question first (Phase 7 7B-3) and issues the same resume() when no owner
+ *   holds the context, and is used instead.
  * - Real WebKit timing: the fake's header says what it models.
  *
  * Comments marked "Known gap" pin today's behaviour, not the desired one,
@@ -881,34 +882,46 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
 });
 
 describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
+  // Each with what it does to a context an owner holds for its tap: whether
+  // it wakes it, and the native resume() calls it makes.
   const outsideResumers: Array<
-    [string, (o: Owners, fake: FakeNativeAudioContext) => Promise<void>]
+    [
+      string,
+      (o: Owners, fake: FakeNativeAudioContext) => Promise<void>,
+      { wakes: boolean; resumes: number },
+    ]
   > = [
     [
       'an OS or user-agent resume',
       async (_o, fake) => {
         fake.transition('running');
       },
+      { wakes: true, resumes: 0 },
     ],
     [
       'ensureRunning (transport, decode, engine)',
       async (o) => {
         await o.context.ensureRunning().catch(() => undefined);
       },
+      { wakes: true, resumes: 1 },
     ],
     [
+      // C1-I13 b (Phase 7 7B-3, owner answer Q9; it was a Known gap): a UI
+      // sound asks the owners first and, while one holds the context for its
+      // tap, makes no sound and no resume, so there is nothing to undo.
       'a UI sound (ui-sounds.ts readyOutput)',
       async () => {
         const ui = await import('../ui-sounds.ts');
         ui.setUiSoundsEnabled(true);
         ui.playUiTouchSound();
       },
+      { wakes: false, resumes: 0 },
     ],
   ];
 
   it.each(outsideResumers)(
-    'play-request restart parked for its gesture parks again after %s, and its gesture resumes it',
-    async (_label, resumeOutside) => {
+    'play-request restart parked for its gesture is parked when its gesture comes, after %s, and the gesture resumes it',
+    async (_label, resumeOutside, { wakes, resumes }) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
       bind(o, fake);
@@ -922,9 +935,10 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
       // the same attempt again at once, as the playback scope re-suspends its
       // own (the next row). The Restore gesture then resumes it with one
       // native call and exposes the clock requirement app.ts waits for.
-      // 7B-3 (Q9) changes the UI-sound case again: no resume at all.
+      // Since 7B-3 a UI sound wakes nothing, so nothing is parked again.
+      expect(fake.calls('resume')).toBe(resumes);
       expect(fake.state).toBe('suspended');
-      expect(fake.calls('suspend')).toBe(2);
+      expect(fake.calls('suspend')).toBe(wakes ? 2 : 1);
       expect(preparation.isCurrent()).toBe(true);
       const before = fake.ops.length;
       await expect(
@@ -938,8 +952,8 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
   );
 
   it.each(outsideResumers)(
-    'playback-scope stalled recovery re-suspends with the same token after %s',
-    async (_label, resumeOutside) => {
+    'playback-scope stalled recovery is parked with the same token after %s',
+    async (_label, resumeOutside, { wakes, resumes }) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
       stageFilePlayback(o);
@@ -950,11 +964,15 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
       await resumeOutside(o, fake);
       await vi.advanceTimersByTimeAsync(0);
 
+      // A wake is undone by a re-suspend with a prepared notice for the
+      // dialog. Since Phase 7 7B-3 (C1-I13 b, owner answer Q9; it was a Known
+      // gap) a UI sound wakes nothing: no re-suspend, no second notice.
+      expect(fake.calls('resume')).toBe(resumes);
       expect(fake.state).toBe('suspended');
-      expect(fake.calls('suspend')).toBe(2);
+      expect(fake.calls('suspend')).toBe(wakes ? 2 : 1);
       expect(playbackScope(o, token)).toEqual(PARKED);
-      expect(bus.needed).toEqual(['background-resume:clock-stalled']);
-      expect(bus.neededEvents[0]?.isCurrent?.()).toBe(true);
+      expect(bus.needed).toEqual(wakes ? ['background-resume:clock-stalled'] : []);
+      if (wakes) expect(bus.neededEvents[0]?.isCurrent?.()).toBe(true);
     },
   );
 
@@ -1010,7 +1028,8 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     const token = await parkStalledPlayback(o, fake);
     fake.planSuspend({ latencyMs: 50 });
 
-    // Pointerdown resumes (ui-sounds), the click activation follows a task later.
+    // Something outside the owner resumes it (before Phase 7 7B-3 also a UI
+    // sound's pointerdown), and the click activation follows a task later.
     fake.transition('running');
     await vi.advanceTimersByTimeAsync(0);
     const before = fake.ops.length;

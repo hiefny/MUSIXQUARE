@@ -15,7 +15,9 @@
  *   for the WebKit frozen clock (the instance is the app's only context, so
  *   scheduling and sync reads freeze too: tests keep the frozen window short);
  * - buffer source starts longer than 1 s (real tracks, not unlock or UI
- *   sounds) are counted;
+ *   sounds) are counted; shorter ones and oscillator starts (UI sounds: the
+ *   touch is one short buffer, the join, leave and announcement sounds two
+ *   oscillators) are logged as `ms tone`;
  * - showing and hiding of #dialog-overlay is logged and counted;
  * - bus events (recovery notices, local rejoins, playback activity) are
  *   recorded once a room is playing.
@@ -176,8 +178,19 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
       source.start = (...args: Parameters<AudioBufferSourceNode['start']>) => {
         start(...args);
         if ((source.buffer?.duration ?? 0) > 1) lab.starts += 1;
+        else lab.ops.push(`${now()} tone`);
       };
       return source;
+    };
+    const createOscillator = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const oscillator = createOscillator.call(this);
+      const start = oscillator.start.bind(oscillator);
+      oscillator.start = (...args: Parameters<OscillatorNode['start']>) => {
+        start(...args);
+        lab.ops.push(`${now()} tone`);
+      };
+      return oscillator;
     };
     new MutationObserver(() => {
       const overlay = document.getElementById('dialog-overlay');

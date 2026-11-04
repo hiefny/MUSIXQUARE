@@ -491,37 +491,37 @@ describe('suspends, refused taps and overlaps', () => {
     expect(delta(s, before, ['TAPS_REFUSED', ...RESUME_NAMES])).toEqual(['TAPS_REFUSED:2']);
   });
 
-  it('a UI sound while a file attempt waits for its tap: counted, and the owner re-suspends', async () => {
+  // Phase 7 7B-3 (owner answer Q9): a UI sound asks the owners first and does
+  // not wake a context one holds for its tap, so "UI sound resumes while
+  // waiting for tap" stays 0. Before 7B-3 each of these two rows counted one
+  // UI sound resume while waiting, and the file attempt one re-suspend.
+  it('a UI sound while a file attempt waits for its tap: no resume, nothing to re-suspend', async () => {
     const s = await scene();
     const touch = await loadUiTouchSound();
     await parkStalledFile(s);
     const before = s.read();
     touch();
     await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.fake.state).toBe('suspended');
     expect(
       delta(s, before, [
         'RESUME_UI_SOUND',
         'UI_SOUND_RESUMES_WHILE_WAITING',
         'RESUSPENDED_AFTER_RUNNING',
+        'SUSPEND_CALLS',
       ]),
-    ).toEqual([
-      'RESUME_UI_SOUND:1',
-      'UI_SOUND_RESUMES_WHILE_WAITING:1',
-      'RESUSPENDED_AFTER_RUNNING:1',
-    ]);
+    ).toEqual([]);
   });
 
-  it('a UI sound while a play-request restart waits for its tap is counted', async () => {
+  it('a UI sound while a play-request restart waits for its tap: no resume, nothing counted', async () => {
     const s = await scene();
     const touch = await loadUiTouchSound();
     await parkPlayRequest(s);
     const before = s.read();
     touch();
     await vi.advanceTimersByTimeAsync(0);
-    expect(delta(s, before, ['RESUME_UI_SOUND', 'UI_SOUND_RESUMES_WHILE_WAITING'])).toEqual([
-      'RESUME_UI_SOUND:1',
-      'UI_SOUND_RESUMES_WHILE_WAITING:1',
-    ]);
+    expect(s.fake.state).toBe('suspended');
+    expect(delta(s, before, ['RESUME_UI_SOUND', 'UI_SOUND_RESUMES_WHILE_WAITING'])).toEqual([]);
   });
 
   it('an outside resume while a play-request restart waits for its tap: the owner parks it again', async () => {

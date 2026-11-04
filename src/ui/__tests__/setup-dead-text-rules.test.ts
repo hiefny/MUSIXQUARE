@@ -1,7 +1,8 @@
 // @vitest-environment node
 /**
- * Two start-screen text rules that drew nothing are gone (owner decision
- * 2026-11-04, the fixed half-pixel sizes):
+ * Two start-screen text rules that drew nothing, and the size property only
+ * one of them read, are gone (owner decisions 2026-11-04: the fixed
+ * half-pixel sizes, and removing --setup-guide-desc):
  * - .setup-inner-desc (11.5px; 12px inside .setup-unified-item, the guide
  *   description size in the desktop diagram area, and its entries in the
  *   Japanese line-breaking list). Its markup left index.html with the QR
@@ -10,6 +11,9 @@
  *   description inside an .ob-slide, whose rule in the same layer sets 14px,
  *   and from 720px the desktop diagram area's rule sets --setup-ob-desc, so
  *   the base size never applied. The rest of the base rule stays.
+ * - The guide description size --setup-guide-desc (12px from 720px, and
+ *   clamp(14px, 1.3vw, 18px) in the desktop layout), which only the
+ *   .setup-inner-desc rule read.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -94,6 +98,23 @@ describe('start screen text rules that drew nothing', () => {
     expect(read('index.html')).not.toContain('inner-desc');
     const carriers = sources(resolve('src')).filter((path) =>
       readFileSync(path, 'utf8').includes('inner-desc'),
+    );
+    expect(carriers).toEqual([]);
+  });
+
+  it('keeps no --setup-guide-desc, which only the .setup-inner-desc rule read', () => {
+    const found: string[] = [];
+    for (const path of SHEETS) {
+      parseCss(read(path)).walkDecls((declaration) => {
+        if (`${declaration.prop}:${declaration.value}`.includes('--setup-guide-desc')) {
+          found.push(`${path}: ${declaration.prop}: ${declaration.value}`);
+        }
+      });
+    }
+    expect(found).toEqual([]);
+    expect(read('index.html')).not.toContain('--setup-guide-desc');
+    const carriers = sources(resolve('src')).filter((path) =>
+      readFileSync(path, 'utf8').includes('--setup-guide-desc'),
     );
     expect(carriers).toEqual([]);
   });

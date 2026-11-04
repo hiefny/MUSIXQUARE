@@ -5880,8 +5880,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   html:lang(ja) .ob-slide .ob-desc,
   html:lang(ja) .ob-desc,
   html:lang(ja) .setup-header-text p,
-  html:lang(ja) .setup-unified-item .setup-inner-desc,
-  html:lang(ja) .setup-inner-desc,
   html:lang(ja) .setup-inline-error,
   html:lang(zh-Hans) .setup-inline-error,
   html:lang(zh-Hant) .setup-inline-error,
@@ -6992,7 +6990,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .ob-desc {
-    font-size: 15.5px;
     color: var(--text-sub);
     line-height: 1.6;
     word-break: keep-all;
@@ -7518,15 +7515,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     box-shadow: none;
   }
 
-  .setup-unified-item .setup-inner-desc {
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--text-sub);
-    font-weight: var(--font-weight-body);
-    line-height: 1.4;
-    word-break: keep-all;
-  }
-
   .setup-code-area-bottom {
     margin-top: 40px;
     padding: 16px 0 32px;
@@ -7562,17 +7550,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .setup-auto-join-area .setup-inline-error {
     margin-top: 0;
-  }
-
-  .setup-inner-desc {
-    font-size: 11.5px;
-    font-weight: var(--font-weight-body);
-    color: var(--text-sub);
-    text-align: center;
-    margin-top: 10px;
-    line-height: 1.4;
-    word-break: keep-all;
-    padding: 0 10px;
   }
 
   /* The hidden role picker remains styled so an explicit selection step can
@@ -12795,10 +12772,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
       max-width: var(--setup-guide-svg-max);
       height: var(--setup-guide-svg-h);
-    }
-
-    .desktop-diagram-area .setup-unified-item .setup-inner-desc {
-      font-size: var(--setup-guide-desc);
     }
 
     /* ── Onboarding slider in left panel ── */

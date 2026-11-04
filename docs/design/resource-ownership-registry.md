@@ -233,25 +233,37 @@ RO-54 accepted-exception
   (`whenForegroundAudioContextRestartReprepared`), and the dialog shows the same request again.
   `src/app.ts` sequences both in the recovery dialog, and `src/player/media-session.ts` repeats
   the same gesture sequence (resume, requirement, probe, escalate, confirm, rejoin).
-  `src/audio/ui-sounds.ts` resumes the context, only while it is not running, on a trusted
-  pointerdown or Enter or Space keydown and before it plays a UI sound, without asking either
-  owner. Since Phase 7 7A-1 each machine writes its phase only through
-  one funnel (`setRestartPhase` in `context.ts`, `setRecoveryPhase` in `context-recovery.ts`), and
-  `src/audio/output-recovery-counters.ts` observes the resource for `/debug sync`: an observer, not
-  an owner. The owners, the recovery dialog in `app.ts` and UI sounds report events to it (each
+  `src/audio/ui-sounds.ts` asks first whether an owner holds the context for a tap
+  (`isAudioOutputRecoveryHolding` in `context-recovery.ts`, which asks the play-request owner's
+  `isForegroundAudioContextRestartHolding` when called; Phase 7 7B-3) and, while one does, makes
+  no sound and wakes nothing; otherwise it resumes the context, only while it is not running, on
+  a trusted pointerdown or Enter or Space keydown and before it plays a UI sound. An owner holds
+  it for an attempt it still holds, for a local file and a current identity, that is parking the
+  context for its dialog's tap, parked for it, or resuming from that tap; never for an OS
+  interruption waiting for its automatic resume or a YouTube attempt (the
+  [ownership record](audio-context-ownership.md), Decision 6). Since Phase 7 7A-1 each machine
+  writes its phase only through one funnel (`setRestartPhase` in `context.ts`, `setRecoveryPhase`
+  in `context-recovery.ts`), and `src/audio/output-recovery-counters.ts` observes the resource for
+  `/debug sync`: an observer, not an owner. The owners, the recovery dialog in `app.ts` and UI
+  sounds report events to it (each
   native resume by its source, native suspends, every deadline race with whether its timer won,
   clock verification waits entered and left, refused taps, dialog requests, recovered rejoins); it
   keeps monotonic counts and no copy of owner state, and it calls the read-only queries the two
-  owners register (live suspend leases on a context, an attempt waiting for a tap) at the moment it
-  counts. `context-recovery.ts` carries the `Resource owner: RO-01` header.
+  owners register (live suspend leases on a context, an attempt waiting for a tap: since 7B-3 each
+  owner's holding answer, so a UI sound resume while waiting stays 0) at the moment it counts.
+  `context-recovery.ts` carries the `Resource owner: RO-01` header.
 - **Target single owner:** `src/audio/context-recovery.ts` as the only native resume and suspend
   owner; `context.ts` keeps the singleton. The rules Phase 7 works to are proposed in
   [AudioContext ownership](audio-context-ownership.md).
-- **Allowed requesters:** `ensureRunning` callers (transport, decode, engine) and
+- **Allowed requesters:** `ensureRunning` callers (transport, decode, engine) wake a context that
+  is not running without asking; when an attempt holds it, that owner's re-suspend rule parks it
+  again (the play-request attempt's since Phase 7 7B-2; kept by owner answer Q10).
   `probeAudioContextHealth` (defined in `context.ts`; called from `output-health.ts`, `app.ts`,
-  `media-session.ts`, `context-recovery.ts` and `src/player/transport.ts`) may resume only a
-  context the owner does not hold; the recovery dialog and media session call the owner's gesture
-  functions; UI sounds ask the owner before resuming.
+  `media-session.ts`, `context-recovery.ts` and `src/player/transport.ts`) resumes only for its one
+  `attemptResume: true` caller, the background check in `output-health.ts`, after both of that
+  file's ownership checks report no attempt. The recovery dialog and media session call the
+  owner's gesture functions. UI sounds ask the owner first and wake the context only while no
+  owner holds it for a tap (Phase 7 7B-3).
 - **Lifecycle operations:** native `resume()` and `suspend()` (today in `context.ts`,
   `context-recovery.ts` and `ui-sounds.ts`), suspend lease create, settle and abandon,
   clock-health arm and consume, confirm, retire and cancel.
@@ -296,10 +308,10 @@ RO-54 accepted-exception
 - **Status:** `duplicated`. Phase 7 (one lease, one `statechange` dispatcher, owner gesture
   functions, UI sounds yield); its first train took over the app part of Phase 0d, the shared
   recovery timing and the prepared-state predicate (C1-I1, 7A-2), and it counts the recovery on
-  the device for `/debug sync` (7A-1). Fix lane G7. Exceptions RO-36, RO-37,
-  RO-44. The guard counts the native calls per file (CHECK 6) and, since Phase 7 T1, the callers of
-  `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` per file beside
-  it, so a new requester of a resume needs an entry and this record's update.
+  the device for `/debug sync` (7A-1). UI sounds yield since 7B-3. Fix lane G7. Exceptions RO-36,
+  RO-37, RO-44. The guard counts the native calls per file (CHECK 6) and, since Phase 7 T1, the
+  callers of `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` per
+  file beside it, so a new requester of a resume needs an entry and this record's update.
 
 ### RO-02 YouTube Standard shared start
 

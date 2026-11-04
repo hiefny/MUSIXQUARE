@@ -129,22 +129,10 @@ function setRestartPhase(attempt: ForegroundRestartAttempt, phase: ForegroundRes
   }
 }
 
-registerAudioRecoveryOwner(
-  () => {
-    const attempt = pendingForegroundRestartAttempt;
-    return Boolean(
-      attempt &&
-      foregroundRestartStillCurrent(attempt) &&
-      (attempt.phase === 'preparing-suspend' ||
-        attempt.phase === 'awaiting-gesture' ||
-        attempt.phase === 'gesture-resuming'),
-    );
-  },
-  (context) => {
-    const lease = foregroundSuspendLeases.get(context);
-    return lease && !lease.settled && !lease.abandoned ? 1 : 0;
-  },
-);
+registerAudioRecoveryOwner(isForegroundAudioContextRestartHolding, (context) => {
+  const lease = foregroundSuspendLeases.get(context);
+  return lease && !lease.settled && !lease.abandoned ? 1 : 0;
+});
 
 export type AudioContextHealthReason =
   | 'healthy'
@@ -597,6 +585,25 @@ function createForegroundRestartAttempt(
 export function isForegroundAudioContextRestartOwned(context: AudioContext): boolean {
   const attempt = pendingForegroundRestartAttempt;
   return Boolean(attempt && attempt.context === context && foregroundRestartStillCurrent(attempt));
+}
+
+/**
+ * Holding (ownership record Decision 6, Phase 7 7B-3): the current attempt
+ * is parking the context for its dialog's tap, parked for it, or resuming it
+ * from that tap. A play-request attempt is always a local file's, and its
+ * suspend lease and late-suspend fence serve it only while it prepares the
+ * suspend. The playback-scope owner asks it for UI sounds
+ * (isAudioOutputRecoveryHolding), and the /debug sync counts ask it.
+ */
+export function isForegroundAudioContextRestartHolding(): boolean {
+  const attempt = pendingForegroundRestartAttempt;
+  return Boolean(
+    attempt &&
+    foregroundRestartStillCurrent(attempt) &&
+    (attempt.phase === 'preparing-suspend' ||
+      attempt.phase === 'awaiting-gesture' ||
+      attempt.phase === 'gesture-resuming'),
+  );
 }
 
 /** Let the shared statechange binder defer to an exact generic restart owner. */

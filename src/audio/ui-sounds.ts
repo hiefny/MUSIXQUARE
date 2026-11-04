@@ -4,9 +4,15 @@
  * These sounds intentionally bypass the media-effects graph: playback volume,
  * channel splitting, EQ and reverb must not alter interface feedback. They use
  * the app's shared AudioContext so iOS only has one context to unlock/resume.
+ *
+ * They ask the recovery owners first (RO-01, owner answer Q9, Phase 7 7B-3):
+ * while an owner holds the context for a recovery dialog's tap, UI sounds
+ * stay silent and wake nothing, so that tap resumes a parked context. Then
+ * they wake a context that is not running themselves, as before.
  */
 
 import { getAudioContext } from './context.ts';
+import { isAudioOutputRecoveryHolding } from './context-recovery.ts';
 import { countUiSoundResume } from './output-recovery-counters.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { log } from '../core/log.ts';
@@ -62,7 +68,9 @@ function nowMs(): number {
 function canPlayUiSound(force = false): boolean {
   return (
     (force || readEnabled()) &&
-    (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+    (typeof document === 'undefined' || document.visibilityState !== 'hidden') &&
+    // Asked after the preference and visibility, before any resume() below.
+    !isAudioOutputRecoveryHolding()
   );
 }
 

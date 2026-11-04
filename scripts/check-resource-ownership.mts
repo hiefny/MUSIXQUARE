@@ -618,8 +618,8 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
     {
       count: 2,
       reason:
-        'resumes a non-running context on trusted pointerdown or Enter/Space and before a ' +
-        'UI sound, without asking an owner (Phase 7 yields)',
+        'asks the owner before waking: resumes a non-running context on trusted pointerdown ' +
+        'or Enter/Space and before a UI sound only while no recovery owner holds it (Phase 7 7B-3)',
     },
   ],
 ]);

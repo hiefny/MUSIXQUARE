@@ -11,7 +11,8 @@
  * and UI sounds (ui-sounds.ts) report events; this module keeps monotonic
  * counts, one time sum and one maximum, never a copy of owner state and no
  * identifiers. Where a count needs an owner's answer (live suspend leases on
- * a context, an attempt waiting for a tap), the owner registers a read-only
+ * a context, an attempt waiting for a tap: since Phase 7 7B-3 the owner's
+ * holding answer, the one UI sounds ask), the owner registers a read-only
  * query that is called at that moment. Counts live in numbered slots of one
  * typed array; their names live only in the lazy reader
  * (diagnostics/sync-flight-recorder.ts).
@@ -170,7 +171,12 @@ export function countAudioSuspend(context: AudioContext, attempts: number): void
   counts[LEASES_AT_ONCE_MAX] = Math.max(counts[LEASES_AT_ONCE_MAX], live);
 }
 
-/** UI sounds resume the context; count it, and whether an owner was waiting for a tap. */
+/**
+ * UI sounds resume the context; count it, and whether an owner was waiting
+ * for a tap. Since Phase 7 7B-3 UI sounds ask the same owners first and do
+ * not wake a held context, so the second count stays 0 unless that rule
+ * breaks.
+ */
 export function countUiSoundResume(): void {
   counts[RESUME_UI_SOUND] += 1;
   if (waitingForTap.some((query) => query())) counts[UI_SOUND_RESUMES_WHILE_WAITING] += 1;

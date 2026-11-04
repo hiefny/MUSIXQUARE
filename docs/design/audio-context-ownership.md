@@ -26,10 +26,10 @@ Each keeps its own suspend lease, its own `statechange` listeners and its own ge
 `src/app.ts` sequences both in the recovery dialog ('Audio paused unexpectedly' with the 'Restore
 audio' button in English), `src/player/media-session.ts` repeats the same gesture sequence for
 a lock-screen PLAY, and `src/audio/ui-sounds.ts` resumes the context on a trusted press before it
-plays a UI sound, without asking either machine. Phase 7 makes `context-recovery.ts` the one owner
-of the recovery protocol in three app updates: 7A (counters and sound-neutral cleanup), 7B (the
-behaviour changes the owner approved on 2026-11-02, each behind a failing test) and 7C (the move
-behind one owner).
+plays a UI sound, without asking either machine (until 7B-3, Decision 2.3). Phase 7 makes
+`context-recovery.ts` the one owner of the recovery protocol in three app updates: 7A (counters
+and sound-neutral cleanup), 7B (the behaviour changes the owner approved on 2026-11-02, each
+behind a failing test) and 7C (the move behind one owner).
 
 ## Decision (proposed)
 
@@ -48,8 +48,10 @@ behind one owner).
       `src/audio/output-health.ts`, and runs only after both ownership checks in that file report
       no attempt.
    3. UI sounds ask the owner whether it holds the context for a tap, and wake it themselves only
-      when it does not (7B-3). Their two native resumes stay counted by the guard as requesters
-      that ask first.
+      when it does not; while it does they make no sound either (7B-3: `ui-sounds.ts` asks
+      `isAudioOutputRecoveryHolding` in `context-recovery.ts`, which asks the play-request owner's
+      answer when called). Their two native resumes stay counted by the guard as requesters that
+      ask first.
 3. **One native suspend in flight per context.** One lease and one `statechange` dispatcher per
    context (7B-4). A reader that only updates the loading indicator
    (`src/ui/file-start-loading.ts`) stays outside the dispatcher and is not counted as an owner
@@ -70,8 +72,10 @@ behind one owner).
      attempt is always a file), an attempt the owner still holds and a current identity. An OS
      interruption waiting for its automatic resume (`awaiting-resume`) is not holding, and neither
      is a YouTube-mode attempt parked by a clock stall: no dialog asks for its tap, so holding it
-     could silence UI sounds until the next lock-screen PLAY. 7B-3 implements and pins this
-     definition.
+     could silence UI sounds until the next lock-screen PLAY. Implemented in 7B-3 (an owner's
+     suspend lease and late-suspend fence serve its attempt only while that attempt prepares the
+     suspend, so the phases cover them) and pinned phase by phase by the holding table; the
+     `/debug sync` counts ask the same answers.
    - **Ownership** (broad, asked by `output-health.ts` before its background check): any attempt
      exists, a play-request restart (`isForegroundAudioContextRestartOwned`) or a playback-scope
      attempt (`getPendingAudioContextRecoveryAttemptForHealth`). The background check must not race
@@ -98,10 +102,14 @@ behind one owner).
   7A-2, or another new leaf), not in
   `context.ts` exports; `context-recovery.ts` and new modules read no `context.ts` export at module
   evaluation; and a change whose production path calls a new `context.ts` export updates, in the
-  same change, every factory mock of `context.ts` on that path. Two files evaluate the real
-  `context-recovery.ts` under a `context.ts` factory today
+  same change, every factory mock of `context.ts` on that path. Two files evaluated the real
+  `context-recovery.ts` under a `context.ts` factory before 7B-3
   (`src/player/__tests__/media-session-pending-start.test.ts`,
-  `src/player/__tests__/transport-ended-stop.test.ts`); they are the latch.
+  `src/player/__tests__/transport-ended-stop.test.ts`); they are the latch. Since 7B-3 every test
+  file that loads UI sounds evaluates it too (22 more under a `context.ts` factory). Its holding
+  query reads `isForegroundAudioContextRestartHolding` only after the UI sound preference, which
+  among those files only `src/audio/__tests__/ui-sounds.test.ts` turns on, and that file's factory
+  defines the name.
 - **Public behaviour, no sub-step names.** The owner tables (`audio-output-recovery-boundary`,
   `audio-output-recovery-holding`, `audio-output-recovery-parity`, in `src/audio/__tests__/`)
   assert the fake's op log, bus events and the owners' normalized answers through one driver

@@ -31,6 +31,7 @@ import {
   bindRetiredAudioContextSuspendRecovery,
   consumeForegroundAudioContextClockHealthCheck,
   getPendingForegroundAudioContextClockHealthCheck,
+  isForegroundAudioContextRestartHolding,
   isForegroundAudioContextRestartOwned,
   isForegroundAudioContextRestartSuspendOwned,
   probeAudioContextHealth,
@@ -136,23 +137,43 @@ function setRecoveryPhase(recovery: PendingContextRecovery, phase: RecoveryPhase
   countAudioRecoveryPhase(recovery, from, phase);
 }
 
-registerAudioRecoveryOwner(
-  () => {
-    const recovery = pendingRecovery;
-    return Boolean(
-      recovery &&
-      recoveryStillOwnsAttempt(recovery) &&
-      recovery.identity.mode === 'file' &&
-      (recovery.phase === 'preparing-suspend' ||
-        recovery.phase === 'awaiting-gesture' ||
-        recovery.phase === 'gesture-resuming'),
-    );
-  },
-  (context) => {
-    const lease = suspendLeases.get(context);
-    return lease && !lease.settled ? 1 : 0;
-  },
-);
+registerAudioRecoveryOwner(playbackScopeHolding, (context) => {
+  const lease = suspendLeases.get(context);
+  return lease && !lease.settled ? 1 : 0;
+});
+
+/**
+ * Holding (ownership record Decision 6; owner answer Q9, Phase 7 7B-3): a
+ * recovery owner is parking the shared context for a local file's recovery
+ * dialog, has parked it for that dialog's tap, or is resuming it from that
+ * tap, for an attempt it still holds with a current identity. UI sounds ask
+ * this first and, while it is true, make no sound and wake nothing, so the
+ * tap resumes a parked context. Reads the play-request owner's answer when
+ * it is called, never at module evaluation.
+ */
+export function isAudioOutputRecoveryHolding(): boolean {
+  return playbackScopeHolding() || isForegroundAudioContextRestartHolding();
+}
+
+/**
+ * This owner's part: a file attempt it still holds, for the playing item, in
+ * a phase before its tap's resume has landed (its suspend lease serves it
+ * only while it prepares the suspend). Never an OS interruption waiting for
+ * its automatic resume, and never a YouTube attempt: no dialog asks for that
+ * tap, so holding it could silence UI sounds until the next lock-screen PLAY.
+ */
+function playbackScopeHolding(): boolean {
+  const recovery = pendingRecovery;
+  return Boolean(
+    recovery &&
+    recoveryStillOwnsAttempt(recovery) &&
+    recovery.identity.mode === 'file' &&
+    (recovery.phase === 'preparing-suspend' ||
+      recovery.phase === 'awaiting-gesture' ||
+      recovery.phase === 'gesture-resuming') &&
+    identityStillCurrent(recovery.identity),
+  );
+}
 
 function activePlaybackIdentity(): PlaybackIdentity | null {
   if (!getState('setup.sessionStarted') || getState('playback.activity') !== 'playing') {

@@ -69,7 +69,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       배포 기록, 문서만, App 런타임은 운영 9.0.36 `6f9cf6f8`과 같음) 위의 T1(`agent/p7-t1`, 열 커밋, 시험·가드·문서만, 따로 PR, 릴리스
       없음, 끝 `1441742e`) 위에 7A 열여섯(처음 `cd8eaf47`, 다음 `432d4ae7` 위), 아이폰 고침 넷과 입력칸 스물셋(`88550bc4` 위)을 2026-11-04
       cherry-pick으로 옮긴 커밋 열(충돌 일곱은 모두 문서와 디자인 페이지 HTML이고 코드·시험 패치는 같음, 보고서 라운드 1), 버전 올리기
-      `5d346d64`(마지막 런타임 커밋), 그 뒤의 문서 커밋이다. 운영 배포 SHA(App `6f9cf6f8`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준
+      `51be7509`(마지막 런타임 커밋), 그 뒤의 문서 커밋이다. 운영 배포 SHA(App `6f9cf6f8`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준
       런타임 경로 변경은 버전 올리기 앞 App 71, 버전 올리기 머리에서 App 74(버전 거울 셋 `browser/classic-runtime/admin.ts`,
       `cloudflare/app-worker.ts`, `scripts/service-worker-asset.ts`를 더함), 나머지 다섯 Worker 0이고 App 런타임 의존성 차이가 없어 target
       `app`이다(보고서 라운드 2의 로컬 git 판정, 릴리스의 부분 릴리스 검사를 대신하지 않음). D1, 비밀, 바인딩, Wrangler 설정, CORS, 계약
@@ -81,7 +81,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       보고서의 시험, 입력칸의 만들기·검증·리뷰, 보고서 §14.1), 이 열차의 라운드 1(옮기기와 충실도: 테스트 먼저 짝은 부모 실패·코드
       통과이고 7A-6의 중립 고정만 기록대로 부모에서도 통과, 7A lab 17 / 17 세 트리와 관찰 줄 같음, 아이폰 명세 13 / 13, `field-family` 8 / 8, 정적 가드)과 라운드 2(버전 올리기, 배포 판정,
       버전 올리기 머리의 E2E 빌드에서 입력칸 승인 사진 139 상태: 134 같음, 예상한 5 다름, 대조 139 같음)다. 버전 올리기 머리의 전체 로컬
-      관문(아래 배포 조건 (2))은 라운드 3(2026-11-04, 시험한 머리 `8137c862`, 코드 `5d346d64`)에서 통과했다: 가드 37, 커버리지 둘, 단위
+      관문(아래 배포 조건 (2))은 라운드 3(2026-11-04, 시험한 머리 `631bff86`, 코드 `51be7509`)에서 통과했다: 가드 37, 커버리지 둘, 단위
       전체 두 번(두 번째에 git 고정물 행 하나가 부하로 자체 30초 한도를 넘었고 그 파일 혼자 두 번 통과), E2E 49개 파일 433 / 433(후보 19
       포함), 배포 SHA를 넣은 로컬 부분 릴리스 판정 compatible, eager JS gzip은 `34dbe592` 대비 +1,500 B. PR, PR CI, 자동 코드 리뷰,
       exact-main CI, 배포는 아직이고 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 기록 PR이 이 절을 '배포 뒤 확인'으로 바꾼다.
@@ -111,7 +111,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       런타임이 배포본과 같아야 한다: 지금 main `34dbe592`는 9.0.36의 배포 기록(문서만)이라 런타임이 운영 App 9.0.36 `6f9cf6f8`과 같다.
       T1(시험·가드·문서, 릴리스 없음)을 먼저 따로 PR로 머지하고 그 squash 위로 이 갈래의 커밋만 옮긴다
       (`git rebase --onto <새 main> 1441742ebc16333d46c509b96c9c6938b38a6127 agent/app-9-0-37`. 옛 바탕은 갈래 이름이 아니라 T1 끝의
-      SHA이고, 옮길 때 입력칸의 테스트 먼저 커밋 셋 `441dd267`, `26ae6ebe`, `cb9fd4cc`의 메시지에서 저장소 밖 로그 경로만 지움. T1이
+      SHA이고, 옮길 때 입력칸의 테스트 먼저 커밋 셋 `f5efe584`, `5cdb4c0b`, `ca2b4e46`의 메시지에서 저장소 밖 로그 경로만 지움. T1이
       리뷰에서 바뀌지 않았고 T1의 squash 트리가 `1441742e`의 트리와 같으면 옮긴 머리의 트리가 지금과 같아 결과가 이어지고, T1이
       바뀌었거나 트리가 다르면 전체 로컬 관문을 다시 돌림. 커밋 SHA는 모두 바뀌므로 커밋한 문서가 그 SHA를 인용한 곳을 모두 `git grep`으로
       찾아 새 것으로 맞추거나 보고서 §16 대응표에 새 열을 더해 그 기준으로 적음, 보고서 §13 2). 7A 보고서 '머지 전에 할 일' 2의 남은
@@ -123,7 +123,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       (2) 버전 올리기가 마지막 런타임
       커밋이다: 9.0.37과 SW epoch v810을 9.0.36의 버전 올리기 `f47d5733`과 같은 거울 여섯 파일의 일곱 줄(`package.json`의 version,
       `package-lock.json`의 version 둘, `ADMIN_SCRIPT_VERSION`, `ADMIN_ASSET_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의
-      `bootstrap.js?cache=`)에 올렸고(버전 올리기 `5d346d64`, 그 뒤는 문서 커밋만, 그 머리에서 `guard:sw-cache-version` PASS v810과
+      `bootstrap.js?cache=`)에 올렸고(버전 올리기 `51be7509`, 그 뒤는 문서 커밋만, 그 머리에서 `guard:sw-cache-version` PASS v810과
       `guard:release-identity` 'MUSIXQUARE 9.0.37; service-worker cache epoch v810', 보고서 라운드 2), 그 머리에서 typecheck, lint,
       `format:check`, `build:checked`(한 명령), 모든 `guard:*`, 자원 소유권, 핵심·Worker 커버리지, 단위 전체, `build:e2e` 뒤 critical E2E,
       YouTube 명세(아이폰 고침의 `youtube-background-stop-return`과 검색 버튼 명세 포함), 7A의 오디오 복구 명세와 lab, 입력칸 명세
@@ -154,8 +154,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그 App 버전은 `Rollback:`
       메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다. 증분 하나만 되돌리기(squash의 그 증분 패치를 거꾸로): 세 증분의 런타임 파일은
       `src/types/index.ts`의 서로 다른 두 자리 말고 겹치지 않고, 버전 올리기 머리의 인덱스에서 `git apply -R --check`로 7A의 문서 밖 패치,
-      7A-1의 네 커밋(`4e6eaec5`, `65ab936e`, `e2337b8e`, `2528cc86`), 아이폰 고침 전체(`e60f2f9a`, `f5785ff6`, `7bf5c5ef`와 문서), 입력칸 전체
-      (`441dd267` ~ `358272ff`)가 깨끗하게 거꾸로 적용된다(7A 전체는 `docs/README.md` 맥락에서만 멈춤, 보고서 라운드 2). 7A는 7B가 머지되기
+      7A-1의 네 커밋(`3bdb8aa7`, `260c9f3a`, `021cc106`, `8cf659aa`), 아이폰 고침 전체(`872f8bc3`, `f858db58`, `8399355d`와 문서), 입력칸 전체
+      (`f5efe584` ~ `5a9342f3`)가 깨끗하게 거꾸로 적용된다(7A 전체는 `docs/README.md` 맥락에서만 멈춤, 보고서 라운드 2). 7A는 7B가 머지되기
       전까지만 혼자 되돌릴 수 있다(7B가 7A의 시간 집과 숫자 자리를 씀). 이 열차의 머지로 9.0.36을 혼자 되돌리는 창이 닫힌다(아래 9.0.36 절).
       섞인 버전(보고서 §9): 방 안 통신, PRO 요청, 서버 계약, 저장 모양이 같아 9.0.36 탭과 같은 방에서 그대로 함께 쓴다. 아이폰 고침은 게스트
       기기 안의 분류와 복귀 사슬만, 입력칸은 그 기기의 CSS·화면 글·문구만 바꾼다[추론: 섞인 방을 따로 시험하지 않음]. 데이터, 바닥, Durable
@@ -363,7 +363,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       6 계획 §1.4, 9.0.35 절의 다음 단계와 같음)대로, 다음 App 업데이트는 41643979180이 통과하고 이 기록이 머지된 뒤에만 머지한다(한 번에
       한 열차, main 런타임이 배포본과 같아야 함). 그 실행은 23:41 KST에 통과했고 이 기록이 #568(`34dbe592`)로 머지돼 그 조건은 채워졌다.
       오너가 2026-11-04 새벽 Phase 7 7A, 아래 9.0.35 절의 iPhone 복귀 결함의 고침, 오너가 승낙한 입력칸 디자인 시스템을 한 App 업데이트로
-      내기로 정해, 다음 App 업데이트는 9.0.37 / v810 열차(갈래 `agent/app-9-0-37`, `34dbe592` 위, 버전 올리기 `5d346d64`, 준비됨·배포 전,
+      내기로 정해, 다음 App 업데이트는 9.0.37 / v810 열차(갈래 `agent/app-9-0-37`, `34dbe592` 위, 버전 올리기 `51be7509`, 준비됨·배포 전,
       위 9.0.37 절)이고, Phase 7 T1(가드와 문서, 릴리스 없음, 갈래 `agent/p7-t1`)은 그보다 먼저 따로 머지한다. 이 열차가 지운 코드를 아직
       적는 주석 셋(`src/i18n/locale-fonts.ts`, `src/i18n/app-font-contract.ts`, `scripts/public-font-sheets.mts`)은 App 런타임 경로라 다음 앱
       열차의 버전 올리기 앞에 고치기로 했지만(보고서 §11 7), 9.0.37 열차의 준비(2026-11-04)는 이 셋을 넣지 않았다. 넣으면 그 뒤에 버전

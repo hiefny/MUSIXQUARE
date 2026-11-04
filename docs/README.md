@@ -103,7 +103,7 @@ runbooks. Neither belongs in a general setup document.
   tip `1441742e`) rebuilt on main `34dbe592` (App 9.0.36 / v809's release record), then the sixteen
   7A commits, the four iPhone fix commits and the twenty-three input system commits cherry-picked in
   that order (seven conflicts, all in documents and the design page HTML; every code and test patch
-  unchanged), the bump `5d346d64` (9.0.37 / v810, the seven version lines of 9.0.36's bump, the last
+  unchanged), the bump `51be7509` (9.0.37 / v810, the seven version lines of 9.0.36's bump, the last
   runtime commit) and documentation commits. 7A (its report below) adds the owner-approved AUDIO
   RECOVERY lines to `/debug sync` and four neutral cleanups. The iPhone fix (its report below) lets
   an iPhone or iPad Standard guest that returns at the moment iOS stops the hidden YouTube iframe
@@ -125,8 +125,8 @@ runbooks. Neither belongs in a general setup document.
   bump head's build: 134 pixel-identical, the same five expected differences (the room-full trim and
   the host code kept at 32px), all controls identical. Not verified: real devices, Linux and WebKit,
   native readers for the 40 trimmed room-full copies outside ko and en, and Tamil's password refusal,
-  which wraps at 320 px. Round 3 ran the full local gate on the bump head `8137c862` (code
-  `5d346d64`): typecheck, lint, format, `build:checked` and all 37 guards one by one, both coverage
+  which wraps at 320 px. Round 3 ran the full local gate on the bump head `631bff86` (code
+  `51be7509`): typecheck, lint, format, `build:checked` and all 37 guards one by one, both coverage
   configs, the full unit suite twice (one git-fixture row over its own 30 s cap under load in the
   second run; that file alone passes twice), 433 E2E rows in 49 files (critical, the YouTube specs,
   7A's recovery specs and audio lab, the input system's setup, dialog, contrast, design page, chat
@@ -138,7 +138,7 @@ runbooks. Neither belongs in a general setup document.
   new lock-screen case found while preparing 7B (record only, by the owner's decision).
 - [iPhone YouTube return at the moment of the browser stop (2026-11-03)](design/ios-youtube-return-train-2026-11-03.md):
   not released; one increment of the App 9.0.37 / v810 train above, moved onto main `34dbe592` on
-  2026-11-04 (`e60f2f9a`, `f5785ff6`, `7bf5c5ef`, patches unchanged). Built on branch
+  2026-11-04 (`872f8bc3`, `f858db58`, `8399355d`, patches unchanged). Built on branch
   `agent/ios-yt-return` on main `88550bc4` (App 9.0.35 / v808), tested code `e4319843e`. Owner
   device report of 2026-11-03: an iPhone guest in a Standard room that reopens
   the app at the very moment iOS stops its hidden YouTube iframe stays paused until a tap on PLAY or
@@ -154,7 +154,7 @@ runbooks. Neither belongs in a general setup document.
   aligned over.
 - [Phase 7 train 7A: on-device audio recovery counts in /debug sync and a behaviour-neutral recovery cleanup (2026-11-03)](design/phase7-7a-audio-recovery-counters-2026-11-03.md):
   prepared, not merged or released; one increment of the App 9.0.37 / v810 train above, moved onto
-  main `34dbe592` on 2026-11-04 with every runtime and test patch unchanged (bump `5d346d64`, the
+  main `34dbe592` on 2026-11-04 with every runtime and test patch unchanged (bump `51be7509`, the
   release-record §2 9.0.37 section). The first of the three Phase 7 App updates (owner decision Q2),
   first prepared on branch `agent/p7-7a`: twelve commits on `agent/p7-t1` (the release-free Phase 7
   T0 second pull request and T1 with its review fixes, tip `42819c58`, on main `432d4ae7`) and four

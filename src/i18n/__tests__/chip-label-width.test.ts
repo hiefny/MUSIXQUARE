@@ -918,6 +918,31 @@ describe('chip label width guard', () => {
     expect(clipped).toEqual([]);
   });
 
+  it('starts each step label with its own step number in all 42 locales', () => {
+    // The current step folds its dot's number away, and an opening dot hands
+    // its number to the label's first character, so a label without its
+    // number would show none on the pill and a letter in the opening frame.
+    const steps = [...markup.querySelectorAll('.demo-step-nav button[data-demo-step]')].map(
+      (button) => ({
+        digit: button.getAttribute('data-demo-step') ?? '',
+        key: button.querySelector(':scope > span[data-i18n]')?.getAttribute('data-i18n') ?? '',
+      }),
+    );
+    expect(steps).toEqual([
+      { digit: '1', key: 'demo.step_connect' },
+      { digit: '2', key: 'demo.step_role' },
+      { digit: '3', key: 'demo.step_effects' },
+    ]);
+    const unnumbered: string[] = [];
+    for (const option of LANGUAGE_OPTIONS) {
+      for (const { digit, key } of steps) {
+        const text = dictionaries[option.code]?.[key] ?? '';
+        if (!text.startsWith(`${digit}.`)) unnumbered.push(`${option.code} ${key} '${text}'`);
+      }
+    }
+    expect(unnumbered).toEqual([]);
+  });
+
   it('keeps each accepted label at its recorded text and width', () => {
     const problems: string[] = [];
     for (const entry of ACCEPTED) {

@@ -401,6 +401,37 @@ describe('app UX markup contract', () => {
     expect(steps.every((step) => !step.hasAttribute('aria-selected'))).toBe(true);
   });
 
+  it("folds the current demo step's hidden number so its label sits at the pill's centre", () => {
+    // Owner decision 2026-11-05, from pictures: each step label starts with
+    // its number, so the number shown on the dots (capped at 1em) folds its
+    // width away with its fade on the current step. A step collapsing to a
+    // dot takes the width back only after its label has faded, so the
+    // fading label stays in place.
+    const number = declarationsForSelector(
+      '.demo-step-nav button:not(.demo-step-next)::before',
+    ).join('');
+    expect(number).toMatch(/max-width:\s*1em;/u);
+    expect(number).toMatch(/overflow:\s*hidden;/u);
+    expect(number).toMatch(/transition:\s*max-width 0\.16s ease,\s*opacity 0\.16s ease;/u);
+    expect(
+      declarationsForSelector('.demo-step-nav button.active:not(.demo-step-next)::before').join(''),
+    ).toMatch(/max-width:\s*0;/u);
+    const collapsing = declarationsForSelector(
+      '.demo-step-nav button.is-collapsing:not(.demo-step-next)::before',
+    ).join('');
+    expect(collapsing).toMatch(/opacity:\s*0;/u);
+    expect(collapsing).not.toMatch(/max-width:/u);
+    // The width waits out the label's 0.16s fade, then takes 0.16s: the dot
+    // has its whole number back when src/demo/mode.ts drops is-collapsing.
+    expect(collapsing).toMatch(/transition-delay:\s*0\.16s, 0s;/u);
+    expect(declarationsForSelector('.demo-step-nav button span').join('')).toMatch(
+      /transition:\s*max-width 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*opacity 0\.16s ease;/u,
+    );
+    expect(readFileSync(resolve('src/demo/mode.ts'), 'utf8')).toMatch(
+      /const DEMO_STEP_COLLAPSE_MS = 320;/u,
+    );
+  });
+
   it('keeps one playlist add action without duplicating it in the empty state', () => {
     expect(appDocument.querySelectorAll('#btn-add-media')).toHaveLength(1);
     expect(appDocument.querySelector('#playlist-ui .list-empty-state button')).toBeNull();

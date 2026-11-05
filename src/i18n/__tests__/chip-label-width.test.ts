@@ -46,12 +46,6 @@ interface LabelBox {
   readonly screen: string;
   readonly fontSize: number;
   readonly width: number;
-  /**
-   * The demo step indicator's hidden ::before digit keeps its room beside
-   * the label in this box: .demo-step-nav button:not(.demo-step-next)::before
-   * { content: attr(data-demo-step); font-size: 14px; font-weight: 500 }.
-   */
-  readonly lessStepDigit?: true;
 }
 
 interface ChipGroup {
@@ -61,6 +55,12 @@ interface ChipGroup {
   readonly boxes: readonly LabelBox[];
 }
 
+/**
+ * The demo step indicator's number, .demo-step-nav
+ * button:not(.demo-step-next)::before { content: attr(data-demo-step);
+ * max-width: 1em; overflow: hidden; font-size: 14px; font-weight: 500 }: the
+ * dots show it, capped at 1em, and the current step folds it to max-width 0.
+ */
 const STEP_DIGIT = { fontSize: 14, weight: 500 } as const;
 
 /**
@@ -228,17 +228,13 @@ function chipGroups(css: string): readonly ChipGroup[] {
       // The current step's pill at 320×568: --demo-step-pill-size
       // clamp(100px, 100vw − 2 × 14.4 − 3 × 52 − 3 × 6.4, 184px) = 116px,
       // less padding clamp(8px, 2.6vw, 14px) = 8.32px and the 1px border
-      // each side: 97.36px at 13px, steps 1 to 3 also less their digit.
+      // each side: 97.36px at 13px. The current step folds its hidden number
+      // to max-width 0, so the label has the whole box.
       // From 1500px the label takes 15px and its span's max-width 128px.
       name: 'demo-step-nav',
       labels: '.demo-step-nav button > span[data-i18n]',
       boxes: [
-        {
-          screen: '320×568',
-          fontSize: 13,
-          width: 116 - 2 * 8.32 - 2 * 1,
-          lessStepDigit: true,
-        },
+        { screen: '320×568', fontSize: 13, width: 116 - 2 * 8.32 - 2 * 1 },
         { screen: '1536×864', fontSize: 15, width: 128 },
       ],
     },
@@ -447,10 +443,18 @@ const LABEL_BOX_SOURCES: Readonly<Record<string, readonly BoxSource[]>> = {
       'font-size': '13px',
       'letter-spacing': 'var(--button-label-letter-spacing)',
     }),
+    // The step number: the dots' 1em cap, which the cap test below measures
+    // the digits against, and the current step's fold, which leaves the
+    // label the whole box.
     source('css/style.css', '.demo-step-nav button:not(.demo-step-next)::before', null, {
       content: 'attr(data-demo-step)',
+      'max-width': '1em',
+      overflow: 'hidden',
       'font-size': `${STEP_DIGIT.fontSize}px`,
       'font-weight': 'var(--font-weight-unselected)',
+    }),
+    source('css/style.css', '.demo-step-nav button.active:not(.demo-step-next)::before', null, {
+      'max-width': '0',
     }),
     source('css/style.css', '.demo-step-nav button.active', null, {
       'flex-basis': 'var(--demo-step-pill-size)',
@@ -514,7 +518,11 @@ interface AcceptedLabel {
  * owner confirmed on 2026-10-29. The app font switch (2026-10-31: Inter, and
  * the CJK families at 94%) moved their widths and adds 12 near misses that
  * still fit their box; those wait for the owner's review of the switch, as
- * their reasons say.
+ * their reasons say. Since the current demo step folds its hidden number
+ * away (2026-11-05), its label has the whole pill, and four step labels fit
+ * with 4px to spare and left the list: the Korean step 3 the owner kept on
+ * 2026-10-28, and of those near misses the Korean step 2 and the Danish and
+ * Norwegian step 3.
  * Widths come from the switch's fonts, Korean first in the Han order. An
  * entry covers only its own screen's box, so a label that is
  * accepted at 320px still has to fit every other box. A changed text, or a
@@ -560,16 +568,6 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     width: 79.69,
     box: 82,
     why: 'the same word as the reverb chip; one line',
-  },
-  {
-    locale: 'ko',
-    group: 'demo-step-nav',
-    key: 'demo.step_effects',
-    screen: '320×568',
-    text: '3. 고급 음향 효과',
-    width: 88.15,
-    box: 88.83,
-    why: 'the Korean the owner kept on 2026-10-28; one line, not cut off',
   },
   {
     locale: 'id',
@@ -731,36 +729,6 @@ const ACCEPTED: readonly AcceptedLabel[] = [
     box: 50,
     why: 'app font switch near miss (2026-10-31): 3.65px to spare in its box; waits for the owner review of the switch',
   },
-  {
-    locale: 'ko',
-    group: 'demo-step-nav',
-    key: 'demo.step_role',
-    screen: '320×568',
-    text: '2. 역할 설정하기',
-    width: 85.23,
-    box: 88.97,
-    why: 'app font switch near miss (2026-10-31): 3.74px to spare in its box; waits for the owner review of the switch',
-  },
-  {
-    locale: 'da',
-    group: 'demo-step-nav',
-    key: 'demo.step_effects',
-    screen: '320×568',
-    text: '3. Lydeffekter',
-    width: 85.17,
-    box: 88.83,
-    why: 'app font switch near miss (2026-10-31): 3.66px to spare in its box; waits for the owner review of the switch',
-  },
-  {
-    locale: 'nb',
-    group: 'demo-step-nav',
-    key: 'demo.step_effects',
-    screen: '320×568',
-    text: '3. Lydeffekter',
-    width: 85.17,
-    box: 88.83,
-    why: 'app font switch near miss (2026-10-31): 3.66px to spare in its box; waits for the owner review of the switch',
-  },
 ];
 
 interface Check {
@@ -805,31 +773,21 @@ describe('chip label width guard', () => {
       const labels = [...markup.querySelectorAll(group.labels)];
       for (const label of labels) {
         const key = label.getAttribute('data-i18n') ?? '';
-        const button = label.closest('button');
-        const digit = button?.classList.contains('demo-step-next')
-          ? ''
-          : (button?.getAttribute('data-demo-step') ?? '');
         for (const option of LANGUAGE_OPTIONS) {
           const text = dictionaries[option.code]?.[key] ?? '';
-          const measure = (value: string, fontSize: number, weight: number) =>
-            harness.measure(value, {
-              htmlLang: option.htmlLang,
-              fontSize,
-              weight,
-            });
           for (const box of group.boxes) {
-            const digitWidth =
-              box.lessStepDigit && digit
-                ? (await measure(digit, STEP_DIGIT.fontSize, STEP_DIGIT.weight)).width
-                : 0;
-            const measured = await measure(text, box.fontSize, SELECTED_WEIGHT);
+            const measured = await harness.measure(text, {
+              htmlLang: option.htmlLang,
+              fontSize: box.fontSize,
+              weight: SELECTED_WEIGHT,
+            });
             checks.push({
               locale: option.code,
               group: group.name,
               key,
               text,
               screen: box.screen,
-              box: box.width - digitWidth,
+              box: box.width,
               width: measured.width,
               uncovered: measured.uncovered,
             });
@@ -935,6 +893,29 @@ describe('chip label width guard', () => {
       }
     }
     expect(tooWide).toEqual([]);
+  });
+
+  it('keeps each step number inside its 1em cap on the dots in all 42 locales', async () => {
+    // A number wider than the cap would lose its edge on a dot.
+    const digits = [...markup.querySelectorAll('.demo-step-nav button[data-demo-step]')].map(
+      (button) => button.getAttribute('data-demo-step') ?? '',
+    );
+    expect(digits).toEqual(['1', '2', '3']);
+    const clipped: string[] = [];
+    for (const option of LANGUAGE_OPTIONS) {
+      for (const digit of digits) {
+        const { width, uncovered } = await harness.measure(digit, {
+          htmlLang: option.htmlLang,
+          fontSize: STEP_DIGIT.fontSize,
+          weight: STEP_DIGIT.weight,
+        });
+        if (width <= STEP_DIGIT.fontSize && uncovered.length === 0) continue;
+        clipped.push(
+          `${option.code} '${digit}' ${width.toFixed(2)}px, cap ${STEP_DIGIT.fontSize}px`,
+        );
+      }
+    }
+    expect(clipped).toEqual([]);
   });
 
   it('keeps each accepted label at its recorded text and width', () => {

@@ -457,7 +457,8 @@ release-record는 이 갈래에서 고치지 않았다(조립 단계가 배포 �
 4. **release-record:** §2에 App 9.0.39 절(배포 전)과 위 '열린 항목'의 링크. §1, `Last source review`, release-history는 배포 기록 PR이 한다.
 5. **전체 로컬 관문:** typecheck(모든 프로젝트), lint, format, `build:checked` 한 명령, `guard:*` 모두, ownership과 `--report`, 두 커버리지,
    단위 전체 두 번, `build:e2e` 뒤 critical E2E, CI 복구 명세, lab 세 번, 제품 후보, 로컬 부분 릴리스 판정, 9.0.38 기록 main의 깨끗한 빌드 대비
-   eager 크기. 결과는 아래 QA 라운드에 더한다.
+   eager 크기. 결과는 아래 QA 라운드에 더한다. 옮기기와 버전 올리기 전의 머리 `a628a918`에서는 QA 라운드 9가 같은 관문을 돌렸다(버전 올리기를
+   기다리는 `guard:sw-cache-version`만 실패).
 6. **오너께 보이기:** 아래 '오너에게'의 사진에 없던 변화 둘과 숫자 차이 넷을 머지 전에 보이고 답을 이 보고서에 적는다(오너 규칙: 화면이나
    소리가 바뀌는 것은 사진 먼저).
 7. **릴리스:** PR CI, 자동 리뷰, 머지는 dispatch 바로 전, exact-main CI 성공, Release target `app`, `raise_app_build_floor` false, Developer API
@@ -554,7 +555,8 @@ release-record는 이 갈래에서 고치지 않았다(조립 단계가 배포 �
 | 7B-5 테스트 먼저               | `feeb4fc0`                           | 첫 판 `a3f2e3e5`에 지킴 행 (d-1 트랙)의 나눔을 더한 것. 단위 증명은 단위 파일이 같은 `a3f2e3e5`에서                                                                                                                               |
 | 7B-5 코드                      | `d63109a2`                           | 첫 판 `b8046ec0`을 그 위에 다시 쌓은 것(lab 두 파일만 다름). 단위 전체, 커버리지, 가드, 빌드, 번들은 `b8046ec0`에서, lab, CI 명세, e2e typecheck, `lint:tooling`, `format:check:tooling`, `guard:playwright-api`는 `d63109a2`에서 |
 | 7B-6 테스트 먼저 → 코드 → 지킴 | `c769794b` → `97f8010d` → `212fd787` | 단위 전체는 `97f8010d`, 핵심 커버리지는 `212fd787`에서                                                                                                                                                                            |
-| 이 문서 커밋                   | (이 커밋)                            | 문서만(이 보고서, `docs/README.md`, registry, 결정 기록)                                                                                                                                                                          |
+| 문서 커밋                      | `a628a918`                           | 문서만(이 보고서, `docs/README.md`, registry, 결정 기록). QA 라운드 9의 전체 로컬 관문은 이 머리에서 돌렸다                                                                                                                       |
+| 관문 기록 커밋                 | (이 커밋)                            | 문서만(이 보고서의 QA 라운드 9·10, 이 표, '머지 전에 할 일' 5)                                                                                                                                                                    |
 
 ## QA 라운드
 
@@ -658,10 +660,61 @@ PeerJS 9911, trace 끔, 재시도 0, 한 번에 E2E 하나다. 같은 PC에서 9
   `git diff --check`를 다시 돌려 통과했다(registry, 결정 기록, `docs/README.md`는 그 뒤 바뀌지 않음).
 - 커밋 뒤 그 머리의 결과는 다음 라운드와 PR 글에 적는다(커밋이 자기 SHA를 적을 수 없음).
 
-### 9. 이후 라운드 (게이트에서 채움)
+### 9. 전체 로컬 관문 (`a628a918`, 바탕 `3506dc41`의 깨끗한 빌드, 2026-11-05 07:57 ~ 08:58 KST)
 
-- 전체 로컬 관문, 독립 리뷰와 그 반영, 조립(9.0.38 기록 main 위로 옮기기, 버전 올리기 9.0.39 / v812, release-record §2), PR CI, 자동 리뷰,
-  exact-main CI, 배포와 smoke, 머지 뒤 Full E2E를 차례로 적는다. 로컬과 갈래의 시험은 정확한 main SHA 후보가 아니다.
+이 갈래의 worktree 하나에서 한 번에 하나씩 돌렸다. 단위는 `--maxWorkers=3`, E2E는 앱 4911과 PeerJS 9911(lab 설정의 4913·8913·9913도 환경값으로
+줌), trace 끔, 재시도 0이다. Wrangler를 부르는 typecheck의 Worker 형 확인은 배너의 새 판 확인과 원격 측정을 끄고 돌렸다. 같은 PC에서 9.0.38
+작업이 다른 worktree와 포트로 돌았다.
+
+- **정적 검사:** `npm run typecheck`(모든 프로젝트, Worker 형 `--check` 포함, 87 s), `typecheck:tests`(35 s), `npm run lint`(app과 tooling,
+  120 s), `npm run format:check`(49 s) 통과.
+- **`build:checked` 한 명령:** 앞 단계 열둘이 통과한 뒤 `guard:sw-cache-version`에서 멈췄다(종료 1). 목록은 v810 올리기 `d1665230` 뒤에 바뀐
+  App 런타임 일곱(위 'Deploy target'과 같음)이다. 남은 단계 열둘을 하나씩 돌려 모두 통과했다: `guard:profanity-patterns`, `guard:index-hreflang`,
+  `guard:sitemap`, `dist`를 지운 뒤 `npm run build`(진입 `main-Dy2dS6fs.js`), `guard:legacy-tv-build`, `guard:service-worker-build`,
+  `guard:ui-kit-build`, `guard:initial-transfer-budget`(eager JS 456.6 KiB gzip), `guard:prod-hooks`, `guard:prod-security`, `guard:font-build`,
+  `guard:sw-app-shell`(95 assets).
+- **버전 올리기만 빠졌다는 것:** 그 일곱은 `d1665230` 대비 바뀐 시험 밖 `src/` 파일 전부이고 다른 런타임 경로는 바뀌지 않았다
+  (`d1665230..3506dc41`은 `docs/` 밖이 빔). HEAD 위에 `SERVICE_WORKER_CACHE_VERSION`만 v810 → v812로 바꾼 버림 커밋 개체(임시 index와
+  `git commit-tree`, 어느 ref에도 두지 않음, 작업 트리와 index는 그대로)를 `--head`로 주면 가드는 'PASS: v812 … covers all committed PWA runtime
+  changes'다. `guard:release-identity`는 'MUSIXQUARE 9.0.37; service-worker cache epoch v810'으로 통과한다(버전 올리기 뒤에는 9.0.39 / v812).
+- **`guard:*` 37을 하나씩(그 운영 `dist` 위):** 36 통과, `guard:sw-cache-version`만 같은 까닭으로 실패. dead-exports 완전 0 / test-only 20 /
+  self-only 75(기준 20과 75, 414 production files, exported bindings 2,261), bus-pairing 202 / 202, import-graph 414 files·간선 2,127·SCC 0,
+  `guard:brand-capitalization` 1,054 copy sources, `guard:ops-drift-contract`(소스만)와 `guard:d1-migrations` 포함.
+- **ownership:** `node scripts/check-resource-ownership.mts` OK(50 records, 461 production files, native 9, 간접 4 / 1 / 5, `initAudio` 12, 같은
+  값 짝 38), `--report` 122줄.
+- **제품 후보:** 그 `build:checked` 출력 그대로 `test:e2e:candidate` 19 / 19(57.5 s).
+- **로컬 부분 릴리스 판정:** `scripts/release-deployment-state.mts`의 `changedRuntimePaths`, `runtimePathsForWorker`,
+  `changedAppRuntimeDependencies`로 바탕 `3506dc41`과 운영 9.0.37의 머지 `d1665230` 각각 대비: App 7(위 일곱), PRO room·remote-share·signaling·
+  Developer API facade·Developer API 0, App 런타임 의존성 변경 없음. 계약 동결 diff(`cloudflare/`, `src/network/protocol.ts`,
+  `src/chat/protocol.ts`, `src/core/constants.ts`, `src/types/index.ts`, `package.json`, `package-lock.json`)는 비었다. 9.0.38 기록 main 위로
+  옮긴 뒤 그 배포 SHA 대비로 다시 판정한다.
+- **eager 크기:** 같은 worktree에서 바탕 `3506dc41`을 잠깐 detached로 꺼내(`package.json`·`package-lock.json` 같음) `dist`를 지우고
+  `npm run build`한 뒤 갈래로 돌아왔다. 바탕 eager JS gzip 467,353, total 546,006, 진입 `main-CRPNGkCE.js` 862,074 / 254,899(라운드 1과 같음).
+  머리 467,537(**+184**), 546,185(+179), `main-Dy2dS6fs.js` 862,579 / 255,086(+505 / +187). eager 24, 이름 목록 같음. 위 '번들 크기'와 같다.
+- **E2E:** `build:e2e` 뒤 `test:e2e:critical`(그 안의 `build:e2e` 뒤) 101 / 101(5.7분). `background-resume`, `demo-output-recovery`,
+  `back-navigation` 세 파일 전체 15 / 15(44 s, CI 복구 명세 5 / 5와 복구 창 뒤로가기 행 포함). 오디오 lab 세 번 18 / 18(각 3.1분): (i) 탭 →
+  running 78 ~ 81 ms, (d-1) 정리 재개가 표식 6 ms 앞, (d-1 트랙) `resume@click`이 다음 트랙 표식 32 ~ 50 ms 뒤, (d-2) 정리 없음, (d-3) 5,764 ~
+  5,769 ms, (iii) 정지 하나가 얼린 뒤 376 ~ 382 ms, 창 한 번이 그 뒤 577 ~ 580 ms, 탭 → running 73 ~ 80 ms, (ii) 창 두 번 그대로(Known gap).
+  op 시각을 지운 `[audio-lab]` 관찰 줄 37줄이 `212fd787`의 세 번과 같다.
+- **단위:** 계획의 C1 단위 묶음(`src/audio`, `media-session` 다섯 파일, `concurrency-invariants`, `resource-ownership-guard`) 34 files / 888
+  통과(108 s, T0 주인 묶음 259 포함). `test:coverage:critical` 112 files / 4,644 통과(125 s): `context-recovery.ts` 92.37 / 90.81 / 90.54 / 94.77
+  (문턱 89 / 87 / 87 / 92), `context.ts` 91.31 / 86.81 / 96.77 / 93.86(문턱 88 / 83 / 94 / 90), 전체 84.92 / 80.19 / 90.68 / 88.54(문턱 73 / 66 / 80
+  / 78), 파일 문턱 모두 통과(`212fd787`과 같은 값). `test:coverage:workers` 69 files / 3,330 통과(104 s), 전체 86.70 / 83.54 / 94.34 / 90.97(문턱
+  81 / 77 / 90 / 86), 파일 문턱 모두 통과. 단위 전체 두 번(`vitest run --maxWorkers=3`) 773 files / 18,694: 둘 다 18,693 통과, 0 실패, 1 건너뜀(jq
+  행), 756 s와 771 s. 시간 초과가 없어 다시 돌린 파일은 없고, 두 번의 행별 결과가 같다.
+- **끝난 뒤:** 4909, 9909, 4911, 9911, 4913, 8913, 9913에 리스너 없음, node·Chromium 프로세스 없음, worktree 깨끗함(`agent/p7-7b`), 버림 커밋
+  개체를 가리키는 ref 없음.
+- **돌리지 않은 것:** 버전 올리기 머리의 관문(조립 단계), shuffle seed, WebKit(로컬 Playwright WebKit에 AudioContext 없음), Full E2E, 기기.
+- **이 기록 커밋의 문서 확인(만들기 전 작업 트리, 런타임은 `a628a918`과 같음):** 바꾼 파일은 이 보고서 하나다(`docs/` 밖 차이 없음). 이
+  보고서와 `docs/README.md`, registry, 결정 기록의 `prettier --check` 통과. `git diff --check`(작업 트리, 그리고 바탕 대비 갈래 전체) 비어 있음.
+  이 보고서, `docs/README.md`, registry, 결정 기록과 7A 보고서의 상대 링크와 제목 앵커 408개 가운데 깨진 것 0. 더한 줄에 로컬 경로와 도구
+  이름, 여섯 자리 수가 없다. `guard:brand-capitalization` PASS(1,054 copy sources), `check-resource-ownership` OK, 문서를 읽는 단위 넷 4 files /
+  251 통과, 1 건너뜀(jq 행), 111 s.
+
+### 10. 이후 라운드 (조립과 릴리스에서 채움)
+
+- 독립 리뷰와 그 반영, 조립(9.0.38 기록 main 위로 옮기기, 버전 올리기 9.0.39 / v812, release-record §2), 버전 올리기 머리의 전체 로컬 관문,
+  PR CI, 자동 리뷰, exact-main CI, 배포와 smoke, 머지 뒤 Full E2E를 차례로 적는다. 로컬과 갈래의 시험은 정확한 main SHA 후보가 아니다.
 
 ## 하지 않은 것과 확인하지 않은 것
 

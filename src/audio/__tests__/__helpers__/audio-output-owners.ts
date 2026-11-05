@@ -389,11 +389,9 @@ export interface PlayRequest {
  * attempt's request. Only such an attempt is parked again after an outside
  * resume and holds the context for its tap (Phase 7 7B-2 and 7B-3); one whose
  * notice never became a dialog is left to the next PLAY's clock check.
- * Called optionally so the same rows also ran on the owners from before that
- * rule, which had no such call and treated every parked attempt so.
  */
 export function dialogTakesPlayRequest(o: Owners, attemptToken: object): void {
-  o.context.claimForegroundAudioContextRestartForDialog?.(attemptToken);
+  o.context.claimForegroundAudioContextRestartForDialog(attemptToken);
 }
 
 export interface PlayRequestOptions {

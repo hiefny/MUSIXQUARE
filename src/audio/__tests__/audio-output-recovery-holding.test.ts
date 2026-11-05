@@ -83,6 +83,13 @@ const TAP_RESUME_LANDS = ['statechange:running', 'resume:resolved'];
  * 750 ms gesture deadline, so the row shows the sound and not the deadline.
  */
 const TAP_RESUME_MS = 400;
+/**
+ * The late variant (H16, H17): the tap's own resume lands 1.2 s after the
+ * tap, and the sound comes at 1 s, after the owners' 750 ms gesture deadline
+ * has answered the tap's caller while that resume is still pending.
+ */
+const LATE_TAP_RESUME_MS = 1_200;
+const SOUND_AFTER_LATE_TAP_MS = 1_000;
 
 async function parkPlayRequest(o: Owners, fake: FakeNativeAudioContext, dialog = true) {
   const request = playRequest.arm(o, fake, { dialog });
@@ -386,6 +393,53 @@ const ROWS: Row[] = [
     needed: [],
     rejoins: [],
     end: { state: 'running', request: 'owned', scope: NONE },
+  },
+  {
+    // As H5, the sound after the 750 ms gesture deadline has answered the
+    // tap's caller while the tap's own resume is still pending (the attempt
+    // waits for its gesture again). Held: silent, nothing resumed. The late
+    // own resume then lands and the owner promotes it to its clock check
+    // (Phase 7 7B-5), which the dialog runs.
+    phase: 'H16 play-request, its own tap resume pending past the deadline: held',
+    arrange: async (o, fake) => {
+      const request = await parkPlayRequest(o, fake);
+      fake.planResume({ latencyMs: LATE_TAP_RESUME_MS });
+      void request.tap().then(
+        () => undefined,
+        () => undefined,
+      );
+      await vi.advanceTimersByTimeAsync(SOUND_AFTER_LATE_TAP_MS);
+    },
+    before: { state: 'suspended', request: 'owned', scope: NONE },
+    immediate: [],
+    after: TAP_RESUME_LANDS,
+    tones: 0,
+    needed: [],
+    rejoins: [],
+    end: { state: 'running', request: 'owned', scope: NONE },
+  },
+  {
+    // As H11, past the deadline. Held: silent, nothing resumed. The late own
+    // resume lands, the owner verifies it itself (fix lane G7, Phase 7 7B-5)
+    // and rejoins once.
+    phase: 'H17 playback-scope, its own tap resume pending past the deadline: held',
+    arrange: async (o, fake) => {
+      stageFile(o);
+      await expect(playbackScope.armStalled(o, fake)).resolves.toBe('prepared');
+      fake.planResume({ latencyMs: LATE_TAP_RESUME_MS });
+      void playbackScope.tap(o).then(
+        () => undefined,
+        () => undefined,
+      );
+      await vi.advanceTimersByTimeAsync(SOUND_AFTER_LATE_TAP_MS);
+    },
+    before: { state: 'suspended', request: 'none', scope: FILE_PARKED },
+    immediate: [],
+    after: TAP_RESUME_LANDS,
+    tones: 0,
+    needed: [],
+    rejoins: ['audio-context-recovered'],
+    end: { state: 'running', request: 'none', scope: NONE },
   },
 ];
 

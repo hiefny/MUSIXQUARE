@@ -182,12 +182,10 @@ async function loadMediaSession(): Promise<() => void> {
 /**
  * app.ts's recovery dialog takes a play-request attempt when it shows that
  * attempt's request. Only such an attempt is parked again after an outside
- * resume and holds the context for its tap (Phase 7 7B-2 and 7B-3). Called
- * optionally so the same rows also ran on the owners from before that rule,
- * which had no such call and treated every parked attempt so.
+ * resume and holds the context for its tap (Phase 7 7B-2 and 7B-3).
  */
 function dialogTakes(o: Owners, attemptToken: object): void {
-  o.context.claimForegroundAudioContextRestartForDialog?.(attemptToken);
+  o.context.claimForegroundAudioContextRestartForDialog(attemptToken);
 }
 
 /**

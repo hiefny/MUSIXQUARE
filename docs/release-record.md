@@ -102,7 +102,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       셋, 7B를 건 열린 항목 넷(9.0.3, 9.0.0, 실기기 확인의 장시간 세션, 잠긴 화면의 소리), §4의 문장 셋에서 이 열차를 배포 전으로 적은 것을 배포 뒤로
       고치고, 다른 절의 기기 확인이 이제 9.0.39에서 한다고 적고(빌드 줄 `app=9.0.39 | cacheEpoch=v812`), 9.0.29 절의 낮은 epoch 항목에 이 릴리스
       checkpoint의 9.0.38을 더하고, 바뀐 §2 항목마다 이 열차 보고서를 걸고, 이 열차 보고서의 상태와 QA 라운드 6, 7B 보고서의 상태,
-      `docs/README.md`의 항목을 배포됨으로 고치고, `release-history.md`에 한 행을 더했다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
+      `docs/README.md`의 항목을 배포됨으로 고치고, 9.0.38 보고서의 상태·버전·되돌리기에 이 배포를 적고, `release-history.md`에 한 행을 더했다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
       [보고서](design/app-9-0-39-train-2026-11-05.md),
       [부분 한눈에](design/app-9-0-39-train-2026-11-05.md#2-부분-한눈에),
       [7B 보고서](design/phase7-7b-audio-recovery-behaviour-2026-11-05.md),

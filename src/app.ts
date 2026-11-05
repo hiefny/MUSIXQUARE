@@ -58,6 +58,7 @@ import {
 } from './audio/context-protocol.ts';
 import {
   armForegroundAudioContextClockHealthCheck,
+  claimForegroundAudioContextRestartForDialog,
   confirmForegroundAudioContextRestartHealth,
   getExistingAudioContext,
   getPendingForegroundAudioContextRestartClockHealthRequirement,
@@ -555,6 +556,13 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   // Whatever asked for it, this dialog explains the return from the
   // background itself, so the generic warning steps aside for this return.
   longBackgroundWarning.yieldToAudioRecovery();
+  // This dialog takes the play-request attempt it serves: only such an
+  // attempt is parked again after an outside resume and holds the context
+  // for its tap (Phase 7 7B-2 and 7B-3). A notice declined or dropped before
+  // this point leaves its attempt to the next PLAY's clock check.
+  if (identity.foregroundRestartAttemptToken) {
+    claimForegroundAudioContextRestartForDialog(identity.foregroundRestartAttemptToken);
+  }
   const operation = showDialog({
     title: t('dialog.audio_recovery_title'),
     message: t('dialog.audio_recovery_message'),

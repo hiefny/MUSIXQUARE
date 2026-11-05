@@ -43,7 +43,10 @@ behind a failing test) and 7C (the move behind one owner).
       initialization). When an attempt holds the context, the owner's re-suspend rule undoes that
       wake (kept as today's behaviour, owner answer of 2026-11-02). Since 7B-2 the play-request
       attempt waiting for its tap has the same rule as the playback scope's, so its tap resumes a
-      parked context instead of being refused.
+      parked context instead of being refused. The rule serves an attempt a recovery dialog has
+      taken (`app.ts` takes it when it shows the request,
+      `claimForegroundAudioContextRestartForDialog`); an attempt whose notice never became a
+      dialog keeps no context, and the next PLAY's clock check retires it, as before 7B-2.
    2. `probeAudioContextHealth` with `attemptResume: true` has one caller,
       `src/audio/output-health.ts`, and runs only after both ownership checks in that file report
       no attempt.
@@ -85,7 +88,9 @@ behind a failing test) and 7C (the move behind one owner).
 6. **Two questions, kept apart.**
    - **Holding** (narrow, asked by UI sounds before they wake the context): the owner is waiting
      for a tap. That is a suspend being prepared (`preparing-suspend`), a parked context waiting
-     for the gesture (`awaiting-gesture`) or the gesture resume in flight (`gesture-resuming`), an
+     for the gesture of a dialog that has the attempt (`awaiting-gesture`; a play-request attempt
+     whose notice never became a dialog holds nothing) or the gesture resume in flight
+     (`gesture-resuming`), an
      unfinished lease or late-suspend fence, and only for a file-mode identity (the play-request
      attempt is always a file), an attempt the owner still holds and a current identity. An OS
      interruption waiting for its automatic resume (`awaiting-resume`) is not holding, and neither

@@ -242,6 +242,11 @@ RO-54 accepted-exception
   with the same attempt (`reparkForegroundAudioContextRestartAfterResume`), as the playback scope
   re-suspends its own; a dialog tap that meets that re-park keeps the attempt
   (`whenForegroundAudioContextRestartReprepared`), and the dialog shows the same request again.
+  That re-park, and the holding below, serve only an attempt a recovery dialog has taken: `app.ts`
+  takes it when it shows the attempt's request (`claimForegroundAudioContextRestartForDialog`).
+  An attempt whose one notice never became a dialog (a hidden page, a replaced PLAY, a pending
+  forced update) is neither parked again nor holding, and the next PLAY's clock check retires it,
+  as before 7B-2.
   Since Phase 7 7B-5 both resume an attempt through one recovery resume in `context.ts`
   (`requestAudioContextResume`): one native `resume()` inside the caller's activation, raced with
   its 750 ms deadline, and one promotion when the context runs for it, from the native promise or
@@ -266,8 +271,8 @@ RO-54 accepted-exception
   no sound and wakes nothing; otherwise it resumes the context, only while it is not running, on
   a trusted pointerdown or Enter or Space keydown and before it plays a UI sound. An owner holds
   it for an attempt it still holds, for a local file and a current identity, that is parking the
-  context for its dialog's tap, parked for it, or resuming from that tap; never for an OS
-  interruption waiting for its automatic resume or a YouTube attempt (the
+  context for its dialog's tap, parked for the tap of a dialog that has it, or resuming from that
+  tap; never for an OS interruption waiting for its automatic resume or a YouTube attempt (the
   [ownership record](audio-context-ownership.md), Decision 6). Since Phase 7 7A-1 each machine
   writes its phase only through one funnel (`setRestartPhase` in `context.ts`, `setRecoveryPhase`
   in `context-recovery.ts`), and `src/audio/output-recovery-counters.ts` observes the resource for
@@ -3686,7 +3691,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   owner's re-park query answers only for an attempt still being parked, not a committed one. Nor
   does 7B-5's answer for the dialog's wait (`whenForegroundAudioContextRestartClockRequirement`):
   it is keyed by the token but settles at the promotion or when the attempt ends, and it reads a
-  committed attempt as gone.
+  committed attempt as gone. Nor does the dialog's claim of the attempt it shows
+  (`claimForegroundAudioContextRestartForDialog`, a 7B fix): keyed by the token, it marks only the
+  current attempt and answers false for a committed one.
 - **Status:** `accepted-exception`.
 
 ### RO-37 Defensive retry-versus-semantic branch stays in `app.ts`

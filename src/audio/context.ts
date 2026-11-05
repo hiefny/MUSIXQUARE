@@ -74,6 +74,13 @@ interface ForegroundRestartAttempt {
   readonly whenPrepared: Promise<boolean>;
   preparedSettled: boolean;
   reprepare: ForegroundRestartReprepare | null;
+  /**
+   * A recovery dialog has taken it (claimForegroundAudioContextRestartForDialog).
+   * Only then does the owner park it again after an outside resume and hold
+   * the context for its tap: a notice that never became a dialog leaves an
+   * attempt no tap can serve.
+   */
+  dialog: boolean;
   /** Why it ended, read when its phase becomes 'cancelled'. */
   end: ForegroundRestartEnd;
   requirementWait: ForegroundRestartRequirementWait | null;
@@ -888,6 +895,7 @@ function createForegroundRestartAttempt(
     whenPrepared,
     preparedSettled: false,
     reprepare: null,
+    dialog: false,
     end: 'retired',
     requirementWait: null,
   };
@@ -906,11 +914,13 @@ export function isForegroundAudioContextRestartOwned(context: AudioContext): boo
 
 /**
  * Holding (ownership record Decision 6, Phase 7 7B-3): the current attempt
- * is parking the context for its dialog's tap, parked for it, or resuming it
- * from that tap. A play-request attempt is always a local file's, and its
- * suspend lease and late-suspend fence serve it only while it prepares the
- * suspend. The playback-scope owner asks it for UI sounds
- * (isAudioOutputRecoveryHolding), and the /debug sync counts ask it.
+ * is parking the context for its dialog's tap, parked for the tap of a
+ * dialog that has taken it, or resuming it from that tap. An attempt parked
+ * with no dialog (its notice never became one) holds nothing. A play-request
+ * attempt is always a local file's, and its suspend lease and late-suspend
+ * fence serve it only while it prepares the suspend. The playback-scope
+ * owner asks it for UI sounds (isAudioOutputRecoveryHolding), and the
+ * /debug sync counts ask it.
  */
 export function isForegroundAudioContextRestartHolding(): boolean {
   const attempt = pendingForegroundRestartAttempt;
@@ -918,9 +928,31 @@ export function isForegroundAudioContextRestartHolding(): boolean {
     attempt &&
     foregroundRestartStillCurrent(attempt) &&
     (attempt.phase === 'preparing-suspend' ||
-      attempt.phase === 'awaiting-gesture' ||
+      (attempt.phase === 'awaiting-gesture' && attempt.dialog) ||
       attempt.phase === 'gesture-resuming'),
   );
+}
+
+/**
+ * The recovery dialog takes this exact attempt when it shows its request
+ * (app.ts). From then on the owner parks the attempt again after an outside
+ * resume (C1-I13 a, Phase 7 7B-2) and holds the context for its tap (7B-3);
+ * the dialog's close retires it, or shows the same request again. An attempt
+ * whose notice never became a dialog (the page was hidden, the PLAY was
+ * replaced, a forced update was pending) is left to the next PLAY's clock
+ * check, as before 7B-2. true when the current attempt has that token.
+ */
+export function claimForegroundAudioContextRestartForDialog(attemptToken: object): boolean {
+  const attempt = pendingForegroundRestartAttempt;
+  if (
+    !attempt ||
+    attempt.attemptToken !== attemptToken ||
+    !foregroundRestartStillCurrent(attempt)
+  ) {
+    return false;
+  }
+  attempt.dialog = true;
+  return true;
 }
 
 /**
@@ -1094,17 +1126,21 @@ function reparkSuccessorAfterRetiredResume(attempt: ForegroundRestartAttempt): v
 /**
  * The binding's `running` statechange (context-recovery.ts): something
  * outside this owner (the OS, ensureRunning, a UI sound) resumed a context
- * whose play-request attempt waits for its gesture. Park the same attempt
- * again at once, as the playback scope re-suspends its own (C1-I13 a, Phase
- * 7 7B-2), so the gesture resumes a parked context instead of finding it
- * running. The attempt's own gesture resume, still unsettled after its
- * deadline, is promoted by the dispatcher's last part instead.
+ * whose play-request attempt waits for the tap of a dialog that has taken
+ * it. Park the same attempt again at once, as the playback scope
+ * re-suspends its own (C1-I13 a, Phase 7 7B-2), so the gesture resumes a
+ * parked context instead of finding it running. The attempt's own gesture
+ * resume, still unsettled after its deadline, is promoted by the
+ * dispatcher's last part instead. An attempt no dialog has taken is not
+ * parked again: no tap can come for it, and the resume stands for whoever
+ * made it (a PLAY's ensureRunning, whose clock check then decides).
  */
 export function reparkForegroundAudioContextRestartAfterResume(context: AudioContext): void {
   const attempt = pendingForegroundRestartAttempt;
   if (
     attempt?.context === context &&
     attempt.phase === 'awaiting-gesture' &&
+    attempt.dialog &&
     attempt.resume?.active() !== true &&
     foregroundRestartStillCurrent(attempt)
   ) {

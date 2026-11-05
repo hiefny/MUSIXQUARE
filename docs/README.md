@@ -96,8 +96,38 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.39 / v812 train: Phase 7 7B, every digit tabular and the demo step buttons (2026-11-05)](design/app-9-0-39-train-2026-11-05.md):
+  prepared, not merged or released. By the owner's decisions of 2026-11-05 one App update (App 9.0.39 / v812, App
+  build 812, target `app`, one update dialog; `raise_app_build_floor` false, Developer API D1 false, build
+  floor 795) carries three parts on branch `agent/app-9-0-39`: the twenty Phase 7 7B commits and the seven commits of
+  the digits and demo step buttons, cherry-picked unchanged onto main `51fc6fc7` (App 9.0.38 / v811's release
+  record, after 9.0.38's post-merge Full E2E passed), the bump `f47ffb63` (9.0.39 / v812, the seven version lines
+  of 9.0.38's bump, the last runtime commit) and documentation commits. (1) Phase 7 7B, the audio recovery
+  behaviour, as its own report below records; the owner kept the two changes its approved pictures did not show
+  (a return dialog tapped while the audio wakes later than 0.75 s is not shown again; with UI sounds on, the press
+  on an interruption dialog stays silent while the audio restarts, the play dialog's rule). (2) Every digit 0 to 9
+  in the app takes one width: the app's Inter latin face, the only app face with digits, maps U+0030 to U+0039 in
+  its cmap to Inter's own tabular glyphs (`zero.tf` to `nine.tf`), so the digits stay in one font run with the
+  letters and Inter keeps its raised colon, case forms and `3×4`; only digit advances and the kerning next to a
+  digit change (the reverb's `0.1s` gains about 1.2 px after the dot; three-digit numbers in the YouTube
+  playlist's 20 px number box overflow by 0.78 px where some already overflowed by up to 1.70 px), and the
+  public pages, which share the face, follow. A first proposal with a separate digits-only face was rejected
+  from pictures: it lowered the colon and the case forms, lost `3×4` and could swap late on first open. (3) The
+  current demo step's hidden number folds its width away, so the label sits exactly at the pill's centre and
+  gains about 5.6 px at 320 px wide (Malayalam's step 1, cut off by the tabular '1' alone, fits again with 8 px
+  to spare), growing back only after the old label has faded; and as a dot opens, its number becomes the label's
+  own at once and the label unrolls, so the number never shows twice. Four demo step labels in the chip width
+  guard's accepted list now fit with 4 px to spare and leave it. Round 1 moved the commits with only two
+  `docs/README.md` conflicts (both entries kept), 25 of 27 patch-ids equal and every other file byte-identical
+  to the two branches. Round 2 bumped, judged the deploy target against the deployed SHAs (App 14 runtime paths,
+  the other five Workers 0, no runtime dependency change; the local partial-release check compatible), reran the
+  unit half of every tests-first pair on the moved commits (each fails on its parent with the same failing rows
+  and passes at its code), checked that each part alone reverses cleanly, and ran the ownership guard (50
+  records, native resume and suspend 9). The bump head's full local gate, PR, CI and release remain. Not
+  verified: real devices, WebKit for 7B (local WebKit has no AudioContext) and Safari's drawing of the new cmap.
 - [Phase 7 train 7B: the audio recovery behaviour the owner approved (2026-11-05)](design/phase7-7b-audio-recovery-behaviour-2026-11-05.md):
-  prepared, not merged or released. The second of the three Phase 7 App updates (owner decision
+  prepared, not merged or released; it ships in the App 9.0.39 / v812 train above, which moved its commits onto
+  main `51fc6fc7`, bumped and recorded it. The second of the three Phase 7 App updates (owner decision
   Q2), expected as App 9.0.39 / v812 after the owner's UI tidy (9.0.38 / v811). Built on branch
   `agent/p7-7b` on main `3506dc41` (App 9.0.37 / v810's release record; its App runtime is
   production 9.0.37's `d1665230`) without a bump or a release record entry: by the owner's

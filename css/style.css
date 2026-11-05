@@ -11346,7 +11346,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     flex: 1;
     width: auto;
     min-width: 0;
-    /* The entry step: typed text at 16px on a 20px line, ordinary figures. */
+    /* The entry step: typed text at 16px on a 20px line, without the code
+       field's tabular-nums. Its digits are tabular all the same, as every
+       digit in the app is (the app's Inter maps them to its tabular glyphs). */
     font-size: 16px;
     font-weight: var(--font-weight-body);
     font-variant-numeric: normal;

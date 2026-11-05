@@ -217,7 +217,7 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     expect(lab.starts - before).toBe(0);
   });
 
-  test('(d-1) a track change while the dialog waits: the old retry never starts', async ({
+  test('(d-1) a track change while the dialog waits: the old retry never starts, and the cleanup resume runs inside that click', async ({
     page,
   }) => {
     const before = await openPlayRequestDialog(page, { tracks: 2 });
@@ -235,10 +235,11 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
 
     // The one new start is the next track's: the old retry never runs and no
     // dialog comes back. Before the change, one resume: the dialog tap's.
-    // (The retired attempt's cleanup resume runs after the change; its time
-    // is not pinned here. Since Phase 7 7B-5 the wait ends on the abort at
-    // once, so it can run inside the next-track click itself, logged as
-    // `resume@click`; it came at the wait's next 50 ms poll, `resume@task`.)
+    // After it, one resume too: the retired attempt's cleanup. C1-I12 (Phase
+    // 7 7B-5, owner answer Q7): the dialog's wait ends on the abort at once,
+    // so that cleanup runs inside the next-track click itself, logged as
+    // `resume@click`. Before, it came at the wait's next 50 ms poll, a timer
+    // task logged as `resume@task`.
     expect(await readState(page, 'playlist.currentQueueItemId')).not.toBe(queueItem);
     expect(await readState(page, 'playback.activity')).toBe('playing');
     expect(lab.starts - before).toBe(1);
@@ -249,6 +250,8 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     expect(next).toBeGreaterThan(-1);
     expect(countOps(ops.slice(0, next), 'resume@')).toBe(1);
     expect(countOps(ops.slice(0, next), 'resume@click:')).toBe(1);
+    expect(countOps(ops.slice(next), 'resume@')).toBe(1);
+    expect(countOps(ops.slice(next), 'resume@click:')).toBe(1);
   });
 
   test('(d-2) the page hides while the dialog waits: no cleanup resume, then PLAY starts the track', async ({

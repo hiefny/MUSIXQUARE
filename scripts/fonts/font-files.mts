@@ -11,7 +11,9 @@
  *
  * fonts/app-faces.json lists the faces the app serves: for each Inter and CJK
  * face of the app sheets, the copy in fonts/app/ with the line box of
- * src/i18n/font-metrics.ts baked in, and the digests of that copy and of its
+ * src/i18n/font-metrics.ts baked in (and, in Inter's face that holds the
+ * digits 0-9, the digits mapped to Inter's tabular glyphs), whether its family
+ * maps the digits so (tabularDigits), and the digests of that copy and of its
  * input (a file of fonts/inter/ or fonts/noto/). It is written only by
  * scripts/fonts/build-app-faces.mts.
  *
@@ -41,6 +43,7 @@ import {
   unpatchedDifferences,
   type BakedLineBox,
 } from './app-face-metrics.mts';
+import { tabularDigitsProblems, withTabularDigits } from './app-face-digits.mts';
 import { nameText, readNameTable, type SfntNameRecord } from './sfnt-names.mts';
 
 type Woff2Codec = (data: Uint8Array) => Promise<Uint8Array>;
@@ -442,6 +445,11 @@ export interface AppFaceFamilySpec {
   readonly input: string;
   /** Where the baked copies go, under fonts/app/. */
   readonly output: string;
+  /**
+   * Whether the face that holds the digits 0-9 maps them to its tabular
+   * glyphs (scripts/fonts/app-face-digits.mts).
+   */
+  readonly tabularDigits: boolean;
   readonly box: BakedLineBox;
 }
 
@@ -460,6 +468,7 @@ export const APP_FACE_FAMILIES: readonly AppFaceFamilySpec[] = [
     sheet: 'font-inter',
     input: 'fonts/inter',
     output: `${APP_FACES_DIRECTORY}/inter`,
+    tabularDigits: true,
     box: boxOf(INTER_FACE_METRICS),
   },
   ...(['KR', 'JP', 'SC', 'TC'] as const).map((script) => ({
@@ -467,6 +476,7 @@ export const APP_FACE_FAMILIES: readonly AppFaceFamilySpec[] = [
     sheet: `font-noto-${script.toLowerCase()}`,
     input: `fonts/noto/noto-sans-${script.toLowerCase()}`,
     output: `${APP_FACES_DIRECTORY}/noto-sans-${script.toLowerCase()}`,
+    tabularDigits: false,
     box: boxOf(CJK_FACE_METRICS),
   })),
 ];
@@ -482,6 +492,8 @@ export interface AppFaceFamily extends BakedLineBox {
   readonly family: string;
   readonly input: string;
   readonly output: string;
+  /** Whether the face that holds the digits maps them to its tabular glyphs. */
+  readonly tabularDigits: boolean;
   /** The input's usWinAscent and usWinDescent, which the copies keep. */
   readonly winAscent: number;
   readonly winDescent: number;
@@ -502,6 +514,14 @@ function readCount(record: Record<string, unknown>, key: string, where: string):
   return value;
 }
 
+function readFlag(record: Record<string, unknown>, key: string, where: string): boolean {
+  const value = record[key];
+  if (typeof value !== 'boolean') {
+    throw new TypeError(`${APP_FACES_PATH}: ${where}.${key} must be true or false`);
+  }
+  return value;
+}
+
 function readAppFaceFamily(value: unknown, where: string): AppFaceFamily {
   if (!isRecord(value) || !Array.isArray(value.faces)) {
     throw new TypeError(`${APP_FACES_PATH}: ${where} must be a family with faces`);
@@ -510,6 +530,7 @@ function readAppFaceFamily(value: unknown, where: string): AppFaceFamily {
     family: readString(value, 'family', where, APP_FACES_PATH),
     input: readString(value, 'input', where, APP_FACES_PATH),
     output: readString(value, 'output', where, APP_FACES_PATH),
+    tabularDigits: readFlag(value, 'tabularDigits', where),
     unitsPerEm: readCount(value, 'unitsPerEm', where),
     ascender: readCount(value, 'ascender', where),
     descender: readCount(value, 'descender', where),
@@ -592,7 +613,8 @@ const sameDigest = (left: FileDigest, right: FileDigest): boolean =>
  * and Noto Sans KR inputs also the shipped digest of fonts/font-sources.json);
  * every copy holds the box in hhea and the OS/2 typo metrics with
  * USE_TYPO_METRICS, keeps its input's win metrics, which hold the box, has
- * valid checksums, and differs from its input only in the patched fields.
+ * valid checksums, and differs from its input only in the patched fields
+ * (and, in a tabularDigits family, the digits' cmap entries).
  * `npm run generate:app-faces -- --check` also bakes every face again.
  */
 export async function verifyAppFaces(
@@ -612,17 +634,19 @@ export async function verifyAppFaces(
   if (typeof faces.tools.wawoff2 !== 'string') {
     failures.push(`${APP_FACES_PATH} does not record the wawoff2 version`);
   }
-  const expected = APP_FACE_FAMILIES.map(({ family, input, output, box }) => ({
+  const expected = APP_FACE_FAMILIES.map(({ family, input, output, tabularDigits, box }) => ({
     family,
     input,
     output,
+    tabularDigits,
     ...box,
   }));
   const actual = faces.families.map(
-    ({ family, input, output, unitsPerEm, ascender, descender, lineGap }) => ({
+    ({ family, input, output, tabularDigits, unitsPerEm, ascender, descender, lineGap }) => ({
       family,
       input,
       output,
+      tabularDigits,
       unitsPerEm,
       ascender,
       descender,
@@ -715,12 +739,22 @@ export async function verifyAppFaces(
         failures.push(`${outputPath}: the win metrics do not hold the baked box`);
       }
       if (!sfntChecksumsValid(after)) failures.push(`${outputPath} has a wrong checksum`);
-      const changed = unpatchedDifferences(before, after);
+      let mapped;
+      let cmapProblems;
+      try {
+        mapped = family.tabularDigits ? withTabularDigits(before) : before;
+        cmapProblems = tabularDigitsProblems(before, after, family.tabularDigits);
+      } catch (error) {
+        failures.push(`${outputPath}: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
+      const changed = unpatchedDifferences(mapped, after);
       if (changed.length) {
         failures.push(
-          `${outputPath} differs from ${inputPath} beyond the line box: ${changed.join(', ')}`,
+          `${outputPath} differs from ${inputPath} beyond the line box and the tabular digits: ${changed.join(', ')}`,
         );
       }
+      for (const problem of cmapProblems) failures.push(`${outputPath}: ${problem}`);
     }
   }
   return failures;

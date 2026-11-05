@@ -157,12 +157,14 @@ runbooks. Neither belongs in a general setup document.
   late-joining guest's frozen chat state, with 934 passed, while `webkit-mobile` (111 passed and 5 skipped plus the
   service worker test) and the large-room R2 smoke passed. The release owner reran that test 8 times and the whole
   spec 3 times locally on the train's e2e build, all passing, and it had not failed in four earlier failed Full E2E
-  runs, so the record reads it as a timing flake, not a train regression (an inference: the train changes no chat
-  code). Attempt 2, a rerun of the failed job only, passed (`e2e` 935 passed, 2026-11-06 00:16 KST); that rerun is
-  this train's post-merge Full E2E. The `e2e` job of both attempts ran the changed `font-baked-pixels` and the demo
-  specs over the new face and CSS on Linux Chromium for the first time (attempt 1's log shows them among the passing
-  rows). That meets this train's part of the
-  condition for the next App train, which merges once this record has merged. The owner paused the project work
+  runs, so the record reads it as a timing flake, not a train regression (an inference: the train's changed lines
+  touch no chat command, freeze or late-join code, and no chat file changed). Attempt 2, a rerun of the failed job
+  only, passed (`e2e` 935 passed, 2026-11-06 00:16 KST); that rerun is this train's post-merge Full E2E. Attempt 1's
+  `e2e` job ran the changed `font-baked-pixels` and the demo specs over the new face and CSS on Linux Chromium for
+  the first time (its log shows them among the passing rows), and attempt 2 passed all 935 rows (its log is not in
+  the evidence). The record keeps the attempt 1 failure as its own open item, closed when a later Full E2E's first
+  attempt does not fail that row or a tests-only fix lands. That meets this train's part of the condition for the
+  next App train, which merges once this record has merged. The owner paused the project work
   until next week after this record; the next steps are Phase 7 T2 (tests only, no App update) and then 7C,
   planned as the next App update (9.0.40 / v813, an inference). The owner's device checks (7B's later set, the
   digits, the demo step buttons in Korean, Malayalam and a right-to-left locale, the same on iPhone Safari) wait.

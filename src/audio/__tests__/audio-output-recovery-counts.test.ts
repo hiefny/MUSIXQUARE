@@ -19,6 +19,7 @@ import {
 } from './__helpers__/fake-audio-context.ts';
 import {
   bind,
+  dialogTakesPlayRequest,
   loadOwners,
   loadUiTouchSound,
   setVisibility,
@@ -85,11 +86,12 @@ const DEADLINE_NAMES = [
   'DEADLINE_CLOCK_REQUIREMENT',
 ] as const satisfies readonly (keyof Counters)[];
 
-/** A play-request restart prepared and parked, as transport leaves it for the dialog. */
+/** A play-request restart prepared and parked, as transport leaves it for the dialog that takes it. */
 async function parkPlayRequest(s: Scene): Promise<object> {
   const check = s.o.context.armForegroundAudioContextClockHealthCheck(s.fake.native);
   const preparation = await s.o.context.prepareForegroundAudioContextRestart(check!);
   expect(preparation).toMatchObject({ status: 'prepared' });
+  dialogTakesPlayRequest(s.o, preparation!.attemptToken);
   return preparation!.attemptToken;
 }
 

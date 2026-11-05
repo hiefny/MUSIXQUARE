@@ -12,8 +12,9 @@
  * dialog, waits for that dialog's tap, or resumes from it, for an attempt it
  * still holds with a current identity: the sound is silent and issues no
  * resume. An OS interruption waiting for its automatic resume, a stale
- * attempt and a YouTube attempt (no dialog asks for its tap) are not held:
- * the sound wakes the context and plays as before. Each row says which; the
+ * attempt, a YouTube attempt (no dialog asks for its tap) and a play-request
+ * attempt parked for a dialog that never opened are not held: the sound
+ * wakes the context and plays as before. Each row says which; the
  * rows that wake prove the question is really asked, since a sound that
  * failed to ask would be silent in every row.
  *
@@ -83,8 +84,8 @@ const TAP_RESUME_LANDS = ['statechange:running', 'resume:resolved'];
  */
 const TAP_RESUME_MS = 400;
 
-async function parkPlayRequest(o: Owners, fake: FakeNativeAudioContext) {
-  const request = playRequest.arm(o, fake);
+async function parkPlayRequest(o: Owners, fake: FakeNativeAudioContext, dialog = true) {
+  const request = playRequest.arm(o, fake, { dialog });
   await expect(request.first).resolves.toBe('prepared');
   return request;
 }
@@ -365,6 +366,26 @@ const ROWS: Row[] = [
     needed: [],
     rejoins: [],
     end: { state: 'running', request: 'none', scope: FILE_PARKED },
+  },
+  {
+    // Not held: a play-request attempt parked for a tap that no dialog will
+    // ask for, because its one notice never became a dialog (the page was
+    // hidden, the PLAY was replaced, a forced update was pending). The sound
+    // wakes the context and plays, and the owner does not park it again; the
+    // attempt is left to the next PLAY's clock check, as before Phase 7 7B-2.
+    // From 7B-2 to this rule it kept the context: silent sounds, and every
+    // later PLAY's resume undone.
+    phase: 'H15 play-request awaiting-gesture, its notice never became a dialog: not held',
+    arrange: async (o, fake) => {
+      await parkPlayRequest(o, fake, false);
+    },
+    before: { state: 'suspended', request: 'owned', scope: NONE },
+    immediate: ['resume()'],
+    after: RESUMED,
+    tones: 1,
+    needed: [],
+    rejoins: [],
+    end: { state: 'running', request: 'owned', scope: NONE },
   },
 ];
 

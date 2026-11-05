@@ -179,12 +179,32 @@ async function loadMediaSession(): Promise<() => void> {
   return () => handlers.get('play')!({ action: 'play' });
 }
 
-/** Prepare a play-request restart the way transport does on a foreground clock stall. */
-async function parkPlayRequestRestart(o: Owners, fake: FakeNativeAudioContext) {
+/**
+ * app.ts's recovery dialog takes a play-request attempt when it shows that
+ * attempt's request. Only such an attempt is parked again after an outside
+ * resume and holds the context for its tap (Phase 7 7B-2 and 7B-3). Called
+ * optionally so the same rows also ran on the owners from before that rule,
+ * which had no such call and treated every parked attempt so.
+ */
+function dialogTakes(o: Owners, attemptToken: object): void {
+  o.context.claimForegroundAudioContextRestartForDialog?.(attemptToken);
+}
+
+/**
+ * Prepare a play-request restart the way transport does on a foreground
+ * clock stall; the dialog its notice opens takes it, unless `dialog` is
+ * false (the notice never became a dialog).
+ */
+async function parkPlayRequestRestart(
+  o: Owners,
+  fake: FakeNativeAudioContext,
+  { dialog = true }: { dialog?: boolean } = {},
+) {
   const check = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
   const preparation = await o.context.prepareForegroundAudioContextRestart(check!);
   expect(preparation).toMatchObject({ status: 'prepared' });
   expect(fake.state).toBe('suspended');
+  if (dialog) dialogTakes(o, preparation!.attemptToken);
   return { check: check!, preparation: preparation! };
 }
 
@@ -884,7 +904,10 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     [
       string,
       (o: Owners, fake: FakeNativeAudioContext) => Promise<void>,
+      /** On a context an owner holds for its tap. */
       { wakes: boolean; resumes: number },
+      /** Native resume() calls on a context no owner holds (each wakes it). */
+      number,
     ]
   > = [
     [
@@ -893,6 +916,7 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
         fake.transition('running');
       },
       { wakes: true, resumes: 0 },
+      0,
     ],
     [
       'ensureRunning (transport, decode, engine)',
@@ -900,6 +924,7 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
         await o.context.ensureRunning().catch(() => undefined);
       },
       { wakes: true, resumes: 1 },
+      1,
     ],
     [
       // C1-I13 b (Phase 7 7B-3, owner answer Q9; it was a Known gap): a UI
@@ -912,6 +937,7 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
         ui.playUiTouchSound();
       },
       { wakes: false, resumes: 0 },
+      1,
     ],
   ];
 
@@ -944,6 +970,50 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
       expect(
         o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()?.attemptToken,
       ).toBe(preparation.attemptToken);
+    },
+  );
+
+  it.each(outsideResumers)(
+    'play-request restart parked with no dialog (its notice never became one) holds nothing, and %s is not undone',
+    async (_label, resumeOutside, _held, resumes) => {
+      const fake = new FakeNativeAudioContext();
+      const o = await loadOwners(fake);
+      const bus = recordBus(o);
+      bind(o, fake);
+      const { check, preparation } = await parkPlayRequestRestart(o, fake, { dialog: false });
+      // The re-park (Phase 7 7B-2) and the holding (7B-3) serve a dialog
+      // that waits for its tap. This attempt's notice was declined or
+      // dropped (the page hidden, the PLAY replaced, a forced update), so no
+      // tap can come for it and nothing holds the context for it.
+      const heldWhileParked = o.recovery.isAudioOutputRecoveryHolding();
+
+      await resumeOutside(o, fake);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The resume stands, as before 7B-2: a UI sound wakes the context as
+      // with no attempt, and a PLAY's ensureRunning keeps the context it woke.
+      // From 7B-2 to this rule the owner parked it again at once.
+      expect(fake.state).toBe('running');
+      expect(fake.calls('resume')).toBe(resumes);
+      expect(fake.calls('suspend')).toBe(1);
+      expect(heldWhileParked).toBe(false);
+      expect(o.recovery.isAudioOutputRecoveryHolding()).toBe(false);
+      expect(o.context.whenForegroundAudioContextRestartReprepared(preparation.attemptToken)).toBe(
+        null,
+      );
+      // That PLAY's clock check finds the clock running and retires it.
+      const health = o.context.probeAudioContextHealth({
+        attemptResume: false,
+        context: fake.native,
+      });
+      await vi.advanceTimersByTimeAsync(180);
+      await expect(health).resolves.toMatchObject({ healthy: true });
+      expect(o.context.consumeForegroundAudioContextClockHealthCheck(check)).toBe(true);
+      expect(preparation.isCurrent()).toBe(false);
+      expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(false);
+      expect(fake.calls('suspend')).toBe(1);
+      expect(fake.state).toBe('running');
+      expect(bus).toEqual(QUIET_BUS);
     },
   );
 

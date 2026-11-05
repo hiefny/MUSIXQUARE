@@ -12,11 +12,11 @@
  * - (iii) app.ts's part of two recoveries asking to park the audio at once
  *   (a seek while the return check parks it): which dialog stays, and what
  *   its button does (Phase 7 7B-4);
- * - (a)-(d) app.ts's part of the play-request dialog, which unit tests cannot
+ * - (a)-(e) app.ts's part of the play-request dialog, which unit tests cannot
  *   load: an outside resume while it waits and the owner parking it again, a
- *   tap inside that re-park (the same request shown once more), and how its
- *   wait for the clock requirement ends (a newer request, a track change, a
- *   hidden page, the 5 s limit);
+ *   tap inside that re-park (the same request shown once more), how its wait
+ *   for the clock requirement ends (a newer request, a track change, a hidden
+ *   page, the 5 s limit), and a notice that never became a dialog;
  * - T1-T9 trusted input with UI sounds on: slow and fast finger, Space and
  *   Enter, on both dialogs. While an owner holds the context for the
  *   dialog's tap the UI sounds ask first and stay silent (Phase 7 7B-3):
@@ -310,6 +310,57 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     expect(cleanup[0]! - tapAt[0]!).toBeLessThanOrEqual(6_500);
     expect(lab.starts - before).toBe(0);
     expect(lab.dialogShows).toBe(1);
+  });
+
+  test("(e) the PLAY's notice arrives while the page is hidden: no dialog, and the next PLAY plays the track", async ({
+    page,
+  }) => {
+    await openPlaying(page, { uiSounds: true });
+    await clickPlayButton(page);
+    await waitForPlaybackProjection(page, 'PAUSED', 10_000);
+    await bounce(page);
+    const before = (await readLab(page)).starts;
+    // The PLAY's suspend is held past transport's 500 ms preparation window,
+    // so its one notice waits for the suspend, which then lands while the
+    // page is hidden: app.ts opens no dialog for a hidden page.
+    await holdSuspend(page, 1);
+    await clickPlayButton(page);
+    await waitForSuspendHeld(page);
+    await page.waitForTimeout(560);
+    await setPageVisibility(page, 'hidden');
+    await releaseGates(page);
+    await page.waitForTimeout(700);
+    await setPageVisibility(page, 'visible');
+    await page.waitForTimeout(1_500);
+    const orphaned = await readLab(page);
+    await unfreeze(page);
+    await markOps(page, 'play-again');
+    await clickPlayButton(page);
+    await page.waitForTimeout(3_000);
+    const lab = await readLab(page);
+    report('(e)', lab, before);
+
+    // The notice came, no dialog opened, and the attempt parked the context.
+    expect(orphaned.needed).toEqual(['play:clock-stalled']);
+    expect(orphaned.dialogShows).toBe(0);
+    expect(orphaned.state).toBe('suspended');
+    // Phase 7 7B-2 and 7B-3 park the attempt again after an outside resume,
+    // and hold the context, only for a dialog that has taken it. This one
+    // has none: the next PLAY's resume stands, with its press sound (UI
+    // sounds on), its clock check finds the clock running, and the track
+    // plays, as before 7B-2. Before this rule the owner parked it again at
+    // once, every later PLAY got the ordinary dialog, whose tap was parked
+    // again too, and nothing played.
+    const ops = opsFrom(lab.ops, 'play-again');
+    expect(countOps(ops, ' suspend:')).toBe(0);
+    expect(countOps(ops, 'resume@')).toBeGreaterThanOrEqual(1);
+    expect(countOps(ops, 'resume@task:')).toBe(0);
+    expect(countOps(ops, ' tone')).toBeGreaterThanOrEqual(1);
+    expect(lab.needed).toEqual(['play:clock-stalled']);
+    expect(lab.dialogShows).toBe(0);
+    expect(lab.starts - before).toBe(1);
+    expect(await readState(page, 'playback.activity')).toBe('playing');
+    expect(lab.state).toBe('running');
   });
 });
 

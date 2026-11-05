@@ -384,13 +384,51 @@ export interface PlayRequest {
   retire(): boolean;
 }
 
-function startPlayRequest(o: Owners, incident: object): PlayRequest {
+/**
+ * app.ts's recovery dialog takes a play-request attempt when it shows that
+ * attempt's request. Only such an attempt is parked again after an outside
+ * resume and holds the context for its tap (Phase 7 7B-2 and 7B-3); one whose
+ * notice never became a dialog is left to the next PLAY's clock check.
+ * Called optionally so the same rows also ran on the owners from before that
+ * rule, which had no such call and treated every parked attempt so.
+ */
+export function dialogTakesPlayRequest(o: Owners, attemptToken: object): void {
+  o.context.claimForegroundAudioContextRestartForDialog?.(attemptToken);
+}
+
+export interface PlayRequestOptions {
+  /**
+   * Whether a dialog opens for the attempt once transport announces it
+   * (default true). false: its one notice never became a dialog.
+   */
+  readonly dialog?: boolean;
+}
+
+function startPlayRequest(
+  o: Owners,
+  incident: object,
+  { dialog = true }: PlayRequestOptions = {},
+): PlayRequest {
   const preparation = o.context.prepareForegroundAudioContextRestart(incident);
   let attempt: Awaited<typeof preparation> = null;
   let settled = false;
   const first = preparation.then((value): FirstAnswer => {
     attempt = value;
     settled = true;
+    // Transport announces a prepared attempt at once and a preparing one
+    // once it is parked; the dialog that opens for it takes it.
+    if (value && dialog) {
+      const { attemptToken } = value;
+      if (value.status === 'prepared') dialogTakesPlayRequest(o, attemptToken);
+      else {
+        void value.whenPrepared.then(
+          (parked) => {
+            if (parked) dialogTakesPlayRequest(o, attemptToken);
+          },
+          () => undefined,
+        );
+      }
+    }
     return value ? value.status : 'stale';
   });
   return {
@@ -422,16 +460,19 @@ function startPlayRequest(o: Owners, incident: object): PlayRequest {
 
 export const playRequest = {
   /** A foreground incident armed and a restart prepared for it at once. */
-  arm(o: Owners, fake: FakeNativeAudioContext): PlayRequest {
+  arm(o: Owners, fake: FakeNativeAudioContext, options?: PlayRequestOptions): PlayRequest {
     const incident = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
     if (!incident) throw new Error('no foreground incident armed');
-    return startPlayRequest(o, incident);
+    return startPlayRequest(o, incident, options);
   },
   /**
    * Transport's PLAY after foreground: probe the armed incident's clock and
    * prepare a restart only when it is stalled.
    */
-  async afterProbe(o: Owners): Promise<{ probe: string; request: PlayRequest | null }> {
+  async afterProbe(
+    o: Owners,
+    options?: PlayRequestOptions,
+  ): Promise<{ probe: string; request: PlayRequest | null }> {
     const check = o.context.getPendingForegroundAudioContextClockHealthCheck();
     if (!check) return { probe: 'no-incident', request: null };
     const health = await o.context.probeAudioContextHealth({
@@ -440,7 +481,7 @@ export const playRequest = {
       isCurrent: check.isCurrent,
     });
     if (health.reason !== 'clock-stalled') return { probe: health.reason, request: null };
-    return { probe: health.reason, request: startPlayRequest(o, check.token) };
+    return { probe: health.reason, request: startPlayRequest(o, check.token, options) };
   },
 };
 

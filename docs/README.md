@@ -123,8 +123,19 @@ runbooks. Neither belongs in a general setup document.
   the other five Workers 0, no runtime dependency change; the local partial-release check compatible), reran the
   unit half of every tests-first pair on the moved commits (each fails on its parent with the same failing rows
   and passes at its code), checked that each part alone reverses cleanly, and ran the ownership guard (50
-  records, native resume and suspend 9). The bump head's full local gate, PR, CI and release remain. Not
-  verified: real devices, WebKit for 7B (local WebKit has no AudioContext) and Safari's drawing of the new cmap.
+  records, native resume and suspend 9). Round 3 reran 7B's comparison scenes after the review fix on the bump
+  head's E2E build (74 rows, twice: every behaviour row as approved; only timing numbers differ, as this PC's audio
+  wakes about 0.05 s sooner, and one unexplained pause in 1 of 15 runs of the locked-screen case the owner left
+  unchanged) and retook the digits and demo step button captures (pixel for pixel the approved pictures). Round 4
+  ran the full local gate on the record commit `a892821e` (code `f47ffb63`) with no failure: typecheck, lint,
+  format, `build:checked` and all 37 guards one by one, the ownership guard, the font generators' checks, both
+  coverage configs, the full unit suite twice (778 files, 18,750 passed each time), 332 Chromium E2E rows (the
+  production candidate, the public font specs, critical, the CI recovery specs, the audio lab three times, the
+  demo, font and public page specs), the WebKit lane (111 passed, 5 skipped by design), the deploy target (App
+  14, the other five Workers 0) and the local partial-release check with the deployed SHAs (compatible); against
+  a clean build of `51fc6fc7` the eager first load is 272 B larger in JavaScript and 320 B larger in all (gzip).
+  PR, CI and release remain. Not verified: real devices, Linux, WebKit for 7B (local WebKit has no AudioContext)
+  and Safari's drawing of the new cmap.
 - [Phase 7 train 7B: the audio recovery behaviour the owner approved (2026-11-05)](design/phase7-7b-audio-recovery-behaviour-2026-11-05.md):
   prepared, not merged or released; it ships in the App 9.0.39 / v812 train above, which moved its commits onto
   main `51fc6fc7`, bumped and recorded it. The second of the three Phase 7 App updates (owner decision
@@ -168,8 +179,8 @@ runbooks. Neither belongs in a general setup document.
   files), critical coverage, the guards, the audio lab three times (17 rows, 18 from 7B-4, 19 with
   the review) and the CI recovery specs; Chromium only (local WebKit has no AudioContext), no
   device. `guard:sw-cache-version` fails until the bump, by design. The full local gate before the
-  bump is recorded (QA rounds 9 and 10, the second after the review fixes); the bump head's gate
-  remains.
+  bump is recorded (QA rounds 9 and 10, the second after the review fixes); the 9.0.39 train reran
+  the comparison scenes after the review fixes and ran the bump head's full local gate (its QA rounds 3 and 4).
 - [App 9.0.38 / v811 train: the owner's UI tidy, the demo text sizes, the chat '#1', unused rules, the /debug COPY button and the phone start-screen scrollbar (2026-11-04)](design/app-9-0-38-train-2026-11-04.md):
   released on 2026-11-05 06:14 KST in Release 41913839299 (PR #572, squash `9e62c26c`) as App 9.0.38 / v811 (App build
   811, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

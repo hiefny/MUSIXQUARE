@@ -102,7 +102,7 @@ runbooks. Neither belongs in a general setup document.
   floor 795) carries three parts on branch `agent/app-9-0-39`: the twenty Phase 7 7B commits and the seven commits of
   the digits and demo step buttons, cherry-picked unchanged onto main `51fc6fc7` (App 9.0.38 / v811's release
   record, after 9.0.38's post-merge Full E2E passed), the bump `f47ffb63` (9.0.39 / v812, the seven version lines
-  of 9.0.38's bump, the last runtime commit) and documentation commits. (1) Phase 7 7B, the audio recovery
+  of 9.0.38's bump, the last runtime commit), a tests-only commit and documentation commits. (1) Phase 7 7B, the audio recovery
   behaviour, as its own report below records; the owner kept the two changes its approved pictures did not show
   (a return dialog tapped while the audio wakes later than 0.75 s is not shown again; with UI sounds on, the press
   on an interruption dialog stays silent while the audio restarts, the play dialog's rule). (2) Every digit 0 to 9
@@ -134,8 +134,16 @@ runbooks. Neither belongs in a general setup document.
   demo, font and public page specs), the WebKit lane (111 passed, 5 skipped by design), the deploy target (App
   14, the other five Workers 0) and the local partial-release check with the deployed SHAs (compatible); against
   a clean build of `51fc6fc7` the eager first load is 272 B larger in JavaScript and 320 B larger in all (gzip).
-  PR, CI and release remain. Not verified: real devices, Linux, WebKit for 7B (local WebKit has no AudioContext)
-  and Safari's drawing of the new cmap.
+  Round 5 applied an independent review of the prepared branch (one medium finding, the rest low): a tests-only commit after the
+  bump pins that every locale's three demo step labels start with their own step number, which the fold and the
+  opening handoff rely on (126 / 126; dropping one locale's number fails it); with the digits part reversed alone
+  in the work tree the demo step fold's unit tests still pass (57 / 57); and the report and record now link the
+  9.0.39 report from the two changed 9.0.38 items, count the added 7B-6 rejoin in the mixed-version note, name the
+  first round's tested SHA, read the one unexplained locked-screen pause as a Media Session PAUSE the browser sent
+  (an inference from the trace; 7B does not change that handler) and add a right-to-left locale to the device
+  checks. PR, CI and release remain. Not verified: real devices, Linux, WebKit for 7B (local WebKit has no
+  AudioContext), Safari's drawing of the new cmap, and the opening step's first frames in WebKit or in
+  right-to-left locales.
 - [Phase 7 train 7B: the audio recovery behaviour the owner approved (2026-11-05)](design/phase7-7b-audio-recovery-behaviour-2026-11-05.md):
   prepared, not merged or released; it ships in the App 9.0.39 / v812 train above, which moved its commits onto
   main `51fc6fc7`, bumped and recorded it. The second of the three Phase 7 App updates (owner decision
@@ -162,7 +170,8 @@ runbooks. Neither belongs in a general setup document.
   (screen locked, no call: the room realigns at once but the sound returns only when the app is
   opened) is pinned as a known gap and not changed, by the owner's decision. Compared with the
   approved pictures in local Chromium on the head, every row matches; four small timing
-  differences and two changes the pictures did not show are listed for the owner before merge.
+  differences and two changes the pictures did not show were listed for the owner before merge,
+  and the owner kept both on 2026-11-05 (the 9.0.39 train above).
   An independent review of the head found a 7B-2 and 7B-3 regression, fixed failing test first
   within that unit: a play-request attempt whose one notice never became a dialog (the page was
   hidden, the PLAY was replaced, a forced update was pending) was parked again on every outside
@@ -236,7 +245,8 @@ runbooks. Neither belongs in a general setup document.
   both jobs than 9.0.37's, the sum of the two new specs' rows, so read as their first Linux Chromium and WebKit
   run (per-spec counts are not in the release evidence). That meets this train's part of the condition for the next
   App update, Phase 7 7B (9.0.39 / v812 planned, being built), to merge once this record has merged; the owner's
-  all-digits tabular decision of 2026-11-05 (pictures first) is a later App update. The owner's device checks
+  all-digits tabular decision of 2026-11-05 (pictures first) is a later App update (both now prepared, with the
+  demo step buttons, as the 9.0.39 train above). The owner's device checks
   (the wide demo, the chat '#1', the iPhone COPY with the keyboard up, the short-phone scroll) wait, as does the
   scrollbar in a short window in production. The release record's §2 carries the train as post-deploy items, its
   §4 the 9.0.38 entry and current boundary line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.38's merge

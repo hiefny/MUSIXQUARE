@@ -10,12 +10,15 @@
  *   `ms suspend:state`; the origin is the event being dispatched when the
  *   call is made (`click`, `pointerdown`, `keydown`, ...), or `task`;
  * - a resume gate can hold calls from chosen origins, and a suspend gate can
- *   hold suspends, until the test releases them;
+ *   hold suspends (all of them, or only the first few), until the test
+ *   releases them;
  * - `currentTime` can be frozen and unfrozen on the instance, which stands in
  *   for the WebKit frozen clock (the instance is the app's only context, so
  *   scheduling and sync reads freeze too: tests keep the frozen window short);
  * - buffer source starts longer than 1 s (real tracks, not unlock or UI
- *   sounds) are counted;
+ *   sounds) are counted; shorter ones and oscillator starts (UI sounds: the
+ *   touch is one short buffer, the join, leave and announcement sounds two
+ *   oscillators) are logged as `ms tone`;
  * - showing and hiding of #dialog-overlay is logged and counted;
  * - bus events (recovery notices, local rejoins, playback activity) are
  *   recorded once a room is playing.
@@ -55,7 +58,7 @@ interface Lab {
   freeze(): void;
   unfreeze(): void;
   holdResume(origins: string[], limit: number): void;
-  holdSuspend(): void;
+  holdSuspend(limit: number): void;
   releaseGates(): void;
 }
 
@@ -119,8 +122,8 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
       holdResume: (origins, limit) => {
         lab.resumeGate = makeGate(origins, limit);
       },
-      holdSuspend: () => {
-        lab.suspendGate = makeGate(null, Number.POSITIVE_INFINITY);
+      holdSuspend: (limit) => {
+        lab.suspendGate = makeGate(null, limit);
       },
       releaseGates: () => {
         const gates = [lab.resumeGate, lab.suspendGate];
@@ -176,8 +179,19 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
       source.start = (...args: Parameters<AudioBufferSourceNode['start']>) => {
         start(...args);
         if ((source.buffer?.duration ?? 0) > 1) lab.starts += 1;
+        else lab.ops.push(`${now()} tone`);
       };
       return source;
+    };
+    const createOscillator = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const oscillator = createOscillator.call(this);
+      const start = oscillator.start.bind(oscillator);
+      oscillator.start = (...args: Parameters<OscillatorNode['start']>) => {
+        start(...args);
+        lab.ops.push(`${now()} tone`);
+      };
+      return oscillator;
     };
     new MutationObserver(() => {
       const overlay = document.getElementById('dialog-overlay');
@@ -232,6 +246,14 @@ export async function pageNow(page: Page): Promise<number> {
   return page.evaluate(() => Math.round(performance.now()));
 }
 
+/** Log `ms <label>` in the op log now, to split it at a test step. */
+export async function markOps(page: Page, label: string): Promise<void> {
+  await page.evaluate((name) => {
+    const lab = (window as unknown as LabWindow).__audioLab;
+    lab.ops.push(`${Math.round(performance.now())} ${name}`);
+  }, label);
+}
+
 export async function unfreeze(page: Page): Promise<void> {
   await page.evaluate(() => (window as unknown as LabWindow).__audioLab.unfreeze());
 }
@@ -244,8 +266,13 @@ export async function holdResume(page: Page, origins: string[], limit = 1): Prom
   );
 }
 
-export async function holdSuspend(page: Page): Promise<void> {
-  await page.evaluate(() => (window as unknown as LabWindow).__audioLab.holdSuspend());
+/** Hold the next `limit` suspend() calls (every one when left out) until the gates are released. */
+export async function holdSuspend(page: Page, limit?: number): Promise<void> {
+  await page.evaluate(
+    (max) =>
+      (window as unknown as LabWindow).__audioLab.holdSuspend(max ?? Number.POSITIVE_INFINITY),
+    limit ?? null,
+  );
 }
 
 /**

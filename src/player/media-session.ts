@@ -39,6 +39,7 @@ import {
   hasPendingAudioContextInterruption,
   isAudioContextInterruptionAttemptCurrent,
   resumePendingAudioContextInterruptionFromGesture,
+  retireStalePendingAudioContextRecovery,
 } from '../audio/context-recovery.ts';
 import { probeAudioContextHealth } from '../audio/context.ts';
 import {
@@ -222,6 +223,17 @@ export function initMediaSession(): void {
         }
         const requirement = getPendingAudioContextClockHealthRequirement();
         if (!requirement || requirement.attemptToken !== attemptToken || !requirement.isCurrent()) {
+          // A PLAY that clears a local pause has resumed the context for an
+          // attempt whose output that pause stopped (owner answer Q12, Phase
+          // 7 7B-6). The owner retires it and arms the next PLAY's clock
+          // check; this PLAY then realigns with the room itself.
+          if (
+            explicitLocalPause &&
+            getState('playback.mode') === mode &&
+            retireStalePendingAudioContextRecovery(attemptToken)
+          ) {
+            emitRejoin(mode);
+          }
           return;
         }
         const health = await probeAudioContextHealth({

@@ -13,8 +13,11 @@
  *
  * The faces live in fonts/app/. Each is a copy of an input file, recorded in
  * fonts/app-faces.json by scripts/fonts/build-app-faces.mts, that differs from
- * its input only in head, hhea and OS/2. This test reads the tables itself,
- * not through the generator's module.
+ * its input only in head, hhea and OS/2, but Inter's latin face, the one that
+ * holds the digits 0-9: its cmap maps them to the glyphs Inter's tnum gives
+ * them, zero.tf to nine.tf, so every digit in the app takes one advance (owner
+ * decision 2026-11-05). This test reads the tables itself, not through the
+ * generator's modules.
  */
 import { readFile, readdir } from 'node:fs/promises';
 import { join, posix, resolve } from 'node:path';
@@ -49,15 +52,62 @@ const PATCHED_BYTES: Readonly<Record<string, readonly (readonly [number, number]
 
 type FaceMetrics = typeof INTER_FACE_METRICS;
 
-/** The baked families: their sheet, metrics home and the input's win metrics. */
+/**
+ * The baked families: their sheet, metrics home, the input's win metrics and
+ * whether the face that holds the digits maps them to its tabular glyphs.
+ */
 const BAKED_FAMILIES = [
-  { id: 'font-inter', metrics: INTER_FACE_METRICS, win: [2269, 660], faces: 7 },
+  {
+    id: 'font-inter',
+    metrics: INTER_FACE_METRICS,
+    win: [2269, 660],
+    faces: 7,
+    tabularDigits: true,
+  },
   // 53 of 120: the shards that held only Hangul left with it (MUSIXQUARE Hangul).
-  { id: 'font-noto-kr', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 53 },
-  { id: 'font-noto-jp', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 120 },
-  { id: 'font-noto-sc', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 95 },
-  { id: 'font-noto-tc', metrics: CJK_FACE_METRICS, win: [1160, 288], faces: 98 },
+  {
+    id: 'font-noto-kr',
+    metrics: CJK_FACE_METRICS,
+    win: [1160, 288],
+    faces: 53,
+    tabularDigits: false,
+  },
+  {
+    id: 'font-noto-jp',
+    metrics: CJK_FACE_METRICS,
+    win: [1160, 288],
+    faces: 120,
+    tabularDigits: false,
+  },
+  {
+    id: 'font-noto-sc',
+    metrics: CJK_FACE_METRICS,
+    win: [1160, 288],
+    faces: 95,
+    tabularDigits: false,
+  },
+  {
+    id: 'font-noto-tc',
+    metrics: CJK_FACE_METRICS,
+    win: [1160, 288],
+    faces: 98,
+    tabularDigits: false,
+  },
 ] as const;
+/** The one face whose digits take Inter's tabular glyphs. */
+const TABULAR_DIGIT_FACE = 'fonts/app/inter/inter-latin.woff2';
+/** U+0030-0039. */
+const DIGITS = Array.from({ length: 10 }, (_, index) => 0x30 + index);
+/** The instances of Inter the app draws: weights 400 to 700, optical sizes 14 to 32. */
+const INTER_APP_INSTANCES: readonly (readonly [string, number])[][] = [
+  [],
+  ...[400, 500, 600, 700].flatMap((wght) =>
+    [14, 32].map((opsz): [string, number][] => [
+      ['wght', wght],
+      ['opsz', opsz],
+    ]),
+  ),
+];
 
 interface RecordDigest {
   readonly sha256: string;
@@ -68,6 +118,7 @@ interface RecordFamily {
   readonly family: string;
   readonly input: string;
   readonly output: string;
+  readonly tabularDigits: boolean;
   readonly unitsPerEm: number;
   readonly ascender: number;
   readonly descender: number;
@@ -179,8 +230,12 @@ function mvarTags(sfnt: Uint8Array): string[] {
   );
 }
 
-/** Tables, or byte ranges of the patched tables, in which two fonts differ. */
-function differences(input: Uint8Array, output: Uint8Array): string[] {
+/**
+ * Tables, or byte ranges of the patched tables, in which two fonts differ.
+ * With digitsMapped, the cmap may differ too: digitMappingProblems compares it
+ * code point by code point.
+ */
+function differences(input: Uint8Array, output: Uint8Array, digitsMapped: boolean): string[] {
   const before = tablesOf(input);
   const after = tablesOf(output);
   const found: string[] = [];
@@ -191,6 +246,7 @@ function differences(input: Uint8Array, output: Uint8Array): string[] {
       found.push(`${tag} (added, removed or resized)`);
       continue;
     }
+    if (tag === 'cmap' && digitsMapped) continue;
     const allowed = PATCHED_BYTES[tag] ?? [];
     for (let index = 0; index < left.length; index += 1) {
       if (left[index] === right[index]) continue;
@@ -198,6 +254,60 @@ function differences(input: Uint8Array, output: Uint8Array): string[] {
       found.push(`${tag} byte ${index}`);
       break;
     }
+  }
+  return found;
+}
+
+const DIGIT_NAMES = [
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+];
+/** Inter's tabular digits, which its tnum feature gives. */
+const TABULAR_DIGIT_NAMES = DIGIT_NAMES.map((name) => `${name}.tf`);
+
+function holdsDigits(sfnt: Uint8Array): boolean {
+  const codePoints = new hb.Face(new hb.Blob(sfnt), 0).collectUnicodes();
+  return DIGITS.some((digit) => codePoints.includes(digit));
+}
+
+/**
+ * Where the copy's cmap is not the input's with each digit mapped to the glyph
+ * the input's tnum gives it, which must be zero.tf to nine.tf. Empty when it
+ * is exactly that.
+ */
+function digitMappingProblems(input: Uint8Array, output: Uint8Array): string[] {
+  const before = new hb.Face(new hb.Blob(input), 0);
+  const after = new hb.Face(new hb.Blob(output), 0);
+  const [from, to] = [new hb.Font(before), new hb.Font(after)];
+  const codePoints = [...before.collectUnicodes()];
+  const copied = new Set(after.collectUnicodes());
+  const found: string[] = [];
+  if (copied.size !== codePoints.length || codePoints.some((code) => !copied.has(code))) {
+    found.push('other code points');
+  }
+  for (const codePoint of codePoints) {
+    let wanted = from.nominalGlyph(codePoint);
+    const digit = DIGITS.indexOf(codePoint);
+    if (digit >= 0) {
+      const buffer = new hb.Buffer();
+      buffer.addText(String.fromCodePoint(codePoint));
+      buffer.guessSegmentProperties();
+      hb.shape(from, buffer, [new hb.Feature('tnum')]);
+      wanted = buffer.getGlyphInfos()[0]?.codepoint;
+      const name = wanted === undefined ? '' : from.glyphName(wanted);
+      if (name !== TABULAR_DIGIT_NAMES[digit]) found.push(`tnum gives ${name}`);
+    }
+    const glyph = to.nominalGlyph(codePoint);
+    if (glyph !== wanted)
+      found.push(`U+${codePoint.toString(16)} to glyph ${glyph}, not ${wanted}`);
   }
   return found;
 }
@@ -386,11 +496,21 @@ describe('the line box baked into the app faces', () => {
     ).toEqual([]);
   });
 
-  it('records each family with the metrics of font-metrics.ts and the win metrics it keeps', () => {
+  it('records each family with the metrics of font-metrics.ts, the win metrics it keeps and whether it maps the digits', () => {
     expect(
       (record?.families ?? []).map(
-        ({ family, unitsPerEm, ascender, descender, lineGap, winAscent, winDescent }) => ({
+        ({
           family,
+          tabularDigits,
+          unitsPerEm,
+          ascender,
+          descender,
+          lineGap,
+          winAscent,
+          winDescent,
+        }) => ({
+          family,
+          tabularDigits,
           unitsPerEm,
           ascender,
           descender,
@@ -400,8 +520,9 @@ describe('the line box baked into the app faces', () => {
         }),
       ),
     ).toEqual(
-      BAKED_FAMILIES.map(({ id, metrics, win: [winAscent, winDescent] }) => ({
+      BAKED_FAMILIES.map(({ id, metrics, win: [winAscent, winDescent], tabularDigits }) => ({
         family: sheetOf(id).family,
+        tabularDigits,
         unitsPerEm: metrics.unitsPerEm,
         ascender: metrics.ascender,
         descender: metrics.descender,
@@ -412,9 +533,42 @@ describe('the line box baked into the app faces', () => {
     );
   });
 
-  it('differs from each recorded input only in head, hhea and OS/2', async () => {
+  it("maps the digits of Inter's latin face to zero.tf to nine.tf, one advance at every instance the app draws", () => {
+    const inter = faces.filter(({ family }) => family === sheetOf('font-inter').family);
+    expect(inter.filter(({ sfnt }) => holdsDigits(sfnt)).map(({ path }) => path)).toEqual([
+      TABULAR_DIGIT_FACE,
+    ]);
+    const face = inter.find(({ path }) => path === TABULAR_DIGIT_FACE);
+    if (!face) throw new Error(`${TABULAR_DIGIT_FACE} is not in the Inter sheet`);
+    const font = new hb.Font(new hb.Face(new hb.Blob(face.sfnt), 0));
+    expect(DIGITS.map((digit) => font.glyphName(font.nominalGlyph(digit) ?? 0))).toEqual(
+      TABULAR_DIGIT_NAMES,
+    );
+    // Shaped as the app sets a run of digits (default features: calt, kern),
+    // each digit takes the same advance at each instance.
+    const advances = INTER_APP_INSTANCES.map((variations) => {
+      font.setVariations(variations.map(([tag, value]) => new hb.Variation(tag, value)));
+      const buffer = new hb.Buffer();
+      buffer.addText('0123456789');
+      buffer.guessSegmentProperties();
+      hb.shape(font, buffer);
+      expect(buffer.getGlyphInfos().map(({ codepoint }) => font.glyphName(codepoint))).toEqual(
+        TABULAR_DIGIT_NAMES,
+      );
+      return new Set(buffer.getGlyphPositions().map(({ xAdvance }) => xAdvance)).size;
+    });
+    expect(advances).toEqual(INTER_APP_INSTANCES.map(() => 1));
+  });
+
+  it("differs from each recorded input only in head, hhea and OS/2, and Inter's latin face in its digits", async () => {
     expect(record, `${RECORD_PATH} is missing`).not.toBeNull();
+    const tabular = new Set<string>(
+      BAKED_FAMILIES.filter(({ tabularDigits }) => tabularDigits).map(
+        ({ id }) => sheetOf(id).family,
+      ),
+    );
     const changed: [string, string[]][] = [];
+    const mapped: string[] = [];
     let compared = 0;
     for (const family of record?.families ?? []) {
       for (const entry of family.faces) {
@@ -424,12 +578,19 @@ describe('the line box baked into the app faces', () => {
         expect({ sha256: sha256Hex(input), bytes: input.byteLength }, entry.file).toEqual(
           entry.input,
         );
-        const found = differences(Uint8Array.from(await decodeFontBytes(input)), face.sfnt);
+        const decoded = Uint8Array.from(await decodeFontBytes(input));
+        const digitsMapped = tabular.has(family.family) && holdsDigits(decoded);
+        if (digitsMapped) mapped.push(face.path);
+        const found = [
+          ...differences(decoded, face.sfnt, digitsMapped),
+          ...(digitsMapped ? digitMappingProblems(decoded, face.sfnt) : []),
+        ];
         if (found.length) changed.push([face.path, found]);
         compared += 1;
       }
     }
     expect(changed).toEqual([]);
+    expect(mapped).toEqual([TABULAR_DIGIT_FACE]);
     expect(compared).toBe(faces.length);
   }, 180_000);
 });

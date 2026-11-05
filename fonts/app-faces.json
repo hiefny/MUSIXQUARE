@@ -1,5 +1,5 @@
 {
-  "note": "The app faces in fonts/app/: each Inter and CJK face of the app sheets is a copy of its input file with the line box of src/i18n/font-metrics.ts baked into hhea and the OS/2 typo metrics (USE_TYPO_METRICS set; descender and winDescent are below the baseline, positive). input and output are the digests of the input file and of the copy. Written by scripts/fonts/build-app-faces.mts; checked by scripts/check-app-font.mts. Do not edit by hand.",
+  "note": "The app faces in fonts/app/: each Inter and CJK face of the app sheets is a copy of its input file with the line box of src/i18n/font-metrics.ts baked into hhea and the OS/2 typo metrics (USE_TYPO_METRICS set; descender and winDescent are below the baseline, positive). In a family with tabularDigits, the face that holds the digits 0-9 also maps them in its cmap to the glyphs its tnum feature gives (Inter: zero.tf to nine.tf). input and output are the digests of the input file and of the copy. Written by scripts/fonts/build-app-faces.mts; checked by scripts/check-app-font.mts. Do not edit by hand.",
   "tools": {
     "wawoff2": "2.0.1"
   },
@@ -8,6 +8,7 @@
       "family": "Inter",
       "input": "fonts/inter",
       "output": "fonts/app/inter",
+      "tabularDigits": true,
       "unitsPerEm": 2048,
       "ascender": 2006,
       "descender": 508,
@@ -88,8 +89,8 @@
             "bytes": 72920
           },
           "output": {
-            "sha256": "0de94a975b964b5b06a7485d8e946fca33577358843f6ff9ae6b2e75fbc47851",
-            "bytes": 72844
+            "sha256": "4cf9191b9afa6c8cef16bb5a3804a95c54a2d186359323528bc954a9c97138de",
+            "bytes": 72728
           }
         }
       ]
@@ -98,6 +99,7 @@
       "family": "Noto Sans KR",
       "input": "fonts/noto/noto-sans-kr",
       "output": "fonts/app/noto-sans-kr",
+      "tabularDigits": false,
       "unitsPerEm": 1000,
       "ascender": 1013,
       "descender": 257,
@@ -694,6 +696,7 @@
       "family": "Noto Sans JP",
       "input": "fonts/noto/noto-sans-jp",
       "output": "fonts/app/noto-sans-jp",
+      "tabularDigits": false,
       "unitsPerEm": 1000,
       "ascender": 1013,
       "descender": 257,
@@ -2027,6 +2030,7 @@
       "family": "Noto Sans SC",
       "input": "fonts/noto/noto-sans-sc",
       "output": "fonts/app/noto-sans-sc",
+      "tabularDigits": false,
       "unitsPerEm": 1000,
       "ascender": 1013,
       "descender": 257,
@@ -3085,6 +3089,7 @@
       "family": "Noto Sans TC",
       "input": "fonts/noto/noto-sans-tc",
       "output": "fonts/app/noto-sans-tc",
+      "tabularDigits": false,
       "unitsPerEm": 1000,
       "ascender": 1013,
       "descender": 257,

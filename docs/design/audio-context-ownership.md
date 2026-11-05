@@ -22,14 +22,14 @@ change, and only a trusted user gesture may resume it. Two machines drive it tod
 | Play-request restart    | `src/audio/context.ts`          | a PLAY after a return to the foreground finds the clock stalled                       |
 | Playback-scope recovery | `src/audio/context-recovery.ts` | an OS interruption or a stalled clock during playback (`statechange`, visibility, G7) |
 
-Each keeps its own suspend lease, its own `statechange` listeners and its own gesture resume.
-`src/app.ts` sequences both in the recovery dialog ('Audio paused unexpectedly' with the 'Restore
+Each kept its own suspend lease and its own `statechange` listeners until 7B-4 (Decision 3), and
+its own gesture resume until 7B-5 (Decision 4). `src/app.ts` sequences both in the recovery dialog ('Audio paused unexpectedly' with the 'Restore
 audio' button in English), `src/player/media-session.ts` repeats the same gesture sequence for
 a lock-screen PLAY, and `src/audio/ui-sounds.ts` resumes the context on a trusted press before it
-plays a UI sound, without asking either machine. Phase 7 makes `context-recovery.ts` the one owner
-of the recovery protocol in three app updates: 7A (counters and sound-neutral cleanup), 7B (the
-behaviour changes the owner approved on 2026-11-02, each behind a failing test) and 7C (the move
-behind one owner).
+plays a UI sound, without asking either machine (until 7B-3, Decision 2.3). Phase 7 makes
+`context-recovery.ts` the one owner of the recovery protocol in three app updates: 7A (counters
+and sound-neutral cleanup), 7B (the behaviour changes the owner approved on 2026-11-02, each
+behind a failing test) and 7C (the move behind one owner).
 
 ## Decision (proposed)
 
@@ -41,21 +41,46 @@ behind one owner).
 2. **Only the owner calls native `resume()` and `suspend()`**, with three exceptions:
    1. `ensureRunning` wakes a context that is not running (PLAY, file activation, the engine's
       initialization). When an attempt holds the context, the owner's re-suspend rule undoes that
-      wake (kept as today's behaviour, owner answer of 2026-11-02).
+      wake (kept as today's behaviour, owner answer of 2026-11-02). Since 7B-2 the play-request
+      attempt waiting for its tap has the same rule as the playback scope's, so its tap resumes a
+      parked context instead of being refused. The rule serves an attempt a recovery dialog has
+      taken (`app.ts` takes it when it shows the request,
+      `claimForegroundAudioContextRestartForDialog`); an attempt whose notice never became a
+      dialog keeps no context, and the next PLAY's clock check retires it, as before 7B-2.
    2. `probeAudioContextHealth` with `attemptResume: true` has one caller,
       `src/audio/output-health.ts`, and runs only after both ownership checks in that file report
       no attempt.
    3. UI sounds ask the owner whether it holds the context for a tap, and wake it themselves only
-      when it does not (7B-3). Their two native resumes stay counted by the guard as requesters
-      that ask first.
+      when it does not; while it does they make no sound either (7B-3: `ui-sounds.ts` asks
+      `isAudioOutputRecoveryHolding` in `context-recovery.ts`, which asks the play-request owner's
+      answer when called). Their two native resumes stay counted by the guard as requesters that
+      ask first.
 3. **One native suspend in flight per context.** One lease and one `statechange` dispatcher per
    context (7B-4). A reader that only updates the loading indicator
    (`src/ui/file-start-loading.ts`) stays outside the dispatcher and is not counted as an owner
-   listener.
+   listener. Implemented in 7B-4, in `context.ts` until 7C moves them into the owner: both owners
+   ask one suspend ledger (`requestAudioContextSuspend`), whose lease watchdog and late-suspend
+   fence time the suspend for both, so either owner's second suspend comes after the fence; a
+   later request takes the lease, or the place behind the fence, over and the earlier attempt
+   retires (owner answer Q6). What an attempt does when its suspend is lost stays its owner's. The
+   one listener calls, in a fixed order whatever arrived first, the binding
+   (`bindAudioContextStateDispatch`), the lease, the fence and the recovery resumes' promotion
+   (either owner's since 7B-5); fixing the order is itself a behaviour change, recorded with 7B-4.
 4. **A gesture resume is synchronous inside the activation callback.** No `await` precedes native
    `resume()` on a gesture path (the recovery dialog's button, a lock-screen PLAY, the start tap),
    so the call keeps the transient activation. A running-but-frozen context is suspended before
-   the dialog shows, so the button never spends its activation awaiting `suspend()`.
+   the dialog shows, so the button never spends its activation awaiting `suspend()`. Since 7B-5 one
+   recovery resume serves every attempt of both owners (`requestAudioContextResume`, in
+   `context.ts` until 7C moves it into the owner): it issues the native `resume()` synchronously,
+   races it with the 750 ms deadline, and promotes the attempt when the context runs for it, the
+   deadline passed or not, so an owner hears its own late resume as its own. The steps after the
+   deadline, the playback scope's own clock check of a late resume (fix lane G7) and the rule for
+   the attempt after a retired one stay each owner's. After its tap the recovery dialog waits on
+   the play-request owner's answer (promoted, retired, cancelled or superseded), its AbortSignal,
+   its currency and its 5 s limit, instead of a 50 ms poll (owner answer Q7). Since 7B-6 a
+   lock-screen PLAY that clears a local pause, and whose resume brought the context running for an
+   attempt that pause made stale, has the owner retire that attempt and arm the next PLAY's clock
+   check in its place, and rejoins the room itself (owner answer Q12).
 5. **Queries have no side effects.** A query answers from the owner's state and never changes it.
    Today `getPendingAudioContextClockHealthRequirement` in `context-recovery.ts` promotes a
    state-interruption attempt to clock verification when it is read; 7C-1 moves that promotion
@@ -63,13 +88,17 @@ behind one owner).
 6. **Two questions, kept apart.**
    - **Holding** (narrow, asked by UI sounds before they wake the context): the owner is waiting
      for a tap. That is a suspend being prepared (`preparing-suspend`), a parked context waiting
-     for the gesture (`awaiting-gesture`) or the gesture resume in flight (`gesture-resuming`), an
+     for the gesture of a dialog that has the attempt (`awaiting-gesture`; a play-request attempt
+     whose notice never became a dialog holds nothing) or the gesture resume in flight
+     (`gesture-resuming`), an
      unfinished lease or late-suspend fence, and only for a file-mode identity (the play-request
      attempt is always a file), an attempt the owner still holds and a current identity. An OS
      interruption waiting for its automatic resume (`awaiting-resume`) is not holding, and neither
      is a YouTube-mode attempt parked by a clock stall: no dialog asks for its tap, so holding it
-     could silence UI sounds until the next lock-screen PLAY. 7B-3 implements and pins this
-     definition.
+     could silence UI sounds until the next lock-screen PLAY. Implemented in 7B-3 (an owner's
+     suspend lease and late-suspend fence serve its attempt only while that attempt prepares the
+     suspend, so the phases cover them) and pinned phase by phase by the holding table; the
+     `/debug sync` counts ask the same answers.
    - **Ownership** (broad, asked by `output-health.ts` before its background check): any attempt
      exists, a play-request restart (`isForegroundAudioContextRestartOwned`) or a playback-scope
      attempt (`getPendingAudioContextRecoveryAttemptForHealth`). The background check must not race
@@ -96,10 +125,17 @@ behind one owner).
   7A-2, or another new leaf), not in
   `context.ts` exports; `context-recovery.ts` and new modules read no `context.ts` export at module
   evaluation; and a change whose production path calls a new `context.ts` export updates, in the
-  same change, every factory mock of `context.ts` on that path. Two files evaluate the real
-  `context-recovery.ts` under a `context.ts` factory today
+  same change, every factory mock of `context.ts` on that path. Two files evaluated the real
+  `context-recovery.ts` under a `context.ts` factory before 7B-3
   (`src/player/__tests__/media-session-pending-start.test.ts`,
-  `src/player/__tests__/transport-ended-stop.test.ts`); they are the latch.
+  `src/player/__tests__/transport-ended-stop.test.ts`); they are the latch. Since 7B-3 every test
+  file that loads UI sounds evaluates it too (22 more under a `context.ts` factory). Its holding
+  query reads `isForegroundAudioContextRestartHolding` only after the UI sound preference, which
+  among those files only `src/audio/__tests__/ui-sounds.test.ts` turns on, and that file's factory
+  defines the name. Since 7B-4 the binding and the playback scope's suspend preparation call the
+  ledger's `bindAudioContextStateDispatch` and `requestAudioContextSuspend`, and since 7B-5 its
+  resumes call `requestAudioContextResume`; none of those files binds a context or arms a
+  playback-scope attempt (each needs a binding).
 - **Public behaviour, no sub-step names.** The owner tables (`audio-output-recovery-boundary`,
   `audio-output-recovery-holding`, `audio-output-recovery-parity`, in `src/audio/__tests__/`)
   assert the fake's op log, bus events and the owners' normalized answers through one driver
@@ -113,8 +149,11 @@ behind one owner).
 - `scripts/check-resource-ownership.mts` CHECK 6 counts native `resume()` and `suspend()` per file;
   beside it, since Phase 7 T1, an exact ratchet counts per file the callers of `ensureRunning`,
   `restartAudioContextFromGesture` and `probeAudioContextHealth`, `context.ts` included (it calls
-  none of them, so a wrapper there cannot hide a new caller), and reports `initAudio` uses. Each
-  Phase 7 step lowers the counts it moves into the owner in the same change.
+  none of them, so a wrapper there cannot hide a new caller), and reports `initAudio` uses. Since
+  7B it also counts the callers of the wrappers 7B-4 and 7B-5 route both owners' native calls
+  through (`requestAudioContextResume`, `requestRetiredAudioContextSuspendCleanup`,
+  `requestAudioContextSuspend`), their home's own calls included, until 7C-4 makes them
+  module-private. Each Phase 7 step lowers the counts it moves into the owner in the same change.
   The guard stays syntactic (RO-44).
 
 ## Limits of the evidence
@@ -144,6 +183,9 @@ behind one owner).
   `src/audio/__tests__/context-health.test.ts`.
 - Lock-screen PLAY: `src/player/__tests__/media-session.test.ts`,
   `src/player/__tests__/media-session-lock-screen-pause.test.ts`.
+- UI sounds ask first (7B-3): `src/audio/__tests__/ui-sounds.test.ts` (while an owner holds the
+  context, no resume and no tone; otherwise a suspended context is resumed once and a running one
+  plays the tone) and the holding table.
 - Start tap (QA025): `src/ui/__tests__/setup-start.test.ts`,
   `src/ui/__tests__/setup-start-native-resume.test.ts`.
 - Engine handoffs to YouTube audio: `src/audio/__tests__/engine-youtube-audio-handoff.test.ts`.

@@ -28,21 +28,26 @@
  *
  * Each face is decoded, patched, encoded with the wawoff2 encoder and decoded
  * again, one at a time (the WOFF2 encoder and decoder are not reentrant).
- * Before a copy is written:
+ * In a family with tabularDigits (Inter), the face that holds the digits 0-9
+ * first gets them mapped to its tabular glyphs
+ * (scripts/fonts/app-face-digits.mts). Before a copy is written:
  * - every table of the decoded copy equals the patched font;
- * - it differs from the decoded input only in head.checkSumAdjustment, the
- *   hhea line metrics, OS/2 fsSelection and the OS/2 typo metrics;
- * - its checksums are valid, its cmap is the input's, and it holds the box
- *   with USE_TYPO_METRICS and the input's win metrics, which hold the box.
+ * - it differs from the decoded input, with the digits mapped in a
+ *   tabularDigits family, only in head.checkSumAdjustment, the hhea line
+ *   metrics, OS/2 fsSelection and the OS/2 typo metrics;
+ * - its checksums are valid, its cmap is the input's (the digits mapped to
+ *   the tabular glyphs in a tabularDigits family), and it holds the box with
+ *   USE_TYPO_METRICS and the input's win metrics, which hold the box.
  * The copy keeps the input's file name in fonts/app/<family>/, and
  * fonts/app-faces.json records the digests of the input and the copy and the
  * wawoff2 version. The default mode keeps a face whose record entry, input
- * digest, line box and wawoff2 version still match. A face it bakes again
- * with its recorded input and box must give its recorded bytes, under the
- * recorded wawoff2 version or a new one (a new version that does only
- * replaces the recorded version); otherwise the run writes nothing and stops,
- * so a wawoff2 update cannot change the copies, and with them every font URL,
- * unnoticed. --record accepts the new bytes after review.
+ * digest, line box, tabularDigits and wawoff2 version still match. A face it
+ * bakes again with its recorded input, box and tabularDigits must give its
+ * recorded bytes, under the recorded wawoff2 version or a new one (a new
+ * version that does only replaces the recorded version); otherwise the run
+ * writes nothing and stops, so a wawoff2 update cannot change the copies, and
+ * with them every font URL, unnoticed. --record accepts the new bytes after
+ * review.
  */
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -58,6 +63,7 @@ import {
   unpatchedDifferences,
   type BakedLineBox,
 } from './app-face-metrics.mts';
+import { tabularDigitsProblems, withTabularDigits } from './app-face-digits.mts';
 import { appFaceInputs } from './build-font-sheets.mts';
 import {
   APP_FACES_DIRECTORY,
@@ -66,8 +72,6 @@ import {
   decodeFontBytes,
   digestOf,
   encodeWoff2,
-  fontCodePoints,
-  openFontBytes,
   parseAppFaces,
   verifyAppFaces,
   writeAppFaces,
@@ -78,7 +82,7 @@ import {
 } from './font-files.mts';
 
 const NOTE =
-  'The app faces in fonts/app/: each Inter and CJK face of the app sheets is a copy of its input file with the line box of src/i18n/font-metrics.ts baked into hhea and the OS/2 typo metrics (USE_TYPO_METRICS set; descender and winDescent are below the baseline, positive). input and output are the digests of the input file and of the copy. Written by scripts/fonts/build-app-faces.mts; checked by scripts/check-app-font.mts. Do not edit by hand.';
+  'The app faces in fonts/app/: each Inter and CJK face of the app sheets is a copy of its input file with the line box of src/i18n/font-metrics.ts baked into hhea and the OS/2 typo metrics (USE_TYPO_METRICS set; descender and winDescent are below the baseline, positive). In a family with tabularDigits, the face that holds the digits 0-9 also maps them in its cmap to the glyphs its tnum feature gives (Inter: zero.tf to nine.tf). input and output are the digests of the input file and of the copy. Written by scripts/fonts/build-app-faces.mts; checked by scripts/check-app-font.mts. Do not edit by hand.';
 const TOOL = 'wawoff2';
 
 type Mode = 'write' | 'record' | 'check';
@@ -110,14 +114,16 @@ function tablesEqual(left: Uint8Array, right: Uint8Array): string[] {
 export async function bakeFace(
   input: Uint8Array,
   box: BakedLineBox,
+  tabularDigits = false,
 ): Promise<{ woff2: Uint8Array; sfnt: Uint8Array }> {
   const decoded = await decodeFontBytes(input);
-  const patched = bakeLineMetrics(decoded, box);
+  const mapped = tabularDigits ? withTabularDigits(decoded) : decoded;
+  const patched = bakeLineMetrics(mapped, box);
   const woff2 = await encodeWoff2(patched);
   const sfnt = await decodeFontBytes(woff2);
   const lost = tablesEqual(patched, sfnt);
   if (lost.length) throw new Error(`the WOFF2 round trip changed ${lost.join(', ')}`);
-  const changed = unpatchedDifferences(decoded, sfnt);
+  const changed = unpatchedDifferences(mapped, sfnt);
   if (changed.length)
     throw new Error(`the copy differs beyond the line box: ${changed.join(', ')}`);
   if (!sfntChecksumsValid(sfnt)) throw new Error('the copy has a wrong checksum');
@@ -138,13 +144,8 @@ export async function bakeFace(
   if (after.winAscent < box.ascender || after.winDescent < box.descender) {
     throw new Error(`the win metrics ${after.winAscent}/${after.winDescent} do not hold the box`);
   }
-  const [inputCmap, copyCmap] = [
-    fontCodePoints(await openFontBytes(decoded)),
-    fontCodePoints(await openFontBytes(sfnt)),
-  ];
-  if (inputCmap.size !== copyCmap.size || [...inputCmap].some((code) => !copyCmap.has(code))) {
-    throw new Error('the copy changed the cmap');
-  }
+  const cmap = tabularDigitsProblems(decoded, sfnt, tabularDigits);
+  if (cmap.length) throw new Error(`the copy changed the cmap: ${cmap.slice(0, 5).join('; ')}`);
   return { woff2, sfnt };
 }
 
@@ -233,6 +234,7 @@ export async function buildAppFaces(
       before !== undefined &&
       before.input === spec.input &&
       before.output === spec.output &&
+      before.tabularDigits === spec.tabularDigits &&
       before.unitsPerEm === spec.box.unitsPerEm &&
       before.ascender === spec.box.ascender &&
       before.descender === spec.box.descender &&
@@ -270,7 +272,7 @@ export async function buildAppFaces(
         faces.push(recorded);
         continue;
       }
-      const copy = await bakeFace(input, spec.box);
+      const copy = await bakeFace(input, spec.box, spec.tabularDigits);
       baked += 1;
       const outputDigest = digestOf(copy.woff2);
       if (mode === 'check') {
@@ -300,6 +302,7 @@ export async function buildAppFaces(
       family: spec.family,
       input: spec.input,
       output: spec.output,
+      tabularDigits: spec.tabularDigits,
       ...spec.box,
       winAscent: win?.[0] ?? 0,
       winDescent: win?.[1] ?? 0,

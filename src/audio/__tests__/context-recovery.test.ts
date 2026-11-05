@@ -1069,7 +1069,7 @@ describe('AudioContext interruption recovery', () => {
     }
   });
 
-  it('retries a resolved-running stalled suspend with the same exact attempt', async () => {
+  it('retries a resolved-running stalled suspend with the same exact attempt after the late fence', async () => {
     vi.useFakeTimers();
     try {
       markActiveFileRoom();
@@ -1090,7 +1090,14 @@ describe('AudioContext interruption recovery', () => {
 
       const arm = armPendingAudioContextRecoveryFromBackground(context as unknown as AudioContext);
       const attempt = getPendingAudioContextRecoveryAttemptForHealth();
-      await vi.advanceTimersByTimeAsync(750);
+      // Phase 7 7B-4 (owner answer Q6): the second suspend waits for the
+      // 250 ms late fence after the 750 ms watchdog, as the play-request
+      // restart's does, so it comes at 1,000 ms (before: at once at 750 ms).
+      await vi.advanceTimersByTimeAsync(760);
+      expect(context.suspend).toHaveBeenCalledOnce();
+      expect(getPendingAudioContextInterruptionAttempt()).toBeNull();
+      expect(isAudioContextInterruptionAttemptCurrent(attempt!)).toBe(true);
+      await vi.advanceTimersByTimeAsync(250);
 
       await expect(arm).resolves.toBeNull();
       expect(context.suspend).toHaveBeenCalledTimes(2);
@@ -1110,7 +1117,7 @@ describe('AudioContext interruption recovery', () => {
     }
   });
 
-  it('retries a never-settling stalled suspend with the same exact attempt', async () => {
+  it('retries a never-settling stalled suspend with the same exact attempt after the late fence', async () => {
     vi.useFakeTimers();
     try {
       markActiveFileRoom();
@@ -1131,7 +1138,13 @@ describe('AudioContext interruption recovery', () => {
 
       const arm = armPendingAudioContextRecoveryFromBackground(context as unknown as AudioContext);
       const attempt = getPendingAudioContextRecoveryAttemptForHealth();
-      await vi.advanceTimersByTimeAsync(750);
+      // Phase 7 7B-4 (owner answer Q6): as above, the second suspend comes
+      // after the late fence at 1,000 ms (before: at 750 ms).
+      await vi.advanceTimersByTimeAsync(760);
+      expect(context.suspend).toHaveBeenCalledOnce();
+      expect(getPendingAudioContextInterruptionAttempt()).toBeNull();
+      expect(isAudioContextInterruptionAttemptCurrent(attempt!)).toBe(true);
+      await vi.advanceTimersByTimeAsync(250);
 
       await expect(arm).resolves.toBeNull();
       expect(context.suspend).toHaveBeenCalledTimes(2);
@@ -1185,7 +1198,13 @@ describe('AudioContext interruption recovery', () => {
 
       const arm = armPendingAudioContextRecoveryFromBackground(context as unknown as AudioContext);
       const attempt = getPendingAudioContextRecoveryAttemptForHealth();
-      await vi.advanceTimersByTimeAsync(1_500);
+      // Phase 7 7B-4 (owner answer Q6): the second suspend came after the late
+      // fence at 1,000 ms, so its watchdog gives up at 1,750 ms (before: the
+      // second came at 750 ms and the attempt retired at 1,500 ms).
+      await vi.advanceTimersByTimeAsync(1_510);
+      expect(context.suspend).toHaveBeenCalledTimes(2);
+      expect(isAudioContextInterruptionAttemptCurrent(attempt!)).toBe(true);
+      await vi.advanceTimersByTimeAsync(250);
 
       await expect(arm).resolves.toBeNull();
       expect(context.suspend).toHaveBeenCalledTimes(2);

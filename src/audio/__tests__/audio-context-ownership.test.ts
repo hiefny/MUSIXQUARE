@@ -22,12 +22,14 @@
  * Not covered here:
  * - src/app.ts is import-terminal, so its recovery dialog has no unit seam.
  *   Where a test says what the dialog reads, it pins the owner's answer at
- *   the moment app.ts reads it (its 1 s flight race, its 5 s / 50 ms
- *   requirement poll). Browser evidence for the dialog stays in
- *   e2e/background-resume.test.ts and e2e/demo-output-recovery.test.ts.
+ *   the moment app.ts reads it (its 1 s flight race, and since Phase 7 7B-5
+ *   its wait of at most 5 s on the owner's answer for the requirement).
+ *   Browser evidence for the dialog stays in e2e/background-resume.test.ts,
+ *   e2e/demo-output-recovery.test.ts and the local lab in e2e/audio-lab/.
  * - The trusted pointerdown/keydown path in ui-sounds.ts: jsdom cannot
- *   create a trusted event. Its readyOutput path issues the same unowned
- *   resume() and is used instead.
+ *   create a trusted event. Its readyOutput path asks the owners the same
+ *   question first (Phase 7 7B-3) and issues the same resume() when no owner
+ *   holds the context, and is used instead.
  * - Real WebKit timing: the fake's header says what it models.
  *
  * Comments marked "Known gap" pin today's behaviour, not the desired one,
@@ -177,12 +179,30 @@ async function loadMediaSession(): Promise<() => void> {
   return () => handlers.get('play')!({ action: 'play' });
 }
 
-/** Prepare a play-request restart the way transport does on a foreground clock stall. */
-async function parkPlayRequestRestart(o: Owners, fake: FakeNativeAudioContext) {
+/**
+ * app.ts's recovery dialog takes a play-request attempt when it shows that
+ * attempt's request. Only such an attempt is parked again after an outside
+ * resume and holds the context for its tap (Phase 7 7B-2 and 7B-3).
+ */
+function dialogTakes(o: Owners, attemptToken: object): void {
+  o.context.claimForegroundAudioContextRestartForDialog(attemptToken);
+}
+
+/**
+ * Prepare a play-request restart the way transport does on a foreground
+ * clock stall; the dialog its notice opens takes it, unless `dialog` is
+ * false (the notice never became a dialog).
+ */
+async function parkPlayRequestRestart(
+  o: Owners,
+  fake: FakeNativeAudioContext,
+  { dialog = true }: { dialog?: boolean } = {},
+) {
   const check = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
   const preparation = await o.context.prepareForegroundAudioContextRestart(check!);
   expect(preparation).toMatchObject({ status: 'prepared' });
   expect(fake.state).toBe('suspended');
+  if (dialog) dialogTakes(o, preparation!.attemptToken);
   return { check: check!, preparation: preparation! };
 }
 
@@ -450,78 +470,56 @@ describe('RO-01 play-request foreground restart', () => {
 });
 
 describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', () => {
+  /** The owner verifies its own late resume and rejoins once, with no further native call. */
+  const RECOVERED = {
+    state: 'running',
+    scope: COMPLETED,
+    requirement: 'none',
+    rejoins: ['audio-context-recovered'],
+    needed: [] as string[],
+    suspends: 1,
+    resumes: 1,
+  };
   it.each([
     {
       label: 'state flips silently at settlement',
       resume: { statechange: 'silent' } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
-      end: {
-        state: 'running',
-        scope: COMPLETED,
-        requirement: 'none',
-        rejoins: ['audio-context-recovered'],
-        needed: [] as string[],
-        suspends: 1,
-        resumes: 1,
-      },
+      end: RECOVERED,
     },
     {
       label: 'state flips at settlement, statechange 100 ms later',
       resume: { statechange: 'deferred-event', stateDelayMs: 100 } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
-      end: {
-        state: 'running',
-        scope: COMPLETED,
-        requirement: 'none',
-        rejoins: ['audio-context-recovered'],
-        needed: [],
-        suspends: 1,
-        resumes: 1,
-      },
+      end: RECOVERED,
     },
     {
-      // The fake's zero-latency default; no browser applies suspend() inside
-      // the same microtask checkpoint. The 50 ms row is the realistic one.
+      // The fake's zero-latency default for the re-suspend that no longer
+      // comes. Before Phase 7 7B-5 (Known gap C1-I11/I12) the owner suspended
+      // again and asked for a second gesture: state suspended, PARKED, a
+      // clock-stalled notice, 2 suspends.
       label: 'statechange before settlement, re-suspend on a microtask',
       resume: { statechange: 'before-settle' } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
-      end: {
-        state: 'suspended',
-        scope: PARKED,
-        requirement: 'none',
-        rejoins: [],
-        needed: ['background-resume:clock-stalled'],
-        suspends: 2,
-        resumes: 1,
-      },
+      end: RECOVERED,
     },
     {
+      // Before 7B-5 (Known gap C1-I11/I12) the settlement's promotion
+      // stranded the re-suspend's lease, the attempt retired and the cleanup
+      // resumed it with no clock proof or rejoin: running, NO_ATTEMPT,
+      // 2 suspends, 2 resumes.
       label: 'statechange before settlement, re-suspend after 50 ms',
       resume: { statechange: 'before-settle' } as FakeNativeCallPlan,
       reSuspend: { latencyMs: 50 } as FakeNativeCallPlan,
-      end: {
-        state: 'running',
-        scope: NO_ATTEMPT,
-        requirement: 'none',
-        rejoins: [],
-        needed: [],
-        suspends: 2,
-        resumes: 2,
-      },
+      end: RECOVERED,
     },
     {
+      // Before 7B-5 (Known gap C1-I11/I12) as the microtask row: a second
+      // gesture asked for.
       label: 'statechange 100 ms after settlement',
       resume: { statechange: 'after-settle', stateDelayMs: 100 } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
-      end: {
-        state: 'suspended',
-        scope: PARKED,
-        requirement: 'none',
-        rejoins: [],
-        needed: ['background-resume:clock-stalled'],
-        suspends: 2,
-        resumes: 1,
-      },
+      end: RECOVERED,
     },
   ])('stalled cause: resume settles at 1200 ms, $label', async ({ resume, reSuspend, end }) => {
     const fake = new FakeNativeAudioContext();
@@ -546,19 +544,19 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
 
     await vi.advanceTimersByTimeAsync(10_000);
 
-    // Fix lane G7: the gesture caller gave up at the deadline, so when the
-    // state is already running at settlement (no event, or an event after
-    // it) the owner runs its own exact clock probe (handleNativeResumeSettlement)
-    // and commits one rejoin with no further native call. Before G7 these two
-    // rows stayed in awaiting-clock-verification with no prober and no gesture
-    // token until a reload.
-    // Known gaps (Phase 7, one statechange dispatcher, C1-I11/I12): when the
-    // running event comes first or alone, the binding takes it for a late
-    // automatic resume and re-prepares the attempt. With a microtask (fake
-    // only) or after-settle suspend that re-prompts for a second gesture; with
-    // a 50 ms re-suspend the settlement's promotion strands the lease, the
-    // attempt is retired and the retired-suspend cleanup resumes without any
-    // clock proof or rejoin.
+    // Fix lane G7: the gesture caller gave up at the deadline, so the owner
+    // runs its own exact clock probe on its late running state and commits
+    // one rejoin with no further native call. Before G7 the silent and
+    // deferred-event rows stayed in awaiting-clock-verification with no
+    // prober and no gesture token until a reload.
+    // C1-I11/I12 (Phase 7 7B-5, owner answer Q7; they were Known gaps): the
+    // owner hears its own late resume as its own whichever way the running
+    // state arrives, through the one recovery resume's promotion (the
+    // dispatcher's last part, or the native promise). Before, when the
+    // running event came first or alone, the binding took it for an outside
+    // resume and prepared the attempt again (the three rows' notes say what
+    // followed). An outside resume while this resume is still pending looks
+    // the same to the owner and is verified the same way.
     const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
     expect(fake.state).toBe(end.state);
     expect(playbackScope(o, token)).toEqual(end.scope);
@@ -674,12 +672,13 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       expect(fake.state).toBe('running');
       // Already completed, so this read promotes nothing.
       const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
-      // A running statechange that finds awaiting-resume starts the binding's
-      // automatic probe (scheduleAutomaticClockVerification). Fix lane G7: when
-      // the state is already running at settlement (deferred-event, silent),
-      // the late gesture-source promotion (handleNativeResumeSettlement) now
-      // starts the same probe, because the gesture caller gave up at the
-      // deadline. Before G7 those rows stayed in awaiting-clock-verification
+      // Fix lane G7: the gesture caller gave up at the deadline, so the late
+      // promotion starts the owner's automatic probe
+      // (scheduleAutomaticClockVerification). Since Phase 7 7B-5 the gesture's
+      // own recovery resume promotes it whichever way the running state
+      // arrives; before, a running statechange reached the binding, which
+      // found awaiting-resume and started the same probe. Before G7 the
+      // deferred-event and silent rows stayed in awaiting-clock-verification
       // until a visibility bounce or one more PLAY.
       expect(playbackScope(o, token)).toEqual(COMPLETED);
       expect(requirement).toBeNull();
@@ -844,9 +843,14 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
     },
   );
 
-  it.each(['before-settle', 'deferred-event', 'after-settle', 'silent'] as Orders[])(
-    'play-request scope: resume settles at 1200 ms (%s) and is promoted for the dialog poll',
-    async (order) => {
+  it.each([
+    { order: 'before-settle', promotedAtMs: 1_200 },
+    { order: 'deferred-event', promotedAtMs: 1_200 },
+    { order: 'after-settle', promotedAtMs: 1_300 },
+    { order: 'silent', promotedAtMs: 1_200 },
+  ] as Array<{ order: Orders; promotedAtMs: number }>)(
+    "play-request scope: resume settles at 1200 ms ($order); the dialog's wait settles at the promotion",
+    async ({ order, promotedAtMs }) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
       stageFilePlayback(o);
@@ -855,6 +859,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       const { preparation } = await parkPlayRequestRestart(o, fake);
       fake.planResume({ latencyMs: 1_200, statechange: order, stateDelayMs: 100 });
 
+      const tapAt = Date.now();
       const gesture = o.context.resumePreparedForegroundAudioContextRestartFromGesture(
         preparation.attemptToken,
       );
@@ -862,13 +867,23 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       await expect(gesture).resolves.toEqual({ running: false, requiresClockVerification: false });
       expect(o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()).toBeNull();
       expect(preparation.isCurrent()).toBe(true);
+      // app.ts's 1 s race has the tap's answer: its wait on the owner starts.
+      const answers: string[] = [];
+      void o.context
+        .whenForegroundAudioContextRestartClockRequirement(preparation.attemptToken)
+        .then(
+          (outcome) => answers.push(`${outcome}@${Date.now() - tapAt}`),
+          () => undefined,
+        );
 
       await vi.advanceTimersByTimeAsync(10_000);
 
-      // The resume listener stays armed past the deadline, so every ordering
-      // reaches awaiting-clock-verification. Only app.ts's 5 s / 50 ms poll
-      // (waitForForegroundRestartClockRequirement) reads it; the owner has no
-      // deadline of its own, so it stays exposed until someone retires it.
+      // The promotion stays armed past the deadline, so every ordering
+      // reaches awaiting-clock-verification, and the dialog's wait settles in
+      // that task (C1-I12, Phase 7 7B-5, owner answer Q7: it was app.ts's next
+      // 50 ms poll). The owner has no deadline of its own, so the requirement
+      // stays exposed until someone retires it.
+      expect(answers).toEqual([`promoted@${promotedAtMs}`]);
       const requirement = o.context.getPendingForegroundAudioContextRestartClockHealthRequirement();
       expect(requirement?.attemptToken).toBe(preparation.attemptToken);
       expect(requirement?.isCurrent()).toBe(true);
@@ -881,34 +896,52 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
 });
 
 describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
+  // Each with what it does to a context an owner holds for its tap: whether
+  // it wakes it, and the native resume() calls it makes.
   const outsideResumers: Array<
-    [string, (o: Owners, fake: FakeNativeAudioContext) => Promise<void>]
+    [
+      string,
+      (o: Owners, fake: FakeNativeAudioContext) => Promise<void>,
+      /** On a context an owner holds for its tap. */
+      { wakes: boolean; resumes: number },
+      /** Native resume() calls on a context no owner holds (each wakes it). */
+      number,
+    ]
   > = [
     [
       'an OS or user-agent resume',
       async (_o, fake) => {
         fake.transition('running');
       },
+      { wakes: true, resumes: 0 },
+      0,
     ],
     [
       'ensureRunning (transport, decode, engine)',
       async (o) => {
         await o.context.ensureRunning().catch(() => undefined);
       },
+      { wakes: true, resumes: 1 },
+      1,
     ],
     [
+      // C1-I13 b (Phase 7 7B-3, owner answer Q9; it was a Known gap): a UI
+      // sound asks the owners first and, while one holds the context for its
+      // tap, makes no sound and no resume, so there is nothing to undo.
       'a UI sound (ui-sounds.ts readyOutput)',
       async () => {
         const ui = await import('../ui-sounds.ts');
         ui.setUiSoundsEnabled(true);
         ui.playUiTouchSound();
       },
+      { wakes: false, resumes: 0 },
+      1,
     ],
   ];
 
   it.each(outsideResumers)(
-    'play-request restart parked for its gesture is defeated by %s',
-    async (_label, resumeOutside) => {
+    'play-request restart parked for its gesture is parked when its gesture comes, after %s, and the gesture resumes it',
+    async (_label, resumeOutside, { wakes, resumes }) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
       bind(o, fake);
@@ -916,25 +949,75 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
 
       await resumeOutside(o, fake);
       await vi.advanceTimersByTimeAsync(0);
-      expect(fake.state).toBe('running');
 
-      // Known gap (C1-I13 a/b, owner decision pending): nothing listens in
-      // awaiting-gesture, so the attempt still claims the context and the
-      // Restore gesture is refused without a native resume. app.ts then
-      // polls 5 s for a requirement that never appears and re-arms.
+      // C1-I13 a (Phase 7 7B-2, owner answer Q8; it was a Known gap): the
+      // binding hands the running edge to the play-request owner, which parks
+      // the same attempt again at once, as the playback scope re-suspends its
+      // own (the next row). The Restore gesture then resumes it with one
+      // native call and exposes the clock requirement app.ts waits for.
+      // Since 7B-3 a UI sound wakes nothing, so nothing is parked again.
+      expect(fake.calls('resume')).toBe(resumes);
+      expect(fake.state).toBe('suspended');
+      expect(fake.calls('suspend')).toBe(wakes ? 2 : 1);
       expect(preparation.isCurrent()).toBe(true);
       const before = fake.ops.length;
       await expect(
         o.context.resumePreparedForegroundAudioContextRestartFromGesture(preparation.attemptToken),
-      ).resolves.toEqual({ running: false, requiresClockVerification: false });
-      expect(fake.ops.slice(before)).toEqual([]);
-      expect(o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()).toBeNull();
+      ).resolves.toEqual({ running: true, requiresClockVerification: true });
+      expect(fake.ops.slice(before).filter((op) => op.endsWith('()'))).toEqual(['resume()']);
+      expect(
+        o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()?.attemptToken,
+      ).toBe(preparation.attemptToken);
     },
   );
 
   it.each(outsideResumers)(
-    'playback-scope stalled recovery re-suspends with the same token after %s',
-    async (_label, resumeOutside) => {
+    'play-request restart parked with no dialog (its notice never became one) holds nothing, and %s is not undone',
+    async (_label, resumeOutside, _held, resumes) => {
+      const fake = new FakeNativeAudioContext();
+      const o = await loadOwners(fake);
+      const bus = recordBus(o);
+      bind(o, fake);
+      const { check, preparation } = await parkPlayRequestRestart(o, fake, { dialog: false });
+      // The re-park (Phase 7 7B-2) and the holding (7B-3) serve a dialog
+      // that waits for its tap. This attempt's notice was declined or
+      // dropped (the page hidden, the PLAY replaced, a forced update), so no
+      // tap can come for it and nothing holds the context for it.
+      const heldWhileParked = o.recovery.isAudioOutputRecoveryHolding();
+
+      await resumeOutside(o, fake);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The resume stands, as before 7B-2: a UI sound wakes the context as
+      // with no attempt, and a PLAY's ensureRunning keeps the context it woke.
+      // From 7B-2 to this rule the owner parked it again at once.
+      expect(fake.state).toBe('running');
+      expect(fake.calls('resume')).toBe(resumes);
+      expect(fake.calls('suspend')).toBe(1);
+      expect(heldWhileParked).toBe(false);
+      expect(o.recovery.isAudioOutputRecoveryHolding()).toBe(false);
+      expect(o.context.whenForegroundAudioContextRestartReprepared(preparation.attemptToken)).toBe(
+        null,
+      );
+      // That PLAY's clock check finds the clock running and retires it.
+      const health = o.context.probeAudioContextHealth({
+        attemptResume: false,
+        context: fake.native,
+      });
+      await vi.advanceTimersByTimeAsync(180);
+      await expect(health).resolves.toMatchObject({ healthy: true });
+      expect(o.context.consumeForegroundAudioContextClockHealthCheck(check)).toBe(true);
+      expect(preparation.isCurrent()).toBe(false);
+      expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(false);
+      expect(fake.calls('suspend')).toBe(1);
+      expect(fake.state).toBe('running');
+      expect(bus).toEqual(QUIET_BUS);
+    },
+  );
+
+  it.each(outsideResumers)(
+    'playback-scope stalled recovery is parked with the same token after %s',
+    async (_label, resumeOutside, { wakes, resumes }) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
       stageFilePlayback(o);
@@ -945,11 +1028,15 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
       await resumeOutside(o, fake);
       await vi.advanceTimersByTimeAsync(0);
 
+      // A wake is undone by a re-suspend with a prepared notice for the
+      // dialog. Since Phase 7 7B-3 (C1-I13 b, owner answer Q9; it was a Known
+      // gap) a UI sound wakes nothing: no re-suspend, no second notice.
+      expect(fake.calls('resume')).toBe(resumes);
       expect(fake.state).toBe('suspended');
-      expect(fake.calls('suspend')).toBe(2);
+      expect(fake.calls('suspend')).toBe(wakes ? 2 : 1);
       expect(playbackScope(o, token)).toEqual(PARKED);
-      expect(bus.needed).toEqual(['background-resume:clock-stalled']);
-      expect(bus.neededEvents[0]?.isCurrent?.()).toBe(true);
+      expect(bus.needed).toEqual(wakes ? ['background-resume:clock-stalled'] : []);
+      if (wakes) expect(bus.neededEvents[0]?.isCurrent?.()).toBe(true);
     },
   );
 
@@ -1005,7 +1092,8 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     const token = await parkStalledPlayback(o, fake);
     fake.planSuspend({ latencyMs: 50 });
 
-    // Pointerdown resumes (ui-sounds), the click activation follows a task later.
+    // Something outside the owner resumes it (before Phase 7 7B-3 also a UI
+    // sound's pointerdown), and the click activation follows a task later.
     fake.transition('running');
     await vi.advanceTimersByTimeAsync(0);
     const before = fake.ops.length;
@@ -1019,6 +1107,113 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(bus.needed).toEqual(['background-resume:clock-stalled']);
     expect(playbackScope(o, token).gestureToken).toBe('same');
+  });
+});
+
+/**
+ * The play-request attempt parked again (C1-I13 a, Phase 7 7B-2, owner answer
+ * Q8), owner half. While the owner parks the same attempt again its
+ * preparation reads not current, so the recovery dialog's tap fails its
+ * currency gate in app.ts before it reaches the owner; the dialog then asks
+ * the owner whether it is preparing that same attempt again. A promise means
+ * the owner keeps the attempt: the dialog's close does not retire it, and the
+ * same request shows again once the promise settles true. app.ts's half (the
+ * close without retirement, the same request shown once more, one retry) is
+ * pinned by the local Chromium lab, rows (a) and (b).
+ */
+describe('RO-01 the play-request attempt parked again (C1-I13 a)', () => {
+  it('a tap during the re-park finds the same attempt being prepared again, kept until it is parked', async () => {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    const bus = recordBus(o);
+    bind(o, fake);
+    const { preparation } = await parkPlayRequestRestart(o, fake);
+    const token = preparation.attemptToken;
+    // Parked for its gesture: nothing is being prepared again.
+    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBeNull();
+    fake.planSuspend({ latencyMs: 50 });
+
+    fake.transition('running');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fake.ops.slice(-2)).toEqual(['statechange:running', 'suspend()']);
+    expect(preparation.isCurrent()).toBe(false);
+    expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(true);
+    const reprepared = o.context.whenForegroundAudioContextRestartReprepared(token);
+    expect(reprepared).toBeInstanceOf(Promise);
+    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBe(reprepared);
+    expect(o.context.whenForegroundAudioContextRestartReprepared({})).toBeNull();
+    const settled: boolean[] = [];
+    void reprepared!.then(
+      (parked) => settled.push(parked),
+      () => undefined,
+    );
+    // A gesture that does reach the owner now is refused with no native call,
+    // as the playback scope refuses one during its re-suspend (row above).
+    const before = fake.ops.length;
+    await expect(
+      o.context.resumePreparedForegroundAudioContextRestartFromGesture(token),
+    ).resolves.toEqual({ running: false, requiresClockVerification: false });
+    expect(fake.ops.slice(before)).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(settled).toEqual([true]);
+    expect(fake.state).toBe('suspended');
+    expect(preparation.isCurrent()).toBe(true);
+    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBeNull();
+
+    // The same request's next tap: one native resume, and the exact token
+    // commits once (transport's confirm closure asks this owner with it).
+    const tap = fake.ops.length;
+    await expect(
+      o.context.resumePreparedForegroundAudioContextRestartFromGesture(token),
+    ).resolves.toEqual({ running: true, requiresClockVerification: true });
+    expect(fake.ops.slice(tap).filter((op) => op.endsWith('()'))).toEqual(['resume()']);
+    expect(o.context.confirmForegroundAudioContextRestartHealth({})).toBe(false);
+    expect(o.context.confirmForegroundAudioContextRestartHealth(token)).toBe(true);
+    expect(o.context.confirmForegroundAudioContextRestartHealth(token)).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(settled).toEqual([true]);
+    expect(fake.calls('suspend')).toBe(2);
+    expect(bus).toEqual(QUIET_BUS);
+  });
+
+  it('a re-park whose suspend never lands retires the attempt at its watchdog; the promise settles false', async () => {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    bind(o, fake);
+    const { preparation } = await parkPlayRequestRestart(o, fake);
+    fake.planSuspend({ outcome: 'never' });
+
+    fake.transition('running');
+    await vi.advanceTimersByTimeAsync(0);
+    const reprepared = o.context.whenForegroundAudioContextRestartReprepared(
+      preparation.attemptToken,
+    );
+    const settled: boolean[] = [];
+    void reprepared!.then(
+      (parked) => settled.push(parked),
+      () => undefined,
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toEqual([]);
+    await vi.advanceTimersByTimeAsync(900);
+
+    // The re-park's suspend is the attempt's second: it shares the two-suspend
+    // budget of its first preparation, as the playback scope's re-suspend
+    // does, so a re-park that cannot land retires at the lease watchdog
+    // instead of trying again.
+    expect(settled).toEqual([false]);
+    expect(preparation.isCurrent()).toBe(false);
+    expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(false);
+    expect(
+      o.context.whenForegroundAudioContextRestartReprepared(preparation.attemptToken),
+    ).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fake.calls('suspend')).toBe(2);
+    expect(fake.calls('resume')).toBe(0);
+    expect(fake.state).toBe('running');
   });
 });
 
@@ -1039,7 +1234,8 @@ describe('RO-01 both machines on one context (C1-I4 f)', () => {
     const check = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
     const preparation = await o.context.prepareForegroundAudioContextRestart(check!);
     expect(preparation).toMatchObject({ status: 'prepared' });
-    // Only the binding still listens: the play-request lease has settled.
+    // One listener, the context's dispatcher (Phase 7 7B-4), for the
+    // binding: the play-request lease has settled.
     expect(fake.statechangeListenerCount).toBe(1);
 
     await vi.advanceTimersByTimeAsync(2_000);

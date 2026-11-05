@@ -14,12 +14,14 @@
  *
  * Each row holds the play-request owner's cells and, for the playback
  * scope, only the cells that differ today, each with its named known
- * difference (K-I11-a..d; K-I12-a, b and d, and K-I12-c for the
- * play-request wait alone). The playback-scope rows assert every other cell
- * equal to the play-request one. If the owner approves the timing and
- * dispatch change (Q6, owner decision pending), 7B-4 flips only named I11
- * cells; 7B-5 (Q7, owner decision pending) only named I12 cells. Boundary
- * and driver as in audio-output-recovery-boundary.test.ts.
+ * difference (K-I11-b and d; K-I12-a and d). The playback-scope rows assert
+ * every other cell equal to the play-request one. Phase 7 7B-4 (owner answer
+ * Q6: one lease, one late fence and one statechange dispatcher per context)
+ * closed K-I11-a, K-I11-c and K-I12-b, whose cells are now equal. 7B-5 (Q7:
+ * one recovery resume, and the dialog waits on the owner) closed K-I12-c,
+ * the play-request wait's 50 ms poll, and moved K-I12-a's cells where the
+ * playback scope took its own late running event for an outside resume.
+ * Boundary and driver as in audio-output-recovery-boundary.test.ts.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -29,12 +31,14 @@ import {
 import {
   armNewIncident,
   bind,
+  consumeIncident,
   foregroundIncident,
   loadMediaSession,
   loadOwners,
   playRequest,
   playbackScope,
   recordBus,
+  setVisibility,
   setupOwnerTest,
   stageFile,
   startTimeline,
@@ -125,19 +129,21 @@ function incidentCell(o: Owners, original: object | null): 'original' | 'new' | 
 // ─── I11: suspend preparation ─────────────────────────────────────
 
 /**
- * K-I11-a: the play-request lease waits out its 250 ms late-suspend fence
- *   before its second native suspend (1,000 ms against 750 ms), so what
- *   follows that suspend is 250 ms later.
+ * K-I11-a (closed by Phase 7 7B-4, owner answer Q6): the play-request lease
+ *   waited out its 250 ms late-suspend fence before its second native
+ *   suspend (1,000 ms against 750 ms). Both owners now wait for the one
+ *   ledger's fence.
  * K-I11-b: after two failed suspends the play-request attempt retires and
  *   keeps the incident it came from; the playback scope gives up and arms a
- *   new incident for the next PLAY.
- * K-I11-c: a first suspend that lands inside the fence goes to the waiting
- *   play-request attempt with no second native call; the playback scope has
- *   already issued its second one.
+ *   new incident for the next PLAY (each owner's choice, kept by 7B-4).
+ * K-I11-c (closed by 7B-4): a first suspend that lands inside the fence goes
+ *   to the waiting play-request attempt with no second native call; the
+ *   playback scope had already issued its second one. It waits behind the
+ *   same fence now.
  * K-I11-d: once prepared, the playback scope notifies on the bus; the
  *   play-request answer reaches transport through its promise.
  */
-type KnownI11 = 'K-I11-a' | 'K-I11-b' | 'K-I11-c' | 'K-I11-d';
+type KnownI11 = 'K-I11-b' | 'K-I11-d';
 
 interface SuspendCell {
   /** Native calls, their settlements and state changes, in order. */
@@ -186,9 +192,9 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'running',
     },
+    // 7B-4 (Q6): the scope's second suspend at 1,000 ms and its retirement at
+    // 1,750 ms (they were K-I11-a: [0, 750] and retired@1500).
     scope: {
-      suspendsAt: ['K-I11-a', [0, 750]],
-      end: ['K-I11-a', 'retired@1500'],
       incident: ['K-I11-b', 'new'],
     },
   },
@@ -205,9 +211,8 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'running',
     },
+    // 7B-4 (Q6): as P1 (they were K-I11-a: [0, 750] and retired@1500).
     scope: {
-      suspendsAt: ['K-I11-a', [0, 750]],
-      end: ['K-I11-a', 'retired@1500'],
       incident: ['K-I11-b', 'new'],
     },
   },
@@ -224,9 +229,10 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'suspended',
     },
+    // 7B-4 (Q6): the late first suspend goes to the scope attempt waiting
+    // behind the fence, with no second native call (it was K-I11-c: a second
+    // suspend at 750 ms).
     scope: {
-      ops: ['K-I11-c', ['suspend()', 'suspend:resolved', 'suspend()', 'statechange:suspended']],
-      suspendsAt: ['K-I11-c', [0, 750]],
       notices: ['K-I11-d', [NOTICE]],
     },
   },
@@ -243,8 +249,8 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'suspended',
     },
+    // 7B-4 (Q6): the scope's second suspend at 1,000 ms (it was K-I11-a: 750).
     scope: {
-      suspendsAt: ['K-I11-a', [0, 750]],
       notices: ['K-I11-d', [NOTICE]],
     },
   },
@@ -284,9 +290,9 @@ const SUSPEND_SCENES: SuspendScene[] = [
       listeners: 1,
       state: 'suspended',
     },
+    // 7B-4 (Q6): the scope's second suspend lands at 1,000 ms (it was
+    // K-I11-a: [0, 750] and prepared@750).
     scope: {
-      suspendsAt: ['K-I11-a', [0, 750]],
-      end: ['K-I11-a', 'prepared@750'],
       notices: ['K-I11-d', [NOTICE]],
     },
   },
@@ -412,20 +418,23 @@ describe('RO-01 I11 parity: suspend preparation for a gesture', () => {
 // ─── I12: gesture resume ──────────────────────────────────────────
 
 /**
- * K-I12-a: after its 750 ms deadline the play-request owner only promotes
- *   a late running state and leaves the clock check to the dialog; the
- *   playback scope re-suspends a late running event as an automatic resume,
- *   and verifies its own clock when the state turns running with no event
- *   for it (fix lane G7) and rejoins. (The re-prompt is the Known gap of
- *   audio-context-ownership.test.ts's G7 rows.)
- * K-I12-b: the play-request owner's resume listener stays while its native
- *   resume is unsettled; the playback scope adds none.
- * K-I12-c: play-request only, see the table after this one.
+ * K-I12-a: after its 750 ms deadline both owners promote a late running
+ *   state, however it arrives (one recovery resume since Phase 7 7B-5, owner
+ *   answer Q7). The play-request owner then leaves the clock check to the
+ *   dialog; the playback scope verifies its own clock (fix lane G7) and
+ *   rejoins. Before 7B-5 the playback scope took a running event that came
+ *   first for an outside resume and suspended again (it was the Known gap of
+ *   audio-context-ownership.test.ts's G7 rows).
+ * K-I12-b (closed by Phase 7 7B-4, one dispatcher per context): the
+ *   play-request owner's resume listener stayed while its native resume was
+ *   unsettled; the playback scope adds none. The promotion is now a part of
+ *   the context's one listener.
+ * K-I12-c (closed by 7B-5): play-request only, the table after this one.
  * K-I12-d: retiring a play-request attempt whose context is still parked
  *   resumes the context (its cleanup); dropping a playback-scope attempt
  *   leaves the context as it is.
  */
-type KnownI12 = 'K-I12-a' | 'K-I12-b' | 'K-I12-d';
+type KnownI12 = 'K-I12-a' | 'K-I12-d';
 
 interface ResumeCell {
   readonly timeline: string[];
@@ -477,6 +486,9 @@ const RESUME_SCENES: ResumeScene[] = [
       state: 'running',
       current: true,
     },
+    // 7B-5 (Q7): the scope promotes its own late running event too, and
+    // verifies it (it re-suspended and asked again: 1200 suspend(), the
+    // clock-stalled notice, state suspended).
     scope: {
       timeline: [
         'K-I12-a',
@@ -484,14 +496,12 @@ const RESUME_SCENES: ResumeScene[] = [
           '0:resume()',
           '750:result:not-running',
           '1200:statechange:running',
-          '1200:suspend()',
           '1200:resume:resolved',
-          '1200:statechange:suspended',
-          '1200:needed:background-resume:clock-stalled',
-          '1200:suspend:resolved',
+          '1200:requirement:same',
+          '1380:rejoin:audio-context-recovered',
+          '1380:requirement:none',
         ],
       ],
-      state: ['K-I12-a', 'suspended'],
     },
   },
   {
@@ -509,6 +519,7 @@ const RESUME_SCENES: ResumeScene[] = [
       state: 'running',
       current: true,
     },
+    // 7B-5 (Q7): as the row above (it re-suspended at 1300 and asked again).
     scope: {
       timeline: [
         'K-I12-a',
@@ -517,13 +528,11 @@ const RESUME_SCENES: ResumeScene[] = [
           '750:result:not-running',
           '1200:resume:resolved',
           '1300:statechange:running',
-          '1300:suspend()',
-          '1300:statechange:suspended',
-          '1300:needed:background-resume:clock-stalled',
-          '1300:suspend:resolved',
+          '1300:requirement:same',
+          '1480:rejoin:audio-context-recovered',
+          '1480:requirement:none',
         ],
       ],
-      state: ['K-I12-a', 'suspended'],
     },
   },
   {
@@ -604,11 +613,12 @@ const RESUME_SCENES: ResumeScene[] = [
     plan: { outcome: 'never' },
     request: {
       timeline: ['0:resume()', '750:result:not-running'],
-      listeners: 2,
+      // 7B-4: the waiting promotion adds no listener (it was 2, K-I12-b).
+      listeners: 1,
       state: 'suspended',
       current: true,
     },
-    scope: { listeners: ['K-I12-b', 1] },
+    scope: {},
   },
   {
     scene: 'retired at 900 ms, then the resume resolves at 1,200 ms',
@@ -720,29 +730,32 @@ describe('RO-01 I12 parity: gesture resume of a parked attempt', () => {
 });
 
 /**
- * The play-request attempt after the dialog's tap, owner side only. K-I12-c:
- * the owner exposes its clock requirement for app.ts to poll and tells it
- * nothing (the 50 ms poll that 7B-5 replaces with a promise, if the owner
- * approves Q7; owner decision pending). app.ts's wait is not loaded here: it
- * polls while its own currency holds, and that currency runs through
- * transport's restart check into this attempt, so the wait ends on its next
- * 50 ms check once the owner retires the attempt (row 3) and at its 5 s limit
- * when the requirement never appears (row 2). The browser lab pins the
- * abort and limit endings ((d-1), (d-3)); the retirement ending has no
- * browser row.
+ * The play-request attempt after the dialog's tap, owner side only. The
+ * dialog waits on the owner (C1-I12, Phase 7 7B-5, owner answer Q7; it was
+ * K-I12-c: the owner exposed its clock requirement for app.ts to poll every
+ * 50 ms and told it nothing). The owner's answer settles once: 'promoted' in
+ * the task of the promotion, or how the attempt ended, 'cancelled' when the
+ * dialog gives up (retires its token), 'superseded' by a newer foreground
+ * incident, 'retired' when its incident is consumed elsewhere. It does not
+ * settle by itself while the requirement never appears: app.ts's 5 s limit,
+ * its AbortSignal and its currency on a visibility change end that wait
+ * (app.ts is not loaded here; the browser lab pins the abort, hidden and
+ * limit endings, (d-1) to (d-3)).
  *
  * Each row pins what the owner shows that wait over 6 s (when the
- * requirement first reads 'same' on a 10 ms step, and the attempt, its
- * requirement, listeners and native ops at the end) and, where the dialog
- * gives up, what retiring its token does: the owner's answer, the native ops
- * that follow and the incident a later PLAY probes.
+ * requirement first reads 'same' on a 10 ms step; when and how the answer
+ * settled, from the tap; the attempt, its requirement, listeners and native
+ * ops at the end) and, where the dialog gives up, what retiring its token
+ * does: the owner's answer, the native ops that follow and the incident a
+ * later PLAY probes.
  */
 describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait reads', () => {
   it.each([
     {
-      ending: 'the requirement appears at promotion and stays until the dialog acts',
+      ending: 'the requirement appears at promotion, and the answer settles then',
       plan: { latencyMs: 1_230 } as FakeNativeCallPlan,
-      newIncidentAtMs: null,
+      elsewhereAtMs: null,
+      elsewhere: null,
       giveUp: false,
       result: {
         exposedAt: 1230,
@@ -751,27 +764,39 @@ describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait
           current: true,
           listeners: 1,
           ops: ['resume()', 'statechange:running', 'resume:resolved'],
+          answer: 'promoted@1230',
         },
         giveUp: null,
       },
     },
     {
-      // The owner never ends the attempt by itself. Retiring it clears its
-      // incident and resumes the parked context; app.ts arms a new incident
-      // on this true answer when the page is visible (code reading).
-      ending: 'it never appears (the resume never settles); giving up retires and restores',
+      // The owner never ends the attempt by itself, and its answer waits.
+      // Retiring it clears its incident and resumes the parked context;
+      // app.ts arms a new incident on this true answer when the page is
+      // visible (code reading).
+      ending:
+        'it never appears (the resume never settles); giving up cancels the answer, retires and restores',
       plan: { outcome: 'never' } as FakeNativeCallPlan,
-      newIncidentAtMs: null,
+      elsewhereAtMs: null,
+      elsewhere: null,
       giveUp: true,
       result: {
         exposedAt: null,
-        atSixSeconds: { requirement: 'none', current: true, listeners: 2, ops: ['resume()'] },
+        // One listener since 7B-4 (it was 2: the waiting resume listener).
+        atSixSeconds: {
+          requirement: 'none',
+          current: true,
+          listeners: 1,
+          ops: ['resume()'],
+          answer: 'waiting',
+        },
         giveUp: {
           retired: true,
           ops: ['resume()', 'statechange:running', 'resume:resolved'],
           incident: 'none',
           listeners: 1,
           state: 'running',
+          answer: 'cancelled@6000',
         },
       },
     },
@@ -779,9 +804,10 @@ describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait
       // The owner retires the attempt when the new incident arms, and the
       // late resume promotes nothing. Giving up then finds it gone, so app.ts
       // arms nothing; the new incident stays for the next PLAY.
-      ending: 'a new foreground incident at 900 ms retires it; giving up finds it gone',
+      ending: 'a new foreground incident at 900 ms supersedes it; giving up finds it gone',
       plan: { latencyMs: 1_200 } as FakeNativeCallPlan,
-      newIncidentAtMs: 900,
+      elsewhereAtMs: 900,
+      elsewhere: 'new incident',
       giveUp: true,
       result: {
         exposedAt: null,
@@ -790,11 +816,53 @@ describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait
           current: false,
           listeners: 1,
           ops: ['resume()', 'statechange:running', 'resume:resolved'],
+          answer: 'superseded@900',
         },
-        giveUp: { retired: false, ops: [], incident: 'new', listeners: 1, state: 'running' },
+        giveUp: {
+          retired: false,
+          ops: [],
+          incident: 'new',
+          listeners: 1,
+          state: 'running',
+          answer: 'superseded@900',
+        },
       },
     },
-  ])('$ending', async ({ plan, newIncidentAtMs, giveUp, result }) => {
+    {
+      // A PLAY whose clock check finds the clock healthy consumes the
+      // incident: the owner retires the attempt and undoes its parked state
+      // at once.
+      ending: 'its incident consumed elsewhere at 900 ms retires it; giving up finds it gone',
+      plan: { latencyMs: 1_200 } as FakeNativeCallPlan,
+      elsewhereAtMs: 900,
+      elsewhere: 'consumed',
+      giveUp: true,
+      result: {
+        exposedAt: null,
+        atSixSeconds: {
+          requirement: 'none',
+          current: false,
+          listeners: 1,
+          ops: [
+            'resume()',
+            'resume()',
+            'statechange:running',
+            'resume:resolved',
+            'resume:resolved',
+          ],
+          answer: 'retired@900',
+        },
+        giveUp: {
+          retired: false,
+          ops: [],
+          incident: 'none',
+          listeners: 1,
+          state: 'running',
+          answer: 'retired@900',
+        },
+      },
+    },
+  ])('$ending', async ({ plan, elsewhereAtMs, elsewhere, giveUp, result }) => {
     const { fake, o } = await newFileOwners();
     const restart = playRequest.arm(o, fake);
     await expect(restart.first).resolves.toBe('prepared');
@@ -802,11 +870,18 @@ describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait
     const tapAt = Date.now();
     const tapOps = fake.ops.length;
     let exposedAt: number | null = null;
+    let answer = 'waiting';
 
     whenSettled(restart.tap(), () => undefined);
+    // Asked at the tap here; app.ts asks once its 1 s race has the tap's
+    // answer, and gets the same one.
+    whenSettled(restart.clockWait(), (outcome) => {
+      answer = `${outcome}@${Date.now() - tapAt}`;
+    });
     for (let t = STEP_MS; t <= 6_000; t += STEP_MS) {
       await vi.advanceTimersByTimeAsync(STEP_MS);
-      if (t === newIncidentAtMs) armNewIncident(o, fake);
+      if (t === elsewhereAtMs && elsewhere === 'new incident') armNewIncident(o, fake);
+      if (t === elsewhereAtMs && elsewhere === 'consumed') consumeIncident(o);
       if (exposedAt === null && restart.requirement() === 'same') exposedAt = Date.now() - tapAt;
     }
     const atSixSeconds = {
@@ -814,6 +889,7 @@ describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait
       current: restart.isCurrent(),
       listeners: fake.statechangeListenerCount,
       ops: fake.ops.slice(tapOps),
+      answer,
     };
 
     let gaveUp = null;
@@ -827,9 +903,120 @@ describe('RO-01 I12 the play-request attempt after the tap: what the dialog wait
         incident: incidentCell(o, restart.incident),
         listeners: fake.statechangeListenerCount,
         state: fake.state,
+        answer,
       };
     }
 
     expect({ exposedAt, atSixSeconds, giveUp: gaveUp }).toEqual(result);
+  });
+});
+
+/**
+ * How the dialog's wait after its tap ends, owner half: the same with the
+ * 50 ms poll and with a wait on the owner (C1-I12, Phase 7 7B-5). app.ts
+ * ends its wait when its dialog is aborted (a newer request, a track change)
+ * or the page hides, then retires its token; or the attempt was retired
+ * elsewhere, and the token it then retires is gone. These rows pin what the
+ * owner does at that retirement, in the same task. app.ts's half (the
+ * cleanup resume after an abort, nothing while hidden) is the browser lab's
+ * rows (d-1) and (d-2); a retirement elsewhere has no browser row.
+ */
+describe('RO-01 I12 the dialog wait ends: the owner side (parity)', () => {
+  /** The tap, then the dialog's wait: 900 ms is past the 750 ms resume deadline. */
+  async function tapAndWait(plan: FakeNativeCallPlan) {
+    const { fake, o } = await newFileOwners();
+    const restart = playRequest.arm(o, fake);
+    await expect(restart.first).resolves.toBe('prepared');
+    fake.planResume(plan);
+    whenSettled(restart.tap(), () => undefined);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(restart.isCurrent()).toBe(true);
+    expect(fake.ops.slice(-1)).toEqual(['resume()']);
+    return { fake, o, restart };
+  }
+
+  it("the dialog's abort: retiring its token ends the attempt and undoes the parked state in that task", async () => {
+    const { fake, o, restart } = await tapAndWait({ latencyMs: 1_230 });
+    const before = fake.ops.length;
+
+    const retired = restart.retire();
+    const sameTask = {
+      retired,
+      current: restart.isCurrent(),
+      requirement: restart.requirement(),
+      incident: incidentCell(o, restart.incident),
+      ops: fake.ops.slice(before),
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // The cleanup resume is issued inside the retire call (the context was
+    // parked, the page visible); the late resume at 1,230 ms promotes nothing.
+    expect(sameTask).toEqual({
+      retired: true,
+      current: false,
+      requirement: 'none',
+      incident: 'none',
+      ops: ['resume()'],
+    });
+    expect(fake.ops.slice(before)).toEqual([
+      'resume()',
+      'statechange:running',
+      'resume:resolved',
+      'resume:resolved',
+    ]);
+    expect(restart.requirement()).toBe('none');
+    expect(fake.statechangeListenerCount).toBe(1);
+  });
+
+  it('the page hides: retiring the token makes no native call and leaves no incident; the binding arms one on return', async () => {
+    const { fake, o, restart } = await tapAndWait({ outcome: 'never' });
+    setVisibility('hidden');
+    const before = fake.ops.length;
+
+    const retired = restart.retire();
+    const hidden = {
+      retired,
+      current: restart.isCurrent(),
+      incident: incidentCell(o, restart.incident),
+      ops: fake.ops.slice(before),
+      state: fake.state,
+    };
+    setVisibility('visible');
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // app.ts arms nothing while hidden; the visible edge's fallback incident
+    // is the binding's. Nothing undoes the parked state until a PLAY.
+    expect(hidden).toEqual({
+      retired: true,
+      current: false,
+      incident: 'none',
+      ops: [],
+      state: 'suspended',
+    });
+    expect(incidentCell(o, restart.incident)).toBe('new');
+    expect(fake.ops.slice(before)).toEqual([]);
+    expect(fake.state).toBe('suspended');
+  });
+
+  it("retired elsewhere (a newer foreground incident): the attempt ends at that moment, and the dialog's retire finds it gone", async () => {
+    const { fake, o, restart } = await tapAndWait({ latencyMs: 1_200 });
+
+    armNewIncident(o, fake);
+    const atOnce = {
+      current: restart.isCurrent(),
+      requirement: restart.requirement(),
+      incident: incidentCell(o, restart.incident),
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+    const before = fake.ops.length;
+    const retired = restart.retire();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(atOnce).toEqual({ current: false, requirement: 'none', incident: 'new' });
+    // The late resume at 1,200 ms promoted nothing; the dialog arms nothing.
+    expect(restart.requirement()).toBe('none');
+    expect(retired).toBe(false);
+    expect(fake.ops.slice(before)).toEqual([]);
+    expect(incidentCell(o, restart.incident)).toBe('new');
   });
 });

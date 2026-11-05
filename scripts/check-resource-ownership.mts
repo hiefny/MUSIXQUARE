@@ -49,14 +49,18 @@
  *     report-only (--report lists them).
  *   CHECK 6 AudioContext native resume()/suspend() call sites (RO-01, RO-44),
  *     counted syntactically per file. Beside it (RO-01, Phase 7 T1), the
- *     callers of the three functions of src/audio/context.ts that call
- *     native resume() for whoever calls them (ensureRunning,
- *     restartAudioContextFromGesture, probeAudioContextHealth): exact uses
- *     per file and function, that home included (a wrapper there would hide
- *     its callers), by name: calls, namespace members, values passed on,
- *     string keys and renames (an import or export specifier, a
- *     destructuring). initAudio, which reaches ensureRunning through the
- *     engine, is reported only (--report lists every use).
+ *     callers of the functions of src/audio/context.ts that call native
+ *     resume() for whoever calls them (ensureRunning,
+ *     restartAudioContextFromGesture, probeAudioContextHealth, and since
+ *     Phase 7 7B the recovery resume requestAudioContextResume and the
+ *     retired-suspend cleanup requestRetiredAudioContextSuspendCleanup), and
+ *     of the one that calls native suspend() for whoever calls it (the
+ *     suspend ledger's requestAudioContextSuspend, 7B): exact uses per file
+ *     and function, that home included (a wrapper there would hide its
+ *     callers), by name: calls, namespace members, values passed on, string
+ *     keys and renames (an import or export specifier, a destructuring).
+ *     initAudio, which reaches ensureRunning through the engine, is reported
+ *     only (--report lists every use).
  *   CHECK 7 Developer API authority fence writers (RO-25). Writes to
  *     mxqr_developer_api_room_authority_fences stay in the listed functions:
  *     the activator, the clearer and the PRO room decommission. A string or
@@ -194,8 +198,8 @@
  * generated Worker types excluded). The checks walk the TypeScript AST, so
  * comments and unrelated strings never count. Lifecycle-operation callers
  * are counted only for the names above (page-lock claims, SKIP_WAITING sends,
- * AudioContext resume/suspend and the callers of its indirect resume
- * functions, armed reception starts, the Worker broadcast endpoint, the
+ * AudioContext resume/suspend and the callers of its indirect resume and
+ * suspend functions, armed reception starts, the Worker broadcast endpoint, the
  * duration reader in cloudflare/, the authority fence writers, the
  * system-audio receive slot writers and the YouTube iframe audio writers).
  * Deliberately not checked yet (registry RO-44, RO-45 and
@@ -611,34 +615,60 @@ const NON_AUDIO_CONTEXT_RECEIVERS = new Map<string, string>([
 ]);
 
 const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>([
-  ['src/audio/context.ts', { count: 6, reason: 'singleton and foreground restart (Phase 7)' }],
-  ['src/audio/context-recovery.ts', { count: 3, reason: 'interruption recovery, target owner' }],
+  [
+    'src/audio/context.ts',
+    {
+      count: 6,
+      reason:
+        "singleton, foreground restart and, since Phase 7, both owners' one suspend lease per " +
+        'context (its single suspend(), 7B-4) and one recovery resume (its single resume(), 7B-5)',
+    },
+  ],
+  [
+    'src/audio/context-recovery.ts',
+    {
+      count: 1,
+      reason:
+        'interruption recovery, target owner: its automatic resume with nothing playing; its ' +
+        'suspend asks the one lease in context.ts since Phase 7 7B-4 (3 -> 2), and its attempts ' +
+        'resume through the one recovery resume there since 7B-5 (2 -> 1)',
+    },
+  ],
   [
     'src/audio/ui-sounds.ts',
     {
       count: 2,
       reason:
-        'resumes a non-running context on trusted pointerdown or Enter/Space and before a ' +
-        'UI sound, without asking an owner (Phase 7 yields)',
+        'asks the owner before waking: resumes a non-running context on trusted pointerdown ' +
+        'or Enter/Space and before a UI sound only while no recovery owner holds it (Phase 7 7B-3)',
     },
   ],
 ]);
 
-// ── CHECK 6 beside it: indirect AudioContext resume callers (RO-01) ──────
+// ── CHECK 6 beside it: indirect AudioContext resume and suspend callers (RO-01) ──
 // Measured on main cd8eaf47 (App 9.0.34), 2026-11-02 (Phase 7 T1), and again on
-// main 34dbe592 (App 9.0.36), 2026-11-04: the same counts in the same files.
+// main 34dbe592 (App 9.0.36), 2026-11-04: the same counts in the same files. On
+// the Phase 7 7B code, 2026-11-05: restartAudioContextFromGesture 2 -> 1 (7B-5),
+// and the wrappers 7B-4 and 7B-5 route both owners' native calls through
+// (requestAudioContextResume, requestRetiredAudioContextSuspendCleanup,
+// requestAudioContextSuspend) are counted, so a new caller of them needs an
+// entry here like a new caller of the first three.
 
 /**
  * RO-01: the functions of the AudioContext singleton that call native
- * resume() for whoever calls them, with their callers' exact uses per file
- * (their home src/audio/context.ts too, which calls none of them today, so
- * a wrapper there cannot hide a caller):
+ * resume() for whoever calls them, with their callers' exact uses per file,
+ * their home src/audio/context.ts included, so a wrapper there cannot hide a
+ * caller:
  * ensureRunning (a context that is not running),
- * restartAudioContextFromGesture (inside the caller's gesture) and
+ * restartAudioContextFromGesture (inside the caller's gesture),
  * probeAudioContextHealth (when the caller passes attemptResume: true, a
- * required choice since Phase 7 7A-4).
- * Phase 7 moves these callers into the owner (7C-1 to 7C-3); each step
- * lowers its count here.
+ * required choice since Phase 7 7A-4),
+ * requestAudioContextResume (the one recovery resume of both owners'
+ * attempts, Phase 7 7B-5) and
+ * requestRetiredAudioContextSuspendCleanup (undoes a parked state no attempt
+ * is left for, while visible and unowned).
+ * Phase 7 moves the first three's callers into the owner (7C-1 to 7C-3) and
+ * makes the last two module-private (7C-4); each step lowers its count here.
  */
 const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
   [
@@ -674,10 +704,8 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
             "recovery dialog's ordinary branch, in the button's gesture (moves to the owner, 7C-2)",
         },
       ],
-      [
-        'src/audio/context-recovery.ts',
-        { count: 1, reason: "the playback-scope owner's own gesture resume" },
-      ],
+      // The playback-scope owner's own gesture resume went through the one
+      // recovery resume in context.ts in Phase 7 7B-5 (1 -> 0).
     ]),
   ],
   [
@@ -713,6 +741,78 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
       ],
     ]),
   ],
+  [
+    'requestAudioContextResume',
+    new Map<string, Allowance>([
+      [
+        'src/audio/context-recovery.ts',
+        {
+          count: 1,
+          reason:
+            "the playback scope's gesture and automatic resumes of its attempt (Phase 7 7B-5; " +
+            'module-private in 7C-4)',
+        },
+      ],
+      [
+        'src/audio/context.ts',
+        {
+          count: 1,
+          reason: "its home: the play-request restart's gesture resume (Phase 7 7B-5)",
+        },
+      ],
+    ]),
+  ],
+  [
+    'requestRetiredAudioContextSuspendCleanup',
+    new Map<string, Allowance>([
+      [
+        'src/audio/context-recovery.ts',
+        {
+          count: 1,
+          reason:
+            "the binding's late suspend inside the fence for a file or nothing playing, the same " +
+            'call its home makes when the binding declines (module-private in 7C-4)',
+        },
+      ],
+      [
+        'src/audio/context.ts',
+        {
+          count: 3,
+          reason:
+            'its home: a lease that parked for no attempt, a late suspend no attempt or binding ' +
+            'takes, and a retired play-request restart that restores the parked context',
+        },
+      ],
+    ]),
+  ],
+]);
+
+/**
+ * RO-01, beside them: the function of the AudioContext singleton that calls
+ * native suspend() for whoever calls it, the suspend ledger's entry
+ * requestAudioContextSuspend (one lease and one late fence per context,
+ * Phase 7 7B-4; module-private in 7C-4), with its callers' exact uses per
+ * file, its home included.
+ */
+const INDIRECT_SUSPEND_BASELINES = new Map<string, Baseline>([
+  [
+    'requestAudioContextSuspend',
+    new Map<string, Allowance>([
+      [
+        'src/audio/context-recovery.ts',
+        { count: 1, reason: "the playback scope's suspend preparation (Phase 7 7B-4)" },
+      ],
+      [
+        'src/audio/context.ts',
+        {
+          count: 3,
+          reason:
+            "its home: the play-request restart's suspend, the lease watchdog's second suspend " +
+            "and the late fence's successor (Phase 7 7B-4)",
+        },
+      ],
+    ]),
+  ],
 ]);
 
 /**
@@ -721,8 +821,9 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
  * file paths; a ratchet there would rub every system-audio change.
  */
 const INDIRECT_RESUME_REPORT_ONLY = 'initAudio';
-const INDIRECT_RESUME_NAMES = new Set([
+const INDIRECT_CALL_NAMES = new Set([
   ...INDIRECT_RESUME_BASELINES.keys(),
+  ...INDIRECT_SUSPEND_BASELINES.keys(),
   INDIRECT_RESUME_REPORT_ONLY,
 ]);
 
@@ -1565,7 +1666,7 @@ interface FileFacts {
   /** CHECK 11: `file:line method() in function`, one per write. */
   readonly iframeAudioWriteSites: string[];
   /** CHECK 6 beside: one per counted use, its site as `file:line name() in function`. */
-  readonly indirectResumeSites: Array<{ readonly name: string; readonly site: string }>;
+  readonly indirectCallSites: Array<{ readonly name: string; readonly site: string }>;
   /** Report-only initAudio uses, in the same form. */
   readonly initAudioSites: string[];
   readonly ownerHeaders: string[];
@@ -1674,21 +1775,22 @@ function mayClaimSystemAudio(node: ts.Identifier): boolean {
 }
 
 /**
- * CHECK 6 beside (RO-01): the indirect resume function a node uses, or null.
- * By name, so a renamed caller cannot hide: a value use (a call, a namespace
- * member, the function passed on or placed in an object), a string key
- * (`context['ensureRunning']`), and a rename (an import or export specifier
- * `ensureRunning as wake`, a destructuring `{ ensureRunning: wake }`), whose
- * own calls then go uncounted. Declarations, type positions and member
- * signatures are not uses. The home's own calls count too: a wrapper it
- * exported would otherwise resume for callers no count sees.
+ * CHECK 6 beside (RO-01): the indirect resume or suspend function a node
+ * uses, or null. By name, so a renamed caller cannot hide: a value use (a
+ * call, a namespace member, the function passed on or placed in an object),
+ * a string key (`context['ensureRunning']`), and a rename (an import or
+ * export specifier `ensureRunning as wake`, a destructuring
+ * `{ ensureRunning: wake }`), whose own calls then go uncounted.
+ * Declarations, type positions and member signatures are not uses. The
+ * home's own calls count too: a wrapper it exported would otherwise resume
+ * or suspend for callers no count sees.
  */
 function indirectResumeUse(node: ts.Node): string | null {
   if (ts.isElementAccessExpression(node)) {
     const key = unwrap(node.argumentExpression);
-    return ts.isStringLiteralLike(key) && INDIRECT_RESUME_NAMES.has(key.text) ? key.text : null;
+    return ts.isStringLiteralLike(key) && INDIRECT_CALL_NAMES.has(key.text) ? key.text : null;
   }
-  if (!ts.isIdentifier(node) || !INDIRECT_RESUME_NAMES.has(node.text)) return null;
+  if (!ts.isIdentifier(node) || !INDIRECT_CALL_NAMES.has(node.text)) return null;
   const parent = node.parent;
   if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) {
     return parent.propertyName === node && parent.name.text !== node.text ? node.text : null;
@@ -1780,7 +1882,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
     armedReceptionStartSites: [],
     authorityFenceWriteSites: [],
     iframeAudioWriteSites: [],
-    indirectResumeSites: [],
+    indirectCallSites: [],
     initAudioSites: [],
     ownerHeaders: [],
   };
@@ -1857,7 +1959,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
     if (indirectResume !== null) {
       const site = `${relPath}:${lineOf(file, node)} ${indirectResume}() in ${enclosingFunctionName(node)}`;
       if (indirectResume === INDIRECT_RESUME_REPORT_ONLY) facts.initAudioSites.push(site);
-      else facts.indirectResumeSites.push({ name: indirectResume, site });
+      else facts.indirectCallSites.push({ name: indirectResume, site });
     }
 
     const member = memberName(node);
@@ -4421,6 +4523,10 @@ export interface ResourceOwnershipReport {
   readonly indirectResumeCalls: Readonly<Record<string, number>>;
   /** CHECK 6 beside: every counted use, `file:line name() in function`. */
   readonly indirectResumeSites: readonly string[];
+  /** CHECK 6 beside: counted uses per indirect suspend function, its home included. */
+  readonly indirectSuspendCalls: Readonly<Record<string, number>>;
+  /** CHECK 6 beside: every counted use, in the same form. */
+  readonly indirectSuspendSites: readonly string[];
   /** Report-only initAudio uses, in the same form. */
   readonly initAudioSites: readonly string[];
   readonly defaultLoaderWrites: number;
@@ -4618,28 +4724,38 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     },
     findings,
   );
-  const indirectResumeUses = [...facts.entries()]
+  const indirectCallUses = [...facts.entries()]
     .filter(([relPath]) => appOnly(relPath))
-    .flatMap(([relPath, f]) => f.indirectResumeSites.map((use) => ({ relPath, ...use })));
-  const indirectResumeCalls: Record<string, number> = {};
-  for (const [name, baseline] of INDIRECT_RESUME_BASELINES) {
-    const measured = tally(
-      indirectResumeUses.filter((use) => use.name === name).map((use) => use.relPath),
-    );
-    compareExact(
-      {
-        label: `indirect AudioContext resume ${name}()`,
-        record: 'RO-01',
-        hint:
-          'ask the AudioContext owner (target src/audio/context-recovery.ts) or an existing ' +
-          'requester instead; a new requester needs a reasoned entry and the RO-01 record update',
-        measured,
-        baseline,
-      },
-      findings,
-    );
-    indirectResumeCalls[name] = total(measured);
-  }
+    .flatMap(([relPath, f]) => f.indirectCallSites.map((use) => ({ relPath, ...use })));
+  const countIndirectCalls = (
+    kind: 'resume' | 'suspend',
+    baselines: ReadonlyMap<string, Baseline>,
+  ): Record<string, number> => {
+    const calls: Record<string, number> = {};
+    for (const [name, baseline] of baselines) {
+      const measured = tally(
+        indirectCallUses.filter((use) => use.name === name).map((use) => use.relPath),
+      );
+      compareExact(
+        {
+          label: `indirect AudioContext ${kind} ${name}()`,
+          record: 'RO-01',
+          hint:
+            'ask the AudioContext owner (target src/audio/context-recovery.ts) or an existing ' +
+            'requester instead; a new requester needs a reasoned entry and the RO-01 record update',
+          measured,
+          baseline,
+        },
+        findings,
+      );
+      calls[name] = total(measured);
+    }
+    return calls;
+  };
+  const indirectResumeCalls = countIndirectCalls('resume', INDIRECT_RESUME_BASELINES);
+  const indirectSuspendCalls = countIndirectCalls('suspend', INDIRECT_SUSPEND_BASELINES);
+  const indirectSitesOf = (baselines: ReadonlyMap<string, Baseline>): string[] =>
+    indirectCallUses.filter((use) => baselines.has(use.name)).map((use) => use.site);
 
   const defaultLoaderWrites = collectDefaultLoaderWrites(input.sources);
   compareExact(
@@ -4822,7 +4938,9 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     },
     audioContextNativeCalls: total(audioContextCalls),
     indirectResumeCalls,
-    indirectResumeSites: indirectResumeUses.map((use) => use.site),
+    indirectResumeSites: indirectSitesOf(INDIRECT_RESUME_BASELINES),
+    indirectSuspendCalls,
+    indirectSuspendSites: indirectSitesOf(INDIRECT_SUSPEND_BASELINES),
     initAudioSites: [...facts.entries()]
       .filter(([relPath]) => appOnly(relPath))
       .flatMap(([, f]) => f.initAudioSites),
@@ -4877,7 +4995,8 @@ function main(argv: readonly string[]): void {
       `${timingPairs.reportOnly.length} same-value pairs (report-only` +
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +
       `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}; indirect AudioContext ` +
-      `resume callers: ${summary(report.indirectResumeCalls)}; initAudio uses ` +
+      `resume callers: ${summary(report.indirectResumeCalls)}; indirect AudioContext suspend ` +
+      `callers: ${summary(report.indirectSuspendCalls)}; initAudio uses ` +
       `${report.initAudioSites.length} (report-only).\n` +
       `  Developer API authority fence writes: ${report.authorityFenceWrites}.\n` +
       `  Header loader default holder writes: ${report.defaultLoaderWrites}.\n` +
@@ -4893,6 +5012,7 @@ function main(argv: readonly string[]): void {
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);
     for (const site of report.indirectResumeSites) console.log(`    indirect resume: ${site}`);
+    for (const site of report.indirectSuspendSites) console.log(`    indirect suspend: ${site}`);
     for (const site of report.initAudioSites) {
       console.log(`    initAudio use (report-only): ${site}`);
     }

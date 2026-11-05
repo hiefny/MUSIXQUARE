@@ -19,6 +19,7 @@ import {
 } from './__helpers__/fake-audio-context.ts';
 import {
   bind,
+  dialogTakesPlayRequest,
   loadOwners,
   loadUiTouchSound,
   setVisibility,
@@ -85,11 +86,12 @@ const DEADLINE_NAMES = [
   'DEADLINE_CLOCK_REQUIREMENT',
 ] as const satisfies readonly (keyof Counters)[];
 
-/** A play-request restart prepared and parked, as transport leaves it for the dialog. */
+/** A play-request restart prepared and parked, as transport leaves it for the dialog that takes it. */
 async function parkPlayRequest(s: Scene): Promise<object> {
   const check = s.o.context.armForegroundAudioContextClockHealthCheck(s.fake.native);
   const preparation = await s.o.context.prepareForegroundAudioContextRestart(check!);
   expect(preparation).toMatchObject({ status: 'prepared' });
+  dialogTakesPlayRequest(s.o, preparation!.attemptToken);
   return preparation!.attemptToken;
 }
 
@@ -328,7 +330,7 @@ describe('a deadline counts only when it fires', () => {
     expect(delta(s, before, DEADLINE_NAMES)).toEqual(fires ? [`${String(slot)}:1`] : []);
   });
 
-  it('a suspend that never settles fires the watchdog and starts a second suspend', async () => {
+  it('a suspend that never settles fires the watchdog; the second suspend waits for the late fence', async () => {
     const s = await scene();
     s.fake.planSuspend({ outcome: 'never' }, { outcome: 'never' });
     stageFile(s.o);
@@ -340,10 +342,30 @@ describe('a deadline counts only when it fires', () => {
       .catch(() => undefined);
     await vi.advanceTimersByTimeAsync(800);
 
+    // Phase 7 7B-4 (owner answer Q6): the playback scope's second suspend
+    // waits for the 250 ms late fence, as the play-request restart's does
+    // (the next row); before, it came at once by 800 ms.
+    expect(s.fake.calls('suspend')).toBe(1);
+    expect(delta(s, before, ['DEADLINE_SCOPE_WATCHDOG', 'SUSPEND_CALLS'])).toEqual([
+      'DEADLINE_SCOPE_WATCHDOG:1',
+      'SUSPEND_CALLS:1',
+    ]);
+    await vi.advanceTimersByTimeAsync(210);
+
     expect(s.fake.calls('suspend')).toBe(2);
     expect(
-      delta(s, before, ['DEADLINE_SCOPE_WATCHDOG', 'SUSPEND_CALLS', 'SECOND_SUSPENDS']),
-    ).toEqual(['DEADLINE_SCOPE_WATCHDOG:1', 'SUSPEND_CALLS:2', 'SECOND_SUSPENDS:1']);
+      delta(s, before, [
+        'DEADLINE_SCOPE_WATCHDOG',
+        'DEADLINE_LATE_SUSPEND_FENCE',
+        'SUSPEND_CALLS',
+        'SECOND_SUSPENDS',
+      ]),
+    ).toEqual([
+      'DEADLINE_SCOPE_WATCHDOG:1',
+      'DEADLINE_LATE_SUSPEND_FENCE:1',
+      'SUSPEND_CALLS:2',
+      'SECOND_SUSPENDS:1',
+    ]);
   });
 
   it('the play-request watchdog hands its second suspend through the late fence', async () => {
@@ -448,7 +470,7 @@ describe('clock verification waits', () => {
 });
 
 describe('suspends, refused taps and overlaps', () => {
-  it('both owners suspending one context at once: two leases live', async () => {
+  it('both owners asking to suspend one context at once: one lease, one suspend', async () => {
     const s = await scene();
     s.fake.planSuspend({ latencyMs: 300 }, { latencyMs: 300 });
     stageFile(s.o);
@@ -460,9 +482,12 @@ describe('suspends, refused taps and overlaps', () => {
     const check = s.o.context.armForegroundAudioContextClockHealthCheck(s.fake.native);
     void s.o.context.prepareForegroundAudioContextRestart(check!).catch(() => undefined);
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(s.fake.calls('suspend')).toBe(2);
-    expect(s.read()[s.c.LEASES_AT_ONCE_MAX]).toBe(2);
-    expect(delta(s, before, ['SUSPEND_CALLS', 'SECOND_SUSPENDS'])).toEqual(['SUSPEND_CALLS:2']);
+    // Phase 7 7B-4 (owner answer Q6): the later request takes the lease in
+    // flight over (the earlier attempt retires), so "Leases at once (max)"
+    // stays 1; before, two leases and two native suspends.
+    expect(s.fake.calls('suspend')).toBe(1);
+    expect(s.read()[s.c.LEASES_AT_ONCE_MAX]).toBe(1);
+    expect(delta(s, before, ['SUSPEND_CALLS', 'SECOND_SUSPENDS'])).toEqual(['SUSPEND_CALLS:1']);
   });
 
   it('one owner alone: one lease', async () => {
@@ -491,37 +516,58 @@ describe('suspends, refused taps and overlaps', () => {
     expect(delta(s, before, ['TAPS_REFUSED', ...RESUME_NAMES])).toEqual(['TAPS_REFUSED:2']);
   });
 
-  it('a UI sound while a file attempt waits for its tap: counted, and the owner re-suspends', async () => {
+  // Phase 7 7B-3 (owner answer Q9): a UI sound asks the owners first and does
+  // not wake a context one holds for its tap, so "UI sound resumes while
+  // waiting for tap" stays 0. Before 7B-3 each of these two rows counted one
+  // UI sound resume while waiting, and the file attempt one re-suspend.
+  it('a UI sound while a file attempt waits for its tap: no resume, nothing to re-suspend', async () => {
     const s = await scene();
     const touch = await loadUiTouchSound();
     await parkStalledFile(s);
     const before = s.read();
     touch();
     await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.fake.state).toBe('suspended');
     expect(
       delta(s, before, [
         'RESUME_UI_SOUND',
         'UI_SOUND_RESUMES_WHILE_WAITING',
         'RESUSPENDED_AFTER_RUNNING',
+        'SUSPEND_CALLS',
       ]),
-    ).toEqual([
-      'RESUME_UI_SOUND:1',
-      'UI_SOUND_RESUMES_WHILE_WAITING:1',
-      'RESUSPENDED_AFTER_RUNNING:1',
-    ]);
+    ).toEqual([]);
   });
 
-  it('a UI sound while a play-request restart waits for its tap is counted', async () => {
+  it('a UI sound while a play-request restart waits for its tap: no resume, nothing counted', async () => {
     const s = await scene();
     const touch = await loadUiTouchSound();
     await parkPlayRequest(s);
     const before = s.read();
     touch();
     await vi.advanceTimersByTimeAsync(0);
-    expect(delta(s, before, ['RESUME_UI_SOUND', 'UI_SOUND_RESUMES_WHILE_WAITING'])).toEqual([
-      'RESUME_UI_SOUND:1',
-      'UI_SOUND_RESUMES_WHILE_WAITING:1',
-    ]);
+    expect(s.fake.state).toBe('suspended');
+    expect(delta(s, before, ['RESUME_UI_SOUND', 'UI_SOUND_RESUMES_WHILE_WAITING'])).toEqual([]);
+  });
+
+  it('an outside resume while a play-request restart waits for its tap: the owner parks it again', async () => {
+    const s = await scene();
+    bind(s.o, s.fake);
+    await parkPlayRequest(s);
+    const before = s.read();
+    s.fake.transition('running');
+    await vi.advanceTimersByTimeAsync(2_000);
+    // Phase 7 7B-2: the re-park is the attempt's next suspend, counted as a
+    // re-suspend after running and a second suspend, with no resume of its own.
+    expect(s.fake.state).toBe('suspended');
+    expect(
+      delta(s, before, [
+        'RESUSPENDED_AFTER_RUNNING',
+        'SUSPEND_CALLS',
+        'SECOND_SUSPENDS',
+        'TAPS_REFUSED',
+        ...RESUME_NAMES,
+      ]),
+    ).toEqual(['RESUSPENDED_AFTER_RUNNING:1', 'SUSPEND_CALLS:1', 'SECOND_SUSPENDS:1']);
   });
 
   it('a UI sound with no attempt, or with a YouTube attempt parked, is not counted as waiting', async () => {

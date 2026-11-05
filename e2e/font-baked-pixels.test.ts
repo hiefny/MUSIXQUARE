@@ -1,6 +1,6 @@
 /**
- * The baked app faces draw exactly as their inputs where the overrides apply
- * (owner decision 2026-11-01).
+ * The line box baked into the app faces changes no pixel where the overrides
+ * apply (owner decision 2026-11-01).
  *
  * Chromium and Firefox apply the app sheets' metric overrides, which set the
  * line box whatever the files' own metrics say (the baked box is within half
@@ -8,10 +8,14 @@
  * change no pixel there. This spec checks Chromium; Firefox is expected to
  * follow but has not been measured. Context A is the build as it is;
  * context B answers every request for a baked face with its input file
- * (fonts/app-faces.json), which is what the app served before. The Hangul
- * faces (fonts/app/hangul/, owner decision 2026-11-02) are not baked, so both
- * contexts draw Hangul from the same files. Every screen must be the same PNG
- * in both:
+ * (fonts/app-faces.json), which is what the app served before, but for the
+ * one copy whose cmap is not its input's: Inter's latin face, whose digits
+ * the copy maps to Inter's tabular glyphs (owner decision 2026-11-05, checked
+ * by src/i18n/__tests__/font-baked-metrics.test.ts). B serves that input with
+ * the copy's cmap, so the two contexts still differ only in the line box. The
+ * Hangul faces (fonts/app/hangul/, owner decision 2026-11-02) are not baked,
+ * so both contexts draw Hangul from the same files. Every screen must be the
+ * same PNG in both:
  * - in the Korean and the English UI at 390 × 844: the start screen, the
  *   Playlist tab with tracks (one a decomposed Korean file name) and more
  *   than one playlist, the Connect, Settings and Help tabs, and the full chat
@@ -28,6 +32,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
+import { decodeFontBytes, encodeWoff2 } from '../scripts/fonts/font-files.mts';
 import { E2E_APP_ORIGIN } from './config.ts';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
@@ -44,23 +49,72 @@ type UiLanguage = 'ko' | 'en';
 interface AppFacesRecord {
   readonly families: readonly {
     readonly input: string;
+    readonly output: string;
     readonly faces: readonly { readonly file: string }[];
   }[];
 }
 
-/** The input file of every baked face, by file stem (the copies keep their input's name). */
-const INPUT_BY_STEM: ReadonlyMap<string, string> = (() => {
+/**
+ * The input file and the baked copy of every baked face, by file stem (the
+ * copies keep their input's name).
+ */
+const FACE_BY_STEM: ReadonlyMap<string, { input: string; output: string }> = (() => {
   const record = JSON.parse(
     readFileSync(new URL('../fonts/app-faces.json', import.meta.url), 'utf8'),
   ) as AppFacesRecord;
-  const inputs = new Map<string, string>();
+  const faces = new Map<string, { input: string; output: string }>();
   for (const family of record.families) {
     for (const { file } of family.faces) {
-      inputs.set(file.slice(0, -'.woff2'.length), `${family.input}/${file}`);
+      faces.set(file.slice(0, -'.woff2'.length), {
+        input: `${family.input}/${file}`,
+        output: `${family.output}/${file}`,
+      });
     }
   }
-  return inputs;
+  return faces;
 })();
+
+const readRepositoryFile = (path: string): Buffer =>
+  readFileSync(new URL(`../${path}`, import.meta.url));
+
+/** Where an sfnt's cmap table is: its offset and length. */
+function cmapRange(sfnt: Uint8Array): [number, number] {
+  const view = new DataView(sfnt.buffer, sfnt.byteOffset, sfnt.byteLength);
+  for (let index = 0; index < view.getUint16(4); index += 1) {
+    const record = 12 + index * 16;
+    if (String.fromCharCode(...sfnt.subarray(record, record + 4)) === 'cmap') {
+      return [view.getUint32(record + 8), view.getUint32(record + 12)];
+    }
+  }
+  throw new Error('no cmap table');
+}
+
+const served = new Map<string, Promise<Buffer>>();
+
+/**
+ * What context B serves for a baked face: its input file, or, where the copy's
+ * cmap is not the input's, the input with the copy's cmap (the WOFF2 encoder
+ * computes the checksums again).
+ */
+function unbakedFace(face: { input: string; output: string }): Promise<Buffer> {
+  let bytes = served.get(face.input);
+  if (!bytes) {
+    bytes = (async () => {
+      const input = readRepositoryFile(face.input);
+      const sfnt = Uint8Array.from(await decodeFontBytes(input));
+      const copy = await decodeFontBytes(readRepositoryFile(face.output));
+      const [inputAt, inputLength] = cmapRange(sfnt);
+      const [copyAt, copyLength] = cmapRange(copy);
+      const cmap = copy.subarray(copyAt, copyAt + copyLength);
+      if (Buffer.from(cmap).equals(sfnt.subarray(inputAt, inputAt + inputLength))) return input;
+      if (copyLength !== inputLength) throw new Error(`${face.output} resized the cmap`);
+      sfnt.set(cmap, inputAt);
+      return Buffer.from(await encodeWoff2(sfnt));
+    })();
+    served.set(face.input, bytes);
+  }
+  return bytes;
+}
 
 /** The font-identity chat fixture: Korean, Japanese, Chinese, Han, Cyrillic, Greek, Thai, Arabic and marks. */
 const CHAT = [
@@ -132,14 +186,14 @@ async function openApp(
   // Registered last, so it runs before the catch-all route above.
   await context.route(/\/assets\/[^/]+\.woff2$/u, async (route) => {
     const stem = assetStem(route.request().url());
-    const input = INPUT_BY_STEM.get(stem);
-    if (!input) return route.continue();
+    const face = FACE_BY_STEM.get(stem);
+    if (!face) return route.continue();
     fetched.add(stem);
     if (!serveInputs) return route.continue();
     return route.fulfill({
       status: 200,
       contentType: 'font/woff2',
-      body: readFileSync(new URL(`../${input}`, import.meta.url)),
+      body: await unbakedFace(face),
     });
   });
   const page = await context.newPage();

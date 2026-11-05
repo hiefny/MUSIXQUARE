@@ -106,41 +106,42 @@ describe('RO-01 an OS interruption inside the play-request late-suspend fence (2
       },
       outside: { attempt: 'file', gesture: true },
     },
-    // Known gap (C1-I11, fence drops the YouTube owner): adoption keeps only a
-    // file identity, so no owner holds the interrupted context and nothing
-    // retries it until another statechange or an outside resume arrives. The
-    // fence lasts 250 ms after a play-request restart retires, and those
-    // start only from a local-file PLAY, so YouTube mode inside it needs a
-    // switch to YouTube in that window. Outside it the binding holds a
-    // YouTube attempt.
+    // Phase 7 7B-4 (owner answer Q6; it was Known gap C1-I11, the fence
+    // dropped the YouTube owner): with no attempt waiting behind the fence,
+    // the binding takes a YouTube room's interruption as it would outside the
+    // fence, an attempt that holds the interrupted context with its automatic
+    // resume. Before, the fence's cleanup resume ran and adoption kept only a
+    // file identity, so no owner held the context. The fence lasts 250 ms
+    // after a play-request restart retires, and those start only from a
+    // local-file PLAY, so YouTube mode inside it needs a switch to YouTube in
+    // that window.
     {
       mode: 'youtube',
-      inside: { needed: [], scope: NO_ATTEMPT },
+      inside: { needed: [], scope: { attempt: 'youtube', gesture: true } },
       outside: { attempt: 'youtube', gesture: true },
     },
     // Nothing plays: not a gap. Inside and outside the fence the same native
-    // calls and no attempt; only which listener issues the resume differs
-    // (the fence cleanup inside, the binding's plain automatic resume outside).
+    // calls and no attempt; only which part issues the resume differs (the
+    // fence's cleanup inside, the binding's plain automatic resume outside).
     { mode: 'idle', inside: { needed: [], scope: NO_ATTEMPT }, outside: NO_ATTEMPT },
   ];
 
   it.each(ROWS)(
-    '$mode: the binding drops it and the fence cleanup resume runs instead',
+    '$mode: the binding defers to the fence; with no attempt waiting there it judges the state, a YouTube room as outside the fence',
     async ({ mode, inside }) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
       stage(o, mode);
       const bus = recordBus(o);
       const trace = traceDispatch(fake);
-      trace.label('binding');
+      trace.label('dispatcher');
       bind(o, fake);
       trace.label('play-request');
       await retireIntoFence(o, fake);
       expect(nativeCalls(fake.ops)).toEqual(['suspend()', 'suspend()']);
-      // The binding and the fence. Flipped by 7B-4 (one dispatcher per
-      // context; Q6, owner decision pending): one listener, and the order
-      // inside it binding, lease, fence, resume promotion.
-      expect(fake.statechangeListenerCount).toBe(2);
+      // One listener per context (Phase 7 7B-4; it was two, the binding and
+      // the fence): the fence is a part of the context's dispatcher.
+      expect(fake.statechangeListenerCount).toBe(1);
 
       const before = fake.ops.length;
       fake.planResume({ outcome: 'reject' }); // An interrupted context refuses resume().
@@ -148,12 +149,14 @@ describe('RO-01 an OS interruption inside the play-request late-suspend fence (2
       await vi.advanceTimersByTimeAsync(2_000);
 
       expect(fake.ops.slice(before)).toEqual(INTERRUPTION_REFUSED);
-      // Listener order, flipped by 7B-4 as above: the trace then sees one listener.
-      expect(trace.order).toEqual(['binding@interrupted', 'play-request@interrupted>resume()']);
+      // The one listener made the one resume(): the fence's cleanup for a
+      // file or nothing playing, the binding's automatic resume for YouTube
+      // (before 7B-4: the binding's listener dropped it and the fence's own
+      // listener resumed, ['binding@interrupted', 'play-request@interrupted>resume()']).
+      expect(trace.order).toEqual(['dispatcher@interrupted>resume()']);
       expect(bus.needed).toEqual(inside.needed);
       expect(bus.rejoins).toEqual([]);
       expect(playbackScope.view(o)).toEqual(inside.scope);
-      // The binding alone (also one after 7B-4: the dispatcher).
       expect(fake.statechangeListenerCount).toBe(1);
       expect(fake.state).toBe('interrupted');
     },
@@ -208,6 +211,98 @@ describe('RO-01 an OS interruption inside the play-request late-suspend fence (2
     expect(playbackScope.view(o)).toEqual(NO_ATTEMPT);
     expect(fake.statechangeListenerCount).toBe(1);
   });
+});
+
+/**
+ * Phase 7 7B-4 (owner answer Q6): the playback scope's second suspend now
+ * waits for the same 250 ms late fence, so a real interruption can land in
+ * that new wait. The owner's expected result, by mode: a local file goes on
+ * to its recovery dialog as before, and a YouTube room gets the same
+ * automatic recovery as outside the wait. With nothing playing there is no
+ * playback-scope attempt, so no such fence (the idle rows above keep the
+ * binding's no-playback resume).
+ *
+ * Each attempt reaches its suspend through the automatic clock check: an
+ * interruption, the automatic resume, and the probe finds the clock frozen
+ * (about 360 ms); the first suspend resolves while the state still says
+ * running.
+ */
+describe('RO-01 an OS interruption inside the playback-scope late-suspend fence (Phase 7 7B-4)', () => {
+  async function parkScopeAttemptBehindTheFence(o: Owners, fake: FakeNativeAudioContext) {
+    fake.freezeClock();
+    fake.transition('interrupted');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(nativeCalls(fake.ops)).toEqual(['resume()', 'suspend()']);
+    expect(playbackScope.view(o)).toMatchObject({ gesture: false });
+  }
+
+  it.each(['file', 'youtube'] as const)(
+    '%s: the attempt waiting behind the fence takes it, with no second native suspend',
+    async (mode) => {
+      const fake = new FakeNativeAudioContext();
+      const o = await loadOwners(fake);
+      stage(o, mode);
+      const bus = recordBus(o);
+      bind(o, fake);
+      // The first suspend is lost; a second would never land.
+      fake.planSuspend({ toState: 'unchanged' }, { outcome: 'never' });
+      await parkScopeAttemptBehindTheFence(o, fake);
+      // Past the first suspend's 750 ms watchdog: inside its late fence.
+      await vi.advanceTimersByTimeAsync(720);
+
+      const before = fake.ops.length;
+      fake.planResume({ outcome: 'reject' });
+      fake.transition('interrupted');
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      // Before 7B-4 the second suspend had already gone out at 750 ms and the
+      // interruption settled that one instead: the same parked attempt, one
+      // native suspend more.
+      expect(fake.ops.slice(before)).toEqual(['os:interrupted', 'statechange:interrupted']);
+      expect(nativeCalls(fake.ops)).toEqual(['resume()', 'suspend()']);
+      expect(bus.needed).toEqual(['background-resume:clock-stalled']);
+      expect(playbackScope.view(o)).toEqual({ attempt: mode, gesture: true });
+      expect(fake.statechangeListenerCount).toBe(1);
+    },
+  );
+
+  it.each([
+    // The refused cleanup resume hands the parked context to the binding,
+    // which adopts it for the dialog, as inside the play-request fence. Before
+    // 7B-4 no fence followed the scope's last suspend: the binding took the
+    // interruption for an OS one (an attempt, its refused automatic resume,
+    // no dialog).
+    { mode: 'file' as const, needed: ['background-resume:clock-stalled'] },
+    // As outside the fence (and as before 7B-4, when no fence followed).
+    { mode: 'youtube' as const, needed: [] },
+  ])(
+    '$mode: after both suspends were lost no attempt waits there; a file goes to its dialog, YouTube as outside the fence',
+    async ({ mode, needed }) => {
+      const fake = new FakeNativeAudioContext();
+      const o = await loadOwners(fake);
+      stage(o, mode);
+      const bus = recordBus(o);
+      bind(o, fake);
+      fake.planSuspend({ toState: 'unchanged' }, { toState: 'unchanged' });
+      await parkScopeAttemptBehindTheFence(o, fake);
+      // The second suspend at about 1,360 ms gives up at about 2,110 ms (both
+      // 250 ms later than before 7B-4); stop inside the fence that follows.
+      await vi.advanceTimersByTimeAsync(1_720);
+      expect(nativeCalls(fake.ops)).toEqual(['resume()', 'suspend()', 'suspend()']);
+      expect(playbackScope.view(o)).toEqual(NO_ATTEMPT);
+
+      const before = fake.ops.length;
+      fake.planResume({ outcome: 'reject' });
+      fake.transition('interrupted');
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(fake.ops.slice(before)).toEqual(INTERRUPTION_REFUSED);
+      expect(bus.needed).toEqual(needed);
+      expect(bus.rejoins).toEqual([]);
+      expect(playbackScope.view(o)).toEqual({ attempt: mode, gesture: true });
+      expect(fake.statechangeListenerCount).toBe(1);
+    },
+  );
 });
 
 describe('RO-01 YouTube attempts that reach the clock-stalled phase (no dialog: app.ts is file-only)', () => {
@@ -298,23 +393,17 @@ describe('RO-01 YouTube attempts that reach the clock-stalled phase (no dialog: 
   });
 });
 
-describe('RO-01 two suspend leases from one foreground incident', () => {
+describe('RO-01 two suspend requests from one foreground incident', () => {
   it.each([
     {
       // The playback-scope suspend outlasts transport's two 180 ms PLAY samples.
       latencyMs: 600,
       probe: 'clock-stalled',
-      ops: [
-        'suspend()',
-        'suspend()',
-        'statechange:suspended',
-        'suspend:resolved',
-        'suspend:resolved',
-      ],
-      needed: ['background-resume:clock-stalled'],
+      ops: ['suspend()', 'statechange:suspended', 'suspend:resolved'],
+      needed: [],
       request: { first: 'prepared', prepared: true },
       inspection: { status: 'stale', reason: 'superseded' },
-      listeners: [2, 3, 1],
+      scope: NO_ATTEMPT,
     },
     {
       latencyMs: 200,
@@ -323,11 +412,11 @@ describe('RO-01 two suspend leases from one foreground incident', () => {
       needed: [],
       request: null,
       inspection: { status: 'needs-gesture', reason: 'clock-stalled' },
-      listeners: [2, 1, 1],
+      scope: { attempt: 'file', gesture: true },
     },
   ])(
     'playback-scope suspend latency $latencyMs ms, then the PLAY probe',
-    async ({ latencyMs, probe, ops, needed, request, inspection, listeners }) => {
+    async ({ latencyMs, probe, ops, needed, request, inspection, scope }) => {
       const fake = new FakeNativeAudioContext();
       fake.freezeClock();
       const o = await loadOwners(fake);
@@ -352,17 +441,15 @@ describe('RO-01 two suspend leases from one foreground incident', () => {
 
       expect(played.probe).toBe(probe);
       expect(fake.ops).toEqual(ops);
-      // The playback scope notifies synchronously with its settlement; the
-      // play-request answer reaches transport through its promise after it.
       expect(bus.needed).toEqual(needed);
-      if (needed.length > 0) expect(bus.neededEvents[0]?.isCurrent?.()).toBe(true);
       if (request) {
-        // Known gap (C1-I11, two leases): two native suspends and two
-        // recovery requests (this bus notice plus transport's
-        // play:clock-stalled) for one stall. 7B-4 (one lease; Q6, owner
-        // decision pending) would make it one suspend and one request. Which
-        // dialog stays, and what its button does, has no row yet: app.ts's
-        // part needs a browser row.
+        // Phase 7 7B-4 (owner answer Q6; it was Known gap C1-I11, two
+        // leases): the PLAY's request takes the scope's lease in flight over,
+        // so one native suspend and one recovery request, transport's
+        // play:clock-stalled for the later-started PLAY. The return check's
+        // attempt retires with no notice (before: a second native suspend
+        // and its bus notice too). app.ts's part, that this dialog stays and
+        // its button retries the PLAY, is the browser lab's row (iii).
         await expect(played.request!.first).resolves.toBe(request.first);
         await expect(played.request!.prepared).resolves.toBe(request.prepared);
         expect(played.request!.isCurrent()).toBe(true);
@@ -370,31 +457,36 @@ describe('RO-01 two suspend leases from one foreground incident', () => {
         expect(played.request).toBeNull();
       }
       expect(await inspected).toMatchObject(inspection);
-      expect(playbackScope.view(o)).toEqual({ attempt: 'file', gesture: true });
-      // Listener counts per owner, flipped by 7B-4 (one dispatcher, Q6): [1, 1, 1].
-      expect(counts).toEqual(listeners);
+      expect(playbackScope.view(o)).toEqual(scope);
+      // One listener per context while both ask (Phase 7 7B-4; it was one per
+      // owner, [2, 3, 1] and [2, 1, 1]).
+      expect(counts).toEqual([1, 1, 1]);
       expect(fake.state).toBe('suspended');
     },
   );
 });
 
 /**
- * Today every owner adds its own statechange listener, so the dispatch order
- * is the order the listeners were added and differs per scene. Every order
- * and count row here is flipped by 7B-4 (one dispatcher per context; Q6,
- * owner decision pending): one listener per context, and inside it the
- * order binding, lease, fence, resume promotion, the same in every scene.
- * A row that 7B-4 changes beyond its order and counts says so.
+ * Phase 7 7B-4 (owner answer Q6, E11, E22): one statechange listener per
+ * context, the suspend ledger's dispatcher in context.ts, and inside it the
+ * fixed order binding, lease, late fence, play-request resume promotion,
+ * whichever part arrived first. Before, every owner added its own listener,
+ * so the order was the order the listeners were added and differed per
+ * scene (each row says what it was). The trace labels the listeners added
+ * from each step on: the context's one listener carries the label of the
+ * step that added it, and any second listener would show its own label.
+ * The loading indicator's reader (src/ui/file-start-loading.ts) stays
+ * outside the dispatcher and is not loaded here.
  */
 describe('RO-01 statechange dispatch order and owner listeners per context', () => {
-  it('binding, then a playback-scope lease, then a play-request lease', async () => {
+  it('a playback-scope lease, then a play-request that takes it over: one listener, one suspend', async () => {
     const fake = new FakeNativeAudioContext();
     fake.freezeClock();
     const o = await loadOwners(fake);
     stageFile(o);
     const bus = recordBus(o);
     const trace = traceDispatch(fake);
-    trace.label('binding');
+    trace.label('dispatcher');
     bind(o, fake);
     fake.planSuspend({ latencyMs: 600 }, { latencyMs: 600 });
     trace.label('scope-lease');
@@ -406,18 +498,18 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
     await vi.advanceTimersByTimeAsync(2_000);
     counts.push(fake.statechangeListenerCount);
 
-    expect(trace.order).toEqual([
-      'binding@suspended',
-      'scope-lease@suspended',
-      'request-lease@suspended',
-    ]);
-    expect(counts).toEqual([3, 1]);
-    // 7B-4 also makes these one lease: the later request takes it over and
-    // the earlier attempt retires, so one native suspend.
-    expect(nativeCalls(fake.ops)).toEqual(['suspend()', 'suspend()']);
-    expect(bus.needed).toEqual(['background-resume:clock-stalled']);
-    await expect(armed).resolves.toBe('preparing');
+    // Before: ['binding@suspended', 'scope-lease@suspended',
+    // 'request-lease@suspended'] and [3, 1].
+    expect(trace.order).toEqual(['dispatcher@suspended']);
+    expect(counts).toEqual([1, 1]);
+    // The later request takes the lease over and the earlier attempt
+    // retires: one native suspend, no notice from the playback scope, the
+    // play-request parked (before: two suspends and the scope's notice).
+    expect(nativeCalls(fake.ops)).toEqual(['suspend()']);
+    expect(bus.needed).toEqual([]);
+    await expect(armed).resolves.toBe('stale');
     await expect(request.prepared).resolves.toBe(true);
+    expect(playbackScope.view(o)).toEqual(NO_ATTEMPT);
   });
 
   it('a play-request lease before the binding (a start path with no binding yet)', async () => {
@@ -427,7 +519,7 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
     const bus = recordBus(o);
     const trace = traceDispatch(fake);
     fake.planSuspend({ latencyMs: 100 });
-    trace.label('request-lease');
+    trace.label('dispatcher');
     const request = playRequest.arm(o, fake);
     trace.label('binding');
     bind(o, fake);
@@ -435,20 +527,53 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
     await vi.advanceTimersByTimeAsync(1_000);
     counts.push(fake.statechangeListenerCount);
 
-    expect(trace.order).toEqual(['request-lease@suspended', 'binding@suspended']);
-    expect(counts).toEqual([2, 1]);
+    // Before: ['request-lease@suspended', 'binding@suspended'] and [2, 1].
+    expect(trace.order).toEqual(['dispatcher@suspended']);
+    expect(counts).toEqual([1, 1]);
     expect(fake.ops).toEqual(['suspend()', 'statechange:suspended', 'suspend:resolved']);
     await expect(request.first).resolves.toBe('prepared');
     expect(bus.needed).toEqual([]);
     expect(playbackScope.view(o)).toEqual(NO_ATTEMPT);
   });
 
-  it('a play-request gesture resume adds its own listener while it flies', async () => {
+  it('the order is fixed: a late fence that came before the binding still lets the binding judge first', async () => {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    stageFile(o);
+    const bus = recordBus(o);
+    const trace = traceDispatch(fake);
+    // A play-request restart with no binding yet retires into its fence
+    // (the start path above); the engine binds inside that fence.
+    trace.label('fence');
+    await retireIntoFence(o, fake);
+    trace.label('binding');
+    bind(o, fake);
+    expect(fake.statechangeListenerCount).toBe(1);
+
+    const before = fake.ops.length;
+    fake.planResume({ outcome: 'reject' }, { outcome: 'reject' });
+    fake.transition('interrupted');
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // The binding judges first and defers to the fence, whose cleanup resume
+    // is the only one; the file is adopted for its dialog, as in the bound
+    // fence row. Before (an intended change of 7B-4, E11): the fence's
+    // listener came first and resumed, then the binding's own listener took
+    // the same interruption for an OS one and resumed again,
+    // ['fence@interrupted>resume()', 'binding@interrupted>resume()'].
+    expect(fake.ops.slice(before)).toEqual(INTERRUPTION_REFUSED);
+    expect(trace.order).toEqual(['fence@interrupted>resume()']);
+    expect(bus.needed).toEqual(['background-resume:clock-stalled']);
+    expect(playbackScope.view(o)).toEqual({ attempt: 'file', gesture: true });
+    expect(fake.statechangeListenerCount).toBe(1);
+  });
+
+  it('a play-request gesture resume adds no listener while it flies', async () => {
     const fake = new FakeNativeAudioContext();
     const o = await loadOwners(fake);
     stageFile(o);
     const trace = traceDispatch(fake);
-    trace.label('binding');
+    trace.label('dispatcher');
     bind(o, fake);
     trace.label('request-lease');
     const request = playRequest.arm(o, fake);
@@ -461,13 +586,10 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
     await vi.advanceTimersByTimeAsync(1_000);
     counts.push(fake.statechangeListenerCount);
 
-    expect(trace.order).toEqual([
-      'binding@suspended',
-      'request-lease@suspended',
-      'binding@running',
-      'request-resume@running',
-    ]);
-    expect(counts).toEqual([1, 2, 1]);
+    // Before: ['binding@suspended', 'request-lease@suspended',
+    // 'binding@running', 'request-resume@running'] and [1, 2, 1].
+    expect(trace.order).toEqual(['dispatcher@suspended', 'dispatcher@running']);
+    expect(counts).toEqual([1, 1, 1]);
     await expect(tap).resolves.toEqual({ running: true });
     expect(request.requirement()).toBe('same');
   });
@@ -478,7 +600,7 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
     stageFile(o);
     const bus = recordBus(o);
     const trace = traceDispatch(fake);
-    trace.label('binding');
+    trace.label('dispatcher');
     bind(o, fake);
     trace.label('scope-lease');
     await expect(playbackScope.armStalled(o, fake)).resolves.toBe('prepared');
@@ -490,11 +612,49 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
     await vi.advanceTimersByTimeAsync(1_000);
     counts.push(fake.statechangeListenerCount);
 
-    expect(trace.order).toEqual(['binding@suspended', 'scope-lease@suspended', 'binding@running']);
+    // Before: ['binding@suspended', 'scope-lease@suspended', 'binding@running'].
+    expect(trace.order).toEqual(['dispatcher@suspended', 'dispatcher@running']);
     expect(counts).toEqual([1, 1, 1]);
     await expect(tap).resolves.toEqual({ running: true });
     expect(playbackScope.requirement(o)).toBe('same');
     expect(bus.needed).toEqual([]);
+  });
+
+  it('one listener per context while a lease, its late fence and a slow gesture resume come and go', async () => {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    stageFile(o);
+    const trace = traceDispatch(fake);
+    trace.label('dispatcher');
+    bind(o, fake);
+    trace.label('other');
+    const counts: number[] = [];
+    // A play-request restart whose first suspend is lost: its lease, the late
+    // fence with the attempt waiting behind it, then a fresh lease that lands.
+    fake.planSuspend({ toState: 'unchanged' }, {});
+    const request = playRequest.arm(o, fake);
+    counts.push(fake.statechangeListenerCount);
+    await vi.advanceTimersByTimeAsync(760);
+    counts.push(fake.statechangeListenerCount);
+    await vi.advanceTimersByTimeAsync(300);
+    await expect(request.prepared).resolves.toBe(true);
+    counts.push(fake.statechangeListenerCount);
+    // Its gesture resume is slower than its 750 ms deadline: the promotion
+    // waits past the deadline, then promotes.
+    fake.planResume({ latencyMs: 1_200 });
+    const tap = request.tap();
+    counts.push(fake.statechangeListenerCount);
+    await vi.advanceTimersByTimeAsync(800);
+    counts.push(fake.statechangeListenerCount);
+    await vi.advanceTimersByTimeAsync(1_000);
+    counts.push(fake.statechangeListenerCount);
+
+    // Before: [2, 2, 1, 2, 2, 1] (the binding, plus the lease, the fence or
+    // the resume listener).
+    expect(counts).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(trace.order).toEqual(['dispatcher@suspended', 'dispatcher@running']);
+    await expect(tap).resolves.toEqual({ running: false });
+    expect(request.requirement()).toBe('same');
   });
 
   it.each([

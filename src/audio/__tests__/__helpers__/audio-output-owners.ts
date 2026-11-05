@@ -188,6 +188,51 @@ export async function loadUiTouchSound(): Promise<() => void> {
   return () => ui.playUiTouchSound();
 }
 
+/**
+ * Count the UI tones started on `fake` from now on (one per started source;
+ * the touch sound is one). The native double models no node graph, so a UI
+ * sound otherwise fails silently at its first node; this gives the fake the
+ * few nodes UI sounds build. `fake.ops` stays the native log.
+ */
+export function countUiTones(fake: FakeNativeAudioContext): () => number {
+  let tones = 0;
+  const param = () => ({
+    value: 0,
+    setValueAtTime: () => undefined,
+    exponentialRampToValueAtTime: () => undefined,
+  });
+  const node = () => ({
+    connect: () => undefined,
+    gain: param(),
+    threshold: param(),
+    knee: param(),
+    ratio: param(),
+    attack: param(),
+    release: param(),
+    pan: param(),
+    frequency: param(),
+    buffer: null,
+    type: 'sine',
+    start: () => {
+      tones += 1;
+    },
+    stop: () => undefined,
+  });
+  Object.assign(fake, {
+    destination: node(),
+    createGain: node,
+    createDynamicsCompressor: node,
+    createStereoPanner: node,
+    createOscillator: node,
+    createBufferSource: node,
+    createBuffer: (_channels: number, length: number) => {
+      const samples = new Float32Array(length);
+      return { getChannelData: () => samples };
+    },
+  });
+  return () => tones;
+}
+
 /** The native calls (not their settlements or state changes) in an op slice. */
 export function nativeCalls(ops: readonly string[]): string[] {
   return ops.filter((op) => op.endsWith('()'));
@@ -317,11 +362,18 @@ export interface PlayRequest {
   /** The dialog's trusted tap. Call it after `first` settled. */
   tap(): Promise<{ running: boolean }>;
   /**
-   * The post-tap clock requirement the dialog reads (today polled every
-   * 50 ms): for this attempt and current, for this attempt but no longer
-   * current, for another attempt, or none.
+   * The post-tap clock requirement the dialog reads once its wait settles:
+   * for this attempt and current, for this attempt but no longer current,
+   * for another attempt, or none.
    */
   requirement(): Requirement;
+  /**
+   * What the dialog waits on after its tap (Phase 7 7B-5, in place of a
+   * 50 ms poll): the owner's answer for this attempt, 'promoted' once its
+   * requirement is exposed, or how it ended ('cancelled', 'superseded',
+   * 'retired').
+   */
+  clockWait(): Promise<string>;
   /** Whether a dialog may still act for this attempt. */
   isCurrent(): boolean;
   /**
@@ -332,13 +384,49 @@ export interface PlayRequest {
   retire(): boolean;
 }
 
-function startPlayRequest(o: Owners, incident: object): PlayRequest {
+/**
+ * app.ts's recovery dialog takes a play-request attempt when it shows that
+ * attempt's request. Only such an attempt is parked again after an outside
+ * resume and holds the context for its tap (Phase 7 7B-2 and 7B-3); one whose
+ * notice never became a dialog is left to the next PLAY's clock check.
+ */
+export function dialogTakesPlayRequest(o: Owners, attemptToken: object): void {
+  o.context.claimForegroundAudioContextRestartForDialog(attemptToken);
+}
+
+export interface PlayRequestOptions {
+  /**
+   * Whether a dialog opens for the attempt once transport announces it
+   * (default true). false: its one notice never became a dialog.
+   */
+  readonly dialog?: boolean;
+}
+
+function startPlayRequest(
+  o: Owners,
+  incident: object,
+  { dialog = true }: PlayRequestOptions = {},
+): PlayRequest {
   const preparation = o.context.prepareForegroundAudioContextRestart(incident);
   let attempt: Awaited<typeof preparation> = null;
   let settled = false;
   const first = preparation.then((value): FirstAnswer => {
     attempt = value;
     settled = true;
+    // Transport announces a prepared attempt at once and a preparing one
+    // once it is parked; the dialog that opens for it takes it.
+    if (value && dialog) {
+      const { attemptToken } = value;
+      if (value.status === 'prepared') dialogTakesPlayRequest(o, attemptToken);
+      else {
+        void value.whenPrepared.then(
+          (parked) => {
+            if (parked) dialogTakesPlayRequest(o, attemptToken);
+          },
+          () => undefined,
+        );
+      }
+    }
     return value ? value.status : 'stale';
   });
   return {
@@ -358,6 +446,10 @@ function startPlayRequest(o: Owners, incident: object): PlayRequest {
       if (!attempt || requirement.attemptToken !== attempt.attemptToken) return 'other';
       return requirement.isCurrent() ? 'same' : 'not-current';
     },
+    clockWait: () =>
+      attempt
+        ? o.context.whenForegroundAudioContextRestartClockRequirement(attempt.attemptToken)
+        : Promise.resolve('retired'),
     isCurrent: () => attempt?.isCurrent() ?? false,
     retire: () =>
       attempt ? o.context.retireForegroundAudioContextRestart(attempt.attemptToken) : false,
@@ -366,16 +458,19 @@ function startPlayRequest(o: Owners, incident: object): PlayRequest {
 
 export const playRequest = {
   /** A foreground incident armed and a restart prepared for it at once. */
-  arm(o: Owners, fake: FakeNativeAudioContext): PlayRequest {
+  arm(o: Owners, fake: FakeNativeAudioContext, options?: PlayRequestOptions): PlayRequest {
     const incident = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
     if (!incident) throw new Error('no foreground incident armed');
-    return startPlayRequest(o, incident);
+    return startPlayRequest(o, incident, options);
   },
   /**
    * Transport's PLAY after foreground: probe the armed incident's clock and
    * prepare a restart only when it is stalled.
    */
-  async afterProbe(o: Owners): Promise<{ probe: string; request: PlayRequest | null }> {
+  async afterProbe(
+    o: Owners,
+    options?: PlayRequestOptions,
+  ): Promise<{ probe: string; request: PlayRequest | null }> {
     const check = o.context.getPendingForegroundAudioContextClockHealthCheck();
     if (!check) return { probe: 'no-incident', request: null };
     const health = await o.context.probeAudioContextHealth({
@@ -384,7 +479,7 @@ export const playRequest = {
       isCurrent: check.isCurrent,
     });
     if (health.reason !== 'clock-stalled') return { probe: health.reason, request: null };
-    return { probe: health.reason, request: startPlayRequest(o, check.token) };
+    return { probe: health.reason, request: startPlayRequest(o, check.token, options) };
   },
 };
 
@@ -396,6 +491,12 @@ export function foregroundIncident(o: Owners): object | null {
 /** A new foreground incident, as a later hidden/visible bounce arms one. */
 export function armNewIncident(o: Owners, fake: FakeNativeAudioContext): object | null {
   return o.context.armForegroundAudioContextClockHealthCheck(fake.native);
+}
+
+/** A PLAY whose clock check found the clock healthy consumes the pending incident (transport). */
+export function consumeIncident(o: Owners): boolean {
+  const incident = foregroundIncident(o);
+  return incident ? o.context.consumeForegroundAudioContextClockHealthCheck(incident) : false;
 }
 
 // ─── Driver: the playback-scope attempt ───────────────────────────

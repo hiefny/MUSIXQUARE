@@ -96,6 +96,100 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.39 / v812 train: Phase 7 7B, every digit tabular and the demo step buttons (2026-11-05)](design/app-9-0-39-train-2026-11-05.md):
+  prepared, not merged or released. By the owner's decisions of 2026-11-05 one App update (App 9.0.39 / v812, App
+  build 812, target `app`, one update dialog; `raise_app_build_floor` false, Developer API D1 false, build
+  floor 795) carries three parts on branch `agent/app-9-0-39`: the twenty Phase 7 7B commits and the seven commits of
+  the digits and demo step buttons, cherry-picked unchanged onto main `51fc6fc7` (App 9.0.38 / v811's release
+  record, after 9.0.38's post-merge Full E2E passed), the bump `f47ffb63` (9.0.39 / v812, the seven version lines
+  of 9.0.38's bump, the last runtime commit), a tests-only commit and documentation commits. (1) Phase 7 7B, the audio recovery
+  behaviour, as its own report below records; the owner kept the two changes its approved pictures did not show
+  (a return dialog tapped while the audio wakes later than 0.75 s is not shown again; with UI sounds on, the press
+  on an interruption dialog stays silent while the audio restarts, the play dialog's rule). (2) Every digit 0 to 9
+  in the app takes one width: the app's Inter latin face, the only app face with digits, maps U+0030 to U+0039 in
+  its cmap to Inter's own tabular glyphs (`zero.tf` to `nine.tf`), so the digits stay in one font run with the
+  letters and Inter keeps its raised colon, case forms and `3×4`; only digit advances and the kerning next to a
+  digit change (the reverb's `0.1s` gains about 1.2 px after the dot; three-digit numbers in the YouTube
+  playlist's 20 px number box overflow by 0.78 px where some already overflowed by up to 1.70 px), and the
+  public pages, which share the face, follow. A first proposal with a separate digits-only face was rejected
+  from pictures: it lowered the colon and the case forms, lost `3×4` and could swap late on first open. (3) The
+  current demo step's hidden number folds its width away, so the label sits exactly at the pill's centre and
+  gains about 5.6 px at 320 px wide (Malayalam's step 1, cut off by the tabular '1' alone, fits again with 8 px
+  to spare), growing back only after the old label has faded; and as a dot opens, its number becomes the label's
+  own at once and the label unrolls, so the number never shows twice. Four demo step labels in the chip width
+  guard's accepted list now fit with 4 px to spare and leave it. Round 1 moved the commits with only two
+  `docs/README.md` conflicts (both entries kept), 25 of 27 patch-ids equal and every other file byte-identical
+  to the two branches. Round 2 bumped, judged the deploy target against the deployed SHAs (App 14 runtime paths,
+  the other five Workers 0, no runtime dependency change; the local partial-release check compatible), reran the
+  unit half of every tests-first pair on the moved commits (each fails on its parent with the same failing rows
+  and passes at its code), checked that each part alone reverses cleanly, and ran the ownership guard (50
+  records, native resume and suspend 9). Round 3 reran 7B's comparison scenes after the review fix on the bump
+  head's E2E build (74 rows, twice: every behaviour row as approved; only timing numbers differ, as this PC's audio
+  wakes about 0.05 s sooner, and one unexplained pause in 1 of 15 runs of the locked-screen case the owner left
+  unchanged) and retook the digits and demo step button captures (pixel for pixel the approved pictures). Round 4
+  ran the full local gate on the record commit `a892821e` (code `f47ffb63`) with no failure: typecheck, lint,
+  format, `build:checked` and all 37 guards one by one, the ownership guard, the font generators' checks, both
+  coverage configs, the full unit suite twice (778 files, 18,750 passed each time), 332 Chromium E2E rows (the
+  production candidate, the public font specs, critical, the CI recovery specs, the audio lab three times, the
+  demo, font and public page specs), the WebKit lane (111 passed, 5 skipped by design), the deploy target (App
+  14, the other five Workers 0) and the local partial-release check with the deployed SHAs (compatible); against
+  a clean build of `51fc6fc7` the eager first load is 272 B larger in JavaScript and 320 B larger in all (gzip).
+  Round 5 applied an independent review of the prepared branch (one medium finding, the rest low): a tests-only commit after the
+  bump pins that every locale's three demo step labels start with their own step number, which the fold and the
+  opening handoff rely on (126 / 126; dropping one locale's number fails it); with the digits part reversed alone
+  in the work tree the demo step fold's unit tests still pass (57 / 57); and the report and record now link the
+  9.0.39 report from the two changed 9.0.38 items, count the added 7B-6 rejoin in the mixed-version note, name the
+  first round's tested SHA, read the one unexplained locked-screen pause as a Media Session PAUSE the browser sent
+  (an inference from the trace; 7B does not change that handler) and add a right-to-left locale to the device
+  checks. PR, CI and release remain. Not verified: real devices, Linux, WebKit for 7B (local WebKit has no
+  AudioContext), Safari's drawing of the new cmap, and the opening step's first frames in WebKit or in
+  right-to-left locales.
+- [Phase 7 train 7B: the audio recovery behaviour the owner approved (2026-11-05)](design/phase7-7b-audio-recovery-behaviour-2026-11-05.md):
+  prepared, not merged or released; it ships in the App 9.0.39 / v812 train above, which moved its commits onto
+  main `51fc6fc7`, bumped and recorded it. The second of the three Phase 7 App updates (owner decision
+  Q2), expected as App 9.0.39 / v812 after the owner's UI tidy (9.0.38 / v811). Built on branch
+  `agent/p7-7b` on main `3506dc41` (App 9.0.37 / v810's release record; its App runtime is
+  production 9.0.37's `d1665230`) without a bump or a release record entry: by the owner's
+  decision of 2026-11-04 (evening) it was built beside 9.0.38 and merges only after 9.0.38 is
+  deployed and recorded and its post-merge Full E2E passes, when a later step moves it onto that
+  main, bumps it and records it. Five intended increments, each with its failing test first,
+  approved by the owner from pictures before the build (2026-11-04 early morning): 7B-2 (Q8)
+  parks the play-request attempt again when something wakes the audio while its recovery dialog
+  waits, so one tap plays (a tap inside that short re-park closes the dialog and the same dialog
+  shows once more); 7B-3 (Q9, one unit with 7B-2) makes UI sounds ask the recovery owners first
+  and stay silent, waking nothing, while one holds the context for a local file's dialog; 7B-4
+  (Q6) gives each AudioContext one suspend lease and one `statechange` dispatcher in a fixed
+  order, so the return check's second suspend comes after the late fence (about 1.0 s instead of
+  0.75 s, the give-up at 1.75 s) and two overlapping recoveries make one suspend and one dialog
+  request, the later one's; 7B-5 (Q7) gives both owners one recovery resume and lets the dialog
+  wait on the owner's answer instead of a 50 ms poll, which also closes the I11/I12 known gaps (a
+  return-dialog tap or lock-screen PLAY whose audio wakes after 0.75 s with its running event
+  first now gets one clock check and one alignment, not a second dialog); 7B-6 (Q12, shipped in
+  this train instead of its own fix train by the owner's answer) lets one lock-screen PLAY after a
+  local pause rejoin the room while an interruption is pending. The case found while preparing 7B
+  (screen locked, no call: the room realigns at once but the sound returns only when the app is
+  opened) is pinned as a known gap and not changed, by the owner's decision. Compared with the
+  approved pictures in local Chromium on the head, every row matches; four small timing
+  differences and two changes the pictures did not show were listed for the owner before merge,
+  and the owner kept both on 2026-11-05 (the 9.0.39 train above).
+  An independent review of the head found a 7B-2 and 7B-3 regression, fixed failing test first
+  within that unit: a play-request attempt whose one notice never became a dialog (the page was
+  hidden, the PLAY was replaced, a forced update was pending) was parked again on every outside
+  resume and kept UI sounds silent, so no later PLAY played until a reload; now only an attempt a
+  dialog has taken is parked again or holds the context, and the next PLAY plays as before 7B.
+  The native resume and suspend count fell from 11 to 9 and the `restartAudioContextFromGesture`
+  callers from 2 to 1 because those calls moved behind the recovery resume and the suspend ledger
+  in `context.ts`, not because a requester went; the review fixes pin the callers of those
+  wrappers too (`requestAudioContextResume` 2, `requestRetiredAudioContextSuspendCleanup` 4,
+  `requestAudioContextSuspend` 4). No new bus event (202 / 202), dead exports 20 / 75, the
+  contract freeze diff is empty and the build floor stays 795. First load: eager JavaScript
+  +258 B gzip against `3506dc41` (467,353 to 467,611 B); Phase 7 stands at +968 B against the
+  +200 B Phase net judged after 7C. Local evidence only: after every increment the unit suite (773
+  files), critical coverage, the guards, the audio lab three times (17 rows, 18 from 7B-4, 19 with
+  the review) and the CI recovery specs; Chromium only (local WebKit has no AudioContext), no
+  device. `guard:sw-cache-version` fails until the bump, by design. The full local gate before the
+  bump is recorded (QA rounds 9 and 10, the second after the review fixes); the 9.0.39 train reran
+  the comparison scenes after the review fixes and ran the bump head's full local gate (its QA rounds 3 and 4).
 - [App 9.0.38 / v811 train: the owner's UI tidy, the demo text sizes, the chat '#1', unused rules, the /debug COPY button and the phone start-screen scrollbar (2026-11-04)](design/app-9-0-38-train-2026-11-04.md):
   released on 2026-11-05 06:14 KST in Release 41913839299 (PR #572, squash `9e62c26c`) as App 9.0.38 / v811 (App build
   811, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker
@@ -151,7 +245,8 @@ runbooks. Neither belongs in a general setup document.
   both jobs than 9.0.37's, the sum of the two new specs' rows, so read as their first Linux Chromium and WebKit
   run (per-spec counts are not in the release evidence). That meets this train's part of the condition for the next
   App update, Phase 7 7B (9.0.39 / v812 planned, being built), to merge once this record has merged; the owner's
-  all-digits tabular decision of 2026-11-05 (pictures first) is a later App update. The owner's device checks
+  all-digits tabular decision of 2026-11-05 (pictures first) is a later App update (both now prepared, with the
+  demo step buttons, as the 9.0.39 train above). The owner's device checks
   (the wide demo, the chat '#1', the iPhone COPY with the keyboard up, the short-phone scroll) wait, as does the
   scrollbar in a short window in production. The release record's §2 carries the train as post-deploy items, its
   §4 the 9.0.38 entry and current boundary line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.38's merge

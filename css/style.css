@@ -10113,11 +10113,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     content: attr(data-demo-step);
     display: block;
     flex: 0 0 auto;
+    /* Wider than the one digit, so a dot keeps its number's own width. */
+    max-width: 1em;
+    overflow: hidden;
     font-size: 14px;
     font-weight: var(--font-weight-unselected);
     line-height: 1;
     opacity: 1;
-    transition: opacity 0.16s ease;
+    transition:
+      max-width 0.16s ease,
+      opacity 0.16s ease;
   }
 
   .demo-step-nav button span {
@@ -10155,6 +10160,27 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .demo-step-nav button.active:not(.demo-step-next)::before,
   .demo-step-nav button.is-collapsing:not(.demo-step-next)::before {
     opacity: 0;
+  }
+
+  /* The current step's label starts with its number, so the hidden number
+     folds its width away: the label takes the whole pill and sits at its
+     centre. A dot that opens hands its number over at once: from the first
+     frame the label shows its own number in the same place (one tabular
+     digit, 1ch, wide) and only unrolls after it, so the number never shows
+     twice. While the pill collapses to a dot, the number grows back once
+     the label has faded, so the fading label stays in place. */
+  .demo-step-nav button.active:not(.demo-step-next)::before {
+    max-width: 0;
+    transition: none;
+  }
+
+  .demo-step-nav button.active:not(.demo-step-next) span {
+    min-width: 1ch;
+    transition-property: max-width;
+  }
+
+  .demo-step-nav button.is-collapsing:not(.demo-step-next)::before {
+    transition-delay: 0.16s, 0s;
   }
 
   .demo-step-nav button.active span {
@@ -11346,7 +11372,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     flex: 1;
     width: auto;
     min-width: 0;
-    /* The entry step: typed text at 16px on a 20px line, ordinary figures. */
+    /* The entry step: typed text at 16px on a 20px line, without the code
+       field's tabular-nums. Its digits are tabular all the same, as every
+       digit in the app is (the app's Inter maps them to its tabular glyphs). */
     font-size: 16px;
     font-weight: var(--font-weight-body);
     font-variant-numeric: normal;

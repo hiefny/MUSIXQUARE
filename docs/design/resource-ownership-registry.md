@@ -363,7 +363,10 @@ RO-54 accepted-exception
   (CHECK 6; since 7B-4 `context-recovery.ts` calls no native suspend, and since 7B-5 one native
   resume, its automatic resume with nothing playing) and, since Phase 7 T1, the callers of
   `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` per file beside
-  it, so a new requester of a resume needs an entry and this record's update.
+  it; since 7B also those of the recovery resume, the retired-suspend cleanup and the suspend
+  ledger in `context.ts`, through which `context-recovery.ts` now makes its resumes and its
+  suspend (its CHECK 6 count fell because the calls moved there, not because a requester went).
+  So a new requester of a resume or a suspend needs an entry and this record's update.
 
 ### RO-02 YouTube Standard shared start
 
@@ -3761,8 +3764,10 @@ entry needs the owner's acceptance and is not implied by this registry.
   counts every zero-argument `resume()` and `suspend()` member call whatever its receiver is
   called, except a receiver named `controller` (the Back guard controller's `suspend()` and
   `resume()` in `app.ts`), and since Phase 7 T1 the ratchet beside it pins, per file, the callers
-  of the three `src/audio/context.ts` functions that call native `resume()` for their caller
-  (`ensureRunning`, `restartAudioContextFromGesture`, `probeAudioContextHealth`). On `cd8eaf47`
+  of the `src/audio/context.ts` functions that call native `resume()` or `suspend()` for their
+  caller (`ensureRunning`, `restartAudioContextFromGesture`, `probeAudioContextHealth`, and since
+  the 7B code the recovery resume, the retired-suspend cleanup and the suspend ledger, through
+  which 7B-4 and 7B-5 route both owners' native calls). On `cd8eaf47`
   (App 9.0.34), again on `34dbe592` (App 9.0.36) on 2026-11-04, and on the Phase 7 7B code on
   2026-11-05, the app creates its one AudioContext in one place (`getAudioContext` in
   `src/audio/context.ts`), has no `OfflineAudioContext`, never calls `close()` on it and never
@@ -4415,13 +4420,16 @@ and unrelated strings never count, and every baseline is an exact count or list 
    `src/app.ts`. Constants that share only a value are report-only, because round values such as
    1 s, 15 s and 30 s recur across different contracts; `--report` lists them.
 6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44). Beside it,
-   since Phase 7 T1, **indirect AudioContext resume callers, per file** (RO-01): uses of the three
-   functions of `src/audio/context.ts` that call native `resume()` for whoever calls them,
-   `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` (which resumes
-   when its caller passes `attemptResume: true`, a required choice since Phase 7 7A-4), in every
-   file, that home included (it calls none of them, and a wrapper exported there would hide its
-   callers). The match is by name: a call, a namespace member, the function passed on or placed
-   in an object, a string key
+   since Phase 7 T1, **indirect AudioContext resume and suspend callers, per file** (RO-01): uses
+   of the functions of `src/audio/context.ts` that call native `resume()` or `suspend()` for
+   whoever calls them, in every file, that home included (a wrapper exported there would hide its
+   callers): `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` (which
+   resumes when its caller passes `attemptResume: true`, a required choice since Phase 7 7A-4),
+   none of which the home calls, and since Phase 7 7B the three that 7B-4 and 7B-5 route both
+   owners' native calls through: the recovery resume `requestAudioContextResume`, the
+   retired-suspend cleanup `requestRetiredAudioContextSuspendCleanup` (resume callers) and the
+   suspend ledger's `requestAudioContextSuspend` (suspend callers). The match is by name: a call, a
+   namespace member, the function passed on or placed in an object, a string key
    (`context['ensureRunning']`) and a rename (an import or export specifier, a destructuring),
    whose own calls then go uncounted, and a local function with one of these names counts too.
    Exact on 2026-11-02 (main `cd8eaf47`) and again on 2026-11-04 (main `34dbe592`, App 9.0.36):
@@ -4432,10 +4440,15 @@ and unrelated strings never count, and every baseline is an exact count or list 
    `src/audio/output-health.ts`, `src/player/media-session.ts`, `src/player/transport.ts`). Since
    Phase 7 7B-5 `restartAudioContextFromGesture` is 1 (`src/app.ts`): the playback-scope owner's
    gesture resume goes through the one recovery resume in `src/audio/context.ts`, which calls
-   native `resume()` itself (CHECK 6). Phase 7
-   moves the dialog, Media Session and transport callers into the owner and lowers these counts in
-   each step's change; a count that rises in `context-recovery.ts` updates RO-01 and RO-44 in the
-   same change. `initAudio`, which reaches `ensureRunning` through the engine, is reported only (12
+   native `resume()` itself (CHECK 6). On the 7B code (2026-11-05) the three wrappers have
+   `requestAudioContextResume` 2 (`src/audio/context.ts`, the play-request gesture resume;
+   `src/audio/context-recovery.ts`, the playback scope's gesture and automatic resumes),
+   `requestRetiredAudioContextSuspendCleanup` 4 (`context.ts` 3, `context-recovery.ts` 1, the
+   binding's late suspend) and `requestAudioContextSuspend` 4 (`context.ts` 3,
+   `context-recovery.ts` 1, the playback scope's preparation); 7C-4 makes them module-private.
+   Phase 7 moves the dialog, Media Session and transport callers into the owner and lowers these
+   counts in each step's change; a count that rises in `context-recovery.ts` updates RO-01 and
+   RO-44 in the same change. `initAudio`, which reaches `ensureRunning` through the engine, is reported only (12
    uses on both dates: 11 calls, mostly the system-audio routes and the file paths, and the
    development debug object), because a ratchet there would rub every system-audio change.
    `--report` lists every counted use and every `initAudio` use with its function.

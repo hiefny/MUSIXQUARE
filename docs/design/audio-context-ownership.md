@@ -149,8 +149,11 @@ behind a failing test) and 7C (the move behind one owner).
 - `scripts/check-resource-ownership.mts` CHECK 6 counts native `resume()` and `suspend()` per file;
   beside it, since Phase 7 T1, an exact ratchet counts per file the callers of `ensureRunning`,
   `restartAudioContextFromGesture` and `probeAudioContextHealth`, `context.ts` included (it calls
-  none of them, so a wrapper there cannot hide a new caller), and reports `initAudio` uses. Each
-  Phase 7 step lowers the counts it moves into the owner in the same change.
+  none of them, so a wrapper there cannot hide a new caller), and reports `initAudio` uses. Since
+  7B it also counts the callers of the wrappers 7B-4 and 7B-5 route both owners' native calls
+  through (`requestAudioContextResume`, `requestRetiredAudioContextSuspendCleanup`,
+  `requestAudioContextSuspend`), their home's own calls included, until 7C-4 makes them
+  module-private. Each Phase 7 step lowers the counts it moves into the owner in the same change.
   The guard stays syntactic (RO-44).
 
 ## Limits of the evidence

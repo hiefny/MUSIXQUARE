@@ -158,7 +158,8 @@ runbooks. Neither belongs in a general setup document.
   SHA, Release ID and App version. This train's merge ended 9.0.37's standalone revert window; the default
   rollback is a forward revert at 9.0.39 / v812 or the next free number.
   Not verified: real devices (the iPhone COPY with the keyboard up, touch scrolling from the side
-  margins), and WebKit beyond the Playwright lanes (local, and Linux in the post-merge Full E2E).
+  margins), and WebKit beyond the Playwright lanes (local, and Linux in the post-merge Full E2E, where the
+  two new specs' first Linux run is read from the row counts).
 - [App 9.0.37 / v810 train: Phase 7 7A, the iPhone guest YouTube return and the input design system (2026-11-04)](design/app-9-0-37-train-2026-11-04.md):
   released on 2026-11-04 13:51 KST in Release 41775435927 (PR #570, squash `d1665230`) as App 9.0.37 / v810 (App build
   810, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

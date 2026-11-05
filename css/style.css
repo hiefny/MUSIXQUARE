@@ -10163,11 +10163,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* The current step's label starts with its number, so the hidden number
-     folds its width away with its fade: the label takes the whole pill and
-     sits at its centre. While the pill collapses to a dot, the number grows
-     back once the label has faded, so the fading label stays in place. */
+     folds its width away: the label takes the whole pill and sits at its
+     centre. A dot that opens hands its number over at once: from the first
+     frame the label shows its own number in the same place (one tabular
+     digit, 1ch, wide) and only unrolls after it, so the number never shows
+     twice. While the pill collapses to a dot, the number grows back once
+     the label has faded, so the fading label stays in place. */
   .demo-step-nav button.active:not(.demo-step-next)::before {
     max-width: 0;
+    transition: none;
+  }
+
+  .demo-step-nav button.active:not(.demo-step-next) span {
+    min-width: 1ch;
+    transition-property: max-width;
   }
 
   .demo-step-nav button.is-collapsing:not(.demo-step-next)::before {

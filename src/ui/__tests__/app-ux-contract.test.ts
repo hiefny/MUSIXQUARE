@@ -404,9 +404,9 @@ describe('app UX markup contract', () => {
   it("folds the current demo step's hidden number so its label sits at the pill's centre", () => {
     // Owner decision 2026-11-05, from pictures: each step label starts with
     // its number, so the number shown on the dots (capped at 1em) folds its
-    // width away with its fade on the current step. A step collapsing to a
-    // dot takes the width back only after its label has faded, so the
-    // fading label stays in place.
+    // width away on the current step. A step collapsing to a dot takes the
+    // width back only after its label has faded, so the fading label stays
+    // in place.
     const number = declarationsForSelector(
       '.demo-step-nav button:not(.demo-step-next)::before',
     ).join('');
@@ -430,6 +430,41 @@ describe('app UX markup contract', () => {
     expect(readFileSync(resolve('src/demo/mode.ts'), 'utf8')).toMatch(
       /const DEMO_STEP_COLLAPSE_MS = 320;/u,
     );
+  });
+
+  it("hands an opening demo step's number to its label at once, so the number never shows twice", () => {
+    // Owner decision 2026-11-05, from frame pictures: as a dot opened, its
+    // number took 0.16s to fade while the label's own number faded in beside
+    // it, so the pill showed the number twice for up to 100 ms. On the
+    // current step the number now goes at once, and the label is whole from
+    // the first frame: at least 1ch wide, its first character, the tabular
+    // digit, stands where the number stood, and only its max-width unrolls
+    // the rest.
+    const current = '.demo-step-nav button.active:not(.demo-step-next)';
+    const number = declarationsForSelector(`${current}::before`).join('');
+    expect(number).toMatch(/max-width:\s*0;/u);
+    expect(number).toMatch(/transition:\s*none;/u);
+    const label = declarationsForSelector(`${current} span`).join('');
+    expect(label).toMatch(/min-width:\s*1ch;/u);
+    expect(label).toMatch(/transition-property:\s*max-width;/u);
+    expect(label).not.toMatch(/transition:/u);
+    expect(declarationsForSelector('.demo-step-nav button.active span').join('')).toMatch(
+      /opacity:\s*1;/u,
+    );
+    // The collapse stays as approved: src/demo/mode.ts takes .active off a
+    // collapsing step, so its number and label run the base transitions
+    // again, the label's 0.24s width and 0.16s fade and the number's width
+    // after that fade.
+    const collapsingNumber = declarationsForSelector(
+      '.demo-step-nav button.is-collapsing:not(.demo-step-next)::before',
+    ).join('');
+    expect(collapsingNumber).not.toMatch(/transition(?:-property|-duration)?:/u);
+    const collapsingLabel = declarationsForSelector(
+      '.demo-step-nav button.is-collapsing span',
+    ).join('');
+    expect(collapsingLabel).toMatch(/max-width:\s*0;/u);
+    expect(collapsingLabel).toMatch(/opacity:\s*0;/u);
+    expect(collapsingLabel).not.toMatch(/(?:min-width|transition[a-z-]*):/u);
   });
 
   it('keeps one playlist add action without duplicating it in the empty state', () => {

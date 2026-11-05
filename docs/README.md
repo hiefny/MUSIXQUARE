@@ -122,14 +122,24 @@ runbooks. Neither belongs in a general setup document.
   opened) is pinned as a known gap and not changed, by the owner's decision. Compared with the
   approved pictures in local Chromium on the head, every row matches; four small timing
   differences and two changes the pictures did not show are listed for the owner before merge.
-  Guard counts only fell (native resume and suspend 11 to 9, `restartAudioContextFromGesture`
-  callers 2 to 1); no new bus event (202 / 202), dead exports 20 / 75, the contract freeze diff
-  is empty and the build floor stays 795. First load: eager JavaScript +184 B gzip against
-  `3506dc41` (467,353 to 467,537 B); Phase 7 stands at +894 B against the +200 B Phase net judged
-  after 7C. Local evidence only: after every increment the unit suite (773 files), critical
-  coverage, the guards, the audio lab three times (17 rows, 18 from 7B-4) and the CI recovery
-  specs; Chromium only (local WebKit has no AudioContext), no device. `guard:sw-cache-version` fails until the
-  bump, by design. The rounds of the full gate are still to be added.
+  An independent review of the head found a 7B-2 and 7B-3 regression, fixed failing test first
+  within that unit: a play-request attempt whose one notice never became a dialog (the page was
+  hidden, the PLAY was replaced, a forced update was pending) was parked again on every outside
+  resume and kept UI sounds silent, so no later PLAY played until a reload; now only an attempt a
+  dialog has taken is parked again or holds the context, and the next PLAY plays as before 7B.
+  The native resume and suspend count fell from 11 to 9 and the `restartAudioContextFromGesture`
+  callers from 2 to 1 because those calls moved behind the recovery resume and the suspend ledger
+  in `context.ts`, not because a requester went; the review fixes pin the callers of those
+  wrappers too (`requestAudioContextResume` 2, `requestRetiredAudioContextSuspendCleanup` 4,
+  `requestAudioContextSuspend` 4). No new bus event (202 / 202), dead exports 20 / 75, the
+  contract freeze diff is empty and the build floor stays 795. First load: eager JavaScript
+  +258 B gzip against `3506dc41` (467,353 to 467,611 B); Phase 7 stands at +968 B against the
+  +200 B Phase net judged after 7C. Local evidence only: after every increment the unit suite (773
+  files), critical coverage, the guards, the audio lab three times (17 rows, 18 from 7B-4, 19 with
+  the review) and the CI recovery specs; Chromium only (local WebKit has no AudioContext), no
+  device. `guard:sw-cache-version` fails until the bump, by design. The full local gate before the
+  bump is recorded (QA rounds 9 and 10, the second after the review fixes); the bump head's gate
+  remains.
 - [App 9.0.38 / v811 train: the owner's UI tidy, the demo text sizes, the chat '#1', unused rules, the /debug COPY button and the phone start-screen scrollbar (2026-11-04)](design/app-9-0-38-train-2026-11-04.md):
   released on 2026-11-05 06:14 KST in Release 41913839299 (PR #572, squash `9e62c26c`) as App 9.0.38 / v811 (App build
   811, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

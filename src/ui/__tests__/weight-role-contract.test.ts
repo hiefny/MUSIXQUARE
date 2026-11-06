@@ -515,8 +515,18 @@ const SELECTION_GROUPS: readonly SelectionGroup[] = [
   },
   {
     name: 'demo step indicator',
-    unselected: ['.demo-step-nav button', '.demo-step-nav button:not(.demo-step-next)::before'],
-    selected: ['.demo-step-nav button.active, .demo-step-nav button.is-collapsing'],
+    // A step's label waits at its dot number's weight and takes the selected
+    // weight with the current step's pill, easing between them as it unrolls
+    // and folds away (app-ux-contract.test.ts).
+    unselected: [
+      '.demo-step-nav button',
+      '.demo-step-nav button:not(.demo-step-next)::before',
+      '.demo-step-nav button:not(.demo-step-next) span',
+    ],
+    selected: [
+      '.demo-step-nav button.active, .demo-step-nav button.is-collapsing',
+      '.demo-step-nav button.active:not(.demo-step-next) span',
+    ],
     mount: (markup) =>
       selectFirst(
         [...markup.querySelectorAll('.demo-step-nav button[data-demo-step]')],
@@ -525,10 +535,13 @@ const SELECTION_GROUPS: readonly SelectionGroup[] = [
           button.classList.toggle('active', selected);
           button.setAttribute('aria-pressed', String(selected));
         },
-      ).map(({ item, selected }) => ({
-        element: item,
-        role: selected ? 'selected' : 'unselected',
-      })),
+      ).flatMap(({ item, selected }) => {
+        const role = selected ? ('selected' as const) : ('unselected' as const);
+        return [item, ...item.querySelectorAll(':scope > span')].map((element) => ({
+          element,
+          role,
+        }));
+      }),
   },
 ];
 

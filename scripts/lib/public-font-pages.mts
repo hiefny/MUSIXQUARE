@@ -263,14 +263,22 @@ export function publicFontCssProblems(css: string, literals: LiteralFontFamilies
  * Public rules that test the document language to set a page's own
  * translated copy, never user content, so they may apply in only one of the
  * Korean and English pages. Korean keeps its line breaking (keep-all) and
- * About's Korean heading sizes and line heights, each with its reason. No
- * such rule sets tracking: the app draws Korean and English alike (9.0.29),
- * so the pages do too.
+ * About's Korean heading sizes and line heights, each with its reason. The
+ * only tracking such a rule sets is 0 on Korean copy: the app draws Korean
+ * with no negative tracking (its Hangul face has no optical size axis, 9.0.29),
+ * so the pages do not tighten it where the other languages tighten theirs,
+ * while text without Hangul keeps its tracking in every language
+ * (src/i18n/__tests__/public-korean-tracking.test.ts).
  */
 export const PUBLIC_KOREAN_ENGLISH_COPY_RULES: Readonly<Record<string, string>> = {
-  ':lang(ko) .lp-h1': "About's translated headline: Korean size, line height and keep-all",
-  ':lang(ko) .lp-h2': "About's translated section titles: Korean size, line height and keep-all",
-  ':lang(ko) .lp-cta .lp-h2': "About's translated closing title: Korean size and line height",
+  ':lang(ko) .lp-h1':
+    "About's translated headline: Korean size, line height, tracking 0 and keep-all",
+  ':lang(ko) .lp-h2':
+    "About's translated section titles: Korean size, line height, tracking 0 and keep-all",
+  ':lang(ko) .lp-cta .lp-h2':
+    "About's translated closing title: Korean size, line height and tracking 0",
+  ':lang(ko) .lp-chat-bubble:not(.lp-chat-bubble--yt)':
+    "About's translated chat bubbles: Korean tracking 0 (the YouTube bubble's Latin title keeps its own)",
   ':lang(ko) .lp-room-count__copy': "About's translated room count line: keep-all",
   ':lang(ko) .policy-doc p': 'translated document paragraphs: keep-all',
   ':lang(ko) .policy-doc dd': 'translated document definitions: keep-all',

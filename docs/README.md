@@ -96,6 +96,62 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.40 / v813 train: Korean text on the public pages at tracking 0, and the demo step label easing into its size and weight (2026-11-06)](design/app-9-0-40-train-2026-11-06.md):
+  prepared, not merged or released. One App update (App 9.0.40 / v813, App build 813, target `app`, one update
+  dialog; `raise_app_build_floor` false, Developer API D1 false, the build floor stays 795) carries two parts on
+  branch `agent/ko-tracking`, on main `8b48869b` (App 9.0.39 / v812's release record, after 9.0.39's post-merge
+  Full E2E passed): on 2026-11-06 the owner asked for the Korean large headings on the public pages at tracking 0
+  and chose the demo label's 'D, smooth', and the release owner set the wider scope of part (1). (1) Every element
+  on a public page whose text holds Hangul is drawn at letter-spacing 0, like the app, which has no negative
+  tracking on Korean (its Hangul face has no optical size axis): `letter-spacing: 0` in About's existing
+  `:lang(ko)` heading rules (the headline keeps its optical `margin-left: -0.03em`), a new `:lang(ko)` rule for
+  About's chat bubbles (the YouTube bubble's Latin title and the chat timestamp, which now declares its own
+  -0.01em, keep their tracking), and 0 in the events page's shared title rule (that page is always Korean). Text
+  without Hangul (digits-only times, the Latin brand word, code) keeps its tracking in every language, so the same
+  digits look the same on the Korean and English pages; every other language renders pixel for pixel as before.
+  The public-page font guard now lets a `:lang(ko)` copy rule set tracking to exactly 0 and still rejects any
+  other one-language tracking (the 9.0.36 rule, relaxed only that far), and a static test requires each Korean
+  tracking rule to be the 0 copy of a listed negative tracking. On the events page the notice title takes two
+  lines on a 390 px phone and the redeem title breaks at another word; About keeps its line breaks. The service
+  check page owes nothing: its tightened headline is the English sentence in every language. Tests first: a new
+  E2E spec (in Full E2E) fails if any Hangul text on a public page in a Korean browser has negative tracking, and
+  a static inventory lists every negative tracking in the served sheets as kept or drawn at 0 in Korean. (2) The
+  owner's 'D, smooth' from frame pictures of today and three options: as a demo step dot opens, the hidden label
+  waits at the dot number's 14 px, unselected weight and line box and eases into the pill's size, the selected
+  weight and the button's line box while it unrolls (0.24 s), and a folding label eases back as it fades; the
+  press frame now equals the dot in size, weight and place (today +20 % stroke on phones, +34 % at 1440 px), the
+  largest one-frame step is +4.3 % on phones and +5.7 % at 1440 px, and the steady row and the dots are
+  pixel-identical to 9.0.39; reduced
+  motion snaps. Its two commits were cherry-picked unchanged (equal patch-ids), followed by a tests-only commit
+  that rewords the button label contract's demo reason. Round 2 judged the deploy target against the deployed
+  SHAs (App 8 runtime paths, the other five Workers 0, no runtime dependency change; the local partial-release
+  check compatible) and reran the unit half of both tests-first pairs (each fails on its parent and passes at its
+  code). Round 3 ran the full local gate on the bump head; in WebKit outside the lane the new spec's
+  optical-margin check met WebKit's 1/64 px layout unit, so a tests-only commit compares within one unit (35 / 35
+  in Chromium and WebKit), while the demo specs cannot create a room in this PC's WebKit, which is why the lane
+  leaves them out. An independent review then found that the press frame drew the number 1 CSS px above the dot
+  at 320, 430, 1000 and 1280 px (the label kept the button's taller line box; round 3 had not measured vertical
+  place). Round 4 applied the review's fixes: a tests-first pair puts the waiting label on the dot number's line
+  box (`1b02a48c` -> `39f08cbe`), a tests-only commit pins Korean tracking to the 0 copies of listed negative
+  tracking (`8471495c`), the WebKit tests-only commit moved before the bump (`7eb697df`), and the bump was rebuilt
+  as the last runtime commit (`c1763d98`, the seven version lines of 9.0.39's bump; only documentation follows).
+  Round 4 ran the full local gate again on that head with no failure: typecheck, lint, format,
+  `build:checked` and all 37 guards one by one, the ownership guard, the full unit suite once (779 / 779 files,
+  18,759 rows, the git-fixture row that timed out under load in round 3 included), 329 Chromium E2E rows (the
+  production candidate, the public font specs, critical, the public page and font specs with the new spec, the
+  demo specs), the WebKit lane (111 passed, 5 skipped by design) and the public specs in WebKit outside the lane
+  (138 / 138); the demo specs did not run in WebKit (this PC's WebKit cannot create a room; not a pass). The demo
+  frame check, now measuring vertical place, put the press frame equal to the dot in all nine scenes (Korean,
+  English, Malayalam and Arabic, 320 to 1440 px) and the steady rows 0 px different from `8b48869b` and round 3's
+  builds; in the first unroll frames the line box briefly clips the lowest marks of Hindi (frames 4-8),
+  Vietnamese and Arabic (frame 4), which 9.0.39 does not clip, while Thai, already clipped in 9.0.39, is about the
+  same (at 1x it looks the same as 9.0.39, and in motion it lasts 1-5 frames while the label unrolls). Against
+  a clean build of `8b48869b` the eager first load is 1 B smaller in JavaScript and 79 B larger in all (gzip, the
+  main CSS), and the deploy judgement is unchanged (App 8 runtime paths, the other five Workers 0, compatible). Each part alone reverses cleanly at the final head (part (1) with its two tests-only commits, part
+  (2) with five commits), and 9.0.39's step-button runtime patches (`8fb3d9f5`, `8afced6c`) reverse after part (2);
+  its test patch `ed50bc88` also needs `019091c7`'s row reversed, as 9.0.39's own rollback item says. A final
+  independent verification then approved the code and its document findings were fixed. Phase 7 7C becomes a
+  later App update.
 - [App 9.0.39 / v812 train: Phase 7 7B, every digit tabular and the demo step buttons (2026-11-05)](design/app-9-0-39-train-2026-11-05.md):
   released on 2026-11-05 21:22 KST in Release 42026274351 (PR #574, squash `5b3cfcb0`) as App 9.0.39 / v812 (App
   build 812, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App
@@ -165,8 +221,9 @@ runbooks. Neither belongs in a general setup document.
   the evidence). The record keeps the attempt 1 failure as its own open item, closed when a later Full E2E's first
   attempt does not fail that row or a tests-only fix lands. That meets this train's part of the condition for the
   next App train, which merges once this record has merged. The owner paused the project work
-  until next week after this record; the next steps are Phase 7 T2 (tests only, no App update) and then 7C,
-  planned as the next App update (9.0.40 / v813, an inference). The owner's device checks (7B's later set, the
+  until next week after this record. The next App update is the 9.0.40 / v813 train the owner asked for on
+  2026-11-06 (Korean text on the public pages at tracking 0 and the demo step label, prepared, above); Phase 7 T2
+  (tests only, no App update) and 7C come after it, with 7C's number decided then. The owner's device checks (7B's later set, the
   digits, the demo step buttons in Korean, Malayalam and a right-to-left locale, the same on iPhone Safari) wait.
   The release record's §2 carries the train as post-deploy items, its §4 the 9.0.39 entry and current boundary line
   (5), and the hotfix procedure's 9.0.25 bullet names 9.0.39's merge SHA, Release ID and App version. This train's

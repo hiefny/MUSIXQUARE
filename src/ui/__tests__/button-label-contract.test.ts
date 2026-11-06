@@ -112,7 +112,9 @@ const SHARED_WEIGHT_CONTAINERS: Readonly<Record<string, { selected: string; reas
     selected: '.demo-step-nav button.active, .demo-step-nav button.is-collapsing',
     reason:
       'The demo step indicator keeps its 13px steps (larger on the desktop tour); the ' +
-      'current step is the selected one, and keeps its weight while its label folds away.',
+      'current step is the selected one, and its pill keeps that weight while it ' +
+      'collapses. Its label eases from the dot number into the selected weight as it ' +
+      'unrolls, and back as it fades.',
   },
   '.demo-role-segmented': {
     selected: ".demo-role-segmented button[aria-pressed='true']",

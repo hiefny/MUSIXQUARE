@@ -456,6 +456,13 @@ const LABEL_BOX_SOURCES: Readonly<Record<string, readonly BoxSource[]>> = {
     source('css/style.css', '.demo-step-nav button.active:not(.demo-step-next)::before', null, {
       'max-width': '0',
     }),
+    // The current step's label takes the pill's size and the selected weight,
+    // which the boxes are worked out at; a hidden label waits at the number's
+    // 14px and eases into them as it unrolls.
+    source('css/style.css', '.demo-step-nav button.active:not(.demo-step-next) span', null, {
+      'font-size': 'inherit',
+      'font-weight': 'var(--font-weight-selected)',
+    }),
     source('css/style.css', '.demo-step-nav button.active', null, {
       'flex-basis': 'var(--demo-step-pill-size)',
       padding: '0 clamp(8px, 2.6vw, 14px)',

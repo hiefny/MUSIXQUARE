@@ -123,7 +123,17 @@ runbooks. Neither belongs in a general setup document.
   commit). Round 2 judged the deploy target against the deployed SHAs (App 8 runtime paths, the other five Workers
   0, no runtime dependency change; the local partial-release check compatible), reran the unit half of both
   tests-first pairs (each fails on its parent and passes at its code) and checked that each part alone reverses
-  cleanly. Phase 7 7C becomes a later App update.
+  cleanly. Round 3 ran the full local gate on the bump head: typecheck, lint, format, `build:checked` and all 37
+  guards one by one, the ownership guard, 329 Chromium E2E rows (the production candidate, the public font specs,
+  critical, the public page and font specs with the new spec, the demo specs), the WebKit lane (111 passed, 5
+  skipped by design), the deploy judgement again and the demo frame check on the final build (press frame equal to
+  the dot, the steady rows and eight real click sequences 0 px different from a `8b48869b` build); against a clean
+  build of `8b48869b` the eager first load is 5 B smaller in JavaScript and 58 B larger in all (gzip, the main CSS).
+  The full unit suite passed twice except one git-fixture row this train does not touch, which exceeded its 30 s
+  limit under load and passes alone. Run in WebKit outside the lane, the new spec's optical-margin check met
+  WebKit's 1/64 px layout unit, so a tests-only commit after the bump (`89e4cf3e`) compares within one unit (35 / 35
+  in Chromium and WebKit); the demo specs cannot create a room in this PC's WebKit, which is why the lane leaves
+  them out. Phase 7 7C becomes a later App update.
 - [App 9.0.39 / v812 train: Phase 7 7B, every digit tabular and the demo step buttons (2026-11-05)](design/app-9-0-39-train-2026-11-05.md):
   released on 2026-11-05 21:22 KST in Release 42026274351 (PR #574, squash `5b3cfcb0`) as App 9.0.39 / v812 (App
   build 812, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App

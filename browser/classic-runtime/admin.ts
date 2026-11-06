@@ -346,7 +346,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '9.0.39';
+const ADMIN_SCRIPT_VERSION = '9.0.40';
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
   console.error('[admin] Unexpected asynchronous action failure.', error);

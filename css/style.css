@@ -10137,6 +10137,18 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       opacity 0.16s ease;
   }
 
+  /* A hidden step label waits at its dot number's size and weight, so the
+     number it takes over starts as the dot drew it (below). */
+  .demo-step-nav button:not(.demo-step-next) span {
+    font-size: 14px;
+    font-weight: var(--font-weight-unselected);
+    transition:
+      max-width 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.16s ease,
+      font-size 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+      font-weight 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
   .demo-step-nav button.active {
     flex-basis: var(--demo-step-pill-size);
     padding: 0 clamp(8px, 2.6vw, 14px);
@@ -10145,7 +10157,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--primary);
   }
 
-  /* The current step keeps its weight while its label folds away. */
+  /* The current step takes the selected weight, and its pill keeps it while
+     it collapses; a step label reads its own weights (above and below) and
+     eases back to its number's while it fades. */
   .demo-step-nav button.active,
   .demo-step-nav button.is-collapsing {
     font-weight: var(--font-weight-selected);
@@ -10166,9 +10180,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      folds its width away: the label takes the whole pill and sits at its
      centre. A dot that opens hands its number over at once: from the first
      frame the label shows its own number in the same place (one tabular
-     digit, 1ch, wide) and only unrolls after it, so the number never shows
-     twice. While the pill collapses to a dot, the number grows back once
-     the label has faded, so the fading label stays in place. */
+     digit, 1ch, wide), at the dot number's size and weight, and only
+     unrolls after it, so the number never shows twice. As the label
+     unrolls, the number eases from the dot's size and weight into the
+     pill's size and the selected weight on the same curve; its opacity does
+     not transition. While the pill collapses to a dot, its label eases back
+     toward the number's size and weight as it fades, and the number grows
+     back once the label has faded, so the fading label stays in place. */
   .demo-step-nav button.active:not(.demo-step-next)::before {
     max-width: 0;
     transition: none;
@@ -10176,7 +10194,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .demo-step-nav button.active:not(.demo-step-next) span {
     min-width: 1ch;
-    transition-property: max-width;
+    font-size: inherit;
+    font-weight: var(--font-weight-selected);
+    transition-property: max-width, font-size, font-weight;
+    transition-duration: 0.24s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .demo-step-nav button.is-collapsing:not(.demo-step-next)::before {

@@ -96,6 +96,34 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.40 / v813 train: Korean text on the public pages at tracking 0, and the demo step label easing into its size and weight (2026-11-06)](design/app-9-0-40-train-2026-11-06.md):
+  prepared, not merged or released. By the owner's decisions of 2026-11-06 one App update (App 9.0.40 / v813, App
+  build 813, target `app`, one update dialog; `raise_app_build_floor` false, Developer API D1 false, the build
+  floor stays 795) carries two parts on branch `agent/ko-tracking`, on main `8b48869b` (App 9.0.39 / v812's
+  release record, after 9.0.39's post-merge Full E2E passed). (1) Every element on a public page whose text holds Hangul is drawn
+  at letter-spacing 0, like the app, which has no negative tracking on Korean (its Hangul face has no optical size
+  axis): `letter-spacing: 0` in About's existing `:lang(ko)` heading rules (the headline keeps its optical
+  `margin-left: -0.03em`), a new `:lang(ko)` rule for About's chat bubbles (the YouTube bubble's Latin title and the
+  chat timestamp, which now declares its own -0.01em, keep their tracking), and 0 in the events page's shared title
+  rule (that page is always Korean). Text without Hangul (digits-only times, the Latin brand word, code) keeps its
+  tracking in every language, so the same digits look the same on the Korean and English pages; every other
+  language renders pixel for pixel as before. The public-page font guard now lets a `:lang(ko)` copy rule set
+  tracking to exactly 0 and still rejects any other one-language tracking (the 9.0.36 rule, relaxed only that far).
+  On the events page the notice title takes two lines on a 390 px phone and the redeem title breaks at another
+  word; About keeps its line breaks. The service check page owes nothing: its tightened headline is the English
+  sentence in every language. Tests first: a new E2E spec (in Full E2E) fails if any Hangul text on a public page in
+  a Korean browser has negative tracking, and a static inventory lists every negative tracking in the served sheets
+  as kept or drawn at 0 in Korean. (2) The owner's 'D, smooth' from frame pictures of today and three options: as a
+  demo step dot opens, the hidden label waits at the dot number's 14 px and unselected weight and eases into the
+  pill's size and the selected weight while it unrolls (0.24 s), and a folding label eases back as it fades; the
+  press frame now equals the dot (today +20 % stroke on phones, +34 % at 1440 px), the largest one-frame step is
+  about +4 %, and the steady row and the dots are pixel-identical to 9.0.39; reduced motion snaps. Its two commits
+  were cherry-picked unchanged (equal patch-ids), followed by a tests-only commit that rewords the button label
+  contract's demo reason, and the bump `694fa1f3` (the seven version lines of 9.0.39's bump, the last runtime
+  commit). Round 2 judged the deploy target against the deployed SHAs (App 8 runtime paths, the other five Workers
+  0, no runtime dependency change; the local partial-release check compatible), reran the unit half of both
+  tests-first pairs (each fails on its parent and passes at its code) and checked that each part alone reverses
+  cleanly. Phase 7 7C becomes a later App update.
 - [App 9.0.39 / v812 train: Phase 7 7B, every digit tabular and the demo step buttons (2026-11-05)](design/app-9-0-39-train-2026-11-05.md):
   released on 2026-11-05 21:22 KST in Release 42026274351 (PR #574, squash `5b3cfcb0`) as App 9.0.39 / v812 (App
   build 812, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App

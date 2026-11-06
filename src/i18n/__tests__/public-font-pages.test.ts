@@ -313,6 +313,26 @@ function koreanEnglishSplits(sheets: readonly string[]): { selector: string; rul
   );
 }
 
+/**
+ * The tracking a rule that tells the Korean and English pages apart sets,
+ * other than Korean copy at 0. The app draws Korean with no negative
+ * tracking (9.0.29), so a Korean rule may draw the page's Korean copy at 0
+ * where the other languages tighten it (src/i18n/__tests__/public-korean-tracking.test.ts);
+ * no rule sets any other tracking for one language.
+ */
+function splitTracking(selector: string, rule: Rule): string[] {
+  const koreanCopy =
+    selector.startsWith(':lang(ko) ') &&
+    languageSplitTests(selector, 'ko', 'en').every((test) => test === ':lang(ko)');
+  return rule.nodes.flatMap((node) =>
+    node.type === 'decl' &&
+    node.prop === 'letter-spacing' &&
+    !(koreanCopy && node.value.trim() === '0')
+      ? [`letter-spacing: ${node.value}`]
+      : [],
+  );
+}
+
 /** The app picker's stack for each language-name range (css/style.css). */
 function appPickerStacks(): Map<string, string> {
   const stacks = new Map<string, string>();
@@ -419,19 +439,15 @@ describe('About', () => {
     expect(controls).toEqual(['inherit']);
   });
 
-  it('tells the Korean and English pages apart only in the recorded copy rules, never by tracking', () => {
+  it('tells the Korean and English pages apart only in the recorded copy rules, by tracking only to draw Korean copy at 0', () => {
     const splits = koreanEnglishSplits(page(SOURCE).sheets);
     expect([...new Set(splits.map(({ selector }) => selector))].sort()).toEqual(
       Object.keys(PUBLIC_KOREAN_ENGLISH_COPY_RULES)
         .filter((selector) => !/policy-hero h1|policy-doc h2/u.test(selector))
         .sort(),
     );
-    // The app draws Korean and English alike since 9.0.29: no Korean-only tracking.
     for (const { selector, rule } of splits) {
-      const tracking = rule.nodes.filter(
-        (node) => node.type === 'decl' && node.prop === 'letter-spacing',
-      );
-      expect(tracking, selector).toEqual([]);
+      expect(splitTracking(selector, rule), selector).toEqual([]);
     }
   });
 
@@ -587,10 +603,7 @@ describe('the document pages, translate and the sitemap', () => {
     const splits = koreanEnglishSplits(registered.sheets);
     for (const { selector, rule } of splits) {
       expect(selector in PUBLIC_KOREAN_ENGLISH_COPY_RULES, selector).toBe(true);
-      expect(
-        rule.nodes.filter((node) => node.type === 'decl' && node.prop === 'letter-spacing'),
-        selector,
-      ).toEqual([]);
+      expect(splitTracking(selector, rule), selector).toEqual([]);
     }
   });
 
@@ -727,10 +740,7 @@ describe('the blog, history, design system, UI kit, events and 404 pages', () =>
     expectAppStacks(registered);
     for (const { selector, rule } of koreanEnglishSplits(registered.sheets)) {
       expect(selector in PUBLIC_KOREAN_ENGLISH_COPY_RULES, selector).toBe(true);
-      expect(
-        rule.nodes.filter((node) => node.type === 'decl' && node.prop === 'letter-spacing'),
-        selector,
-      ).toEqual([]);
+      expect(splitTracking(selector, rule), selector).toEqual([]);
     }
   });
 
@@ -828,10 +838,7 @@ describe('the pages the App Worker renders', () => {
       });
       for (const { selector, rule } of koreanEnglishSplits(worker.sheets)) {
         expect(selector in PUBLIC_KOREAN_ENGLISH_COPY_RULES, selector).toBe(true);
-        expect(
-          rule.nodes.filter((node) => node.type === 'decl' && node.prop === 'letter-spacing'),
-          selector,
-        ).toEqual([]);
+        expect(splitTracking(selector, rule), selector).toEqual([]);
       }
     },
   );

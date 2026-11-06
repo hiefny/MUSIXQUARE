@@ -103,7 +103,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       확인이 이제 9.0.40에서 한다고 적고(빌드 줄 `app=9.0.40 | cacheEpoch=v813`), '9.0.39의 기록까지' 표시를 '9.0.40의 기록까지'로 옮기고, 손 되돌리기
       목록에 이 열차를 더하고, 9.0.29 절의 낮은 epoch 항목에 이 릴리스 checkpoint의 9.0.39를 더하고, 9.0.39 절의 머지 뒤 Full E2E attempt 1 채팅 시험
       실패 항목을 이 열차의 머지 뒤 Full E2E로 닫아 '최근 해결 근거'로 옮기고, 바뀐 §2 항목마다 이 열차 보고서를 걸고, 이 열차 보고서의 상태와 QA
-      라운드 5, `docs/README.md`의 항목을 배포됨으로 고치고, `release-history.md`에 한 행을 더했다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
+      라운드 5, `docs/README.md`의 항목을 배포됨으로 고치고, 9.0.39 보고서의 상태·버전·되돌리기·하지 않은 것과 7B 보고서의 되돌리기에 이 배포를 적고,
+      `release-history.md`에 한 행을 더했다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
       [보고서](design/app-9-0-40-train-2026-11-06.md),
       [부분 한눈에](design/app-9-0-40-train-2026-11-06.md#2-부분-한눈에),
       [줄 바뀜](design/app-9-0-40-train-2026-11-06.md#34-줄-바뀜),

@@ -179,5 +179,8 @@ test('About keeps the tracking of its text without Hangul alike in Korean and En
     expect(px(english[heading].letterSpacing), heading).toBeLessThan(0);
     expect(px(korean[heading].letterSpacing), heading).toBe(0);
   }
-  expect(px(korean.headline.marginLeft)).toBeCloseTo(-0.03 * px(korean.headline.fontSize), 2);
+  // WebKit reports computed margins in layout units of 1/64 px.
+  expect(
+    Math.abs(px(korean.headline.marginLeft) + 0.03 * px(korean.headline.fontSize)),
+  ).toBeLessThanOrEqual(1 / 64);
 });

@@ -438,15 +438,16 @@ describe('app UX markup contract', () => {
     // it, so the pill showed the number twice for up to 100 ms. On the
     // current step the number now goes at once, and the label is whole from
     // the first frame: at least 1ch wide, its first character, the tabular
-    // digit, stands where the number stood, and only its max-width unrolls
-    // the rest.
+    // digit, stands where the number stood, and its max-width unrolls the
+    // rest (its size and weight ease with it, below); its opacity does not
+    // transition.
     const current = '.demo-step-nav button.active:not(.demo-step-next)';
     const number = declarationsForSelector(`${current}::before`).join('');
     expect(number).toMatch(/max-width:\s*0;/u);
     expect(number).toMatch(/transition:\s*none;/u);
     const label = declarationsForSelector(`${current} span`).join('');
     expect(label).toMatch(/min-width:\s*1ch;/u);
-    expect(label).toMatch(/transition-property:\s*max-width;/u);
+    expect(label).toMatch(/transition-property:\s*max-width, font-size, font-weight;/u);
     expect(label).not.toMatch(/transition:/u);
     expect(declarationsForSelector('.demo-step-nav button.active span').join('')).toMatch(
       /opacity:\s*1;/u,
@@ -465,6 +466,71 @@ describe('app UX markup contract', () => {
     expect(collapsingLabel).toMatch(/max-width:\s*0;/u);
     expect(collapsingLabel).toMatch(/opacity:\s*0;/u);
     expect(collapsingLabel).not.toMatch(/(?:min-width|transition[a-z-]*):/u);
+  });
+
+  it("eases an opening demo step's number from the dot's size and weight into the pill's", () => {
+    // Owner decision 2026-11-06, from frame pictures (option D): the label a
+    // dot hands its number to waited at the pill's 13px and the selected
+    // weight, so in the press frame the number jumped from the dot's 14px at
+    // the unselected weight. A hidden step label now waits at the dot
+    // number's size and weight, so the press frame draws the number as the
+    // dot did, and it eases into the pill's size and the selected weight
+    // while the label unrolls, on the unroll's 0.24s curve. A label that
+    // folds away eases back toward them while it fades. Reduced motion
+    // snaps them through the global transition-duration rule.
+    const valueOf = (declarations: string, property: string): string | undefined =>
+      new RegExp(`(?:^|[;{\\s])${property}:\\s*([^;]+);`, 'u').exec(declarations)?.[1]?.trim();
+    const step = '.demo-step-nav button:not(.demo-step-next)';
+    const number = declarationsForSelector(`${step}::before`).join('');
+    const resting = declarationsForSelector(`${step} span`).join('');
+    expect(valueOf(resting, 'font-size')).toBe('14px');
+    expect(valueOf(resting, 'font-size')).toBe(valueOf(number, 'font-size'));
+    expect(valueOf(resting, 'font-weight')).toBe('var(--font-weight-unselected)');
+    expect(valueOf(resting, 'font-weight')).toBe(valueOf(number, 'font-weight'));
+    expect(resting).toMatch(
+      /transition:\s*max-width 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*opacity 0\.16s ease,\s*font-size 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*font-weight 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\);/u,
+    );
+    // The current step's label takes the pill's size and weight, and eases
+    // only its width, size and weight, all on the unroll's curve.
+    const current = declarationsForSelector(
+      '.demo-step-nav button.active:not(.demo-step-next) span',
+    ).join('');
+    expect(valueOf(current, 'font-size')).toBe('inherit');
+    expect(valueOf(current, 'font-weight')).toBe('var(--font-weight-selected)');
+    expect(declarationsForSelector('.demo-step-nav button.active').join('')).toMatch(
+      /font-weight:\s*var\(--font-weight-selected\);/u,
+    );
+    expect(valueOf(current, 'transition-property')).toBe('max-width, font-size, font-weight');
+    expect(valueOf(current, 'transition-duration')).toBe('0.24s');
+    expect(valueOf(current, 'transition-timing-function')).toBe('cubic-bezier(0.4, 0, 0.2, 1)');
+    expect(current).not.toMatch(/(?:transition|transition-delay|opacity):/u);
+    // A folding label runs the resting transitions back to the number's
+    // size and weight; nothing else sizes or weights a step label, so on the
+    // wide tour too the label eases from 14px into the pill's
+    // clamp(13px, 1vw, 15px), and the next button's label keeps the pill's.
+    expect(
+      declarationsForSelector('.demo-step-nav button.is-collapsing span').join(''),
+    ).not.toMatch(/font-(?:size|weight):/u);
+    const sizedLabels = [appStylesheet, desktopStylesheet].flatMap((sheet) =>
+      [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+        .map(([, selectors = '', body = '']) => ({
+          selectors: selectors.replace(/\/\*[\s\S]*?\*\//gu, '').trim(),
+          body,
+        }))
+        .filter(
+          ({ selectors, body }) =>
+            /\.demo-step-nav\b[^,]*\bspan\b/u.test(selectors) &&
+            /font-(?:size|weight):/u.test(body),
+        )
+        .map(({ selectors }) => selectors),
+    );
+    expect(sizedLabels).toEqual([
+      '.demo-step-nav button:not(.demo-step-next) span',
+      '.demo-step-nav button.active:not(.demo-step-next) span',
+    ]);
+    expect(readFileSync(resolve('src/demo/mode.ts'), 'utf8')).toMatch(
+      /const DEMO_STEP_COLLAPSE_MS = 320;/u,
+    );
   });
 
   it('keeps one playlist add action without duplicating it in the empty state', () => {

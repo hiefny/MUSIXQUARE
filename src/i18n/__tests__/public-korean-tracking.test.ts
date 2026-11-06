@@ -134,4 +134,24 @@ describe('Korean copy on the public pages', () => {
       }
     },
   );
+
+  it('sets tracking in a Korean rule only as the 0 copy of a listed negative tracking', () => {
+    // The font guard lets a :lang(ko) copy rule set letter-spacing to 0. That
+    // is only for Korean copy that the other languages tighten: a :lang(ko)
+    // rule may not zero a positive tracking (small caps labels, codes keep
+    // theirs in every language) or track Korean on its own.
+    const korean = TRACKING.filter(({ selectors }) =>
+      selectors.some((selector) => selector.includes(':lang(ko)')),
+    );
+    const copies = new Set(Object.values(KOREAN_AT_ZERO).flat());
+    for (const { source, selectors, value } of korean) {
+      const where = `${source} ${selectors.join(', ')}`;
+      expect(value, where).toBe('0');
+      expect(
+        selectors.every((selector) => copies.has(selector)),
+        where,
+      ).toBe(true);
+    }
+    expect(new Set(korean.flatMap(({ selectors }) => selectors))).toEqual(copies);
+  });
 });

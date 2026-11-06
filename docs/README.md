@@ -166,9 +166,8 @@ runbooks. Neither belongs in a general setup document.
   for the first time, and the demo and public page specs over the new CSS), `webkit-mobile` 111 passed and 5
   skipped plus the service worker test, and the large-room R2 smoke; that first attempt also passed the chat row
   that timed out in 9.0.39's attempt 1, which closes that open item. That meets this train's part of the condition
-  for the next App train, which merges once this record has merged. The next App update is the 9.0.41 / v814 train
-  (the owner's decision of the 2026-11-06 afternoon, as the release owner reported it: the selected weight 500/700
-  eases over 0.2 s in six places; being built), then Phase 7 T2 (tests only) and 7C, with 7C's number decided then. The owner's device checks (the
+  for the next App train, which merges once this record has merged. Next come Phase 7 T2 (tests only, no App update)
+  and then 7C, the next App update, with its number decided then. The owner's device checks (the
   public pages on iPhone Safari and a desktop browser, the events page on a 390 px phone, the demo step buttons at
   320 px in Korean, Malayalam and a right-to-left locale, once on iPhone Safari) wait. The release record's §2
   carries the train as post-deploy items, its §4 the 9.0.40 entry and current boundary line (5), and the hotfix
@@ -249,8 +248,8 @@ runbooks. Neither belongs in a general setup document.
   next App train, which merges once this record has merged. The owner paused the project work
   until next week after this record, then asked on 2026-11-06 for the next App update, the 9.0.40 / v813 train
   (Korean text on the public pages at tracking 0 and the demo step label, released on 2026-11-06 14:53 KST,
-  above); the 9.0.41 / v814 train comes next, and Phase 7 T2 (tests only, no App update) and 7C come after it, with
-  7C's number decided then. The owner's device checks (7B's later set, the
+  above); Phase 7 T2 (tests only, no App update) comes next, then 7C, the next App update, with its
+  number decided then. The owner's device checks (7B's later set, the
   digits, the demo step buttons in Korean, Malayalam and a right-to-left locale, the same on iPhone Safari) wait.
   The release record's §2 carries the train as post-deploy items, its §4 the 9.0.39 entry and current boundary line
   (5), and the hotfix procedure's 9.0.25 bullet names 9.0.39's merge SHA, Release ID and App version. This train's

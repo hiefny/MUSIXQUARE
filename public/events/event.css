@@ -209,12 +209,13 @@ a:focus-visible {
   margin-bottom: 0;
 }
 
+/* Korean text is not tightened, like the app. The page is Korean only. */
 .stage-copy h1,
 .success-guide h2,
 .nickname-form h2 {
   margin: 0;
   color: var(--text-main);
-  letter-spacing: -0.035em;
+  letter-spacing: 0;
   word-break: keep-all;
 }
 

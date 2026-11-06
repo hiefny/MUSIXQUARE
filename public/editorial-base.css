@@ -711,19 +711,25 @@ code {
   transition-delay: 320ms;
 }
 
+/* Korean text is not tightened, like the app: the Hangul face has no optical
+   size axis to narrow it, so Korean headings stay at 0 where the other
+   languages tighten theirs. The optical left margin stays. */
 :lang(ko) .lp-h1 {
   font-size: clamp(44px, 7vw, 88px);
   line-height: 1.25;
+  letter-spacing: 0;
 }
 
 :lang(ko) .lp-h2 {
   font-size: clamp(32px, 4.6vw, 60px);
   line-height: 1.2;
+  letter-spacing: 0;
 }
 
 :lang(ko) .lp-cta .lp-h2 {
   font-size: clamp(52px, 8vw, 104px);
   line-height: 1.05;
+  letter-spacing: 0;
 }
 
 :lang(ko) .lp-h1,

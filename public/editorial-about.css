@@ -755,11 +755,14 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
+/* The timestamp's digits keep the bubble's tracking in every language, Korean
+   included, where the bubble's own Korean text is not tightened. */
 .lp-chat-ts {
   color: #fff;
   text-decoration: underline;
   text-underline-offset: 2px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .lp-chat-bubble {
@@ -783,6 +786,12 @@ main {
     max-width 700ms var(--ease-out),
     border-color 700ms var(--ease-out);
   will-change: transform;
+}
+
+/* Korean text is not tightened, like the app. The YouTube bubble holds only
+   its Latin title, the same in every language, so it keeps its tracking. */
+:lang(ko) .lp-chat-bubble:not(.lp-chat-bubble--yt) {
+  letter-spacing: 0;
 }
 
 .lp-chat-group:hover .lp-chat-bubble {

@@ -500,8 +500,8 @@ for (const page of publicPages) {
     );
   }
   // The pages draw Korean and English alike, as the app does: a rule may
-  // tell them apart only to set the page's own translated copy, and never
-  // its tracking.
+  // tell them apart only to set the page's own translated copy, and its
+  // tracking only to draw Korean copy at 0 (the app never tightens Korean).
   for (const { sheet, selectors, rule } of [...chain.rules, ...inlineRules]) {
     for (const single of selectors) {
       const tests = languageSplitTests(single, koreanLang, englishLang);
@@ -511,9 +511,17 @@ for (const page of publicPages) {
         single in PUBLIC_KOREAN_ENGLISH_COPY_RULES,
         `${sheet} ${single} applies in only one of the Korean and English pages (${tests.join(', ')})`,
       );
+      const koreanCopy =
+        single.startsWith(`:lang(${koreanLang}) `) &&
+        tests.every((test) => test === `:lang(${koreanLang})`);
       check(
-        !rule.nodes.some((node) => node.type === 'decl' && node.prop === 'letter-spacing'),
-        `${sheet} ${single} sets Korean or English tracking alone`,
+        !rule.nodes.some(
+          (node) =>
+            node.type === 'decl' &&
+            node.prop === 'letter-spacing' &&
+            !(koreanCopy && node.value.trim() === '0'),
+        ),
+        `${sheet} ${single} sets Korean or English tracking alone, other than Korean copy at 0`,
       );
     }
   }

@@ -439,15 +439,17 @@ describe('app UX markup contract', () => {
     // current step the number now goes at once, and the label is whole from
     // the first frame: at least 1ch wide, its first character, the tabular
     // digit, stands where the number stood, and its max-width unrolls the
-    // rest (its size and weight ease with it, below); its opacity does not
-    // transition.
+    // rest (its size, weight and line box ease with it, below); its opacity
+    // does not transition.
     const current = '.demo-step-nav button.active:not(.demo-step-next)';
     const number = declarationsForSelector(`${current}::before`).join('');
     expect(number).toMatch(/max-width:\s*0;/u);
     expect(number).toMatch(/transition:\s*none;/u);
     const label = declarationsForSelector(`${current} span`).join('');
     expect(label).toMatch(/min-width:\s*1ch;/u);
-    expect(label).toMatch(/transition-property:\s*max-width, font-size, font-weight;/u);
+    expect(label).toMatch(
+      /transition-property:\s*max-width, font-size, font-weight, line-height;/u,
+    );
     expect(label).not.toMatch(/transition:/u);
     expect(declarationsForSelector('.demo-step-nav button.active span').join('')).toMatch(
       /opacity:\s*1;/u,
@@ -488,10 +490,11 @@ describe('app UX markup contract', () => {
     expect(valueOf(resting, 'font-weight')).toBe('var(--font-weight-unselected)');
     expect(valueOf(resting, 'font-weight')).toBe(valueOf(number, 'font-weight'));
     expect(resting).toMatch(
-      /transition:\s*max-width 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*opacity 0\.16s ease,\s*font-size 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*font-weight 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\);/u,
+      /transition:\s*max-width 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*opacity 0\.16s ease,\s*font-size 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*font-weight 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*line-height 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\);/u,
     );
-    // The current step's label takes the pill's size and weight, and eases
-    // only its width, size and weight, all on the unroll's curve.
+    // The current step's label takes the pill's size, weight and line box,
+    // and eases only its width, size, weight and line box, all on the
+    // unroll's curve.
     const current = declarationsForSelector(
       '.demo-step-nav button.active:not(.demo-step-next) span',
     ).join('');
@@ -500,17 +503,20 @@ describe('app UX markup contract', () => {
     expect(declarationsForSelector('.demo-step-nav button.active').join('')).toMatch(
       /font-weight:\s*var\(--font-weight-selected\);/u,
     );
-    expect(valueOf(current, 'transition-property')).toBe('max-width, font-size, font-weight');
+    expect(valueOf(current, 'transition-property')).toBe(
+      'max-width, font-size, font-weight, line-height',
+    );
     expect(valueOf(current, 'transition-duration')).toBe('0.24s');
     expect(valueOf(current, 'transition-timing-function')).toBe('cubic-bezier(0.4, 0, 0.2, 1)');
     expect(current).not.toMatch(/(?:transition|transition-delay|opacity):/u);
     // A folding label runs the resting transitions back to the number's
-    // size and weight; nothing else sizes or weights a step label, so on the
-    // wide tour too the label eases from 14px into the pill's
-    // clamp(13px, 1vw, 15px), and the next button's label keeps the pill's.
+    // size, weight and line box; nothing else sizes, weights or sets the
+    // line box of a step label, so on the wide tour too the label eases from
+    // 14px into the pill's clamp(13px, 1vw, 15px), and the next button's
+    // label keeps the pill's.
     expect(
       declarationsForSelector('.demo-step-nav button.is-collapsing span').join(''),
-    ).not.toMatch(/font-(?:size|weight):/u);
+    ).not.toMatch(/(?:font-size|font-weight|line-height):/u);
     const sizedLabels = [appStylesheet, desktopStylesheet].flatMap((sheet) =>
       [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
         .map(([, selectors = '', body = '']) => ({
@@ -520,7 +526,7 @@ describe('app UX markup contract', () => {
         .filter(
           ({ selectors, body }) =>
             /\.demo-step-nav\b[^,]*\bspan\b/u.test(selectors) &&
-            /font-(?:size|weight):/u.test(body),
+            /(?:font-size|font-weight|line-height):/u.test(body),
         )
         .map(({ selectors }) => selectors),
     );
@@ -531,6 +537,34 @@ describe('app UX markup contract', () => {
     expect(readFileSync(resolve('src/demo/mode.ts'), 'utf8')).toMatch(
       /const DEMO_STEP_COLLAPSE_MS = 320;/u,
     );
+  });
+
+  it("keeps an opening demo step's number on the dot number's line box in the press frame", () => {
+    // Review of the 9.0.40 train: with the size and weight matched, the
+    // waiting label still took the button's line-height 1.2 while the dot's
+    // number has line-height 1. Both boxes are centred in the button, and
+    // where the box lands decides how the baseline rounds, so at several
+    // common widths (320, 430, 1000, 1280) the press frame drew the number
+    // 1 CSS px above the dot and the unrolling label then eased it back
+    // down. A hidden step label now also waits on the number's line box and
+    // eases into the pill's (the button's line-height) with the rest.
+    const valueOf = (declarations: string, property: string): string | undefined =>
+      new RegExp(`(?:^|[;{\\s])${property}:\\s*([^;]+);`, 'u').exec(declarations)?.[1]?.trim();
+    const step = '.demo-step-nav button:not(.demo-step-next)';
+    const number = declarationsForSelector(`${step}::before`).join('');
+    const resting = declarationsForSelector(`${step} span`).join('');
+    expect(valueOf(number, 'line-height')).toBe('1');
+    expect(valueOf(resting, 'line-height')).toBe(valueOf(number, 'line-height'));
+    expect(resting).toMatch(/line-height 0\.24s cubic-bezier\(0\.4, 0, 0\.2, 1\)/u);
+    // The pill's label takes the button's line box, as it did before 9.0.40.
+    expect(valueOf(declarationsForSelector('.demo-step-nav button').join(''), 'line-height')).toBe(
+      '1.2',
+    );
+    const current = declarationsForSelector(
+      '.demo-step-nav button.active:not(.demo-step-next) span',
+    ).join('');
+    expect(valueOf(current, 'line-height')).toBe('inherit');
+    expect(valueOf(current, 'transition-property')?.split(/,\s*/u)).toContain('line-height');
   });
 
   it('keeps one playlist add action without duplicating it in the empty state', () => {

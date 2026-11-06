@@ -120,7 +120,8 @@ runbooks. Neither belongs in a general setup document.
   waits at the dot number's 14 px, unselected weight and line box and eases into the pill's size, the selected
   weight and the button's line box while it unrolls (0.24 s), and a folding label eases back as it fades; the
   press frame now equals the dot in size, weight and place (today +20 % stroke on phones, +34 % at 1440 px), the
-  largest one-frame step is about +4 %, and the steady row and the dots are pixel-identical to 9.0.39; reduced
+  largest one-frame step is +4.3 % on phones and +5.7 % at 1440 px, and the steady row and the dots are
+  pixel-identical to 9.0.39; reduced
   motion snaps. Its two commits were cherry-picked unchanged (equal patch-ids), followed by a tests-only commit
   that rewords the button label contract's demo reason. Round 2 judged the deploy target against the deployed
   SHAs (App 8 runtime paths, the other five Workers 0, no runtime dependency change; the local partial-release
@@ -142,10 +143,15 @@ runbooks. Neither belongs in a general setup document.
   (138 / 138); the demo specs did not run in WebKit (this PC's WebKit cannot create a room; not a pass). The demo
   frame check, now measuring vertical place, put the press frame equal to the dot in all nine scenes (Korean,
   English, Malayalam and Arabic, 320 to 1440 px) and the steady rows 0 px different from `8b48869b` and round 3's
-  builds; the line box costs a few dozen device pixels of clipped tall marks in the first unroll frames. Against
+  builds; in the first unroll frames the line box briefly clips the lowest marks of Hindi (frames 4-8),
+  Vietnamese and Arabic (frame 4), which 9.0.39 does not clip, while Thai, already clipped in 9.0.39, is about the
+  same (at 1x it looks the same as 9.0.39, and in motion it lasts 1-5 frames while the label unrolls). Against
   a clean build of `8b48869b` the eager first load is 1 B smaller in JavaScript and 79 B larger in all (gzip, the
   main CSS), and the deploy judgement is unchanged (App 8 runtime paths, the other five Workers 0, compatible). Each part alone reverses cleanly at the final head (part (1) with its two tests-only commits, part
-  (2) with five commits), and 9.0.39's demo patches reverse after part (2). Phase 7 7C becomes a later App update.
+  (2) with five commits), and 9.0.39's step-button runtime patches (`8fb3d9f5`, `8afced6c`) reverse after part (2);
+  its test patch `ed50bc88` also needs `019091c7`'s row reversed, as 9.0.39's own rollback item says. A final
+  independent verification then approved the code and its document findings were fixed. Phase 7 7C becomes a
+  later App update.
 - [App 9.0.39 / v812 train: Phase 7 7B, every digit tabular and the demo step buttons (2026-11-05)](design/app-9-0-39-train-2026-11-05.md):
   released on 2026-11-05 21:22 KST in Release 42026274351 (PR #574, squash `5b3cfcb0`) as App 9.0.39 / v812 (App
   build 812, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App

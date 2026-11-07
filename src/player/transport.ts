@@ -501,13 +501,11 @@ import {
   setCurrentAudioBuffer,
 } from './_state.ts';
 
+import { ensureRunning, getAudioContext, getCurrentTime } from '../audio/context.ts';
 import {
+  checkForegroundClockBeforeFileStart,
   confirmForegroundAudioContextRestartHealth,
-  ensureRunning,
-  getAudioContext,
-  getCurrentTime,
-} from '../audio/context.ts';
-import { checkForegroundClockBeforeFileStart } from '../audio/context-recovery.ts';
+} from '../audio/context-recovery.ts';
 import { showLoader, showToast } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
 

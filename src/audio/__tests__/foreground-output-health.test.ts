@@ -87,7 +87,12 @@ describe('foreground restart and background output inspection ownership', () => 
       }
     }
     vi.stubGlobal('AudioContext', AudioContextConstructor);
-    const contextModule = await import('../context.ts');
+    const contextModule = {
+      ...(await import('../context.ts')),
+      retireForegroundAudioContextRestart: (await import('../context-recovery.ts'))
+        .retireForegroundAudioContextRestart,
+      ...(await import('../context-recovery.ts')).ownerSubStepsForTests,
+    };
     const { inspectBackgroundFileOutput } = await import('../output-health.ts');
     contextModule.getAudioContext();
 

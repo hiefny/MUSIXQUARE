@@ -66,11 +66,34 @@ async function importOwners() {
     import('../context-recovery.ts'),
     import('../../player/_state.ts'),
   ]);
+  // `context` keeps the play-request restart's names these rows read since
+  // Phase 7 7C-4 moved it into context-recovery.ts: context.ts's own exports,
+  // the owner's exported ones and its sub-steps (its one test seam).
+  const {
+    claimForegroundAudioContextRestartForDialog,
+    confirmForegroundAudioContextRestartHealth,
+    consumeForegroundAudioContextClockHealthCheck,
+    getPendingForegroundAudioContextClockHealthCheck,
+    isForegroundAudioContextRestartOwned,
+    retireForegroundAudioContextRestart,
+    whenForegroundAudioContextRestartReprepared,
+    ownerSubStepsForTests,
+  } = recovery;
   return {
     bus: events.bus,
     setState: state.setState,
     PLAYBACK_STATE: constants.PLAYBACK_STATE,
-    context,
+    context: {
+      ...context,
+      claimForegroundAudioContextRestartForDialog,
+      confirmForegroundAudioContextRestartHealth,
+      consumeForegroundAudioContextClockHealthCheck,
+      getPendingForegroundAudioContextClockHealthCheck,
+      isForegroundAudioContextRestartOwned,
+      retireForegroundAudioContextRestart,
+      whenForegroundAudioContextRestartReprepared,
+      ...ownerSubStepsForTests,
+    },
     recovery,
     playerState,
   };

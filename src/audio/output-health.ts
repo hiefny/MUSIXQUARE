@@ -13,13 +13,13 @@ import { isPlaybackPlayingFile } from '../player/ownership.ts';
 import {
   armPendingAudioContextRecoveryFromBackground,
   cancelPendingAudioContextRecovery,
-  getPendingAudioContextRecoveryAttemptForHealth,
-} from './context-recovery.ts';
-import {
   consumeForegroundAudioContextClockHealthCheck,
-  getExistingAudioContext,
+  getPendingAudioContextRecoveryAttemptForHealth,
   getPendingForegroundAudioContextClockHealthCheck,
   isForegroundAudioContextRestartOwned,
+} from './context-recovery.ts';
+import {
+  getExistingAudioContext,
   probeAudioContextHealth,
   type AudioContextHealthReason,
 } from './context.ts';

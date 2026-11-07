@@ -61,7 +61,25 @@ async function loadContext(options: FakeContextOptions = {}) {
   }
   vi.stubGlobal('AudioContext', AudioContextConstructor);
   vi.resetModules();
-  const module = await import('../context.ts');
+  // The play-request restart's names as these rows read them since Phase 7
+  // 7C-4 moved it into context-recovery.ts: context.ts's own exports, the
+  // owner's exported ones and its sub-steps (its one test seam).
+  const context = await import('../context.ts');
+  const {
+    confirmForegroundAudioContextRestartHealth,
+    consumeForegroundAudioContextClockHealthCheck,
+    getPendingForegroundAudioContextClockHealthCheck,
+    retireForegroundAudioContextRestart,
+    ownerSubStepsForTests,
+  } = await import('../context-recovery.ts');
+  const module = {
+    ...context,
+    confirmForegroundAudioContextRestartHealth,
+    consumeForegroundAudioContextClockHealthCheck,
+    getPendingForegroundAudioContextClockHealthCheck,
+    retireForegroundAudioContextRestart,
+    ...ownerSubStepsForTests,
+  };
   module.getAudioContext();
   return { instance, module };
 }
@@ -91,7 +109,7 @@ function setVisibility(value: 'hidden' | 'visible'): void {
  */
 async function prepareAfterForegroundReturn(
   instance: FakeAudioContext,
-  module: typeof import('../context.ts'),
+  module: Awaited<ReturnType<typeof loadContext>>['module'],
 ) {
   const recovery = await import('../context-recovery.ts');
   recovery.bindAudioContextInterruptionRecovery(instance as unknown as AudioContext);

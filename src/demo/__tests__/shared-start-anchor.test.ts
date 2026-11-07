@@ -53,11 +53,7 @@ vi.mock('../../core/log.ts', () => ({
 vi.mock('../../audio/context.ts', () => ({
   ensureRunning: edges.ensureRunning,
   getCurrentTime: edges.getCurrentTime,
-  getPendingForegroundAudioContextClockHealthCheck: vi.fn(() => null),
   probeAudioContextHealth: vi.fn(),
-  consumeForegroundAudioContextClockHealthCheck: vi.fn(),
-  confirmForegroundAudioContextRestartHealth: vi.fn(() => true),
-  prepareForegroundAudioContextRestart: vi.fn(),
   getAudioContext: vi.fn(() => ({
     state: 'running',
     currentTime: 0,

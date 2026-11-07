@@ -158,8 +158,9 @@ const liveSuspendLeases: LiveSuspendLeases[] = [];
 
 /**
  * An owner's read-only queries, registered once when its module loads. Since
- * Phase 7 7B-4 the one suspend ledger (context.ts) answers for the live
- * leases, so the playback scope registers its holding answer alone.
+ * Phase 7 7B-4 the one suspend ledger answers for the live leases, so the
+ * playback scope registers its holding answer alone; since 7C-4 both register
+ * from context-recovery.ts, the ledger's first.
  */
 export function registerAudioRecoveryOwner(
   isWaitingForTap: WaitingForTap,

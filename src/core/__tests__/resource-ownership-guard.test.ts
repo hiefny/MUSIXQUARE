@@ -904,66 +904,25 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
     it('pins the callers of the functions that can resume or suspend for their caller on the real tree', () => {
       const report = analyzeResourceOwnership(realInput());
       // Phase 7 7B-5: the playback scope's gesture resume goes through the
-      // one recovery resume in context.ts, which calls native resume() itself
-      // (CHECK 6), not restartAudioContextFromGesture (2 -> 1). That recovery
-      // resume, the retired-suspend cleanup and the suspend ledger (7B-4)
-      // call native resume() or suspend() for whoever calls them, so their
-      // callers are pinned too, the home's own calls included.
+      // one recovery resume, which calls native resume() itself (CHECK 6),
+      // not restartAudioContextFromGesture (2 -> 1). That recovery resume,
+      // the retired-suspend cleanup and the suspend ledger (7B-4) were pinned
+      // here too until Phase 7 7C-4 made them module-private in the owner.
       expect(report.indirectResumeCalls).toEqual({
         ensureRunning: 4,
         restartAudioContextFromGesture: 1,
         probeAudioContextHealth: 4,
-        requestAudioContextResume: 2,
-        requestRetiredAudioContextSuspendCleanup: 4,
       });
       expect(usesOf(report.indirectResumeSites)).toEqual([
         'src/audio/context-recovery.ts probeAudioContextHealth()',
         'src/audio/context-recovery.ts probeAudioContextHealth()',
         'src/audio/context-recovery.ts probeAudioContextHealth()',
-        'src/audio/context-recovery.ts requestAudioContextResume()',
-        'src/audio/context-recovery.ts requestRetiredAudioContextSuspendCleanup()',
         'src/audio/context-recovery.ts restartAudioContextFromGesture()',
-        'src/audio/context.ts requestAudioContextResume()',
-        'src/audio/context.ts requestRetiredAudioContextSuspendCleanup()',
-        'src/audio/context.ts requestRetiredAudioContextSuspendCleanup()',
-        'src/audio/context.ts requestRetiredAudioContextSuspendCleanup()',
         'src/audio/engine.ts ensureRunning()',
         'src/audio/engine.ts ensureRunning()',
         'src/audio/output-health.ts probeAudioContextHealth()',
         'src/player/decode.ts ensureRunning()',
         'src/player/transport.ts ensureRunning()',
-      ]);
-      expect(report.indirectSuspendCalls).toEqual({ requestAudioContextSuspend: 4 });
-      expect(usesOf(report.indirectSuspendSites)).toEqual([
-        'src/audio/context-recovery.ts requestAudioContextSuspend()',
-        'src/audio/context.ts requestAudioContextSuspend()',
-        'src/audio/context.ts requestAudioContextSuspend()',
-        'src/audio/context.ts requestAudioContextSuspend()',
-      ]);
-    });
-
-    it('rejects a new caller of the recovery resume, the retired-suspend cleanup or the suspend ledger, renamed or not', () => {
-      const findings = findingsOf(
-        withSources((sources) => {
-          sources.set(
-            'src/player/rogue-park.ts',
-            'import {\n' +
-              '  requestAudioContextResume,\n' +
-              '  requestAudioContextSuspend as park,\n' +
-              "} from '../audio/context.ts';\n" +
-              "import * as audioContext from '../audio/context.ts';\n" +
-              'export function wakeOrPark(context: AudioContext, request: never): void {\n' +
-              '  requestAudioContextResume(context, request);\n' +
-              '  audioContext.requestRetiredAudioContextSuspendCleanup(context);\n' +
-              '  park(context, request);\n' +
-              '}\n',
-          );
-        }),
-      );
-      expect(findings.split('\n')).toEqual([
-        `UNSANCTIONED indirect AudioContext resume requestAudioContextResume() (RO-01): src/player/rogue-park.ts has 1 - ${HINT}`,
-        `UNSANCTIONED indirect AudioContext resume requestRetiredAudioContextSuspendCleanup() (RO-01): src/player/rogue-park.ts has 1 - ${HINT}`,
-        `UNSANCTIONED indirect AudioContext suspend requestAudioContextSuspend() (RO-01): src/player/rogue-park.ts has 1 - ${HINT}`,
       ]);
     });
 
@@ -1094,15 +1053,10 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(listed.status, listed.stderr).toBe(0);
       expect(listed.stdout).toContain(
         'indirect AudioContext resume callers: ensureRunning 4, restartAudioContextFromGesture 1, ' +
-          'probeAudioContextHealth 4, requestAudioContextResume 2, ' +
-          'requestRetiredAudioContextSuspendCleanup 4; indirect AudioContext suspend callers: ' +
-          'requestAudioContextSuspend 4; initAudio uses',
+          'probeAudioContextHealth 4; initAudio uses',
       );
       expect(listed.stdout).toMatch(
         /indirect resume: src\/audio\/context-recovery\.ts:\d+ probeAudioContextHealth\(\) in probeClockWithoutResume/u,
-      );
-      expect(listed.stdout).toMatch(
-        /indirect suspend: src\/audio\/context-recovery\.ts:\d+ requestAudioContextSuspend\(\) in prepareStalledRecovery/u,
       );
       expect(listed.stdout).toMatch(
         /initAudio use \(report-only\): src\/audio\/channel\.ts:\d+ initAudio\(\) in /u,

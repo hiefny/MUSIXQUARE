@@ -8,22 +8,22 @@ import { resetState, setState } from '../../core/state.ts';
 import { newLoadEpoch, setCurrentAudioBuffer } from '../../player/_state.ts';
 import { AUDIO_CLOCK_SAMPLE_MS } from '../context-protocol.ts';
 import {
-  consumeForegroundAudioContextClockHealthCheck,
-  getPendingForegroundAudioContextClockHealthCheck,
-  requestRetiredAudioContextSuspendCleanup,
-} from '../context.ts';
-import {
   armPendingAudioContextRecoveryFromBackground,
   beginPendingInterruptionRecoveryFromGesture,
   bindAudioContextInterruptionRecovery,
   cancelPendingAudioContextRecovery,
   checkForegroundClockBeforeFileStart,
+  consumeForegroundAudioContextClockHealthCheck,
   finishPendingInterruptionRecoveryFromGesture,
   getPendingAudioContextInterruptionAttempt,
   getPendingAudioContextRecoveryAttemptForHealth,
+  getPendingForegroundAudioContextClockHealthCheck,
   hasPendingAudioContextInterruption,
   isAudioContextInterruptionAttemptCurrent,
+  ownerSubStepsForTests,
 } from '../context-recovery.ts';
+
+const { requestRetiredAudioContextSuspendCleanup } = ownerSubStepsForTests;
 
 /**
  * A gesture caller that still acts and whose resume reached running: the

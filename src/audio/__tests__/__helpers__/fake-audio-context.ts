@@ -207,10 +207,10 @@ export function createFakeAudioContext(sampleRate = 48_000): FakeAudioContext {
  * - 'after-settle': the promise settles while the old state is still
  *   visible; the state and its event land `stateDelayMs` later (WebKit
  *   suspend() resolving while still running, `nativeResolvedWithoutPrepared`
- *   in src/audio/context.ts; a delayed WebKit statechange).
+ *   in src/audio/context-recovery.ts; a delayed WebKit statechange).
  * - 'silent': the state flips with no event (WebKit resume() switching to
- *   running without statechange, `requestRetiredAudioContextSuspendCleanup`
- *   in context.ts; state updated without a timely statechange,
+ *   running without statechange, the retired-suspend cleanup in
+ *   context-recovery.ts; state updated without a timely statechange,
  *   `observeRunningInterruption` in context-recovery.ts).
  * - outcome 'never': the promise never settles (WebKit resume() pending
  *   indefinitely after a page suspension, `ensureRunning` in context.ts).

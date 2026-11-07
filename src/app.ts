@@ -53,13 +53,11 @@ import { setChannelMode } from './audio/channel.ts';
 import { isPlaybackPlayingFile } from './player/ownership.ts';
 import { inspectBackgroundFileOutput } from './audio/output-health.ts';
 import {
+  beginAudioOutputGestureRecovery,
   claimForegroundAudioContextRestartForDialog,
+  getPendingAudioContextRecoveryAttemptForHealth,
   retireForegroundAudioContextRestart,
   whenForegroundAudioContextRestartReprepared,
-} from './audio/context.ts';
-import {
-  beginAudioOutputGestureRecovery,
-  getPendingAudioContextRecoveryAttemptForHealth,
   type ForegroundRestartPreparation,
 } from './audio/context-recovery.ts';
 import {

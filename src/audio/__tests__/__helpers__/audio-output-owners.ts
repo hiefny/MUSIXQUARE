@@ -549,16 +549,24 @@ export const playbackScope = {
     return o.recovery.cancelPendingAudioContextRecovery(attempt);
   },
   /**
-   * The post-tap clock requirement the dialog and Media Session read. It
-   * moves a running state-interruption attempt to clock verification, so
-   * tests read it only where that is part of the pinned behaviour.
+   * The post-tap clock requirement, from the owner's exported answers only
+   * (it changes nothing): 'none' with no attempt pending, the shared context
+   * not running, or an owner holding the context for its tap; otherwise
+   * 'same' while that attempt is the live one, else 'not-current' ('other'
+   * cannot occur: one attempt is pending at a time). For the attempts these
+   * tables arm, background clock stalls that no read promotes, it is the
+   * answer the dialog and Media Session read after the tap.
    */
   requirement(o: Owners): Requirement {
-    const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
-    if (!requirement) return 'none';
     const attempt = o.recovery.getPendingAudioContextRecoveryAttemptForHealth();
-    if (requirement.attemptToken !== attempt) return 'other';
-    return requirement.isCurrent() ? 'same' : 'not-current';
+    if (
+      !attempt ||
+      String(o.context.getExistingAudioContext()?.state) !== 'running' ||
+      o.recovery.isAudioOutputRecoveryHolding()
+    ) {
+      return 'none';
+    }
+    return o.recovery.isAudioContextInterruptionAttemptCurrent(attempt) ? 'same' : 'not-current';
   },
 };
 

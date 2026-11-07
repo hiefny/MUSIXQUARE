@@ -282,6 +282,14 @@ RO-54 accepted-exception
   by type: its tap cancels a pending one before the resume. `app.ts` keeps the primer, the slot
   flag, the follow-up queue, the claim, the dialog itself, RO-51, the retry and its own
   `audio-recovery-gesture` rejoin.
+  Since Phase 7 7C-3 a local-file PLAY's foreground clock check is the owner's too:
+  `src/player/transport.ts` asks `checkForegroundClockBeforeFileStart` with its currency (the
+  recovery intent, the play invocation and the output; the incident's own is read first), which
+  answers null at once when no incident is pending (the PLAY awaits nothing), else samples the
+  one incident a return armed: it consumes it on a healthy clock, has the play-request restart
+  park the context for a frozen one and answers with that preparation, and keeps it on an
+  inconclusive sample. Transport keeps the notice, its generation and retry, and the one intent
+  read after the preparation.
   Since Phase 7 7B-6, when a PLAY clears a local pause and the attempt it resumed was for the
   output that pause stopped (which can never prove its clock), the owner retires that attempt and
   arms the next PLAY's clock check unless one is pending for the context (since 7C-1 in the second
@@ -313,10 +321,11 @@ RO-54 accepted-exception
 - **Allowed requesters:** `ensureRunning` callers (transport, decode, engine) wake a context that
   is not running without asking; when an attempt holds it, that owner's re-suspend rule parks it
   again (the play-request attempt's since Phase 7 7B-2; kept by owner answer Q10).
-  `probeAudioContextHealth` (defined in `context.ts`; called from `output-health.ts`,
+  `probeAudioContextHealth` (defined in `context.ts`; called from `output-health.ts` and
   `context-recovery.ts`, three times since Phase 7 7C-1 took the lock-screen PLAY's check from
-  `media-session.ts` and 7C-2 the recovery dialog's from `app.ts`, and `src/player/transport.ts`)
-  resumes only for its one
+  `media-session.ts` and 7C-2 the recovery dialog's from `app.ts`; since 7C-3 the dialog's
+  no-resume probe also serves a local-file PLAY's foreground clock check, which
+  `src/player/transport.ts` asks the owner for and no longer probes itself) resumes only for its one
   `attemptResume: true` caller, the background check in `output-health.ts`, after both of that
   file's ownership checks report no attempt. The recovery dialog and media session call the
   owner's gesture functions. UI sounds ask the owner first and wake the context only while no
@@ -375,6 +384,12 @@ RO-54 accepted-exception
     `src/audio/__tests__/audio-output-recovery-dialog.test.ts` (each branch's native resume
     inside the call, where the dialog's currency is read, the waits, the retirement and re-arm,
     the one commit, and the `/debug sync` counts of each tap).
+  - A local-file PLAY's foreground clock check (Phase 7 7C-3):
+    `src/audio/__tests__/audio-output-recovery-file-start.test.ts` (the owner's answer for each
+    probe reason, the incident it consumes or keeps, and the currency it reads) and, over the
+    real transport, `src/player/__tests__/output-recovery-play-counts.test.ts` (the `/debug sync`
+    counts, notices and native calls of each path) beside
+    `output-recovery-transport-boundary.test.ts`.
   - Missing: no unit test loads `app.ts`; the recovery dialog's own half (its slot, follow-up
     queue, retry and rejoin) is pinned only in a browser, by the local Chromium lab
     `e2e/audio-lab/output-recovery.lab.ts`, with the counts around each tap in
@@ -392,15 +407,17 @@ RO-54 accepted-exception
   into the owner; one lock-screen PLAY after a local pause rejoins since 7B-6. Fix lane G7. Its
   third train moves the protocol behind the owner with no change users see or hear: since 7C-1
   the playback scope's gesture recovery for the dialog and Media Session; since 7C-2 the
-  recovery dialog's tap, its three branches and its two waits.
+  recovery dialog's tap, its three branches and its two waits; since 7C-3 a local-file PLAY's
+  foreground clock check.
   Exceptions RO-36, RO-37, RO-44. The guard counts the native calls per file
   (CHECK 6; since 7B-4 `context-recovery.ts` calls no native suspend, and since 7B-5 one native
   resume, its automatic resume with nothing playing) and, since Phase 7 T1, the callers of
   `ensureRunning`, `restartAudioContextFromGesture` and `probeAudioContextHealth` per file beside
   it (since 7C-1 the probe's in `media-session.ts` none, and since 7C-2 in `app.ts` none and in
   `context-recovery.ts` 3: the lock-screen PLAY's and the dialog's checks moved into the owner, a
-  rise on the owner's side; since 7C-2 the gesture restart's one caller is the owner's dialog
-  branch, `context-recovery.ts` 1 and `app.ts` none); since 7B also those of
+  rise on the owner's side; since 7C-3 in `transport.ts` none and 4 in all, the owner's still 3:
+  the PLAY's check uses the dialog's no-resume probe; since 7C-2 the gesture restart's one caller
+  is the owner's dialog branch, `context-recovery.ts` 1 and `app.ts` none); since 7B also those of
   the recovery resume, the retired-suspend cleanup and the suspend ledger in `context.ts`, through
   which `context-recovery.ts` now makes its resumes and its suspend (its CHECK 6 count fell because
   the calls moved there, not because a requester went). So a new requester of a resume or a
@@ -3808,10 +3825,11 @@ entry needs the owner's acceptance and is not implied by this registry.
   which 7B-4 and 7B-5 route both owners' native calls; since 7C-1 the lock-screen PLAY's probe
   counts in `context-recovery.ts` and no longer in `media-session.ts`, and since 7C-2 the
   recovery dialog's probe and gesture restart count there and no longer in `app.ts`: probe 3,
-  restart 1). On `cd8eaf47`
+  restart 1; since 7C-3 a local-file PLAY's probe counts no longer in `transport.ts`, its check
+  using the owner's no-resume probe: probe 4 in all). On `cd8eaf47`
   (App 9.0.34), again on `34dbe592` (App 9.0.36) on 2026-11-04, on the Phase 7 7B code on
-  2026-11-05 and on the 7C-1 and 7C-2 code on 2026-11-07, the app creates its one AudioContext in one
-  place (`getAudioContext` in
+  2026-11-05, on the 7C-1 and 7C-2 code on 2026-11-07 and on the 7C-3 code on 2026-11-08, the app
+  creates its one AudioContext in one place (`getAudioContext` in
   `src/audio/context.ts`), has no `OfflineAudioContext`, never calls `close()` on it and never
   takes its `resume` or `suspend` as a reference (`.bind`, `.call`, destructuring). The recovery
   attempts' fields named `resume` and `suspend` (since 7B-5 and 7B-4) hold a resume flight and a
@@ -4497,7 +4515,10 @@ and unrelated strings never count, and every baseline is an exact count or list 
    PLAY's clock check runs in the owner's gesture recovery. Since 7C-2 (2026-11-07)
    `restartAudioContextFromGesture` is still 1, in `src/audio/context-recovery.ts` and none in
    `src/app.ts`, and `probeAudioContextHealth` still 5, with `context-recovery.ts` 3 and `app.ts`
-   none: the recovery dialog's tap runs in the owner. `initAudio`, which reaches `ensureRunning` through the engine, is reported only (12
+   none: the recovery dialog's tap runs in the owner. Since 7C-3 (2026-11-08)
+   `probeAudioContextHealth` is 4, with `src/player/transport.ts` none and `context-recovery.ts`
+   still 3: a local-file PLAY's foreground clock check runs in the owner through the probe the
+   dialog's check uses. `initAudio`, which reaches `ensureRunning` through the engine, is reported only (12
    uses on both dates: 11 calls, mostly the system-audio routes and the file paths, and the
    development debug object), because a ratchet there would rub every system-audio change.
    `--report` lists every counted use and every `initAudio` use with its function.

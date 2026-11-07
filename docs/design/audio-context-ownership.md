@@ -37,7 +37,9 @@ behind a failing test) and 7C (the move behind one owner).
    `statechange` dispatcher, the gesture resume and the clock verification. `src/audio/context.ts`
    keeps the singleton and three primitives: the gesture restart (`restartAudioContextFromGesture`,
    used by the owner since 7C-2), and for allowed requesters `ensureRunning` and the
-   health probe's resume (`probeAudioContextHealth`).
+   health probe's resume (`probeAudioContextHealth`). Since 7C-3 a local-file PLAY's foreground
+   clock check is the owner's (`checkForegroundClockBeforeFileStart`); transport keeps the
+   notice, its generation and its retry.
 2. **Only the owner calls native `resume()` and `suspend()`**, with three exceptions:
    1. `ensureRunning` wakes a context that is not running (PLAY, file activation, the engine's
       initialization). When an attempt holds the context, the owner's re-suspend rule undoes that
@@ -152,7 +154,12 @@ behind a failing test) and 7C (the move behind one owner).
   defines the name. Since 7B-4 the binding and the playback scope's suspend preparation call the
   ledger's `bindAudioContextStateDispatch` and `requestAudioContextSuspend`, and since 7B-5 its
   resumes call `requestAudioContextResume`; none of those files binds a context or arms a
-  playback-scope attempt (each needs a binding).
+  playback-scope attempt (each needs a binding). Since 7C-3 transport imports the owner for a
+  local-file PLAY's clock check, so every test file that loads the real transport under a
+  `context.ts` factory evaluates the real `context-recovery.ts` too. The check reads
+  `getPendingForegroundAudioContextClockHealthCheck` when a PLAY reaches it, which the 15
+  transport-path factories define (null unless a row arms an incident), and the probe, the
+  consume and the restart's preparation only after an incident.
 - **Public behaviour, no sub-step names.** The owner tables (`audio-output-recovery-boundary`,
   `audio-output-recovery-holding`, `audio-output-recovery-parity`, in `src/audio/__tests__/`)
   assert the fake's op log, bus events and the owners' normalized answers through one driver

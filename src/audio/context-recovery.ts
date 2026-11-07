@@ -132,11 +132,11 @@ interface ForegroundRestartRequirementWait {
 
 /**
  * One recovery attempt's side of a context's suspend ledger (RO-01, Phase 7
- * 7B-4): the play-request restart in this file and the playback scope's
- * attempt in context-recovery.ts. The ledger keeps one lease and one
- * late-suspend fence per context, so one native suspend at a time; it counts
- * the attempt's suspends and asks the attempt's owner, through these
- * callbacks, about everything that concerns the attempt itself.
+ * 7B-4): the play-request restart's and the playback scope's, both in this
+ * file since 7C-4. The ledger keeps one lease and one late-suspend fence per
+ * context, so one native suspend at a time; it counts the attempt's suspends
+ * and asks the attempt's owner, through these callbacks, about everything
+ * that concerns the attempt itself.
  */
 interface AudioContextSuspendRequest {
   /** Native suspends the ledger started for this attempt (AUDIO_SUSPEND_MAX_ATTEMPTS at most). */
@@ -178,7 +178,7 @@ interface AudioContextLateSuspendFence {
   successor: AudioContextSuspendRequest | null;
 }
 
-/** The playback scope's binding (context-recovery.ts) in a context's dispatcher. */
+/** The playback scope's binding in a context's dispatcher. */
 interface AudioContextStateBinding {
   /**
    * First in every dispatch. `ledgerKeepsState` is true for a parked state
@@ -191,17 +191,18 @@ interface AudioContextStateBinding {
   /**
    * A suspend landed inside the late fence with no attempt to take it. True
    * when the binding handled it: as an interruption, as outside the fence,
-   * for playback that has no recovery dialog; otherwise by undoing it.
+   * for playback that has no recovery dialog; false leaves it to the ledger,
+   * which undoes it.
    */
   readonly takeLateSuspend: () => boolean;
 }
 
 /**
  * One recovery attempt's side of a native resume (RO-01, Phase 7 7B-5): the
- * play-request restart's gesture resume in this file and the playback
- * scope's gesture and automatic resumes in context-recovery.ts go through
- * one implementation, requestAudioContextResume. These callbacks are each
- * owner's own step rules.
+ * play-request restart's gesture resume and the playback scope's gesture
+ * and automatic resumes go through one implementation,
+ * requestAudioContextResume. These callbacks are each owner's own step
+ * rules.
  */
 interface AudioContextResumeRequest<Result> {
   /** Its count slot and its deadline's (output-recovery-counters.ts), by owner and source. */
@@ -1102,8 +1103,8 @@ function reparkSuccessorAfterRetiredResume(attempt: ForegroundRestartAttempt): v
 }
 
 /**
- * The binding's `running` statechange (context-recovery.ts): something
- * outside this owner (the OS, ensureRunning, a UI sound) resumed a context
+ * The binding's `running` statechange (bindAudioContextInterruptionRecovery):
+ * something outside this owner (the OS, ensureRunning, a UI sound) resumed a context
  * whose play-request attempt waits for the tap of a dialog that has taken
  * it. Park the same attempt again at once, as the playback scope
  * re-suspends its own (C1-I13 a, Phase 7 7B-2), so the gesture resumes a
@@ -1343,14 +1344,14 @@ interface PendingContextRecovery {
   automaticResume: Promise<ContextResumeResult> | null;
   gestureResume: Promise<ContextResumeResult> | null;
   automaticHealthProbe: Promise<void> | null;
-  /** Its latest recovery resume (context.ts, Phase 7 7B-5), while that may still promote it. */
+  /** Its latest recovery resume (Phase 7 7B-5), while that may still promote it. */
   resume: AudioContextResumeFlight<ContextResumeResult> | null;
   completed: boolean;
   rejoinEmitted: boolean;
   cause: RecoveryCause;
   phase: RecoveryPhase;
   clockVerified: boolean;
-  /** Its side of the context's one suspend ledger in context.ts (Phase 7 7B-4). */
+  /** Its side of the context's one suspend ledger (Phase 7 7B-4). */
   readonly suspend: AudioContextSuspendRequest;
   /** The suspend preparation the attempt waits for: true once parked for it, false when it lost. */
   preparation: Promise<boolean> | null;
@@ -1378,7 +1379,7 @@ registerAudioRecoveryOwner(isForegroundAudioContextRestartHolding, (context) =>
   liveSuspendLease(context) ? 1 : 0,
 );
 
-// Live suspend leases are the one ledger's, counted by context.ts (Phase 7 7B-4).
+// Live suspend leases are the one ledger's, counted by its registration above (Phase 7 7B-4).
 registerAudioRecoveryOwner(playbackScopeHolding);
 
 /**
@@ -1482,8 +1483,8 @@ function settleSuspendPreparation(recovery: PendingContextRecovery, prepared: bo
 }
 
 /**
- * This owner's answers to the suspend ledger in context.ts (RO-01, Phase 7
- * 7B-4). A retired attempt answers as not waiting, so a lease it held ends
+ * This owner's answers to the suspend ledger (RO-01, Phase 7 7B-4). A
+ * retired attempt answers as not waiting, so a lease it held ends
  * for nobody. After two lost suspends the attempt gives up and arms the next
  * PLAY's clock check; a later request taking its place retires it.
  */
@@ -1645,7 +1646,7 @@ async function prepareStalledRecovery(
   recovery.prepareTimedOut = false;
   recovery.preparedNotificationSent = false;
 
-  // The context's one suspend ledger (context.ts, Phase 7 7B-4): a late fence
+  // The context's one suspend ledger (Phase 7 7B-4): a late fence
   // keeps this attempt waiting for its next suspend, a lease in flight is
   // taken over (the earlier attempt on it retires), otherwise one fresh
   // native suspend.
@@ -1836,7 +1837,7 @@ function resumeContext(
     }
   };
 
-  // The one recovery resume in context.ts (Phase 7 7B-5, C1-I12), with this
+  // The one recovery resume (Phase 7 7B-5, C1-I12), with this
   // owner's step rules; a newer resume of the same attempt replaces an older
   // one's promotion.
   recovery.resume?.drop();
@@ -2181,7 +2182,7 @@ type UnownedGestureCarry =
   | { readonly retry: true; readonly attemptToken: null }
   | { readonly retry: false; readonly attemptToken: object | null };
 
-/** A play-request restart prepared for a frozen clock, as its owner answers (context.ts). */
+/** A play-request restart prepared for a frozen clock, as its owner answers. */
 export type ForegroundRestartPreparation = NonNullable<
   Awaited<ReturnType<typeof prepareForegroundAudioContextRestartAfterClockStall>>
 >;
@@ -2299,7 +2300,7 @@ function retireForegroundRestartForNextPlay(
 
 /**
  * The play-request branch: the tap resumes the restart attempt the dialog
- * serves through its owner (context.ts). After the dialog closed: the 1 s
+ * serves through its owner. After the dialog closed: the 1 s
  * wait, the wait for the attempt's clock requirement (5 s at most), then the
  * promoted attempt's clock probe. With no requirement, or an unhealthy clock,
  * the attempt retires and the next PLAY's clock check takes its place; a
@@ -2762,7 +2763,7 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
   };
 
   /**
-   * First in the context's one dispatcher (context.ts). A parked state that
+   * First in the context's one dispatcher. A parked state that
    * the suspend ledger or a play-request restart keeps goes to them next.
    */
   const judgeStateChange = (ledgerKeepsState: boolean): void => {
@@ -2822,17 +2823,17 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
   };
 
   /**
-   * A suspend landed inside the late fence that no attempt waits for. A local
-   * file is adopted for its recovery dialog once the retired suspend is
-   * undone, and with nothing playing it is only undone. Other playback
-   * (YouTube) has no dialog, so it is the interruption it would be outside
-   * the fence (owner answer Q6, Phase 7 7B-4).
+   * A suspend landed inside the late fence that no attempt waits for. Other
+   * playback (YouTube) has no dialog, so it is the interruption it would be
+   * outside the fence (owner answer Q6, Phase 7 7B-4). A local file, or
+   * nothing playing, is left to the ledger, which undoes the retired suspend;
+   * a file is then adopted for its recovery dialog.
    */
   const takeLateSuspend = (): boolean => {
     if (disposed || activeBindingToken !== bindingToken) return false;
     const identity = activePlaybackIdentity();
-    if (identity && identity.mode !== 'file') handleInterruption(String(context.state));
-    else requestRetiredAudioContextSuspendCleanup(context);
+    if (!identity || identity.mode === 'file') return false;
+    handleInterruption(String(context.state));
     return true;
   };
 

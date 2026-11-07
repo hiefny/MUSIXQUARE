@@ -7,9 +7,10 @@
  * suspends, dialog requests, refused taps and overlaps the Phase 7 trains are
  * judged by. Nothing here is sent anywhere.
  *
- * The owners (context.ts, context-recovery.ts), the recovery dialog (app.ts)
- * and UI sounds (ui-sounds.ts) report events; this module keeps monotonic
- * counts, one time sum and one maximum, never a copy of owner state and no
+ * The owners (both in context-recovery.ts since Phase 7 7C-4) and the
+ * primitives they share in context.ts, the recovery dialog (app.ts) and UI
+ * sounds (ui-sounds.ts) report events; this module keeps monotonic counts,
+ * one time sum and one maximum, never a copy of owner state and no
  * identifiers. Where a count needs an owner's answer (live suspend leases on
  * a context, an attempt waiting for a tap: since Phase 7 7B-3 the owner's
  * holding answer, the one UI sounds ask), the owner registers a read-only
@@ -19,8 +20,8 @@
  *
  * A mock-free leaf on purpose: test files replace context.ts, core/log.ts and
  * core/timers.ts with factories, so it imports none of them and reads time
- * from performance.now(). context-recovery.ts imports context.ts, so neither
- * owner could count inside the other.
+ * from performance.now(). context-recovery.ts imports context.ts, so
+ * context.ts could not count inside the owner.
  *
  * Owner decision Q4 (2026-11-02): the page's counts are kept for the next
  * page in this tab. The page navigation owner (RO-23) calls
@@ -35,7 +36,10 @@ import { PREVIOUS_AUDIO_RECOVERY_KEY } from '../core/navigation-contract.ts';
 
 // ── Slots ────────────────────────────────────────────────────────────
 // Resume attempts, by where the native resume() was asked for.
-/** context.ts: the play-request restart's gesture resume. */
+/**
+ * context-recovery.ts: the play-request restart's gesture resume (context.ts
+ * until Phase 7 7C-4).
+ */
 export const RESUME_PLAY_REQUEST = 0;
 /** context-recovery.ts: the playback scope's gesture resume. */
 export const RESUME_PLAY_GESTURE = 1;
@@ -48,7 +52,7 @@ export const RESUME_DIALOG = 2;
 export const RESUME_AUTO = 3;
 export const RESUME_ENSURE_RUNNING = 4;
 export const RESUME_PROBE = 5;
-/** context.ts: undoing a retired suspend. */
+/** context-recovery.ts: undoing a retired suspend (context.ts until Phase 7 7C-4). */
 export const RESUME_RETIRE = 6;
 export const RESUME_UI_SOUND = 7;
 // Deadlines that fired: the timer settled before what it watched.

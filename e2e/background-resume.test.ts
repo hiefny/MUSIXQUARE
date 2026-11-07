@@ -168,11 +168,13 @@ test.describe('Mobile Background Resume', () => {
       await expect(page.locator('#btn-dialog-ok')).toHaveText('Restore audio');
       await page.locator('#btn-dialog-ok').click();
 
+      // The first rejoin of any reason ends this wait, so a wrong one fails on
+      // the exact array below rather than as a timeout here.
       await page.waitForFunction(
         () => {
           const signals = (window as unknown as Record<string, unknown>)
             .__backgroundResumeSignals as ResumeSignals | undefined;
-          return signals?.rejoinReasons.includes('audio-recovery-gesture') === true;
+          return (signals?.rejoinReasons.length ?? 0) > 0;
         },
         undefined,
         { timeout: 10_000 },
@@ -191,12 +193,10 @@ test.describe('Mobile Background Resume', () => {
         return (window as unknown as Record<string, unknown>)
           .__backgroundResumeSignals as ResumeSignals;
       });
-      expect(signals.rejoinReasons.filter((reason) => reason === 'background-resume')).toHaveLength(
-        0,
-      );
-      expect(
-        signals.rejoinReasons.filter((reason) => reason === 'audio-recovery-gesture'),
-      ).toHaveLength(1);
+      // Neither an interrupted-context recovery nor a failed PLAY's restart
+      // owns this output, so the dialog's own gesture recovery publishes the
+      // one rejoin, and nothing else does.
+      expect(signals.rejoinReasons).toEqual(['audio-recovery-gesture']);
       expect(signals.refreshCurrentPosition).toBe(1);
       expect(signals.forceResync).toBe(0);
       expect(signals.sourceCreations).toBe(1);
@@ -204,6 +204,11 @@ test.describe('Mobile Background Resume', () => {
       await expect(page.locator('#dialog-overlay.show')).toHaveCount(0);
       await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);
       expect(await readFileIdentity(page)).toEqual(identityBefore);
+      const settled = await page.evaluate(() => {
+        return (window as unknown as Record<string, unknown>)
+          .__backgroundResumeSignals as ResumeSignals;
+      });
+      expect(settled.rejoinReasons).toEqual(['audio-recovery-gesture']);
     } finally {
       await context.close().catch(() => {});
     }

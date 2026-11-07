@@ -753,7 +753,10 @@ describe('AudioContext interruption recovery', () => {
     });
     const attempt = getPendingAudioContextRecoveryAttemptForHealth();
     expect(attempt).toBeTypeOf('object');
-    // Its clock requirement is not current (the playback identity changed).
+    // Its clock requirement is not current (the playback identity changed),
+    // so the owner answers before any clock probe: a frozen clock is neither
+    // probed nor escalated.
+    context.clock = 'stalled';
     await expect(
       finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER),
     ).resolves.toEqual({ kind: 'superseded' });

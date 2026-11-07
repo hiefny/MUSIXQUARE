@@ -167,20 +167,26 @@ export default defineConfig({
           // 2026-08-21 (Node 24 baseline 84.15, 78.67, 89.65, 87.71). With
           // the AudioContext owner suites enrolled on 2026-11-02 (Phase 7
           // prep, T0), two identical Node 24 runs on main 7d60f134 measured
-          // 90.99, 88.66, 88.57, 93.37: about one point below each.
-          statements: 89,
+          // 90.99, 88.66, 88.57, 93.37: about one point below each. Since
+          // Phase 7 7C-4 it also holds the play-request restart and the
+          // suspend ledger; two identical Node 24 runs on 2026-11-08 measured
+          // 91.94, 88.72, 94.11, 94.15.
+          statements: 90,
           branches: 87,
-          functions: 87,
-          lines: 92,
+          functions: 93,
+          lines: 93,
         },
-        // The shared AudioContext and its play-request restart, enrolled with
-        // the owner suites on 2026-11-02 about one point below two identical
-        // Node 24 runs on main 7d60f134: 89.53, 84.36, 95.52, 91.68.
+        // The shared AudioContext, enrolled with the owner suites on
+        // 2026-11-02 about one point below two identical Node 24 runs on main
+        // 7d60f134: 89.53, 84.36, 95.52, 91.68. Since Phase 7 7C-4 it keeps
+        // the singleton and its primitives only (the play-request restart
+        // moved into the owner): 92.98, 92.1, 100, 92.59 in two identical
+        // Node 24 runs on 2026-11-08.
         'src/audio/context.ts': {
-          statements: 88,
-          branches: 83,
-          functions: 94,
-          lines: 90,
+          statements: 91,
+          branches: 91,
+          functions: 99,
+          lines: 91,
         },
         'src/audio/system-capture.ts': {
           statements: 80,

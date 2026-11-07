@@ -77,13 +77,35 @@ interface ContextResumeResult {
   rejoinEmitted: boolean;
 }
 
-interface PendingAudioContextClockHealthRequirement {
-  readonly context: AudioContext;
-  readonly attemptToken: object;
+type AudioContextRecoveryEscalationResult = 'rejected' | 'prepared' | 'preparing';
+
+type AudioContextHealth = Awaited<ReturnType<typeof probeAudioContextHealth>>;
+
+/** The caller of the playback scope's gesture recovery, as its second step reads it. */
+interface PendingInterruptionGestureCaller {
+  /** The first step's answer, or the recovery dialog's race standing in for it. */
+  readonly running: boolean;
+  /** The caller still acts for this gesture. */
   readonly isCurrent: () => boolean;
+  /** Called with the probe's answer when the output is unhealthy, before anything escalates. */
+  readonly unhealthy?: (health: AudioContextHealth) => void;
+  /** Media Session: this PLAY clears a local pause on the same mode (owner answer Q12, 7B-6). */
+  readonly clearsLocalPause?: () => boolean;
+  /** false verifies only: the dialog's failed-PLAY retry cancels the attempt itself (RO-37). */
+  readonly commit?: boolean;
 }
 
-type AudioContextRecoveryEscalationResult = 'rejected' | 'prepared' | 'preparing';
+/**
+ * How the gesture recovery ended: its resume did not reach running; the
+ * caller or the attempt is no longer current, or no running attempt is left
+ * to verify; a stale attempt was retired (7B-6) and the caller rejoins
+ * itself; the probe gave no verdict on the clock; a frozen clock was
+ * escalated; a healthy clock was only verified; or the attempt committed.
+ */
+type PendingInterruptionGestureOutcome =
+  | { readonly kind: 'not-running' | 'superseded' | 'stale-retired' | 'unverified' | 'verified' }
+  | { readonly kind: 'escalated'; readonly escalation: AudioContextRecoveryEscalationResult }
+  | { readonly kind: 'recovered'; readonly rejoinEmitted: boolean };
 
 interface PendingContextRecovery {
   context: AudioContext;
@@ -657,11 +679,12 @@ export function getPendingAudioContextRecoveryAttemptForHealth(): object | null 
 }
 
 /**
- * Expose a one-time, exact probe requirement only after native resume reached
- * `running`. Callers must probe with `attemptResume: false`, then confirm or
- * cancel this same token. Ordinary PLAY has no work when this returns null.
+ * The gesture recovery's own observation (ownership record Decision 5, Phase
+ * 7 7C-1), at the moment its callers read the clock requirement before: a
+ * running state-interruption attempt still waiting for its resume moves to
+ * clock verification. No query changes the owner's state.
  */
-export function getPendingAudioContextClockHealthRequirement(): PendingAudioContextClockHealthRequirement | null {
+function observeRunningInterruption(): void {
   const recovery = pendingRecovery;
   if (
     recovery &&
@@ -674,22 +697,6 @@ export function getPendingAudioContextClockHealthRequirement(): PendingAudioCont
     setRecoveryPhase(recovery, 'awaiting-clock-verification');
     recovery.clockVerified = false;
   }
-  if (
-    !recovery ||
-    recovery.phase !== 'awaiting-clock-verification' ||
-    String(recovery.context.state) !== 'running'
-  ) {
-    return null;
-  }
-  return {
-    context: recovery.context,
-    attemptToken: recovery.attemptToken,
-    isCurrent: () =>
-      recoveryStillOwnsAttempt(recovery) &&
-      recovery.phase === 'awaiting-clock-verification' &&
-      String(recovery.context.state) === 'running' &&
-      identityStillCurrent(recovery.identity),
-  };
 }
 
 export function isAudioContextInterruptionAttemptCurrent(attemptToken: object): boolean {
@@ -703,8 +710,15 @@ export function isAudioContextInterruptionAttemptCurrent(attemptToken: object): 
   );
 }
 
-/** Retry an OS recovery only when its exact native preparation is complete. */
-export function resumePendingAudioContextInterruptionFromGesture(): Promise<ContextResumeResult> {
+/**
+ * The playback scope's trusted gesture, first step (RO-01, Phase 7 7C-1; one
+ * owner sequence in two steps while the recovery dialog races the resume
+ * alone, until 7C-2): resume the pending attempt synchronously inside the
+ * caller's activation, a clock-stalled one only when its exact native
+ * preparation is complete. Its answer settles by the resume deadline; the
+ * caller hands it to finishPendingInterruptionRecoveryFromGesture.
+ */
+export function beginPendingInterruptionRecoveryFromGesture(): Promise<ContextResumeResult> {
   const recovery = pendingRecovery;
   if (!recovery) {
     return Promise.resolve({ running: false, rejoinEmitted: false });
@@ -725,9 +739,7 @@ export function resumePendingAudioContextInterruptionFromGesture(): Promise<Cont
 }
 
 /** Commit any recovery only after its exact foreground clock probe passes. */
-export function confirmPendingAudioContextRecoveryHealth(
-  attemptToken: object,
-): ContextResumeResult {
+function confirmPendingAudioContextRecoveryHealth(attemptToken: object): ContextResumeResult {
   const recovery = pendingRecovery;
   if (
     !recovery ||
@@ -769,7 +781,7 @@ export function cancelPendingAudioContextRecovery(attemptToken: object): boolean
  * hidden boundary's keeps its continuity). The PLAY then rejoins the room
  * itself. true when the attempt was retired here.
  */
-export function retireStalePendingAudioContextRecovery(attemptToken: object): boolean {
+function retireStalePendingAudioContextRecovery(attemptToken: object): boolean {
   const recovery = pendingRecovery;
   if (
     !recovery ||
@@ -794,7 +806,7 @@ export function retireStalePendingAudioContextRecovery(attemptToken: object): bo
  * probe proved the native clock is frozen. Preparation retains the same token;
  * the recovery event is emitted only after suspend/interrupted is concrete.
  */
-export async function escalatePendingAudioContextRecoveryToClockStalled(
+async function escalatePendingAudioContextRecoveryToClockStalled(
   attemptToken: object,
 ): Promise<AudioContextRecoveryEscalationResult> {
   const recovery = pendingRecovery;
@@ -834,6 +846,61 @@ export async function escalatePendingAudioContextRecoveryToClockStalled(
     (recovery.phase as RecoveryPhase) === 'preparing-suspend'
     ? 'preparing'
     : 'rejected';
+}
+
+/**
+ * The playback scope's trusted gesture, second step (RO-01, Phase 7 7C-1),
+ * for the recovery dialog and a Media Session PLAY alike. A resume that did
+ * not reach running is let go: the owner verifies a late running state
+ * itself (fix lane G7). Otherwise the owner observes the running attempt,
+ * probes the clock of this exact attempt, and escalates a frozen clock to a
+ * prepared stalled recovery or commits a healthy one with its one rejoin.
+ * With no running attempt to verify, a PLAY that clears a local pause
+ * retires the stale attempt (7B-6). The caller's currency is read before the
+ * requirement, inside the probe and after it, never after the commit.
+ */
+export async function finishPendingInterruptionRecoveryFromGesture(
+  attemptToken: object,
+  caller: PendingInterruptionGestureCaller,
+): Promise<PendingInterruptionGestureOutcome> {
+  if (!caller.running) return { kind: 'not-running' };
+  if (!caller.isCurrent() || !isAudioContextInterruptionAttemptCurrent(attemptToken)) {
+    return { kind: 'superseded' };
+  }
+  observeRunningInterruption();
+  const recovery = pendingRecovery;
+  const requirementIsCurrent = (): boolean =>
+    !!recovery &&
+    recoveryStillOwnsAttempt(recovery) &&
+    recovery.phase === 'awaiting-clock-verification' &&
+    String(recovery.context.state) === 'running' &&
+    identityStillCurrent(recovery.identity);
+  if (!recovery || recovery.attemptToken !== attemptToken || !requirementIsCurrent()) {
+    return caller.clearsLocalPause?.() && retireStalePendingAudioContextRecovery(attemptToken)
+      ? { kind: 'stale-retired' }
+      : { kind: 'superseded' };
+  }
+  const health = await probeAudioContextHealth({
+    attemptResume: false,
+    context: recovery.context,
+    isCurrent: () => caller.isCurrent() && requirementIsCurrent(),
+  });
+  if (!health.healthy) {
+    caller.unhealthy?.(health);
+    if (health.reason !== 'clock-stalled') return { kind: 'unverified' };
+  }
+  if (!caller.isCurrent() || !requirementIsCurrent()) return { kind: 'superseded' };
+  if (!health.healthy) {
+    return {
+      kind: 'escalated',
+      escalation: await escalatePendingAudioContextRecoveryToClockStalled(attemptToken),
+    };
+  }
+  if (caller.commit === false) return { kind: 'verified' };
+  const confirmed = confirmPendingAudioContextRecoveryHealth(attemptToken);
+  return confirmed.running
+    ? { kind: 'recovered', rejoinEmitted: confirmed.rejoinEmitted }
+    : { kind: 'superseded' };
 }
 
 /**

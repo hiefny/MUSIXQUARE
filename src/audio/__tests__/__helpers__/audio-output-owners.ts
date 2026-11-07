@@ -519,10 +519,13 @@ export const playbackScope = {
     if (token) return 'prepared';
     return o.recovery.getPendingAudioContextRecoveryAttemptForHealth() ? 'preparing' : 'stale';
   },
-  /** The dialog's or hardware PLAY's trusted gesture on the pending attempt. */
+  /**
+   * The dialog's or hardware PLAY's trusted gesture on the pending attempt:
+   * the owner's first step, its resume and that resume's answer.
+   */
   tap(o: Owners): Promise<{ running: boolean }> {
     return o.recovery
-      .resumePendingAudioContextInterruptionFromGesture()
+      .beginPendingInterruptionRecoveryFromGesture()
       .then((result) => ({ running: result.running }));
   },
   view(o: Owners): ScopeView {

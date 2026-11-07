@@ -122,7 +122,7 @@ describe('each native resume counts once, under its source', () => {
       ['RESUME_PLAY_GESTURE'],
       async (s) => {
         await parkStalledFile(s);
-        return () => s.o.recovery.resumePendingAudioContextInterruptionFromGesture();
+        return () => s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
       },
     ],
     [
@@ -221,7 +221,7 @@ describe('a deadline counts only when it fires', () => {
   };
   const scopeTap: Arrange = async (s) => {
     await parkStalledFile(s);
-    return () => s.o.recovery.resumePendingAudioContextInterruptionFromGesture();
+    return () => s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
   };
   const automatic: Arrange = async (s) => {
     stageFile(s.o);
@@ -509,7 +509,7 @@ describe('suspends, refused taps and overlaps', () => {
     const before = s.read();
 
     // The playback scope is still preparing its suspend; a stale restart token.
-    await s.o.recovery.resumePendingAudioContextInterruptionFromGesture();
+    await s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
     await s.o.context.resumePreparedForegroundAudioContextRestartFromGesture({});
 
     expect(s.fake.calls('resume')).toBe(0);

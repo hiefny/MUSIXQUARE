@@ -211,7 +211,7 @@ export function createFakeAudioContext(sampleRate = 48_000): FakeAudioContext {
  * - 'silent': the state flips with no event (WebKit resume() switching to
  *   running without statechange, `requestRetiredAudioContextSuspendCleanup`
  *   in context.ts; state updated without a timely statechange,
- *   `getPendingAudioContextClockHealthRequirement` in context-recovery.ts).
+ *   `observeRunningInterruption` in context-recovery.ts).
  * - outcome 'never': the promise never settles (WebKit resume() pending
  *   indefinitely after a page suspension, `ensureRunning` in context.ts).
  * - The clock advances with fake wall time (`performance.now()`) only while

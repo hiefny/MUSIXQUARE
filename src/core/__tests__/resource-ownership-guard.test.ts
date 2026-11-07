@@ -920,6 +920,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         'src/app.ts probeAudioContextHealth()',
         'src/app.ts restartAudioContextFromGesture()',
         'src/audio/context-recovery.ts probeAudioContextHealth()',
+        'src/audio/context-recovery.ts probeAudioContextHealth()',
         'src/audio/context-recovery.ts requestAudioContextResume()',
         'src/audio/context-recovery.ts requestRetiredAudioContextSuspendCleanup()',
         'src/audio/context.ts requestAudioContextResume()',
@@ -930,7 +931,6 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         'src/audio/engine.ts ensureRunning()',
         'src/audio/output-health.ts probeAudioContextHealth()',
         'src/player/decode.ts ensureRunning()',
-        'src/player/media-session.ts probeAudioContextHealth()',
         'src/player/transport.ts ensureRunning()',
         'src/player/transport.ts probeAudioContextHealth()',
       ]);

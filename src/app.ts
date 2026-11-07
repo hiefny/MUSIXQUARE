@@ -71,15 +71,12 @@ import {
   whenForegroundAudioContextRestartReprepared,
 } from './audio/context.ts';
 import {
+  beginPendingInterruptionRecoveryFromGesture,
   cancelPendingAudioContextRecovery,
-  confirmPendingAudioContextRecoveryHealth,
-  escalatePendingAudioContextRecoveryToClockStalled,
-  getPendingAudioContextClockHealthRequirement,
+  finishPendingInterruptionRecoveryFromGesture,
   getPendingAudioContextRecoveryAttemptForHealth,
   getPendingAudioContextInterruptionAttempt,
   hasPendingAudioContextInterruption,
-  isAudioContextInterruptionAttemptCurrent,
-  resumePendingAudioContextInterruptionFromGesture,
 } from './audio/context-recovery.ts';
 import {
   DEADLINE_CLOCK_REQUIREMENT,
@@ -594,7 +591,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
       ) {
         gestureSemanticAttemptToken = getPendingAudioContextInterruptionAttempt();
         if (!gestureSemanticAttemptToken) return;
-        gestureFlight = resumePendingAudioContextInterruptionFromGesture().then((result) => ({
+        gestureFlight = beginPendingInterruptionRecoveryFromGesture().then((result) => ({
           ...result,
           semanticAttemptToken: gestureSemanticAttemptToken,
           foregroundAttemptToken: null,
@@ -649,118 +646,122 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
       );
       if (!operationStillCurrent()) return false;
 
-      let healthContext = getExistingAudioContext();
-      let healthIsCurrent = operationStillCurrent;
-      if (gestureResult.foregroundAttemptToken) {
-        const requirement = await waitForForegroundRestartClockRequirement(
-          gestureResult.foregroundAttemptToken,
-          operationStillCurrent,
-          abortController.signal,
-        );
-        if (!requirement) {
-          const context = getExistingAudioContext();
-          const retired = retireForegroundAudioContextRestart(gestureResult.foregroundAttemptToken);
-          if (retired && context && document.visibilityState === 'visible') {
-            armForegroundAudioContextClockHealthCheck(context);
-          }
-          return false;
-        }
-        healthContext = requirement.context;
-        healthIsCurrent = () => operationStillCurrent() && requirement.isCurrent();
-      } else if (gestureResult.semanticAttemptToken) {
-        if (!isAudioContextInterruptionAttemptCurrent(gestureResult.semanticAttemptToken)) {
-          return false;
-        }
-        const requirement = getPendingAudioContextClockHealthRequirement();
-        if (
-          !requirement ||
-          requirement.attemptToken !== gestureResult.semanticAttemptToken ||
-          !requirement.isCurrent()
-        ) {
-          return false;
-        }
-        healthContext = requirement.context;
-        healthIsCurrent = () => operationStillCurrent() && requirement.isCurrent();
-      }
-
-      const health = await probeAudioContextHealth({
-        attemptResume: false,
-        context: healthContext ?? undefined,
-        isCurrent: healthIsCurrent,
-      });
-      const gestureReachedRunning = gestureResult.foregroundAttemptToken
-        ? String(healthContext?.state) === 'running'
-        : gestureResult.running;
-      if (!health.healthy || !gestureReachedRunning) {
+      const warnUnhealthy = (health: { readonly reason: string; readonly state: string }): void => {
         log.warn('[Audio] Output remains unhealthy after gesture recovery', {
           reason,
           health: health.reason,
           state: health.state,
         });
-        if (gestureResult.foregroundAttemptToken) {
-          const retired = retireForegroundAudioContextRestart(gestureResult.foregroundAttemptToken);
-          if (retired && healthContext && document.visibilityState === 'visible') {
-            armForegroundAudioContextClockHealthCheck(healthContext);
-          }
-        } else if (gestureResult.semanticAttemptToken && health.reason === 'clock-stalled') {
-          const escalation = await escalatePendingAudioContextRecoveryToClockStalled(
-            gestureResult.semanticAttemptToken,
-          );
-          if (escalation === 'prepared' && operationStillCurrent()) {
-            // A synchronous preparation event races with this still-open
-            // dialog and is intentionally deduplicated. Preserve the exact
-            // incident for the next actionable activation.
-            pendingAudioRecoveryRequest = {
-              reason: 'clock-stalled',
-              source,
-              identity,
-            };
-          }
-        } else if (
-          !gestureResult.foregroundAttemptToken &&
-          !gestureResult.semanticAttemptToken &&
-          health.reason === 'clock-stalled' &&
-          healthContext &&
-          operationStillCurrent()
-        ) {
-          const preparation =
-            await prepareForegroundAudioContextRestartAfterClockStall(healthContext);
-          if (preparation && operationStillCurrent()) {
-            enqueuePreparedForegroundRestart(preparation);
-          }
-        }
-        return false;
-      }
-
-      if (
-        gestureResult.foregroundAttemptToken &&
-        !(identity.confirmForegroundRestart
-          ? identity.confirmForegroundRestart(gestureResult.foregroundAttemptToken)
-          : confirmForegroundAudioContextRestartHealth(gestureResult.foregroundAttemptToken))
-      ) {
-        return false;
-      }
-      if (gestureResult.foregroundAttemptToken) operationHealthClaimed = true;
-
+      };
       let confirmedRecovery = {
         running: false,
         rejoinEmitted: false,
       };
-      if (gestureResult.semanticAttemptToken) {
+      if (gestureResult.semanticAttemptToken && !gestureResult.foregroundAttemptToken) {
+        // The playback scope's attempt: its owner observes the running
+        // context, checks this exact attempt's clock with this dialog's
+        // currency, escalates a frozen clock or commits (RO-01, Phase 7 7C-1).
+        const recovery = await finishPendingInterruptionRecoveryFromGesture(
+          gestureResult.semanticAttemptToken,
+          {
+            running: gestureResult.running,
+            isCurrent: operationStillCurrent,
+            unhealthy: warnUnhealthy,
+            // RO-37: a failed PLAY's retry cancels the attempt below instead.
+            commit: identity.intent !== 'retry-failed-play',
+          },
+        );
+        if (
+          recovery.kind === 'escalated' &&
+          recovery.escalation === 'prepared' &&
+          operationStillCurrent()
+        ) {
+          // A synchronous preparation event races with this still-open
+          // dialog and is intentionally deduplicated. Preserve the exact
+          // incident for the next actionable activation.
+          pendingAudioRecoveryRequest = {
+            reason: 'clock-stalled',
+            source,
+            identity,
+          };
+        }
+        if (recovery.kind !== 'recovered' && recovery.kind !== 'verified') return false;
         if (identity.intent === 'retry-failed-play') {
           if (!cancelPendingAudioContextRecovery(gestureResult.semanticAttemptToken)) {
             return false;
           }
-        } else {
-          confirmedRecovery = confirmPendingAudioContextRecoveryHealth(
-            gestureResult.semanticAttemptToken,
-          );
-          if (!confirmedRecovery.running) return false;
+        } else if (recovery.kind === 'recovered') {
+          confirmedRecovery = { running: true, rejoinEmitted: recovery.rejoinEmitted };
         }
         operationHealthClaimed = true;
-      }
-      if (!gestureResult.foregroundAttemptToken && !gestureResult.semanticAttemptToken) {
-        operationHealthClaimed = true;
+      } else {
+        let healthContext = getExistingAudioContext();
+        let healthIsCurrent = operationStillCurrent;
+        if (gestureResult.foregroundAttemptToken) {
+          const requirement = await waitForForegroundRestartClockRequirement(
+            gestureResult.foregroundAttemptToken,
+            operationStillCurrent,
+            abortController.signal,
+          );
+          if (!requirement) {
+            const context = getExistingAudioContext();
+            const retired = retireForegroundAudioContextRestart(
+              gestureResult.foregroundAttemptToken,
+            );
+            if (retired && context && document.visibilityState === 'visible') {
+              armForegroundAudioContextClockHealthCheck(context);
+            }
+            return false;
+          }
+          healthContext = requirement.context;
+          healthIsCurrent = () => operationStillCurrent() && requirement.isCurrent();
+        }
+
+        const health = await probeAudioContextHealth({
+          attemptResume: false,
+          context: healthContext ?? undefined,
+          isCurrent: healthIsCurrent,
+        });
+        const gestureReachedRunning = gestureResult.foregroundAttemptToken
+          ? String(healthContext?.state) === 'running'
+          : gestureResult.running;
+        if (!health.healthy || !gestureReachedRunning) {
+          warnUnhealthy(health);
+          if (gestureResult.foregroundAttemptToken) {
+            const retired = retireForegroundAudioContextRestart(
+              gestureResult.foregroundAttemptToken,
+            );
+            if (retired && healthContext && document.visibilityState === 'visible') {
+              armForegroundAudioContextClockHealthCheck(healthContext);
+            }
+          } else if (
+            !gestureResult.foregroundAttemptToken &&
+            !gestureResult.semanticAttemptToken &&
+            health.reason === 'clock-stalled' &&
+            healthContext &&
+            operationStillCurrent()
+          ) {
+            const preparation =
+              await prepareForegroundAudioContextRestartAfterClockStall(healthContext);
+            if (preparation && operationStillCurrent()) {
+              enqueuePreparedForegroundRestart(preparation);
+            }
+          }
+          return false;
+        }
+
+        if (
+          gestureResult.foregroundAttemptToken &&
+          !(identity.confirmForegroundRestart
+            ? identity.confirmForegroundRestart(gestureResult.foregroundAttemptToken)
+            : confirmForegroundAudioContextRestartHealth(gestureResult.foregroundAttemptToken))
+        ) {
+          return false;
+        }
+        if (gestureResult.foregroundAttemptToken) operationHealthClaimed = true;
+        if (!gestureResult.foregroundAttemptToken && !gestureResult.semanticAttemptToken) {
+          operationHealthClaimed = true;
+        }
       }
       if (identity.intent === 'retry-failed-play') {
         const started = await identity.retry?.();

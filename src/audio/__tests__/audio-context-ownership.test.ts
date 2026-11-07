@@ -206,18 +206,36 @@ async function parkPlayRequestRestart(
   return { check: check!, preparation: preparation! };
 }
 
-/**
- * Public view of the playback-scope owner. It never reads
- * getPendingAudioContextClockHealthRequirement, which promotes a
- * state-interruption attempt as a side effect; tests read that query only
- * where its side effect is part of the pinned behaviour.
- */
+/** Public view of the playback-scope owner, from its exported queries only. */
 function playbackScope(o: Owners, token: object) {
   const gesture = o.recovery.getPendingAudioContextInterruptionAttempt();
   return {
     pending: o.recovery.hasPendingAudioContextInterruption('file'),
     current: o.recovery.isAudioContextInterruptionAttemptCurrent(token),
     gestureToken: gesture === null ? 'none' : gesture === token ? 'same' : 'other',
+  };
+}
+
+/**
+ * The clock requirement a gesture's recovery checks next, read from the
+ * owner's exported queries (since Phase 7 7C-1 the owner reads it itself;
+ * nothing here promotes an attempt): the pending attempt while the context
+ * runs and no owner holds it for a tap, current while that attempt is the
+ * live one. The rows that read it read attempts their resume already
+ * promoted, or none.
+ */
+function clockRequirement(o: Owners): { attemptToken: object; isCurrent(): boolean } | null {
+  const attemptToken = o.recovery.getPendingAudioContextRecoveryAttemptForHealth();
+  if (
+    !attemptToken ||
+    String(o.context.getExistingAudioContext()?.state) !== 'running' ||
+    o.recovery.isAudioOutputRecoveryHolding()
+  ) {
+    return null;
+  }
+  return {
+    attemptToken,
+    isCurrent: () => o.recovery.isAudioContextInterruptionAttemptCurrent(attemptToken),
   };
 }
 
@@ -346,7 +364,7 @@ describe('RO-01 gesture paths issue the native resume inside the activation (C1-
         stageFilePlayback(o);
         bind(o, fake);
         await parkStalledPlayback(o, fake);
-        return () => o.recovery.resumePendingAudioContextInterruptionFromGesture();
+        return () => o.recovery.beginPendingInterruptionRecoveryFromGesture();
       },
     ],
     [
@@ -530,7 +548,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
     const token = await parkStalledPlayback(o, fake);
     fake.planResume({ latencyMs: 1_200, ...resume }).planSuspend(reSuspend);
 
-    const gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+    const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
     await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
 
     // What app.ts (dialog flight, settles before its 1 s race) and
@@ -540,7 +558,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       rejoinEmitted: false,
     });
     expect(playbackScope(o, token)).toEqual(PARKED);
-    expect(o.recovery.getPendingAudioContextClockHealthRequirement()).toBeNull();
+    expect(clockRequirement(o)).toBeNull();
 
     await vi.advanceTimersByTimeAsync(10_000);
 
@@ -557,7 +575,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
     // resume and prepared the attempt again (the three rows' notes say what
     // followed). An outside resume while this resume is still pending looks
     // the same to the owner and is verified the same way.
-    const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
+    const requirement = clockRequirement(o);
     expect(fake.state).toBe(end.state);
     expect(playbackScope(o, token)).toEqual(end.scope);
     expect(
@@ -591,7 +609,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       fake.planResume({ latencyMs: 1_200, statechange: order, stateDelayMs: 100 });
 
       // The user taps Restore and locks the screen before the route settles.
-      const gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+      const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(300);
       setVisibility('hidden');
       await vi.advanceTimersByTimeAsync(5_000);
@@ -602,7 +620,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       expect(playbackScope(o, token)).toEqual(
         cause === 'background-clock-stalled' ? VERIFYING : VERIFYING_ACCEPTING_GESTURE,
       );
-      expect(o.recovery.getPendingAudioContextClockHealthRequirement()?.attemptToken).toBe(token);
+      expect(clockRequirement(o)?.attemptToken).toBe(token);
       expect(bus.rejoins).toEqual([]);
       // While it waits, the background inspector defers to this attempt.
       await expect(inspectBackgroundFileOutput()).resolves.toMatchObject({
@@ -649,7 +667,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
 
       const before = fake.ops.length;
       let gesture: Promise<unknown> | null = null;
-      if (via === 'dialog') gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+      if (via === 'dialog') gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
       else play();
       expect(fake.ops.slice(before)).toEqual(['resume()']);
       await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
@@ -665,13 +683,13 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       expect(fake.state).toBe('interrupted');
       expect(playbackScope(o, token)).toEqual(PARKED);
       // Safe to read: no promotion while the state is not running.
-      expect(o.recovery.getPendingAudioContextClockHealthRequirement()).toBeNull();
+      expect(clockRequirement(o)).toBeNull();
 
       await vi.advanceTimersByTimeAsync(10_000);
 
       expect(fake.state).toBe('running');
       // Already completed, so this read promotes nothing.
-      const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
+      const requirement = clockRequirement(o);
       // Fix lane G7: the gesture caller gave up at the deadline, so the late
       // promotion starts the owner's automatic probe
       // (scheduleAutomaticClockVerification). Since Phase 7 7B-5 the gesture's
@@ -704,7 +722,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       fake.planResume({ latencyMs: 400, statechange: 'silent' });
 
       // The dialog's flight, with no caller-side probe after it.
-      const gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+      const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(10_000);
 
       // The G7 handover applies only after the deadline returned the caller:
@@ -714,7 +732,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
         running: true,
         rejoinEmitted: false,
       });
-      const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
+      const requirement = clockRequirement(o);
       expect(requirement?.attemptToken).toBe(token);
       expect(requirement?.isCurrent()).toBe(true);
       expect(bus.rejoins).toEqual([]);
@@ -737,7 +755,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       const resumesBefore = fake.calls('resume');
       fake.planResume({ latencyMs: 1_200, statechange: 'silent' });
 
-      const gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+      const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
       await expect(gesture).resolves.toMatchObject({ running: false });
       o.setState('playback.activity', 'paused');
@@ -748,7 +766,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       // attempt stayed pending in awaiting-clock-verification.
       expect(fake.state).toBe('running');
       expect(playbackScope(o, token)).toEqual(NO_ATTEMPT);
-      expect(o.recovery.getPendingAudioContextClockHealthRequirement()).toBeNull();
+      expect(clockRequirement(o)).toBeNull();
       expect(bus).toEqual(QUIET_BUS);
       expect(fake.calls('resume')).toBe(resumesBefore + 1);
     },
@@ -770,7 +788,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       fake.freezeClock();
       fake.planResume({ latencyMs: 1_200, statechange: 'silent' });
 
-      const gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+      const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(10_000);
       await expect(gesture).resolves.toMatchObject({ running: false });
 
@@ -816,7 +834,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       expect(fake.ops.slice(before)).toEqual(['resume()']);
       await vi.advanceTimersByTimeAsync(2_000);
       expect(fake.state).toBe('running');
-      expect(o.recovery.getPendingAudioContextClockHealthRequirement()?.attemptToken).toBe(token);
+      expect(clockRequirement(o)?.attemptToken).toBe(token);
       expect(playbackScope(o, token)).toEqual(
         cause === 'background-clock-stalled' ? VERIFYING : VERIFYING_ACCEPTING_GESTURE,
       );
@@ -1097,7 +1115,7 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     fake.transition('running');
     await vi.advanceTimersByTimeAsync(0);
     const before = fake.ops.length;
-    await expect(o.recovery.resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
+    await expect(o.recovery.beginPendingInterruptionRecoveryFromGesture()).resolves.toEqual({
       running: false,
       rejoinEmitted: false,
     });
@@ -1266,29 +1284,30 @@ describe('RO-01 retire, cancel and escalate', () => {
     );
     expect(token).toBeTypeOf('object');
 
+    // C1-I5, query purity (Phase 7 7C-1; this row pinned it as a Known gap of
+    // the requirement query): no query moves awaiting-resume to
+    // awaiting-clock-verification any more. The owner's gesture recovery
+    // observes the running context itself, where its callers read that
+    // query, then checks this exact attempt's clock and escalates a frozen
+    // one: nothing escalates before that observation, and a foreign token
+    // reaches nothing.
+    const caller = { running: true, isCurrent: () => true };
     await expect(
-      o.recovery.escalatePendingAudioContextRecoveryToClockStalled(token!),
-    ).resolves.toBe('rejected');
-    // Known gap (C1-I5): this query moves awaiting-resume to
-    // awaiting-clock-verification while the context is running.
-    expect(o.recovery.getPendingAudioContextClockHealthRequirement()?.attemptToken).toBe(token);
-    await expect(o.recovery.escalatePendingAudioContextRecoveryToClockStalled({})).resolves.toBe(
-      'rejected',
-    );
+      o.recovery.finishPendingInterruptionRecoveryFromGesture({}, caller),
+    ).resolves.toEqual({ kind: 'superseded' });
 
+    fake.freezeClock();
     fake.planSuspend({ latencyMs: 600 });
-    const escalation = o.recovery.escalatePendingAudioContextRecoveryToClockStalled(token!);
-    await vi.advanceTimersByTimeAsync(500);
-    await expect(escalation).resolves.toBe('preparing');
+    const escalation = o.recovery.finishPendingInterruptionRecoveryFromGesture(token!, caller);
+    // Its two frozen clock samples, then the 500 ms suspend preparation.
+    await vi.advanceTimersByTimeAsync(360 + 500);
+    await expect(escalation).resolves.toEqual({ kind: 'escalated', escalation: 'preparing' });
     expect(bus.needed).toEqual([]);
     expect(playbackScope(o, token!).gestureToken).toBe('none');
 
     await vi.advanceTimersByTimeAsync(100);
     expect(bus.needed).toEqual(['background-resume:clock-stalled']);
     expect(playbackScope(o, token!).gestureToken).toBe('same');
-    await expect(
-      o.recovery.escalatePendingAudioContextRecoveryToClockStalled(token!),
-    ).resolves.toBe('prepared');
   });
 
   it('cancelling a playback attempt leaves the context suspended; retiring a restart resumes it', async () => {
@@ -1344,7 +1363,7 @@ describe('RO-01 supersession and teardown', () => {
     const token = await parkStalledPlayback(o, fake);
     fake.planResume({ latencyMs: 1_200 });
 
-    const gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+    const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
     await vi.advanceTimersByTimeAsync(300);
     dispose();
     await vi.advanceTimersByTimeAsync(2_000);

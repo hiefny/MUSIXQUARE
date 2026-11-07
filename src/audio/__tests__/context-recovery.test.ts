@@ -15,17 +15,29 @@ import {
 } from '../context.ts';
 import {
   armPendingAudioContextRecoveryFromBackground,
+  beginPendingInterruptionRecoveryFromGesture,
   bindAudioContextInterruptionRecovery,
   cancelPendingAudioContextRecovery,
-  confirmPendingAudioContextRecoveryHealth,
-  escalatePendingAudioContextRecoveryToClockStalled,
-  getPendingAudioContextClockHealthRequirement,
+  finishPendingInterruptionRecoveryFromGesture,
   getPendingAudioContextInterruptionAttempt,
   getPendingAudioContextRecoveryAttemptForHealth,
   hasPendingAudioContextInterruption,
   isAudioContextInterruptionAttemptCurrent,
-  resumePendingAudioContextInterruptionFromGesture,
 } from '../context-recovery.ts';
+
+/**
+ * A gesture caller that still acts and whose resume reached running: the
+ * owner's second step then observes, probes this exact attempt's clock (one
+ * 180 ms sample when it runs) and escalates or commits (Phase 7 7C-1).
+ */
+const CURRENT_CALLER = { running: true, isCurrent: (): boolean => true };
+
+/** That second step on fake timers: its 180 ms clock sample, then its outcome. */
+async function finishOnFakeClock(attempt: object) {
+  const finished = finishPendingInterruptionRecoveryFromGesture(attempt, CURRENT_CALLER);
+  await vi.advanceTimersByTimeAsync(180);
+  return finished;
+}
 
 class FakeAudioContext {
   state = 'running';
@@ -167,16 +179,15 @@ describe('AudioContext interruption recovery', () => {
     expect(context.state).toBe('suspended');
     expect(hasPendingAudioContextInterruption('file')).toBe(true);
 
-    await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
+    await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toEqual({
       running: true,
       rejoinEmitted: false,
     });
     expect(context.resume).toHaveBeenCalledOnce();
     expect(rejoin).not.toHaveBeenCalled();
-    expect(confirmPendingAudioContextRecoveryHealth(attempt!)).toEqual({
-      running: true,
-      rejoinEmitted: true,
-    });
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER),
+    ).resolves.toEqual({ kind: 'recovered', rejoinEmitted: true });
     expect(rejoin).toHaveBeenCalledOnce();
     expect(rejoin).toHaveBeenCalledWith({
       reason: 'audio-context-recovered',
@@ -290,13 +301,13 @@ describe('AudioContext interruption recovery', () => {
     context.dispatchState('interrupted');
     expect(context.resume).toHaveBeenCalledOnce();
     expect(rejoin).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(getPendingAudioContextClockHealthRequirement()).not.toBeNull());
+    await vi.waitFor(() => expect(getPendingAudioContextRecoveryAttemptForHealth()).not.toBeNull());
     expect(rejoin).not.toHaveBeenCalled();
-    const attempt = getPendingAudioContextClockHealthRequirement()!.attemptToken;
-    expect(confirmPendingAudioContextRecoveryHealth(attempt)).toMatchObject({
-      running: true,
-      rejoinEmitted: true,
-    });
+    const attempt = getPendingAudioContextRecoveryAttemptForHealth()!;
+    // The owner's own clock check (its automatic resume promoted the attempt)
+    // commits it once the clock is proven; no caller step confirms it.
+    await vi.waitFor(() => expect(hasPendingAudioContextInterruption()).toBe(false));
+    expect(isAudioContextInterruptionAttemptCurrent(attempt)).toBe(true);
     expect(rejoin).toHaveBeenCalledOnce();
     expect(rejoin).toHaveBeenCalledWith({
       reason: 'audio-context-recovered',
@@ -315,14 +326,24 @@ describe('AudioContext interruption recovery', () => {
     bus.on('audio:output-recovery-needed', recoveryNeeded);
     bus.on('playback:local-output-rejoin', rejoin);
     bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    // The automatic resume is refused, so the PLAY's own resume brings the
+    // context back and no automatic clock check races the PLAY's.
+    context.resume.mockRejectedValueOnce(new Error('autoplay blocked'));
 
     context.dispatchState('suspended');
-    await vi.waitFor(() => expect(getPendingAudioContextClockHealthRequirement()).not.toBeNull());
-    const attempt = getPendingAudioContextClockHealthRequirement()!.attemptToken;
-    await expect(escalatePendingAudioContextRecoveryToClockStalled({})).resolves.toBe('rejected');
-    await expect(escalatePendingAudioContextRecoveryToClockStalled(attempt)).resolves.toBe(
-      'prepared',
+    await vi.waitFor(() => expect(getPendingAudioContextInterruptionAttempt()).not.toBeNull());
+    const attempt = getPendingAudioContextInterruptionAttempt()!;
+    // The PLAY's resume reaches running, but the clock stays frozen.
+    context.clock = 'stalled';
+    await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toMatchObject({
+      running: true,
+    });
+    await expect(finishPendingInterruptionRecoveryFromGesture({}, CURRENT_CALLER)).resolves.toEqual(
+      { kind: 'superseded' },
     );
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt, CURRENT_CALLER),
+    ).resolves.toEqual({ kind: 'escalated', escalation: 'prepared' });
 
     expect(context.suspend).toHaveBeenCalledOnce();
     expect(context.state).toBe('suspended');
@@ -336,13 +357,16 @@ describe('AudioContext interruption recovery', () => {
     );
     const preparedRequest = recoveryNeeded.mock.calls[0]![0] as { isCurrent: () => boolean };
     expect(preparedRequest.isCurrent()).toBe(true);
-    expect(confirmPendingAudioContextRecoveryHealth(attempt)).toMatchObject({ running: false });
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt, CURRENT_CALLER),
+    ).resolves.toEqual({ kind: 'superseded' });
 
-    await resumePendingAudioContextInterruptionFromGesture();
-    expect(confirmPendingAudioContextRecoveryHealth(attempt)).toMatchObject({
-      running: true,
-      rejoinEmitted: true,
-    });
+    // The next gesture's resume brings a running clock.
+    context.clock = 'running';
+    await beginPendingInterruptionRecoveryFromGesture();
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt, CURRENT_CALLER),
+    ).resolves.toEqual({ kind: 'recovered', rejoinEmitted: true });
     expect(rejoin).toHaveBeenCalledOnce();
   });
 
@@ -360,11 +384,12 @@ describe('AudioContext interruption recovery', () => {
         context as unknown as AudioContext,
         'state-interruption',
       );
-      expect(getPendingAudioContextClockHealthRequirement()?.attemptToken).toBe(attempt);
-      const escalation = escalatePendingAudioContextRecoveryToClockStalled(attempt!);
-      await vi.advanceTimersByTimeAsync(500);
+      // A PLAY's clock check finds the running clock frozen (two samples).
+      context.clock = 'stalled';
+      const escalation = finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER);
+      await vi.advanceTimersByTimeAsync(360 + 500);
 
-      await expect(escalation).resolves.toBe('preparing');
+      await expect(escalation).resolves.toEqual({ kind: 'escalated', escalation: 'preparing' });
       expect(getPendingAudioContextInterruptionAttempt()).toBeNull();
       expect(recoveryNeeded).not.toHaveBeenCalled();
 
@@ -567,11 +592,10 @@ describe('AudioContext interruption recovery', () => {
       await vi.advanceTimersByTimeAsync(180);
 
       expect(rejoin).toHaveBeenCalledOnce();
-      expect(confirmPendingAudioContextRecoveryHealth(semanticAttempt!)).toMatchObject({
-        running: false,
-        rejoinEmitted: false,
-      });
-      await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toMatchObject({
+      await expect(
+        finishPendingInterruptionRecoveryFromGesture(semanticAttempt!, CURRENT_CALLER),
+      ).resolves.toEqual({ kind: 'superseded' });
+      await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toMatchObject({
         running: false,
         rejoinEmitted: false,
       });
@@ -605,24 +629,30 @@ describe('AudioContext interruption recovery', () => {
         value: 'visible',
       });
       document.dispatchEvent(new Event('visibilitychange'));
+      // A PLAY in the same task as the return. Since Phase 7 7C-1 its commit
+      // follows its own clock check, which starts here, before the owner's
+      // automatic one (the hidden resume's settlement starts that).
+      const attempt = getPendingAudioContextRecoveryAttemptForHealth();
+      const resumed = beginPendingInterruptionRecoveryFromGesture();
+      const played = finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
-      const requirement = getPendingAudioContextClockHealthRequirement();
-      expect(requirement?.isCurrent()).toBe(true);
-      await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toMatchObject({
+      expect(attempt !== null && isAudioContextInterruptionAttemptCurrent(attempt)).toBe(true);
+      await expect(resumed).resolves.toMatchObject({
         running: true,
         rejoinEmitted: false,
       });
-      expect(confirmPendingAudioContextRecoveryHealth(requirement!.attemptToken)).toMatchObject({
-        running: true,
+      await vi.advanceTimersByTimeAsync(180);
+      await expect(played).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       expect(rejoin).toHaveBeenCalledOnce();
 
       await vi.advanceTimersByTimeAsync(180);
       expect(rejoin).toHaveBeenCalledOnce();
-      expect(getPendingAudioContextClockHealthRequirement()).toBeNull();
+      expect(getPendingAudioContextRecoveryAttemptForHealth()).toBeNull();
       dispose();
     } finally {
       vi.useRealTimers();
@@ -659,16 +689,16 @@ describe('AudioContext interruption recovery', () => {
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledTimes(1));
     expect(hasPendingAudioContextInterruption('file')).toBe(true);
 
-    await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
+    await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toEqual({
       running: true,
       rejoinEmitted: false,
     });
 
-    const requirement = getPendingAudioContextClockHealthRequirement();
-    expect(requirement?.isCurrent()).toBe(true);
-    expect(confirmPendingAudioContextRecoveryHealth(requirement!.attemptToken)).toMatchObject({
-      rejoinEmitted: true,
-    });
+    const attempt = getPendingAudioContextRecoveryAttemptForHealth();
+    expect(attempt !== null && isAudioContextInterruptionAttemptCurrent(attempt)).toBe(true);
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER),
+    ).resolves.toMatchObject({ kind: 'recovered', rejoinEmitted: true });
 
     expect(context.resume).toHaveBeenCalledTimes(2);
     expect(hasPendingAudioContextInterruption()).toBe(false);
@@ -691,13 +721,12 @@ describe('AudioContext interruption recovery', () => {
     expect(rejoin).not.toHaveBeenCalled();
     const attempt = getPendingAudioContextRecoveryAttemptForHealth();
     expect(attempt).toBeTypeOf('object');
-    expect(getPendingAudioContextClockHealthRequirement()?.isCurrent()).toBe(false);
-    expect(confirmPendingAudioContextRecoveryHealth(attempt!)).toMatchObject({
-      running: false,
-      rejoinEmitted: false,
-    });
+    // Its clock requirement is not current (another queue occurrence plays),
+    // so a gesture's recovery commits nothing; its checks run at the call.
+    const finished = finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER);
     expect(cancelPendingAudioContextRecovery(attempt!)).toBe(true);
     expect(hasPendingAudioContextInterruption()).toBe(false);
+    await expect(finished).resolves.toEqual({ kind: 'superseded' });
   });
 
   it('does not transfer a gesture recovery after the playback identity changes', async () => {
@@ -718,13 +747,16 @@ describe('AudioContext interruption recovery', () => {
     setState('playback.mode', 'youtube');
     setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000002');
 
-    await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
+    await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toEqual({
       running: true,
       rejoinEmitted: false,
     });
     const attempt = getPendingAudioContextRecoveryAttemptForHealth();
     expect(attempt).toBeTypeOf('object');
-    expect(getPendingAudioContextClockHealthRequirement()?.isCurrent()).toBe(false);
+    // Its clock requirement is not current (the playback identity changed).
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER),
+    ).resolves.toEqual({ kind: 'superseded' });
     expect(cancelPendingAudioContextRecovery(attempt!)).toBe(true);
     expect(rejoin).not.toHaveBeenCalled();
     expect(hasPendingAudioContextInterruption()).toBe(false);
@@ -744,7 +776,7 @@ describe('AudioContext interruption recovery', () => {
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
-    const result = resumePendingAudioContextInterruptionFromGesture();
+    const result = beginPendingInterruptionRecoveryFromGesture();
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledTimes(2));
 
     context.state = 'running';
@@ -785,7 +817,7 @@ describe('AudioContext interruption recovery', () => {
       const firstAttempt = await armPendingAudioContextRecoveryFromBackground(
         context as unknown as AudioContext,
       );
-      const firstGesture = resumePendingAudioContextInterruptionFromGesture();
+      const firstGesture = beginPendingInterruptionRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(750);
       await expect(firstGesture).resolves.toMatchObject({ running: false });
 
@@ -807,9 +839,9 @@ describe('AudioContext interruption recovery', () => {
       expect(isAudioContextInterruptionAttemptCurrent(successorAttempt!)).toBe(true);
       expect(recoveryNeeded).toHaveBeenCalledOnce();
 
-      await resumePendingAudioContextInterruptionFromGesture();
-      expect(confirmPendingAudioContextRecoveryHealth(successorAttempt!)).toMatchObject({
-        running: true,
+      await beginPendingInterruptionRecoveryFromGesture();
+      await expect(finishOnFakeClock(successorAttempt!)).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       expect(rejoin).toHaveBeenCalledOnce();
@@ -945,7 +977,7 @@ describe('AudioContext interruption recovery', () => {
       await expect(arm).resolves.toBeNull();
       expect(preparingAttempt).toBeTypeOf('object');
       expect(getPendingAudioContextInterruptionAttempt()).toBeNull();
-      await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toMatchObject({
+      await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toMatchObject({
         running: false,
       });
       expect(context.resume).not.toHaveBeenCalled();
@@ -955,11 +987,12 @@ describe('AudioContext interruption recovery', () => {
       expect(preparedAttempt).toBe(preparingAttempt);
       expect(recoveryNeeded).toHaveBeenCalledOnce();
 
-      await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toMatchObject({
+      await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toMatchObject({
         running: true,
         rejoinEmitted: false,
       });
-      expect(confirmPendingAudioContextRecoveryHealth(preparedAttempt!)).toMatchObject({
+      await expect(finishOnFakeClock(preparedAttempt!)).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       finishSuspend?.();
@@ -1014,8 +1047,9 @@ describe('AudioContext interruption recovery', () => {
       expect(isAudioContextInterruptionAttemptCurrent(secondAttempt!)).toBe(true);
       expect(recoveryNeeded).toHaveBeenCalledOnce();
 
-      await resumePendingAudioContextInterruptionFromGesture();
-      expect(confirmPendingAudioContextRecoveryHealth(secondAttempt!)).toMatchObject({
+      await beginPendingInterruptionRecoveryFromGesture();
+      await expect(finishOnFakeClock(secondAttempt!)).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       finishSuspend?.();
@@ -1055,12 +1089,12 @@ describe('AudioContext interruption recovery', () => {
       expect(recoveryNeeded).toHaveBeenCalledOnce();
       expect(context.state).toBe('suspended');
 
-      await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toMatchObject({
+      await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toMatchObject({
         running: true,
         rejoinEmitted: false,
       });
-      expect(confirmPendingAudioContextRecoveryHealth(attempt!)).toMatchObject({
-        running: true,
+      await expect(finishOnFakeClock(attempt!)).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       expect(context.suspend).toHaveBeenCalledOnce();
@@ -1106,9 +1140,9 @@ describe('AudioContext interruption recovery', () => {
       expect(isAudioContextInterruptionAttemptCurrent(attempt!)).toBe(true);
       expect(recoveryNeeded).toHaveBeenCalledOnce();
 
-      await resumePendingAudioContextInterruptionFromGesture();
-      expect(confirmPendingAudioContextRecoveryHealth(attempt!)).toMatchObject({
-        running: true,
+      await beginPendingInterruptionRecoveryFromGesture();
+      await expect(finishOnFakeClock(attempt!)).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       expect(rejoin).toHaveBeenCalledOnce();
@@ -1153,9 +1187,9 @@ describe('AudioContext interruption recovery', () => {
       expect(isAudioContextInterruptionAttemptCurrent(attempt!)).toBe(true);
       expect(recoveryNeeded).toHaveBeenCalledOnce();
 
-      await resumePendingAudioContextInterruptionFromGesture();
-      expect(confirmPendingAudioContextRecoveryHealth(attempt!)).toMatchObject({
-        running: true,
+      await beginPendingInterruptionRecoveryFromGesture();
+      await expect(finishOnFakeClock(attempt!)).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       expect(rejoin).toHaveBeenCalledOnce();
@@ -1293,9 +1327,9 @@ describe('AudioContext interruption recovery', () => {
       );
       expect(rejoin).not.toHaveBeenCalled();
 
-      await resumePendingAudioContextInterruptionFromGesture();
-      expect(confirmPendingAudioContextRecoveryHealth(successorAttempt!)).toMatchObject({
-        running: true,
+      await beginPendingInterruptionRecoveryFromGesture();
+      await expect(finishOnFakeClock(successorAttempt!)).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       expect(rejoin).toHaveBeenCalledOnce();
@@ -1332,11 +1366,10 @@ describe('AudioContext interruption recovery', () => {
     expect(isAudioContextInterruptionAttemptCurrent(attempt!)).toBe(true);
     expect(recoveryNeeded).toHaveBeenCalledOnce();
 
-    await resumePendingAudioContextInterruptionFromGesture();
-    expect(confirmPendingAudioContextRecoveryHealth(attempt!)).toMatchObject({
-      running: true,
-      rejoinEmitted: true,
-    });
+    await beginPendingInterruptionRecoveryFromGesture();
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER),
+    ).resolves.toMatchObject({ kind: 'recovered', rejoinEmitted: true });
     expect(rejoin).toHaveBeenCalledOnce();
   });
 
@@ -1387,9 +1420,9 @@ describe('AudioContext interruption recovery', () => {
       );
       expect(rejoin).not.toHaveBeenCalled();
 
-      await resumePendingAudioContextInterruptionFromGesture();
-      expect(confirmPendingAudioContextRecoveryHealth(successorAttempt!)).toMatchObject({
-        running: true,
+      await beginPendingInterruptionRecoveryFromGesture();
+      await expect(finishOnFakeClock(successorAttempt!)).resolves.toMatchObject({
+        kind: 'recovered',
         rejoinEmitted: true,
       });
       expect(context.resume).toHaveBeenCalledTimes(2);
@@ -1404,7 +1437,7 @@ describe('AudioContext interruption recovery', () => {
     const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     dispose();
 
-    await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
+    await expect(beginPendingInterruptionRecoveryFromGesture()).resolves.toEqual({
       running: false,
       rejoinEmitted: false,
     });
@@ -1423,5 +1456,178 @@ describe('AudioContext interruption recovery', () => {
 
     expect(context.resume).not.toHaveBeenCalled();
     expect(rejoin).not.toHaveBeenCalled();
+  });
+});
+
+describe("the playback scope's gesture recovery, second step (Phase 7 7C-1)", () => {
+  /** A running context, its binding and a state-interruption attempt still awaiting its resume. */
+  async function provisionalAttempt() {
+    markActiveFileRoom();
+    const context = new FakeAudioContext();
+    const rejoin = vi.fn();
+    const recoveryNeeded = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    bus.on('audio:output-recovery-needed', recoveryNeeded);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    const attempt = await armPendingAudioContextRecoveryFromBackground(
+      context as unknown as AudioContext,
+      'state-interruption',
+    );
+    expect(attempt).toBeTypeOf('object');
+    return { context, rejoin, recoveryNeeded, dispose, attempt: attempt! };
+  }
+
+  it('lets go of a resume that did not reach running without reading the caller', async () => {
+    const { context, rejoin, dispose, attempt } = await provisionalAttempt();
+    const isCurrent = vi.fn(() => true);
+
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt, { running: false, isCurrent }),
+    ).resolves.toEqual({ kind: 'not-running' });
+    expect(isCurrent).not.toHaveBeenCalled();
+    expect(isAudioContextInterruptionAttemptCurrent(attempt)).toBe(true);
+    expect(hasPendingAudioContextInterruption('file')).toBe(true);
+    expect(context.suspend).not.toHaveBeenCalled();
+    expect(rejoin).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it('commits nothing for a caller that is no longer current or another attempt', async () => {
+    const { rejoin, dispose, attempt } = await provisionalAttempt();
+
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt, {
+        running: true,
+        isCurrent: () => false,
+      }),
+    ).resolves.toEqual({ kind: 'superseded' });
+    await expect(finishPendingInterruptionRecoveryFromGesture({}, CURRENT_CALLER)).resolves.toEqual(
+      { kind: 'superseded' },
+    );
+    expect(hasPendingAudioContextInterruption('file')).toBe(true);
+    expect(rejoin).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it('retires an attempt a local pause made stale only for a PLAY that clears that pause', async () => {
+    const { context, rejoin, dispose, attempt } = await provisionalAttempt();
+    setState('playback.activity', 'paused');
+
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt, {
+        ...CURRENT_CALLER,
+        clearsLocalPause: () => false,
+      }),
+    ).resolves.toEqual({ kind: 'superseded' });
+    expect(isAudioContextInterruptionAttemptCurrent(attempt)).toBe(true);
+    expect(getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
+
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt, {
+        ...CURRENT_CALLER,
+        clearsLocalPause: () => true,
+      }),
+    ).resolves.toEqual({ kind: 'stale-retired' });
+    expect(isAudioContextInterruptionAttemptCurrent(attempt)).toBe(false);
+    expect(hasPendingAudioContextInterruption()).toBe(false);
+    // The next PLAY's clock check takes its place; the caller rejoins itself.
+    expect(getPendingForegroundAudioContextClockHealthCheck()?.context).toBe(context);
+    expect(rejoin).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it('tells the caller the probe answer before it escalates a frozen clock', async () => {
+    vi.useFakeTimers();
+    try {
+      const { context, rejoin, recoveryNeeded, dispose, attempt } = await provisionalAttempt();
+      context.clock = 'stalled';
+      const unhealthy: string[] = [];
+      const finished = finishPendingInterruptionRecoveryFromGesture(attempt, {
+        ...CURRENT_CALLER,
+        unhealthy: (health) => {
+          unhealthy.push(`${health.reason}:${context.suspend.mock.calls.length}`);
+        },
+      });
+      await vi.advanceTimersByTimeAsync(360 + 500);
+
+      await expect(finished).resolves.toEqual({ kind: 'escalated', escalation: 'prepared' });
+      expect(unhealthy).toEqual(['clock-stalled:0']);
+      expect(context.suspend).toHaveBeenCalledOnce();
+      expect(getPendingAudioContextInterruptionAttempt()).toBe(attempt);
+      expect(recoveryNeeded).toHaveBeenCalledOnce();
+      expect(recoveryNeeded).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'clock-stalled', source: 'background-resume' }),
+      );
+      expect(rejoin).not.toHaveBeenCalled();
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads the caller's currency after the probe: a caller gone by then escalates nothing", async () => {
+    vi.useFakeTimers();
+    try {
+      const { context, recoveryNeeded, dispose, attempt } = await provisionalAttempt();
+      context.clock = 'stalled';
+      let current = true;
+      const finished = finishPendingInterruptionRecoveryFromGesture(attempt, {
+        running: true,
+        isCurrent: () => current,
+        unhealthy: () => {
+          current = false;
+        },
+      });
+      await vi.advanceTimersByTimeAsync(360 + 500);
+
+      await expect(finished).resolves.toEqual({ kind: 'superseded' });
+      expect(context.suspend).not.toHaveBeenCalled();
+      expect(recoveryNeeded).not.toHaveBeenCalled();
+      expect(isAudioContextInterruptionAttemptCurrent(attempt)).toBe(true);
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves the attempt as it is when the probe gives no verdict', async () => {
+    const { context, rejoin, dispose, attempt } = await provisionalAttempt();
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    const unhealthy: string[] = [];
+
+    await expect(
+      finishPendingInterruptionRecoveryFromGesture(attempt, {
+        ...CURRENT_CALLER,
+        unhealthy: (health) => {
+          unhealthy.push(health.reason);
+        },
+      }),
+    ).resolves.toEqual({ kind: 'unverified' });
+    expect(unhealthy).toEqual(['hidden']);
+    expect(isAudioContextInterruptionAttemptCurrent(attempt)).toBe(true);
+    expect(hasPendingAudioContextInterruption('file')).toBe(true);
+    expect(context.suspend).not.toHaveBeenCalled();
+    expect(rejoin).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("only verifies a healthy clock for the dialog's failed-PLAY retry, which cancels the attempt itself (RO-37)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { rejoin, dispose, attempt } = await provisionalAttempt();
+      const finished = finishPendingInterruptionRecoveryFromGesture(attempt, {
+        ...CURRENT_CALLER,
+        commit: false,
+      });
+      await vi.advanceTimersByTimeAsync(180);
+
+      await expect(finished).resolves.toEqual({ kind: 'verified' });
+      expect(rejoin).not.toHaveBeenCalled();
+      expect(cancelPendingAudioContextRecovery(attempt)).toBe(true);
+      expect(hasPendingAudioContextInterruption()).toBe(false);
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

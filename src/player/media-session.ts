@@ -32,16 +32,12 @@ import {
 } from '../rooms/authority.ts';
 import { isLocalYouTubePaused } from '../youtube/_state.ts';
 import {
-  confirmPendingAudioContextRecoveryHealth,
-  escalatePendingAudioContextRecoveryToClockStalled,
-  getPendingAudioContextClockHealthRequirement,
+  beginPendingInterruptionRecoveryFromGesture,
+  finishPendingInterruptionRecoveryFromGesture,
   getPendingAudioContextInterruptionAttempt,
   hasPendingAudioContextInterruption,
   isAudioContextInterruptionAttemptCurrent,
-  resumePendingAudioContextInterruptionFromGesture,
-  retireStalePendingAudioContextRecovery,
 } from '../audio/context-recovery.ts';
-import { probeAudioContextHealth } from '../audio/context.ts';
 import {
   initYouTubeNativeControlAuthority,
   shouldIgnoreRecentNativeYouTubeMediaAction,
@@ -212,50 +208,30 @@ export function initMediaSession(): void {
     // the next trusted PLAY will resume this exact attempt.
     if (!attemptToken) return;
     const flight = { attemptToken };
-    void resumePendingAudioContextInterruptionFromGesture()
+    // The owner resumes synchronously inside this action, then verifies the
+    // clock, escalates a frozen one or commits (RO-01, Phase 7 7C-1).
+    void beginPendingInterruptionRecoveryFromGesture()
       .then(async (result) => {
-        if (
-          pendingLocalPlayRecovery !== flight ||
-          !result.running ||
-          !isAudioContextInterruptionAttemptCurrent(attemptToken)
-        ) {
-          return;
-        }
-        const requirement = getPendingAudioContextClockHealthRequirement();
-        if (!requirement || requirement.attemptToken !== attemptToken || !requirement.isCurrent()) {
+        const recovery = await finishPendingInterruptionRecoveryFromGesture(attemptToken, {
+          running: result.running,
+          isCurrent: () => pendingLocalPlayRecovery === flight,
           // A PLAY that clears a local pause has resumed the context for an
           // attempt whose output that pause stopped (owner answer Q12, Phase
           // 7 7B-6). The owner retires it and arms the next PLAY's clock
           // check; this PLAY then realigns with the room itself.
-          if (
-            explicitLocalPause &&
-            getState('playback.mode') === mode &&
-            retireStalePendingAudioContextRecovery(attemptToken)
-          ) {
-            emitRejoin(mode);
-          }
-          return;
-        }
-        const health = await probeAudioContextHealth({
-          attemptResume: false,
-          context: requirement.context,
-          isCurrent: requirement.isCurrent,
+          clearsLocalPause: () => explicitLocalPause && getState('playback.mode') === mode,
         });
-        if (pendingLocalPlayRecovery !== flight || !requirement.isCurrent()) return;
-        if (!health.healthy) {
-          if (health.reason === 'clock-stalled') {
-            await escalatePendingAudioContextRecoveryToClockStalled(attemptToken);
-          }
+        if (recovery.kind === 'stale-retired') {
+          emitRejoin(mode);
           return;
         }
-        const confirmed = confirmPendingAudioContextRecoveryHealth(attemptToken);
-        if (!confirmed.running) return;
+        if (recovery.kind !== 'recovered') return;
         const currentMode = getState('playback.mode');
         // A successful semantic recovery already publishes one local rejoin.
         // Only add the explicit Media Session PLAY when that recovery did not
         // emit, or when the user is deliberately clearing a local-only pause
         // that automatic recovery must preserve.
-        if (currentMode === mode && (explicitLocalPause || !confirmed.rejoinEmitted)) {
+        if (currentMode === mode && (explicitLocalPause || !recovery.rejoinEmitted)) {
           emitRejoin(mode);
         }
       })

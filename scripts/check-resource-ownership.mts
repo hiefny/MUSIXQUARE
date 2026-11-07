@@ -720,7 +720,13 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
       ],
       [
         'src/audio/context-recovery.ts',
-        { count: 1, reason: "the owner's automatic clock check, attemptResume false" },
+        {
+          count: 2,
+          reason:
+            "the owner's automatic clock check and, since Phase 7 7C-1, its gesture recovery's " +
+            'check for the dialog and a lock-screen PLAY (from media-session.ts, 1 -> 2), ' +
+            'attemptResume false',
+        },
       ],
       [
         'src/audio/output-health.ts',
@@ -731,10 +737,8 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
             '(outside the owner because of the transport import cycle)',
         },
       ],
-      [
-        'src/player/media-session.ts',
-        { count: 1, reason: 'lock-screen PLAY clock check, attemptResume false (7C-1)' },
-      ],
+      // A lock-screen PLAY's clock check moved into the owner's gesture
+      // recovery in Phase 7 7C-1 (media-session.ts 1 -> 0).
       [
         'src/player/transport.ts',
         { count: 1, reason: "failed PLAY's foreground clock check, attemptResume false (7C-3)" },

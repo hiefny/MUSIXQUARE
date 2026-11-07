@@ -44,6 +44,9 @@ export default defineConfig({
       'src/player/__tests__/{busy-guard,concurrency-invariants,load-epoch-initial,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
       // The Media Session gesture path into the same owners (Phase 7 prep, T0).
       'src/player/__tests__/{media-session,media-session-lock-screen-pause}.test.ts',
+      // A local-file PLAY's foreground clock check over the same owners: its
+      // `/debug sync` counts path by path (Phase 7 7C-3).
+      'src/player/__tests__/output-recovery-play-counts.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
       // The link-liveness owner (RO-15): enrolled in Phase 4 C5-6, the resume probe since C5-7,

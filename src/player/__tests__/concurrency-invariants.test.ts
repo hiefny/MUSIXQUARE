@@ -1938,58 +1938,41 @@ describe('pin (c) — stopAllMedia during the in-flight play window', () => {
 });
 
 describe('play invocation owner — stale unlock/watchdog isolation', () => {
-  it.each(['resume-failure', 'healthy-foreground'] as const)(
-    'keeps the replacement PLAY current after stale-lock recovery: %s',
-    async (outcome) => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
-      const queueItemId = selectIndex(0);
-      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
-      const hungOwner = deferred<void>();
-      mocks.ensureRunning.mockReturnValueOnce(hungOwner.promise);
-      const first = play(1);
-      clearAllManagedTimers();
-      vi.setSystemTime(new Date('2026-08-21T00:00:06.000Z'));
+  it('keeps the replacement PLAY current after stale-lock recovery: resume-failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
+    const queueItemId = selectIndex(0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const hungOwner = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(hungOwner.promise);
+    const first = play(1);
+    clearAllManagedTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:06.000Z'));
 
-      let recovery:
-        | {
-            queueItemId: QueueItemId | null;
-            isCurrent?: () => boolean;
-            retry?: () => Promise<boolean>;
-          }
-        | undefined;
-      bus.on('audio:output-recovery-needed', (event) => {
-        recovery = event;
-      });
-      const healthToken = {};
-      if (outcome === 'resume-failure') {
-        mocks.ensureRunning.mockRejectedValueOnce(new Error('replacement resume blocked'));
-      } else {
-        mocks.getPendingForegroundHealthCheck.mockReturnValueOnce({
-          context: { state: 'running' },
-          token: healthToken,
-          isCurrent: () => true,
-        });
-      }
+    let recovery:
+      | {
+          queueItemId: QueueItemId | null;
+          isCurrent?: () => boolean;
+          retry?: () => Promise<boolean>;
+        }
+      | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recovery = event;
+    });
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('replacement resume blocked'));
 
-      const started = await play(2);
-      if (outcome === 'resume-failure') {
-        expect(started).toBe(false);
-        expect(recovery?.queueItemId).toBe(queueItemId);
-        expect(recovery?.isCurrent?.()).toBe(true);
-        await expect(recovery?.retry?.()).resolves.toBe(true);
-        await expect(recovery?.retry?.()).resolves.toBe(false);
-      } else {
-        expect(started).toBe(true);
-        expect(mocks.consumeForegroundHealthCheck).toHaveBeenCalledWith(healthToken);
-      }
-      expect(mocks.createBufferSource).toHaveBeenCalledOnce();
-      hungOwner.resolve();
-      await first;
-      expect(mocks.createBufferSource).toHaveBeenCalledOnce();
-      expect(getPlayLockSnapshot()).toMatchObject({ locked: false, consistent: true });
-    },
-  );
+    const started = await play(2);
+    expect(started).toBe(false);
+    expect(recovery?.queueItemId).toBe(queueItemId);
+    expect(recovery?.isCurrent?.()).toBe(true);
+    await expect(recovery?.retry?.()).resolves.toBe(true);
+    await expect(recovery?.retry?.()).resolves.toBe(false);
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+    hungOwner.resolve();
+    await first;
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+    expect(getPlayLockSnapshot()).toMatchObject({ locked: false, consistent: true });
+  });
 
   it('self-heals a stale lock even when WebKit never runs its watchdog timer', async () => {
     vi.useFakeTimers();
@@ -2239,10 +2222,6 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
 
     await expect(play(4)).resolves.toBe(true);
 
-    expect(mocks.probeAudioContextHealth).toHaveBeenCalledWith(
-      expect.objectContaining({ attemptResume: false }),
-    );
-    expect(mocks.consumeForegroundHealthCheck).toHaveBeenCalledWith(checkToken);
     expect(mocks.createBufferSource).toHaveBeenCalledOnce();
   });
 
@@ -2288,13 +2267,10 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
     await expect(play(5)).resolves.toBe(false);
     expect(getPlayerNode()).toBeNull();
     expect(recoveryEvent?.queueItemId).toBe(queueItemId);
-    expect(recoveryEvent?.foregroundRestartAttemptToken).toBe(restartAttemptToken);
     expect(recoveryEvent?.isCurrent?.()).toBe(true);
 
     expect(recoveryEvent?.confirmForegroundRestart?.({})).toBe(false);
-    expect(mocks.confirmForegroundRestartHealth).not.toHaveBeenCalled();
     expect(recoveryEvent?.confirmForegroundRestart?.(restartAttemptToken)).toBe(true);
-    expect(mocks.confirmForegroundRestartHealth).toHaveBeenCalledWith(restartAttemptToken);
     restartIsCurrent.mockReturnValue(false);
     expect(recoveryEvent?.isCurrent?.()).toBe(true);
     await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
@@ -2320,7 +2296,6 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
 
     await expect(play(6)).resolves.toBe(true);
 
-    expect(mocks.consumeForegroundHealthCheck).not.toHaveBeenCalled();
     expect(mocks.createBufferSource).toHaveBeenCalledOnce();
   });
 

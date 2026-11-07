@@ -5,13 +5,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 
-const contextMock = vi.hoisted(() => ({
-  getAudioContext: vi.fn(),
+const contextMock = vi.hoisted(() => ({ getAudioContext: vi.fn() }));
+const recoveryMock = vi.hoisted(() => ({
   // Read when UI sounds ask the recovery owners first (Phase 7 7B-3).
-  isForegroundAudioContextRestartHolding: vi.fn(() => false),
+  isAudioOutputRecoveryHolding: vi.fn(() => false),
 }));
-
 vi.mock('../context.ts', () => contextMock);
+vi.mock('../context-recovery.ts', () => recoveryMock);
 
 import {
   initUiSounds,
@@ -104,7 +104,7 @@ describe('UI sounds', () => {
     localStorage.clear();
     context = createFakeContext();
     contextMock.getAudioContext.mockReset().mockReturnValue(context);
-    contextMock.isForegroundAudioContextRestartHolding.mockReset().mockReturnValue(false);
+    recoveryMock.isAudioOutputRecoveryHolding.mockReset().mockReturnValue(false);
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   });
 
@@ -318,15 +318,15 @@ describe('UI sounds', () => {
    * Phase 7 7B-3 (owner answer Q9): every sound asks the recovery owners
    * (context-recovery.ts isAudioOutputRecoveryHolding) whether one holds the
    * context for a recovery dialog's tap before it wakes the context or
-   * plays. That query reads one context.ts name when it is called, the
-   * play-request owner's answer, which this file's factory defines and these
-   * rows set; the playback scope holds nothing here. Both directions are
+   * plays. This file's factory defines that query and these rows set its
+   * answer; which owner holds the context when is pinned over the real
+   * owners (audio-output-recovery-holding.test.ts). Both directions are
    * asserted, because the sounds' try/catch would hide a query that threw on
    * a factory lacking that name: a sound that cannot ask stays silent in both.
    */
   describe('while a recovery owner holds the context for its tap', () => {
     const hold = (held: boolean): void => {
-      contextMock.isForegroundAudioContextRestartHolding.mockReturnValue(held);
+      recoveryMock.isAudioOutputRecoveryHolding.mockReturnValue(held);
     };
 
     const play = (kind: 'touch' | 'announcement' | 'session'): void => {

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { PLAYBACK_STATE } from '../../core/constants.ts';
 import {
   createSystemAudioTrackMeta,
   setPlaybackFilePaused,
@@ -111,6 +112,24 @@ class FakeInterruptedAudioContext {
     this.state = state;
     for (const listener of [...this.listeners]) listener();
   }
+}
+
+/** The playback:local-output-rejoin reasons one listener heard, in order. */
+function rejoinReasons(rejoin: ReturnType<typeof vi.fn>): string[] {
+  return rejoin.mock.calls.map(([request]) => (request as { reason: string }).reason);
+}
+
+/** The audio:output-recovery-needed requests one listener heard, as `source:reason`. */
+function recoveryRequests(recoveryNeeded: ReturnType<typeof vi.fn>): string[] {
+  return recoveryNeeded.mock.calls.map(([request]) => {
+    const { source, reason } = request as { source: string; reason: string };
+    return `${source}:${reason}`;
+  });
+}
+
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+  document.dispatchEvent(new Event('visibilitychange'));
 }
 
 beforeEach(() => {
@@ -615,9 +634,48 @@ describe('initMediaSession', () => {
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
     _handlers['play']();
 
-    await vi.waitFor(() => expect(rejoin).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(rejoin).toHaveBeenCalled());
     await Promise.resolve();
+    expect(rejoinReasons(rejoin)).toEqual(['audio-context-recovered']);
     expect(rejoin).toHaveBeenCalledWith({ reason: 'audio-context-recovered', mode: 'file' });
+    dispose();
+  });
+
+  it('adds its own rejoin after the recovered one when the trusted PLAY clears a local pause', async () => {
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePlaying();
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+    const context = new FakeInterruptedAudioContext();
+    context.resume
+      .mockRejectedValueOnce(new Error('autoplay blocked'))
+      .mockImplementationOnce(async () => {
+        context.state = 'running';
+      });
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+    context.dispatchState('suspended');
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+    // The guest's PAUSE sets its local pause flag. transport is mocked in this
+    // file, so the output itself stays 'playing': the state the explicit-pause
+    // rejoin decision in media-session.ts is written for. With the real
+    // transport the PAUSE also stops the output, and the same steps take the
+    // stale-attempt path pinned in media-session-lock-screen-pause.test.ts
+    // (['media-session-play'] only).
+    _handlers['pause']();
+    expect(isLocalFilePaused()).toBe(true);
+    _handlers['play']();
+
+    await vi.waitFor(() => expect(rejoin).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    // The recovery's own rejoin, which the router does not apply while the
+    // local pause stands, then this PLAY's, which clears it.
+    expect(rejoinReasons(rejoin)).toEqual(['audio-context-recovered', 'media-session-play']);
+    expect(context.resume).toHaveBeenCalledTimes(2);
     dispose();
   });
 
@@ -656,6 +714,89 @@ describe('initMediaSession', () => {
     expect(rejoin).not.toHaveBeenCalled();
     expect(context.resume).toHaveBeenCalledTimes(2);
     dispose();
+  });
+
+  it('announces a slow PLAY escalation only once its native suspension arrives', async () => {
+    vi.useFakeTimers();
+    const rejoin = vi.fn();
+    const recoveryNeeded = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    bus.on('audio:output-recovery-needed', recoveryNeeded);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as never);
+    setPlaybackFilePlaying();
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+    const context = new FakeInterruptedAudioContext();
+    context.resume
+      .mockRejectedValueOnce(new Error('autoplay blocked'))
+      .mockImplementationOnce(async () => {
+        context.state = 'running';
+      });
+    // The native suspend is slow: its state change arrives only later.
+    context.suspend.mockImplementationOnce(() => new Promise<void>(() => undefined));
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    try {
+      context.dispatchState('suspended');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(context.resume).toHaveBeenCalledOnce();
+      context.freezeClock();
+      _handlers['play']();
+      // Two frozen clock samples, then the 500 ms suspend preparation window
+      // passes (the suspend lease's watchdog has not run yet).
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(context.suspend).toHaveBeenCalledOnce();
+      expect(recoveryRequests(recoveryNeeded)).toEqual([]);
+
+      context.dispatchState('suspended');
+      expect(recoveryRequests(recoveryNeeded)).toEqual(['background-resume:clock-stalled']);
+      expect(recoveryNeeded).toHaveBeenCalledWith(
+        expect.objectContaining({ queueItemId: CURRENT_QUEUE_ITEM_ID }),
+      );
+      expect(rejoinReasons(rejoin)).toEqual([]);
+      expect(context.resume).toHaveBeenCalledTimes(2);
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('adds no second rejoin when a trusted PLAY meets the foreground automatic clock probe', async () => {
+    vi.useFakeTimers();
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    setState('setup.sessionStarted', true);
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePlaying();
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+    const context = new FakeInterruptedAudioContext();
+    context.resume.mockImplementation(async () => {
+      context.state = 'running';
+    });
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    try {
+      // An interruption while hidden: the playing file resumes at once, and
+      // its clock proof waits for the return.
+      setVisibility('hidden');
+      context.dispatchState('suspended');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(context.resume).toHaveBeenCalledOnce();
+
+      // On return the owner starts its clock probe, and a PLAY arrives with
+      // it. The owner's probe ends first and publishes the one rejoin; the
+      // PLAY resumes nothing (the context runs) and adds no rejoin.
+      setVisibility('visible');
+      _handlers['play']();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(rejoinReasons(rejoin)).toEqual(['audio-context-recovered']);
+      expect(context.resume).toHaveBeenCalledOnce();
+    } finally {
+      dispose();
+      vi.useRealTimers();
+      Reflect.deleteProperty(document, 'visibilityState');
+    }
   });
 
   it.each(['pause', 'pause-play', 'current'] as const)(
@@ -866,12 +1007,12 @@ describe('initMediaSession', () => {
     await vi.waitFor(() =>
       expect(rejoin).toHaveBeenCalledWith({ reason: 'audio-context-recovered', mode: 'file' }),
     );
-    expect(rejoin).toHaveBeenCalledTimes(1);
+    expect(rejoinReasons(rejoin)).toEqual(['audio-context-recovered']);
 
     finishOldGestureResume?.();
     await oldGestureResume;
     await Promise.resolve();
-    expect(rejoin).toHaveBeenCalledTimes(1);
+    expect(rejoinReasons(rejoin)).toEqual(['audio-context-recovered']);
     disposeNew();
   });
 

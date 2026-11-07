@@ -14,6 +14,7 @@ interface DemoOutputProbe {
   decodedBuffers: number;
   starts: number;
   liveSources: Set<AudioBufferSourceNode>;
+  rejoins: string[];
 }
 
 type ProbeWindow = Window & { __demoOutputProbe: DemoOutputProbe };
@@ -30,6 +31,7 @@ async function instrumentNativeOutput(page: Page): Promise<void> {
       decodedBuffers: 0,
       starts: 0,
       liveSources: new Set(),
+      rejoins: [],
     };
     (window as unknown as ProbeWindow).__demoOutputProbe = probe;
     const contexts = new WeakSet<AudioContext>();
@@ -100,6 +102,24 @@ async function waitForDemoAudio(page: Page): Promise<void> {
       }),
     )
     .toBe(true);
+}
+
+/** Record every local output rejoin the page publishes from now on. */
+async function recordRejoins(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as ProbeWindow & Record<string, unknown>;
+    const bus = w.__MUSIXQUARE_BUS__ as
+      { on: (type: string, callback: (payload?: unknown) => void) => void } | undefined;
+    if (!bus) throw new Error('E2E bus hook unavailable');
+    const probe = w.__demoOutputProbe;
+    bus.on('playback:local-output-rejoin', (payload) => {
+      probe.rejoins.push(String((payload as { reason?: unknown } | undefined)?.reason));
+    });
+  });
+}
+
+async function readRejoins(page: Page): Promise<string[]> {
+  return page.evaluate(() => [...(window as unknown as ProbeWindow).__demoOutputProbe.rejoins]);
 }
 
 async function suspendAndRejectResume(page: Page): Promise<void> {
@@ -180,15 +200,25 @@ test.describe('Demo output recovery', () => {
       await connectHostAndGuest(pair.hostPage, pair.guestPage);
       await enterDemo(pair.hostPage);
       await Promise.all([waitForDemoAudio(pair.hostPage), waitForDemoAudio(pair.guestPage)]);
+      await recordRejoins(pair.guestPage);
       await suspendAndRejectResume(pair.guestPage);
       await foregroundPage(pair.guestPage);
       await expectRecoveryPrompt(pair.guestPage);
       await waitForDemoAudio(pair.hostPage);
       await expect(pair.hostPage.locator('#dialog-overlay.show')).toHaveCount(0);
+      expect(await readRejoins(pair.guestPage)).toEqual([]);
 
       await restoreThroughPrompt(pair.guestPage);
+      // The first rejoin of any reason ends this wait; the array is exact.
+      await expect.poll(async () => (await readRejoins(pair.guestPage)).length).toBeGreaterThan(0);
+      // The page script's suspend is an interruption the context's own
+      // recovery owns: the tap resumes that attempt, and its health
+      // confirmation publishes the one rejoin. The dialog adds none of its
+      // own ('audio-recovery-gesture').
+      expect(await readRejoins(pair.guestPage)).toEqual(['audio-context-recovered']);
       await expect.poll(() => readState(pair.guestPage, 'network.hostConn.open')).toBe(true);
       await waitForDemoAudio(pair.hostPage);
+      expect(await readRejoins(pair.guestPage)).toEqual(['audio-context-recovered']);
     } finally {
       await cleanupContexts(pair);
     }
@@ -206,6 +236,7 @@ test.describe('Demo output recovery', () => {
       await connectHostAndGuest(pair.hostPage, pair.guestPage);
       await enterDemo(pair.hostPage);
       await Promise.all([waitForDemoAudio(pair.hostPage), waitForDemoAudio(pair.guestPage)]);
+      await recordRejoins(pair.guestPage);
       await suspendAndRejectResume(pair.guestPage);
       await foregroundPage(pair.guestPage);
       await expectRecoveryPrompt(pair.guestPage);
@@ -232,6 +263,9 @@ test.describe('Demo output recovery', () => {
         }),
       ).toEqual({ starts: startsAfterExit, live: 0 });
       await expect(pair.guestPage.locator('#dialog-overlay.show')).toHaveCount(0);
+      // The retired attempt's prompt never got its tap, and nothing else
+      // realigned the retired output.
+      expect(await readRejoins(pair.guestPage)).toEqual([]);
     } finally {
       await cleanupContexts(pair);
     }

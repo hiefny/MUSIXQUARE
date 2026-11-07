@@ -19,29 +19,45 @@ import {
   localFileOutputIdentitiesEqual,
   type LocalFileOutputIdentity,
 } from '../player/local-file-output-identity.ts';
-import { AUDIO_SUSPEND_PREPARE_DEADLINE_MS, isAudioContextPrepared } from './context-protocol.ts';
+import {
+  AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS,
+  AUDIO_RECOVERY_GESTURE_WAIT_MS,
+  AUDIO_SUSPEND_PREPARE_DEADLINE_MS,
+  isAudioContextPrepared,
+} from './context-protocol.ts';
 import {
   armForegroundAudioContextClockHealthCheck,
   bindAudioContextStateDispatch,
+  confirmForegroundAudioContextRestartHealth,
   consumeForegroundAudioContextClockHealthCheck,
+  getExistingAudioContext,
   getPendingForegroundAudioContextClockHealthCheck,
+  getPendingForegroundAudioContextRestartClockHealthRequirement,
   isForegroundAudioContextRestartHolding,
   isForegroundAudioContextRestartOwned,
+  prepareForegroundAudioContextRestartAfterClockStall,
   probeAudioContextHealth,
   reparkForegroundAudioContextRestartAfterResume,
   requestAudioContextResume,
   requestAudioContextSuspend,
   requestRetiredAudioContextSuspendCleanup,
+  restartAudioContextFromGesture,
+  resumePreparedForegroundAudioContextRestartFromGesture,
+  retireForegroundAudioContextRestart,
+  whenForegroundAudioContextRestartClockRequirement,
   type AudioContextResumeFlight,
   type AudioContextSuspendRequest,
 } from './context.ts';
 import {
   CONTEXT_RECOVERED_REJOINS,
   DEADLINE_AUTO_RESUME,
+  DEADLINE_CLOCK_REQUIREMENT,
+  DEADLINE_GESTURE_FLOW,
   DEADLINE_GESTURE_RESUME,
   DEADLINE_SCOPE_PREPARE,
   DEADLINE_SCOPE_WATCHDOG,
   RESUME_AUTO,
+  RESUME_DIALOG,
   RESUME_PLAY_GESTURE,
   TAPS_REFUSED,
   countAudioRecovery,
@@ -91,7 +107,11 @@ interface PendingInterruptionGestureCaller {
   readonly unhealthy?: (health: AudioContextHealth) => void;
   /** Media Session: this PLAY clears a local pause on the same mode (owner answer Q12, 7B-6). */
   readonly clearsLocalPause?: () => boolean;
-  /** false verifies only: the dialog's failed-PLAY retry cancels the attempt itself (RO-37). */
+  /**
+   * false verifies only: RO-37's form while the dialog's failed-PLAY retry
+   * cancelled the attempt itself. No caller passes it since Phase 7 7C-2: a
+   * retry's tap carries no attempt (UnownedGestureCarry).
+   */
   readonly commit?: boolean;
 }
 
@@ -712,11 +732,12 @@ export function isAudioContextInterruptionAttemptCurrent(attemptToken: object): 
 
 /**
  * The playback scope's trusted gesture, first step (RO-01, Phase 7 7C-1; one
- * owner sequence in two steps while the recovery dialog races the resume
- * alone, until 7C-2): resume the pending attempt synchronously inside the
+ * owner sequence in two steps, so the recovery dialog's 1 s wait races the
+ * resume alone): resume the pending attempt synchronously inside the
  * caller's activation, a clock-stalled one only when its exact native
  * preparation is complete. Its answer settles by the resume deadline; the
- * caller hands it to finishPendingInterruptionRecoveryFromGesture.
+ * caller (a lock-screen PLAY, or since 7C-2 the owner's dialog branch after
+ * that wait) hands it to finishPendingInterruptionRecoveryFromGesture.
  */
 export function beginPendingInterruptionRecoveryFromGesture(): Promise<ContextResumeResult> {
   const recovery = pendingRecovery;
@@ -901,6 +922,339 @@ export async function finishPendingInterruptionRecoveryFromGesture(
   return confirmed.running
     ? { kind: 'recovered', rejoinEmitted: confirmed.rejoinEmitted }
     : { kind: 'superseded' };
+}
+
+// ── The recovery dialog's tap (app.ts; RO-01, Phase 7 7C-2) ───────────
+
+/** What the recovery dialog asks for, which picks the branch of its tap. */
+interface AudioOutputGestureSelector {
+  /** The play-request restart attempt the dialog serves (a failed PLAY's), if any. */
+  readonly foregroundRestartAttemptToken?: object;
+  /** A failed PLAY to retry, or a playing output to restore. */
+  readonly intent: 'retry-failed-play' | 'restore-playing-output';
+}
+
+/** The recovery dialog, as the rest of its tap's recovery reads it. */
+interface AudioOutputGestureCaller {
+  /** The dialog still acts for this tap. */
+  readonly isCurrent: () => boolean;
+  /** The dialog's signal: an abort ends the wait for the play-request clock requirement at once. */
+  readonly signal: AbortSignal;
+  /** Commits the play-request attempt after a healthy clock (a failed PLAY's closure, RO-36). */
+  readonly confirm?: (attemptToken: object) => boolean;
+  /** Called with the probe's answer when the output is unhealthy, before anything retires or escalates. */
+  readonly unhealthy: (health: AudioContextHealth) => void;
+}
+
+/** The ordinary branch's caller: a failed PLAY's retry cancels a pending attempt first (RO-37). */
+interface UnownedGestureCaller extends AudioOutputGestureCaller {
+  readonly cancelPendingInterruption: boolean;
+}
+
+/** A tap's resume, as the dialog's 1 s wait answers it. */
+interface GestureFlightResult {
+  readonly running: boolean;
+  readonly rejoinEmitted: boolean;
+}
+
+/**
+ * The playback-scope attempt an ordinary-branch tap carries to the second
+ * step (RO-37). A failed PLAY's retry carries none, by type: its tap cancels
+ * a pending attempt before the resume, so nothing can commit that attempt,
+ * publish its rejoin and also retry. A restore carries the attempt that
+ * accepts the gesture, if any (Known gap C1-I6: a YouTube attempt after the
+ * room moved to a local file).
+ */
+type UnownedGestureCarry =
+  | { readonly retry: true; readonly attemptToken: null }
+  | { readonly retry: false; readonly attemptToken: object | null };
+
+/** A play-request restart prepared for a frozen clock, as its owner answers (context.ts). */
+export type ForegroundRestartPreparation = NonNullable<
+  Awaited<ReturnType<typeof prepareForegroundAudioContextRestartAfterClockStall>>
+>;
+
+/**
+ * How the rest of a dialog tap's recovery ended, for app.ts: the output
+ * recovered (the dialog then retries a failed PLAY, or publishes its rejoin
+ * unless the owner's commit published one); a frozen clock was escalated to a
+ * playback-scope attempt prepared for a new tap while the dialog still acts
+ * (it shows the same request again); a play-request restart was prepared for
+ * a frozen clock (the dialog queues its request); or nothing is left to do.
+ */
+type AudioOutputGestureOutcome =
+  | { readonly kind: 'stopped' | 'escalated' }
+  | { readonly kind: 'clock-stalled'; readonly preparation: ForegroundRestartPreparation }
+  | { readonly kind: 'recovered'; readonly rejoinEmitted: boolean };
+
+/** A dialog tap's recovery: `finish` runs the rest of it once the dialog has closed. */
+interface AudioOutputGestureRecovery {
+  readonly finish: () => Promise<AudioOutputGestureOutcome>;
+}
+
+const GESTURE_STOPPED: AudioOutputGestureOutcome = { kind: 'stopped' };
+
+/**
+ * The dialog's wait after its tap for that tap's resume, over that flight
+ * only (1 s, DEADLINE_GESTURE_FLOW; in app.ts until Phase 7 7C-2): when the
+ * timer wins, whether the context runs then stands for the flight's answer.
+ * Only the ordinary branch's resume can lose it; the owners' resumes settle
+ * by their 750 ms deadline.
+ */
+function waitForGestureFlight(flight: Promise<GestureFlightResult>): Promise<GestureFlightResult> {
+  return raceAudioRecoveryDeadline(
+    DEADLINE_GESTURE_FLOW,
+    flight,
+    delay(AUDIO_RECOVERY_GESTURE_WAIT_MS).then(() => ({
+      running: String(getExistingAudioContext()?.state) === 'running',
+      rejoinEmitted: false,
+    })),
+  );
+}
+
+/**
+ * The dialog's wait after its tap for the play-request restart's clock
+ * requirement (Phase 7 7B-5, owner answer Q7; in app.ts until 7C-2). Nothing
+ * polls: the owner's promise settles when the gesture's resume promotes the
+ * attempt, and when the attempt is retired, cancelled or superseded; the
+ * dialog's AbortSignal, its currency read again on every visibility change,
+ * and the 5 s limit end the wait too. A promoted attempt's requirement is
+ * then read at once.
+ */
+async function waitForForegroundRestartClockRequirement(
+  attemptToken: object,
+  isCurrent: () => boolean,
+  signal: AbortSignal,
+  timeoutMs = AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS,
+): Promise<NonNullable<
+  ReturnType<typeof getPendingForegroundAudioContextRestartClockHealthRequirement>
+> | null> {
+  let endWait!: () => void;
+  const ended = new Promise<'ended'>((resolve) => {
+    endWait = () => resolve('ended');
+  });
+  const readCurrency = (): void => {
+    if (!isCurrent()) endWait();
+  };
+  signal.addEventListener('abort', endWait);
+  document.addEventListener('visibilitychange', readCurrency);
+  try {
+    readCurrency();
+    const outcome = await raceAudioRecoveryDeadline(
+      DEADLINE_CLOCK_REQUIREMENT,
+      Promise.race([whenForegroundAudioContextRestartClockRequirement(attemptToken), ended]),
+      delay(timeoutMs).then(() => 'limit' as const),
+    );
+    if (outcome !== 'promoted' || !isCurrent()) return null;
+    const requirement = getPendingForegroundAudioContextRestartClockHealthRequirement();
+    return requirement?.attemptToken === attemptToken && requirement.isCurrent()
+      ? requirement
+      : null;
+  } finally {
+    signal.removeEventListener('abort', endWait);
+    document.removeEventListener('visibilitychange', readCurrency);
+  }
+}
+
+/** The dialog's clock check after its tap, for both of its own branches; it resumes nothing. */
+function probeGestureClock(
+  context: AudioContext | null,
+  isCurrent: () => boolean,
+): Promise<AudioContextHealth> {
+  return probeAudioContextHealth({
+    attemptResume: false,
+    context: context ?? undefined,
+    isCurrent,
+  });
+}
+
+/**
+ * The dialog gives up on its play-request attempt: retire it and, while the
+ * page is visible, arm the next PLAY's clock check in its place.
+ */
+function retireForegroundRestartForNextPlay(
+  attemptToken: object,
+  context: AudioContext | null,
+): void {
+  const retired = retireForegroundAudioContextRestart(attemptToken);
+  if (retired && context && document.visibilityState === 'visible') {
+    armForegroundAudioContextClockHealthCheck(context);
+  }
+}
+
+/**
+ * The play-request branch: the tap resumes the restart attempt the dialog
+ * serves through its owner (context.ts). After the dialog closed: the 1 s
+ * wait, the wait for the attempt's clock requirement (5 s at most), then the
+ * promoted attempt's clock probe. With no requirement, or an unhealthy clock,
+ * the attempt retires and the next PLAY's clock check takes its place; a
+ * healthy clock commits through the caller's confirm (a failed PLAY's
+ * closure, RO-36), else the owner's own.
+ */
+function recoverForegroundRestartFromGesture(
+  attemptToken: object,
+  caller: AudioOutputGestureCaller,
+): AudioOutputGestureRecovery {
+  const flight = resumePreparedForegroundAudioContextRestartFromGesture(attemptToken).then(
+    (result): GestureFlightResult => ({ running: result.running, rejoinEmitted: false }),
+  );
+  return {
+    finish: async () => {
+      await waitForGestureFlight(flight);
+      if (!caller.isCurrent()) return GESTURE_STOPPED;
+      const requirement = await waitForForegroundRestartClockRequirement(
+        attemptToken,
+        caller.isCurrent,
+        caller.signal,
+      );
+      if (!requirement) {
+        retireForegroundRestartForNextPlay(attemptToken, getExistingAudioContext());
+        return GESTURE_STOPPED;
+      }
+      const { context } = requirement;
+      const health = await probeGestureClock(
+        context,
+        () => caller.isCurrent() && requirement.isCurrent(),
+      );
+      if (!health.healthy || String(context.state) !== 'running') {
+        caller.unhealthy(health);
+        retireForegroundRestartForNextPlay(attemptToken, context);
+        return GESTURE_STOPPED;
+      }
+      const confirmed = caller.confirm
+        ? caller.confirm(attemptToken)
+        : confirmForegroundAudioContextRestartHealth(attemptToken);
+      return confirmed ? { kind: 'recovered', rejoinEmitted: false } : GESTURE_STOPPED;
+    },
+  };
+}
+
+/**
+ * The playback scope's branch, for a restore while a file attempt accepts
+ * the gesture: the tap is the attempt's first step; after the dialog closed,
+ * the 1 s wait and the second step (7C-1).
+ */
+function recoverPendingInterruptionFromGesture(
+  attemptToken: object,
+  caller: AudioOutputGestureCaller,
+): AudioOutputGestureRecovery {
+  const flight = beginPendingInterruptionRecoveryFromGesture().then(
+    (result): GestureFlightResult => ({
+      running: result.running,
+      rejoinEmitted: result.rejoinEmitted,
+    }),
+  );
+  return {
+    finish: async () => {
+      const resumed = await waitForGestureFlight(flight);
+      if (!caller.isCurrent()) return GESTURE_STOPPED;
+      return finishPendingInterruptionForDialog(attemptToken, resumed, caller);
+    },
+  };
+}
+
+/**
+ * The second step for the attempt a dialog tap carried, with the dialog's
+ * currency and its log of an unhealthy clock. A frozen clock escalated to a
+ * prepared attempt asks for the same request again while the dialog acts.
+ */
+async function finishPendingInterruptionForDialog(
+  attemptToken: object,
+  resumed: GestureFlightResult,
+  caller: AudioOutputGestureCaller,
+): Promise<AudioOutputGestureOutcome> {
+  const recovery = await finishPendingInterruptionRecoveryFromGesture(attemptToken, {
+    running: resumed.running,
+    isCurrent: caller.isCurrent,
+    unhealthy: caller.unhealthy,
+  });
+  if (recovery.kind === 'escalated' && recovery.escalation === 'prepared' && caller.isCurrent()) {
+    return { kind: 'escalated' };
+  }
+  return recovery.kind === 'recovered'
+    ? { kind: 'recovered', rejoinEmitted: resumed.rejoinEmitted || recovery.rejoinEmitted }
+    : GESTURE_STOPPED;
+}
+
+/** The ordinary-branch tap's carry (RO-37): a retry cancels a pending attempt and carries none. */
+function carryPendingInterruption(retry: boolean): UnownedGestureCarry {
+  const attemptToken = getPendingAudioContextInterruptionAttempt();
+  if (!retry) return { retry, attemptToken };
+  if (attemptToken) cancelPendingAudioContextRecovery(attemptToken);
+  return { retry, attemptToken: null };
+}
+
+/**
+ * The ordinary branch: no owner attempt to resume, so the tap restarts the
+ * shared context itself (created if absent), the dialog's own resume. A
+ * failed PLAY's retry first cancels a pending playback-scope attempt, so the
+ * exact failed PLAY owns the gesture, its clock check and its continuation.
+ * After the dialog closed: the 1 s wait, which only this resume can lose; a
+ * carried attempt then takes the second step; otherwise the clock probe, and
+ * a frozen clock prepares a play-request restart for a new tap.
+ */
+function recoverUnownedContextFromGesture(
+  caller: UnownedGestureCaller,
+): AudioOutputGestureRecovery {
+  const carry = carryPendingInterruption(caller.cancelPendingInterruption);
+  countAudioRecovery(RESUME_DIALOG);
+  const flight = restartAudioContextFromGesture()
+    .then((): GestureFlightResult => ({ running: true, rejoinEmitted: false }))
+    .catch((error): GestureFlightResult => {
+      log.warn('[Audio] Gesture recovery failed', error);
+      return { running: false, rejoinEmitted: false };
+    });
+  return {
+    finish: async () => {
+      const resumed = await waitForGestureFlight(flight);
+      if (!caller.isCurrent()) return GESTURE_STOPPED;
+      if (carry.attemptToken) {
+        return finishPendingInterruptionForDialog(carry.attemptToken, resumed, caller);
+      }
+      const context = getExistingAudioContext();
+      const health = await probeGestureClock(context, caller.isCurrent);
+      if (!health.healthy || !resumed.running) {
+        caller.unhealthy(health);
+        if (health.reason === 'clock-stalled' && context && caller.isCurrent()) {
+          const preparation = await prepareForegroundAudioContextRestartAfterClockStall(context);
+          if (preparation && caller.isCurrent()) return { kind: 'clock-stalled', preparation };
+        }
+        return GESTURE_STOPPED;
+      }
+      return { kind: 'recovered', rejoinEmitted: false };
+    },
+  };
+}
+
+/**
+ * The recovery dialog's tap (RO-01, Phase 7 7C-2): the one owner call app.ts
+ * makes inside the button's activation, after its iOS primer. It picks the
+ * branch synchronously and issues that branch's native resume before it
+ * returns, with no await before it (ownership record Decision 4): the
+ * play-request restart the dialog serves; else, for a restore while a file
+ * attempt of the playback scope is pending, that attempt (none that accepts
+ * the gesture yet: null, and nothing is resumed, waited for or counted); else
+ * the ordinary branch. `finish` is the rest once the dialog has closed: the
+ * 1 s wait for that resume, then the branch's steps. The owner reads the
+ * dialog's currency where app.ts read it before, and none after its commit;
+ * app.ts keeps the dialog, its slot, its follow-up queue, the failed PLAY's
+ * retry and its own rejoin.
+ */
+export function beginAudioOutputGestureRecovery(
+  selector: AudioOutputGestureSelector,
+  caller: AudioOutputGestureCaller,
+): AudioOutputGestureRecovery | null {
+  if (selector.foregroundRestartAttemptToken) {
+    return recoverForegroundRestartFromGesture(selector.foregroundRestartAttemptToken, caller);
+  }
+  if (selector.intent === 'restore-playing-output' && hasPendingAudioContextInterruption('file')) {
+    const attemptToken = getPendingAudioContextInterruptionAttempt();
+    return attemptToken ? recoverPendingInterruptionFromGesture(attemptToken, caller) : null;
+  }
+  return recoverUnownedContextFromGesture({
+    ...caller,
+    cancelPendingInterruption: selector.intent === 'retry-failed-play',
+  });
 }
 
 /**

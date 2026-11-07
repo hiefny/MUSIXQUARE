@@ -917,12 +917,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         requestRetiredAudioContextSuspendCleanup: 4,
       });
       expect(usesOf(report.indirectResumeSites)).toEqual([
-        'src/app.ts probeAudioContextHealth()',
-        'src/app.ts restartAudioContextFromGesture()',
+        'src/audio/context-recovery.ts probeAudioContextHealth()',
         'src/audio/context-recovery.ts probeAudioContextHealth()',
         'src/audio/context-recovery.ts probeAudioContextHealth()',
         'src/audio/context-recovery.ts requestAudioContextResume()',
         'src/audio/context-recovery.ts requestRetiredAudioContextSuspendCleanup()',
+        'src/audio/context-recovery.ts restartAudioContextFromGesture()',
         'src/audio/context.ts requestAudioContextResume()',
         'src/audio/context.ts requestRetiredAudioContextSuspendCleanup()',
         'src/audio/context.ts requestRetiredAudioContextSuspendCleanup()',
@@ -1100,7 +1100,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           'requestAudioContextSuspend 4; initAudio uses',
       );
       expect(listed.stdout).toMatch(
-        /indirect resume: src\/app\.ts:\d+ probeAudioContextHealth\(\) in /u,
+        /indirect resume: src\/audio\/context-recovery\.ts:\d+ probeAudioContextHealth\(\) in probeGestureClock/u,
       );
       expect(listed.stdout).toMatch(
         /indirect suspend: src\/audio\/context-recovery\.ts:\d+ requestAudioContextSuspend\(\) in prepareStalledRecovery/u,

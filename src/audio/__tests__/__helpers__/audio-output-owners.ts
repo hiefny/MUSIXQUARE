@@ -402,6 +402,9 @@ export interface PlayRequestOptions {
   readonly dialog?: boolean;
 }
 
+/** Each play request's attempt (opaque), for the recovery dialog's selector. */
+const playRequestAttempts = new WeakMap<PlayRequest, () => object | null>();
+
 function startPlayRequest(
   o: Owners,
   incident: object,
@@ -429,7 +432,7 @@ function startPlayRequest(
     }
     return value ? value.status : 'stale';
   });
-  return {
+  const request: PlayRequest = {
     first,
     prepared: preparation.then((value) => (value ? value.whenPrepared : false)),
     incident,
@@ -454,6 +457,8 @@ function startPlayRequest(
     retire: () =>
       attempt ? o.context.retireForegroundAudioContextRestart(attempt.attemptToken) : false,
   };
+  playRequestAttempts.set(request, () => attempt?.attemptToken ?? null);
+  return request;
 }
 
 export const playRequest = {
@@ -606,4 +611,26 @@ export async function ordinaryBranchOwnerSide(o: Owners): Promise<{
       : 'retired';
   }
   return { fileAttemptPending, gestureAttempt, afterResume };
+}
+
+// ─── Driver: the recovery dialog's tap ────────────────────────────
+
+/** The request app.ts's recovery dialog shows, as its tap passes it to the owner's entry. */
+export interface DialogSelector {
+  readonly intent: 'retry-failed-play' | 'restore-playing-output';
+  readonly foregroundRestartAttemptToken?: object;
+}
+
+/**
+ * The selector of app.ts's recovery dialog for the owner's tap entry
+ * (beginAudioOutputGestureRecovery, Phase 7 7C-2): its intent and, for a
+ * failed PLAY's clock-stalled notice, that play request's attempt once its
+ * first answer settled.
+ */
+export function dialogSelector(
+  intent: DialogSelector['intent'],
+  request?: PlayRequest,
+): DialogSelector {
+  const attemptToken = request ? playRequestAttempts.get(request)?.() : null;
+  return attemptToken ? { intent, foregroundRestartAttemptToken: attemptToken } : { intent };
 }

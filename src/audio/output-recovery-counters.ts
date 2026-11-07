@@ -39,7 +39,10 @@ import { PREVIOUS_AUDIO_RECOVERY_KEY } from '../core/navigation-contract.ts';
 export const RESUME_PLAY_REQUEST = 0;
 /** context-recovery.ts: the playback scope's gesture resume. */
 export const RESUME_PLAY_GESTURE = 1;
-/** app.ts: the recovery dialog's own gesture resume (no owner attempt). */
+/**
+ * context-recovery.ts: the recovery dialog's own gesture resume (no owner
+ * attempt), counted in app.ts until Phase 7 7C-2.
+ */
 export const RESUME_DIALOG = 2;
 /** context-recovery.ts: an automatic resume, with or without an attempt. */
 export const RESUME_AUTO = 3;

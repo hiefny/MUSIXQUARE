@@ -462,7 +462,9 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/audio/context-protocol.ts',
       'src/audio/context.ts',
       'src/audio/context-recovery.ts',
-      // The recovery dialog's waits after its tap.
+      // The recovery dialog's waits after its tap moved into the owner in
+      // Phase 7 7C-2; app.ts stays listed, so a copy of one declared there
+      // is still caught.
       'src/app.ts',
     ],
   },
@@ -696,36 +698,34 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
   [
     'restartAudioContextFromGesture',
     new Map<string, Allowance>([
+      // The playback-scope owner's own gesture resume went through the one
+      // recovery resume in context.ts in Phase 7 7B-5 (1 -> 0), and the
+      // recovery dialog's tap moved into the owner in 7C-2 (app.ts 1 -> 0).
       [
-        'src/app.ts',
+        'src/audio/context-recovery.ts',
         {
           count: 1,
           reason:
-            "recovery dialog's ordinary branch, in the button's gesture (moves to the owner, 7C-2)",
+            "the recovery dialog's ordinary branch, in the button's gesture: the owner's tap " +
+            'entry since Phase 7 7C-2 (from app.ts, 0 -> 1)',
         },
       ],
-      // The playback-scope owner's own gesture resume went through the one
-      // recovery resume in context.ts in Phase 7 7B-5 (1 -> 0).
     ]),
   ],
   [
     'probeAudioContextHealth',
     new Map<string, Allowance>([
-      [
-        'src/app.ts',
-        {
-          count: 1,
-          reason: "recovery dialog's clock check after the gesture, attemptResume false (7C-2)",
-        },
-      ],
+      // The recovery dialog's clock check after its tap moved into the owner
+      // in Phase 7 7C-2 (app.ts 1 -> 0).
       [
         'src/audio/context-recovery.ts',
         {
-          count: 2,
+          count: 3,
           reason:
-            "the owner's automatic clock check and, since Phase 7 7C-1, its gesture recovery's " +
-            'check for the dialog and a lock-screen PLAY (from media-session.ts, 1 -> 2), ' +
-            'attemptResume false',
+            "the owner's automatic clock check; since Phase 7 7C-1 its gesture recovery's " +
+            'check for the dialog and a lock-screen PLAY (from media-session.ts, 1 -> 2); since ' +
+            "7C-2 the dialog's check of the play-request restart and of the ordinary branch " +
+            '(from app.ts, 2 -> 3); attemptResume false',
         },
       ],
       [

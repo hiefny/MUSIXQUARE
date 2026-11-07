@@ -245,7 +245,10 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
     different request replaces the open one (:401-415). A failed-PLAY tap
     claims a pending native AudioContext recovery so
     `audio/context-recovery.ts` does not also publish its
-    `audio-context-recovered` rejoin (`app.ts:513-524`, :659-663), and that
+    `audio-context-recovered` rejoin: since Phase 7 7C-2 the owner's tap
+    entry does it (`recoverUnownedContextFromGesture`, which the dialog's
+    `beginAudioOutputGestureRecovery` calls, cancels the attempt before the
+    resume, and its type gives a retry no attempt to commit), and that
     dialog emits no rejoin after its retry. Only a `restore-playing-output` dialog
     (source `background-resume`) emits one (:697-707). While any audio
     recovery dialog is open, the background-return Sync leaves the file

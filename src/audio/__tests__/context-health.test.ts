@@ -65,6 +65,22 @@ async function loadContext(options: FakeContextOptions = {}) {
   return { instance, module };
 }
 
+/**
+ * The engine's binding of the loaded context (context-recovery.ts, same
+ * module graph): from then on each hidden edge arms the next foreground
+ * incident and captures the hidden continuity, as a return from the
+ * background does. Returns its disposer.
+ */
+async function bindForegroundReturns(instance: FakeAudioContext): Promise<() => void> {
+  const recovery = await import('../context-recovery.ts');
+  return recovery.bindAudioContextInterruptionRecovery(instance as unknown as AudioContext);
+}
+
+function setVisibility(value: 'hidden' | 'visible'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
 describe('AudioContext foreground health', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -180,13 +196,13 @@ describe('AudioContext foreground health', () => {
 
   it('keeps only the exact one-shot foreground clock-health incident', async () => {
     const { instance, module } = await loadContext();
-    const first = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-    );
+    const dispose = await bindForegroundReturns(instance);
+    setVisibility('hidden');
+    const first = module.getPendingForegroundAudioContextClockHealthCheck()?.token ?? null;
     const firstRequirement = module.getPendingForegroundAudioContextClockHealthCheck();
-    const second = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-    );
+    setVisibility('visible');
+    setVisibility('hidden');
+    const second = module.getPendingForegroundAudioContextClockHealthCheck()?.token ?? null;
     const secondRequirement = module.getPendingForegroundAudioContextClockHealthCheck();
 
     expect(firstRequirement?.token).toBe(first);
@@ -196,36 +212,37 @@ describe('AudioContext foreground health', () => {
     expect(module.consumeForegroundAudioContextClockHealthCheck(first!)).toBe(false);
     expect(module.consumeForegroundAudioContextClockHealthCheck(second!)).toBe(true);
     expect(module.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
+    dispose();
   });
 
   it('reports no hidden continuity gap when wall and AudioContext clocks advance together', async () => {
     vi.setSystemTime(new Date('2026-08-22T00:00:00.000Z'));
     const { instance, module } = await loadContext({ clock: 'running' });
-    const token = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-      { captureHiddenContinuity: true },
-    );
+    const dispose = await bindForegroundReturns(instance);
+    setVisibility('hidden');
+    const token = module.getPendingForegroundAudioContextClockHealthCheck()?.token;
 
     await vi.advanceTimersByTimeAsync(2_000);
 
     const requirement = module.getPendingForegroundAudioContextClockHealthCheck();
     expect(requirement?.token).toBe(token);
     expect(requirement?.getHiddenContinuityGapSeconds()).toBeCloseTo(0, 6);
+    dispose();
   });
 
   it('reports the hidden continuity gap when wall time advances but AudioContext freezes', async () => {
     vi.setSystemTime(new Date('2026-08-22T00:00:00.000Z'));
     const { instance, module } = await loadContext({ clock: 'stalled' });
-    const token = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-      { captureHiddenContinuity: true },
-    );
+    const dispose = await bindForegroundReturns(instance);
+    setVisibility('hidden');
+    const token = module.getPendingForegroundAudioContextClockHealthCheck()?.token;
 
     await vi.advanceTimersByTimeAsync(2_000);
 
     const requirement = module.getPendingForegroundAudioContextClockHealthCheck();
     expect(requirement?.token).toBe(token);
     expect(requirement?.getHiddenContinuityGapSeconds()).toBeCloseTo(2, 6);
+    dispose();
   });
 
   it('prepares and confirms an identity-less foreground restart only after clock health', async () => {

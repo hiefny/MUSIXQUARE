@@ -34,9 +34,10 @@ export default defineConfig({
       // prep (T0) before the structural plan's C1 merges their two machines:
       // the owner-boundary harness, the UI sound suite, and the boundary,
       // holding and parity tables; since Phase 7 7C-2 the recovery dialog's
-      // tap through the owner's entry.
+      // tap through the owner's entry, and since 7C-3 a local-file PLAY's
+      // foreground clock check.
       'src/audio/__tests__/{audio-context-ownership,ui-sounds}.test.ts',
-      'src/audio/__tests__/audio-output-recovery-{boundary,dialog,holding,parity}.test.ts',
+      'src/audio/__tests__/audio-output-recovery-{boundary,dialog,file-start,holding,parity}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',
       'src/pro-room/__tests__/device-failure-sequence-qa.test.ts',

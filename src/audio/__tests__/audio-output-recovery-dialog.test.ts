@@ -158,6 +158,54 @@ describe("RO-01 the recovery dialog's tap: the owner picks the branch and resume
     expect(gesture).not.toBeNull();
   });
 
+  it.each<[string, Record<string, number>, (s: Scene) => Promise<DialogSelector>]>([
+    [
+      'the play-request restart: no requirement wait, and the attempt is left to the close',
+      { RESUME_PLAY_REQUEST: 1, DEADLINES_WATCHED: 2, CLOCK_WAITS: 1 },
+      async (s) => {
+        const restart = playRequest.arm(s.o, s.fake);
+        await expect(restart.first).resolves.toBe('prepared');
+        return dialogSelector('retry-failed-play', restart);
+      },
+    ],
+    [
+      "the playback scope's attempt: no second step",
+      { RESUME_PLAY_GESTURE: 1, DEADLINES_WATCHED: 2, CLOCK_WAITS: 1 },
+      async (s) => {
+        await expect(playbackScope.armStalled(s.o, s.fake)).resolves.toBe('prepared');
+        return dialogSelector('restore-playing-output');
+      },
+    ],
+    [
+      'the ordinary branch: no clock check',
+      { RESUME_DIALOG: 1, DEADLINES_WATCHED: 1 },
+      async () => dialogSelector('restore-playing-output'),
+    ],
+  ])(
+    'a dialog that stops acting during its 1 s wait: the owner reads that once the wait ends and stops, %s',
+    async (_label, changes, arrange) => {
+      const s = await scene();
+      const selector = await arrange(s);
+      s.fake.planResume({ latencyMs: 300 });
+      const incident = foregroundIncident(s.o);
+      const bus = recordBus(s.o);
+      const side = dialog();
+      const before = counts(s);
+
+      const outcome = settled(tap(s, selector, side)!.finish());
+      await vi.advanceTimersByTimeAsync(100);
+      side.current = false;
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(outcome.value).toEqual({ kind: 'stopped' });
+      expect(side.unhealthy).toEqual([]);
+      expect(bus.rejoins).toEqual([]);
+      // Nothing retired the play-request attempt or armed another check.
+      expect(foregroundIncident(s.o)).toBe(incident);
+      expect(countChanges(s, before)).toEqual(changes);
+    },
+  );
+
   it('a return notice while the stalled file attempt still prepares its suspend: no resume, no wait, no count', async () => {
     const s = await scene();
     s.fake.planSuspend({ outcome: 'never' });

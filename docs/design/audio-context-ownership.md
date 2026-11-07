@@ -17,10 +17,10 @@ The app creates one AudioContext (`getAudioContext` in `src/audio/context.ts`). 
 can report `running` while its clock is frozen, or stay suspended after a call, a lock or a route
 change, and only a trusted user gesture may resume it. Two machines drive it today:
 
-| Machine                 | File                            | Starts when                                                                           |
-| ----------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
-| Play-request restart    | `src/audio/context.ts`          | a PLAY after a return to the foreground finds the clock stalled                       |
-| Playback-scope recovery | `src/audio/context-recovery.ts` | an OS interruption or a stalled clock during playback (`statechange`, visibility, G7) |
+| Machine                 | File                                                              | Starts when                                                                           |
+| ----------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Play-request restart    | `src/audio/context-recovery.ts` (`context.ts` until Phase 7 7C-4) | a PLAY after a return to the foreground finds the clock stalled                       |
+| Playback-scope recovery | `src/audio/context-recovery.ts`                                   | an OS interruption or a stalled clock during playback (`statechange`, visibility, G7) |
 
 Each kept its own suspend lease and its own `statechange` listeners until 7B-4 (Decision 3), and
 its own gesture resume until 7B-5 (Decision 4). `src/app.ts` sequenced both in the recovery dialog ('Audio paused unexpectedly' with the 'Restore
@@ -39,7 +39,10 @@ behind a failing test) and 7C (the move behind one owner).
    used by the owner since 7C-2), and for allowed requesters `ensureRunning` and the
    health probe's resume (`probeAudioContextHealth`). Since 7C-3 a local-file PLAY's foreground
    clock check is the owner's (`checkForegroundClockBeforeFileStart`); transport keeps the
-   notice, its generation and its retry.
+   notice, its generation and its retry. Since 7C-4 the play-request restart, the suspend ledger,
+   the `statechange` dispatcher and the recovery resume are the owner's too, moved unchanged from
+   `context.ts`; the owner exports the restart's queries that `app.ts`, `output-health.ts` and
+   transport read, and keeps its other steps module-private.
 2. **Only the owner calls native `resume()` and `suspend()`**, with three exceptions:
    1. `ensureRunning` wakes a context that is not running (PLAY, file activation, the engine's
       initialization). When an attempt holds the context, the owner's re-suspend rule undoes that
@@ -60,7 +63,7 @@ behind a failing test) and 7C (the move behind one owner).
 3. **One native suspend in flight per context.** One lease and one `statechange` dispatcher per
    context (7B-4). A reader that only updates the loading indicator
    (`src/ui/file-start-loading.ts`) stays outside the dispatcher and is not counted as an owner
-   listener. Implemented in 7B-4, in `context.ts` until 7C moves them into the owner: both owners
+   listener. Implemented in 7B-4, in `context.ts` until 7C-4 moved them into the owner: both owners
    ask one suspend ledger (`requestAudioContextSuspend`), whose lease watchdog and late-suspend
    fence time the suspend for both, so either owner's second suspend comes after the fence; a
    later request takes the lease, or the place behind the fence, over and the earlier attempt
@@ -73,7 +76,7 @@ behind a failing test) and 7C (the move behind one owner).
    so the call keeps the transient activation. A running-but-frozen context is suspended before
    the dialog shows, so the button never spends its activation awaiting `suspend()`. Since 7B-5 one
    recovery resume serves every attempt of both owners (`requestAudioContextResume`, in
-   `context.ts` until 7C moves it into the owner): it issues the native `resume()` synchronously,
+   `context.ts` until 7C-4 moved it into the owner): it issues the native `resume()` synchronously,
    races it with the 750 ms deadline, and promotes the attempt when the context runs for it, the
    deadline passed or not, so an owner hears its own late resume as its own. The steps after the
    deadline, the playback scope's own clock check of a late resume (fix lane G7) and the rule for
@@ -149,24 +152,36 @@ behind a failing test) and 7C (the move behind one owner).
   (`src/player/__tests__/media-session-pending-start.test.ts`,
   `src/player/__tests__/transport-ended-stop.test.ts`); they are the latch. Since 7B-3 every test
   file that loads UI sounds evaluates it too (22 more under a `context.ts` factory). Its holding
-  query reads `isForegroundAudioContextRestartHolding` only after the UI sound preference, which
-  among those files only `src/audio/__tests__/ui-sounds.test.ts` turns on, and that file's factory
-  defines the name. Since 7B-4 the binding and the playback scope's suspend preparation call the
-  ledger's `bindAudioContextStateDispatch` and `requestAudioContextSuspend`, and since 7B-5 its
-  resumes call `requestAudioContextResume`; none of those files binds a context or arms a
-  playback-scope attempt (each needs a binding). Since 7C-3 transport imports the owner for a
-  local-file PLAY's clock check, so every test file that loads the real transport under a
-  `context.ts` factory evaluates the real `context-recovery.ts` too. The check reads
-  `getPendingForegroundAudioContextClockHealthCheck` when a PLAY reaches it, which the 15
-  transport-path factories define (null unless a row arms an incident), and the probe, the
-  consume and the restart's preparation only after an incident.
+  query is answered inside the owner since 7C-4 (it read the play-request owner's
+  `isForegroundAudioContextRestartHolding` from `context.ts` before), only after the UI sound
+  preference, which among those files only `src/audio/__tests__/ui-sounds.test.ts` turns on; that
+  file sets the answer through a `context-recovery.ts` factory of `isAudioOutputRecoveryHolding`.
+  Since 7B-4 the binding and the playback scope's suspend preparation call the ledger, and since
+  7B-5 its resumes the recovery resume, all inside the owner since 7C-4; none of those files binds
+  a context or arms a playback-scope attempt (each needs a binding). Since 7C-3 transport imports
+  the owner for a local-file PLAY's clock check, so every test file that loads the real transport
+  under a `context.ts` factory evaluates the real `context-recovery.ts` too. Since 7C-4 the
+  foreground incident, the restart and their queries are the owner's own state, so no
+  `context.ts` factory defines them any more (the owner answers that no incident is pending until
+  a binding arms one), and the check reads the probe only after an incident. The owner reads
+  `context.ts`'s `getExistingAudioContext`, `probeAudioContextHealth` and
+  `restartAudioContextFromGesture`, never at module evaluation.
 - **Public behaviour, no sub-step names.** The owner tables (`audio-output-recovery-boundary`,
   `audio-output-recovery-holding`, `audio-output-recovery-parity`, in `src/audio/__tests__/`)
   assert the fake's op log, bus events and the owners' normalized answers through one driver
   (`__helpers__/audio-output-owners.ts`), so 7C changes the driver, not the tables (since 7C-1 its
   playback-scope tap is the owner's first step, and its requirement reads exported answers only;
   since 7C-2 it builds the recovery dialog's selector for the owner's tap entry).
-  No test-only export is added (the dead-export ratchet has no headroom).
+  Since 7C-4 the owner's sub-steps that no public route reproduces (the play-request restart's
+  arm, prepare, prepare after a clock stall, gesture resume, clock requirement and its wait, and
+  the retired-suspend cleanup) are module-private and reach tests through one test seam,
+  `ownerSubStepsForTests` in `context-recovery.ts`, the very functions: the driver and the rows
+  that call a sub-step themselves, Known gap rows included, read them through it, so the tables
+  and those rows stay byte for byte while the names stop being exports. This is an
+  implementation choice inside the plan (2026-11-08). The dead-export check counts a /ForTests$/
+  name as a sanctioned seam, so its fully-dead, test-only and self-only counts keep their zero
+  headroom; no other test-only export is added. No production file may name the seam
+  (`src/audio/__tests__/audio-output-recovery-test-seam.test.ts`).
 - **Known gaps.** A row labelled 'Known gap (C1-...)' pins today's behaviour. Only an increment the
   owner approved flips it, in its own failing-test-first commit.
 
@@ -175,12 +190,13 @@ behind a failing test) and 7C (the move behind one owner).
 - `scripts/check-resource-ownership.mts` CHECK 6 counts native `resume()` and `suspend()` per file;
   beside it, since Phase 7 T1, an exact ratchet counts per file the callers of `ensureRunning`,
   `restartAudioContextFromGesture` and `probeAudioContextHealth`, `context.ts` included (it calls
-  none of them, so a wrapper there cannot hide a new caller), and reports `initAudio` uses. Since
-  7B it also counts the callers of the wrappers 7B-4 and 7B-5 route both owners' native calls
-  through (`requestAudioContextResume`, `requestRetiredAudioContextSuspendCleanup`,
-  `requestAudioContextSuspend`), their home's own calls included, until 7C-4 makes them
-  module-private. Each Phase 7 step lowers the counts it moves into the owner in the same change.
-  The guard stays syntactic (RO-44).
+  none of them, so a wrapper there cannot hide a new caller), and reports `initAudio` uses. From
+  7B until 7C-4 it also counted the callers of the wrappers 7B-4 and 7B-5 route both owners'
+  native calls through (`requestAudioContextResume`, `requestRetiredAudioContextSuspendCleanup`,
+  `requestAudioContextSuspend`), their home's own calls included; 7C-4 made them module-private
+  in the owner and dropped their entries, and moved CHECK 6's counts with their code
+  (`context.ts` 6 -> 3, `context-recovery.ts` 1 -> 4). Each Phase 7 step lowers the counts it moves
+  into the owner in the same change. The guard stays syntactic (RO-44).
 
 ## Limits of the evidence
 
@@ -212,6 +228,7 @@ behind a failing test) and 7C (the move behind one owner).
 - Lock-screen PLAY: `src/player/__tests__/media-session.test.ts`,
   `src/player/__tests__/media-session-lock-screen-pause.test.ts`.
 - Recovery dialog tap (7C-2): `src/audio/__tests__/audio-output-recovery-dialog.test.ts`.
+- The owner's test seam (7C-4): `src/audio/__tests__/audio-output-recovery-test-seam.test.ts`.
 - UI sounds ask first (7B-3): `src/audio/__tests__/ui-sounds.test.ts` (while an owner holds the
   context, no resume and no tone; otherwise a suspended context is resumed once and a running one
   plays the tone) and the holding table.

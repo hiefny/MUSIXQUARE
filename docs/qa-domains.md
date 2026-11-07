@@ -340,7 +340,7 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **방법:** 자동 / 브라우저 / 실기
 
-**대표 구현:** [src/audio/context.ts](../src/audio/context.ts), [src/player/transport.ts](../src/player/transport.ts)
+**대표 구현:** [src/audio/context.ts](../src/audio/context.ts), [src/audio/context-recovery.ts](../src/audio/context-recovery.ts), [src/player/transport.ts](../src/player/transport.ts)
 
 **기존 검사 진입점:** [src/audio/__tests__/context-health.test.ts](../src/audio/__tests__/context-health.test.ts), [src/ui/__tests__/setup-start.test.ts](../src/ui/__tests__/setup-start.test.ts), [src/ui/__tests__/setup-start-native-resume.test.ts](../src/ui/__tests__/setup-start-native-resume.test.ts), [e2e/demo-output-recovery.test.ts](../e2e/demo-output-recovery.test.ts)
 

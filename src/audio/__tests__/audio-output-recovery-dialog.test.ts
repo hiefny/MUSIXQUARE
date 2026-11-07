@@ -396,6 +396,46 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
   });
 
   it.each([
+    ['its running event first', {}],
+    ['with no running event', { statechange: 'silent' as const }],
+  ])(
+    "the playback scope's attempt whose resume lands after the 750 ms deadline (%s): the dialog stops at the deadline and is not shown again; the owner verifies the late resume with its one rejoin",
+    async (_label, plan) => {
+      const s = await scene();
+      await expect(playbackScope.armStalled(s.o, s.fake)).resolves.toBe('prepared');
+      s.fake.planResume({ latencyMs: 1_200, ...plan });
+      const bus = recordBus(s.o);
+      const side = dialog();
+      const before = counts(s);
+
+      const outcome = settled(tap(s, dialogSelector('restore-playing-output'), side)!.finish());
+      // The owner's resume deadline answers not running at 750 ms, so the
+      // dialog's 1 s wait ends there, before the resume lands at 1.2 s.
+      await vi.advanceTimersByTimeAsync(800);
+      expect(outcome.value).toEqual({ kind: 'stopped' });
+      expect(s.fake.state).toBe('suspended');
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      // Phase 7 7B-5, kept by owner decision 2026-11-05: no notice asks for
+      // another tap; the owner probes its own late running state (fix lane
+      // G7) and publishes the one rejoin, and the dialog logs nothing.
+      expect(s.fake.state).toBe('running');
+      expect(bus.needed).toEqual([]);
+      expect(bus.rejoins).toEqual(['audio-context-recovered']);
+      expect(side.unhealthy).toEqual([]);
+      expect(playbackScope.view(s.o)).toEqual({ attempt: 'none', gesture: false });
+      expect(countChanges(s, before)).toEqual({
+        RESUME_PLAY_GESTURE: 1,
+        DEADLINE_GESTURE_RESUME: 1,
+        DEADLINES_WATCHED: 2,
+        CLOCK_WAITS: 1,
+        CLOCK_CONFIRMED: 1,
+        CONTEXT_RECOVERED_REJOINS: 1,
+      });
+    },
+  );
+
+  it.each([
     ['its flight wins the 1 s wait', {}, { RESUME_DIALOG: 1, DEADLINES_WATCHED: 1 }],
     [
       'its resume held past 1 s: the deadline answers with the running state',

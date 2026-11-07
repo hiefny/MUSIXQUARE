@@ -5,13 +5,16 @@
  * A host alone in a real room plays a local file. A hidden/visible round
  * trip freezes the AudioContext clock (output-probe.ts) so the app opens its
  * recovery dialog, either the play-request dialog (paused, then PLAY) or the
- * prepared dialog (playing). The rows pin, in Chromium:
+ * prepared dialog (playing); in (iv) the round trip sets the clock back
+ * instead, and it runs on. The rows pin, in Chromium:
  *
  * - (i)/(ii) the two dialogs' outcomes: one retried source start, or one
  *   recovered rejoin;
  * - (iii) app.ts's part of two recoveries asking to park the audio at once
  *   (a seek while the return check parks it): which dialog stays, and what
  *   its button does (Phase 7 7B-4);
+ * - (iv) the return check's own outcome without a dialog: a clock that lost
+ *   the hidden span but runs again gets one rejoin, the return check's;
  * - (a)-(e) app.ts's part of the play-request dialog, which unit tests cannot
  *   load: an outside resume while it waits and the owner parking it again, a
  *   tap inside that re-park (the same request shown once more), how its wait
@@ -22,12 +25,12 @@
  *   dialog's tap the UI sounds ask first and stay silent (Phase 7 7B-3):
  *   no resume on pointerdown or keydown, no press sound (`ms tone`).
  *
- * One room PLAY and one retry() per failed PLAY is not pinned directly: a
- * host alone has no peer to receive the room PLAY, and a second retry() is
- * refused inside transport with nothing the lab can read. (i), (a), (b) and
- * T4 pin one source start and one paused-to-playing move per failed PLAY; a
- * second activation cannot reach the dialog, which closes inside its first
- * one.
+ * One room PLAY per failed PLAY is not pinned directly: a host alone has no
+ * peer to receive it. The failed PLAY's retry() calls are: output-probe.ts
+ * logs each call of a notice's retry() with its outcome, and (i) pins
+ * exactly one, which started the source. (a), (b) and T4 pin one source
+ * start and one paused-to-playing move per failed PLAY; a second activation
+ * cannot reach the dialog, which closes inside its first one.
  *
  * Only the window from the return to the tap is frozen, and rows assert
  * counts and origin-tagged calls, not whole op arrays; times are bounded
@@ -41,6 +44,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { clickPlayButton, readState, waitForPlaybackProjection } from '../helpers/wait.ts';
 import {
   bounce,
+  bounceLagging,
   countOps,
   dialogMoves,
   emitNewerPlayRequest,
@@ -102,6 +106,9 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
     expect(lab.starts - before).toBe(1);
     expect(lab.activity).toEqual(['paused', 'playing']);
+    // The tap retries the failed PLAY itself, once, through the retry() its
+    // one notice carried, and nothing asks for a rejoin.
+    expect(lab.retries).toEqual(['started']);
     expect(lab.rejoins).toEqual([]);
   });
 
@@ -447,6 +454,37 @@ test.describe('prepared dialog (playing round trip)', () => {
     expect(lab.starts - before).toBe(1);
     expect(lab.rejoins).toEqual([]);
     expect(position).toBeGreaterThan(duration * 0.5);
+  });
+});
+
+test.describe('return check (playing round trip, no dialog)', () => {
+  test("(iv) the clock lost the hidden span but runs again: the return check's one rejoin, no dialog", async ({
+    page,
+  }) => {
+    await openPlaying(page);
+    const { starts: before } = await readLab(page);
+    await bounceLagging(page);
+    await page.waitForTimeout(2_000);
+    const lab = await readLab(page);
+    report('(iv)', lab, before);
+
+    // The foreground sample finds the clock moving, and the evidence taken at
+    // the hidden edge shows it about 2 s behind (the tolerance is 0.25 s): the
+    // output is healthy but out of step, and the return check asks for the
+    // realignment itself. No owner takes the context, so nothing suspends,
+    // resumes or asks for a dialog.
+    const returned = opsFrom(lab.ops, 'lag');
+    expect(lab.rejoins).toEqual(['background-resume']);
+    expect(lab.needed).toEqual([]);
+    expect(lab.dialogShows).toBe(0);
+    expect(countOps(returned, ' suspend:')).toBe(0);
+    expect(countOps(returned, 'resume@')).toBe(0);
+    expect(lab.retries).toEqual([]);
+    // The host's realignment rebuilds its source once.
+    expect(lab.starts - before).toBe(1);
+    expect(lab.activity).toEqual([]);
+    expect(lab.state).toBe('running');
+    expect(await readState(page, 'playback.activity')).toBe('playing');
   });
 });
 

@@ -15,13 +15,20 @@
  * - `currentTime` can be frozen and unfrozen on the instance, which stands in
  *   for the WebKit frozen clock (the instance is the app's only context, so
  *   scheduling and sync reads freeze too: tests keep the frozen window short);
+ * - `currentTime` can instead be set back by a fixed span (it keeps moving at
+ *   its normal rate), which stands in for a clock that stood still while the
+ *   page was hidden and runs again on return;
  * - buffer source starts longer than 1 s (real tracks, not unlock or UI
  *   sounds) are counted; shorter ones and oscillator starts (UI sounds: the
  *   touch is one short buffer, the join, leave and announcement sounds two
  *   oscillators) are logged as `ms tone`;
  * - showing and hiding of #dialog-overlay is logged and counted;
  * - bus events (recovery notices, local rejoins, playback activity) are
- *   recorded once a room is playing.
+ *   recorded once a room is playing; from then on each recovery notice's
+ *   retry() is wrapped as the bus delivers the notice (one wrapper per
+ *   function, so app.ts still sees the same request), and each call is
+ *   logged with its outcome: `started`, `refused`, `threw`, or `pending`
+ *   while it runs.
  */
 import { expect, type Page } from '@playwright/test';
 import { uploadFixtures } from '../helpers/file-upload.ts';
@@ -53,10 +60,12 @@ interface Lab {
   needed: string[];
   rejoins: string[];
   activity: string[];
+  retries: string[];
   resumeGate: Gate | null;
   suspendGate: Gate | null;
   freeze(): void;
   unfreeze(): void;
+  lag(seconds: number): void;
   holdResume(origins: string[], limit: number): void;
   holdSuspend(limit: number): void;
   releaseGates(): void;
@@ -71,6 +80,7 @@ export interface LabSnapshot {
   readonly needed: string[];
   readonly rejoins: string[];
   readonly activity: string[];
+  readonly retries: string[];
   readonly state: string | null;
   readonly resumeHeld: number;
   readonly suspendHeld: number;
@@ -106,6 +116,7 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
       needed: [],
       rejoins: [],
       activity: [],
+      retries: [],
       resumeGate: null,
       suspendGate: null,
       freeze: () => {
@@ -118,6 +129,20 @@ async function instrument(page: Page, uiSounds: boolean): Promise<void> {
       unfreeze: () => {
         if (lab.ctx) Reflect.deleteProperty(lab.ctx, 'currentTime');
         lab.ops.push(`${now()} unfreeze`);
+      },
+      lag: (seconds) => {
+        const ctx = lab.ctx;
+        if (!ctx) throw new Error('no AudioContext captured');
+        const read = Object.getOwnPropertyDescriptor(
+          BaseAudioContext.prototype,
+          'currentTime',
+        )?.get;
+        if (!read) throw new Error('no currentTime getter');
+        Object.defineProperty(ctx, 'currentTime', {
+          configurable: true,
+          get: () => (read.call(ctx) as number) - seconds,
+        });
+        lab.ops.push(`${now()} lag`);
       },
       holdResume: (origins, limit) => {
         lab.resumeGate = makeGate(origins, limit);
@@ -210,6 +235,34 @@ async function recordBus(page: Page): Promise<void> {
     const lab = (window as unknown as LabWindow).__audioLab;
     const bus = (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ as {
       on: (type: string, callback: (payload?: unknown) => void) => void;
+      emit: (type: string, ...args: unknown[]) => void;
+    };
+    // app.ts keeps a notice's retry() from its own bus listener, so the
+    // wrapper goes on before every listener: on the emit itself.
+    const emit = bus.emit.bind(bus);
+    const counted = new WeakMap<object, () => Promise<boolean>>();
+    bus.emit = (type, ...args) => {
+      const notice = args[0] as { retry?: unknown } | undefined;
+      if (type === 'audio:output-recovery-needed' && typeof notice?.retry === 'function') {
+        const retry = notice.retry as () => Promise<boolean>;
+        let wrapped = counted.get(retry);
+        if (!wrapped) {
+          wrapped = async () => {
+            const call = lab.retries.push('pending') - 1;
+            try {
+              const started = await retry();
+              lab.retries[call] = started ? 'started' : 'refused';
+              return started;
+            } catch (error) {
+              lab.retries[call] = 'threw';
+              throw error;
+            }
+          };
+          counted.set(retry, wrapped);
+        }
+        args[0] = { ...notice, retry: wrapped };
+      }
+      emit(type, ...args);
     };
     bus.on('audio:output-recovery-needed', (event) => {
       const notice = event as { source: string; reason: string };
@@ -234,6 +287,7 @@ export async function readLab(page: Page): Promise<LabSnapshot> {
       needed: [...lab.needed],
       rejoins: [...lab.rejoins],
       activity: [...lab.activity],
+      retries: [...lab.retries],
       state: lab.ctx?.state ?? null,
       resumeHeld: lab.resumeGate?.held ?? 0,
       suspendHeld: lab.suspendGate?.held ?? 0,
@@ -357,6 +411,23 @@ export async function bounce(page: Page): Promise<void> {
   await setPageVisibility(page, 'hidden');
   await page.waitForTimeout(2_000);
   await page.evaluate(() => (window as unknown as LabWindow).__audioLab.freeze());
+  await setPageVisibility(page, 'visible');
+}
+
+/**
+ * A hidden/visible round trip whose clock stood still while the page was
+ * hidden and runs again on return: hidden for 2 s, then, just before the
+ * page is visible again, the clock is set back by the time it was hidden
+ * (logged as `lag`). It moves at its normal rate from then on, so a
+ * foreground sample finds it healthy, but it is behind by the hidden span.
+ */
+export async function bounceLagging(page: Page): Promise<void> {
+  await setPageVisibility(page, 'hidden');
+  const hiddenAt = await pageNow(page);
+  await page.waitForTimeout(2_000);
+  await page.evaluate((since) => {
+    (window as unknown as LabWindow).__audioLab.lag((performance.now() - since) / 1_000);
+  }, hiddenAt);
   await setPageVisibility(page, 'visible');
 }
 

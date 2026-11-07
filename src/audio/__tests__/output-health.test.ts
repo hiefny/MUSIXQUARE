@@ -42,6 +42,12 @@ vi.mock('../../player/_state.ts', () => ({
   getCurrentLoadEpoch: vi.fn(() => 1),
   getPlayerNode: mocks.getPlayerNode,
 }));
+// The owners are factories here. What an inspection asks of them (one clock
+// check fenced by its foreground incident, one arm and none while a
+// play-request restart owns the context, a consumed incident, an attempt left
+// to its owner) is pinned over the real owners in
+// src/player/__tests__/output-recovery-transport-boundary.test.ts; the hidden
+// gap read is pinned by the PRO row below.
 vi.mock('../context.ts', () => ({
   consumeForegroundAudioContextClockHealthCheck: mocks.consumeForeground,
   getExistingAudioContext: mocks.getContext,
@@ -129,8 +135,6 @@ describe('background local-file output health', () => {
       status: 'needs-gesture',
       reason: 'clock-stalled',
     });
-    expect(mocks.probe).toHaveBeenCalledOnce();
-    expect(mocks.arm).toHaveBeenCalledOnce();
   });
 
   it('defers without auto-resume while a generic foreground restart owns the context', async () => {
@@ -149,11 +153,6 @@ describe('background local-file output health', () => {
       isCurrent: null,
       isPlaybackCurrent: null,
     });
-
-    expect(mocks.probe).not.toHaveBeenCalled();
-    expect(context.resume).not.toHaveBeenCalled();
-    expect(mocks.arm).not.toHaveBeenCalled();
-    expect(mocks.consumeForeground).not.toHaveBeenCalled();
   });
 
   it('defers entirely to a semantic recovery that already owns the incident', async () => {
@@ -168,8 +167,6 @@ describe('background local-file output health', () => {
       isCurrent: null,
       isPlaybackCurrent: null,
     });
-    expect(mocks.probe).not.toHaveBeenCalled();
-    expect(mocks.cancelPending).not.toHaveBeenCalled();
   });
 
   it('does not adopt a semantic recovery that appears during its foreground probe', async () => {
@@ -190,8 +187,6 @@ describe('background local-file output health', () => {
       isCurrent: null,
       isPlaybackCurrent: null,
     });
-    expect(mocks.probe).toHaveBeenCalledOnce();
-    expect(mocks.cancelPending).not.toHaveBeenCalled();
   });
 
   it('consumes one pre-armed foreground incident without requesting a healthy rejoin', async () => {
@@ -223,12 +218,6 @@ describe('background local-file output health', () => {
       isCurrent: expect.any(Function),
       isPlaybackCurrent: expect.any(Function),
     });
-
-    expect(mocks.probe).toHaveBeenCalledOnce();
-    expect(foregroundRequirement.isCurrent).toHaveBeenCalled();
-    expect(foregroundRequirement.getHiddenContinuityGapSeconds).toHaveBeenCalledOnce();
-    expect(mocks.consumeForeground).toHaveBeenCalledOnce();
-    expect(mocks.consumeForeground).toHaveBeenCalledWith(foregroundToken);
   });
 
   it('requires one rejoin when hidden wall time outran an otherwise healthy PRO clock', async () => {

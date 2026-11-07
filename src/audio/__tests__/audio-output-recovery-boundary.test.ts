@@ -19,8 +19,8 @@
  * - the two suspend leases one foreground incident can start;
  * - statechange dispatch order and listener counts per owner;
  * - prepared notices per suspend ordering;
- * - the owner side of app.ts's ordinary dialog branch carrying a non-file
- *   attempt (modelled: app.ts is not loaded).
+ * - the owner side of the recovery dialog's ordinary branch carrying a
+ *   non-file attempt (modelled; the branch is the owner's since Phase 7 7C-2).
  *
  * "Known gap (C1-...)" marks today's behaviour where it is not the desired
  * one. Where a planned C1 increment would change a row, the row names it;
@@ -468,7 +468,7 @@ describe('RO-01 two suspend requests from one foreground incident', () => {
 
 /**
  * Phase 7 7B-4 (owner answer Q6, E11, E22): one statechange listener per
- * context, the suspend ledger's dispatcher in context.ts, and inside it the
+ * context, the suspend ledger's dispatcher (the owner's since 7C-4), and inside it the
  * fixed order binding, lease, late fence, play-request resume promotion,
  * whichever part arrived first. Before, every owner added its own listener,
  * so the order was the order the listeners were added and differed per

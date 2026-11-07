@@ -5,9 +5,9 @@
  * RO-01 "AudioContext running state" (docs/design/resource-ownership-registry.md):
  * owner-boundary characterization, structural plan step C1-I4 (Phase 0c).
  *
- * Two machines drive one native AudioContext today: the play-request
- * foreground restart in src/audio/context.ts and the playback-scope
- * interruption recovery in src/audio/context-recovery.ts. These tests pin
+ * Two machines drive one native AudioContext: the play-request foreground
+ * restart and the playback-scope interruption recovery, both in
+ * src/audio/context-recovery.ts since Phase 7 7C-4. These tests pin
  * what they do on unchanged code so later consolidation (Phase 0d, Phase 7)
  * and fix lane G7 can show exactly which behaviour moved.
  *

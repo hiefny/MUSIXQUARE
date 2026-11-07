@@ -737,10 +737,10 @@ describe('RO-01 I12 parity: gesture resume of a parked attempt', () => {
  * the task of the promotion, or how the attempt ended, 'cancelled' when the
  * dialog gives up (retires its token), 'superseded' by a newer foreground
  * incident, 'retired' when its incident is consumed elsewhere. It does not
- * settle by itself while the requirement never appears: app.ts's 5 s limit,
- * its AbortSignal and its currency on a visibility change end that wait
- * (app.ts is not loaded here; the browser lab pins the abort, hidden and
- * limit endings, (d-1) to (d-3)).
+ * settle by itself while the requirement never appears: the 5 s limit, the
+ * dialog's AbortSignal and its currency on a visibility change end that wait
+ * (the owner's since Phase 7 7C-2, not driven here; the browser lab pins the
+ * abort, hidden and limit endings, (d-1) to (d-3)).
  *
  * Each row pins what the owner shows that wait over 6 s (when the
  * requirement first reads 'same' on a 10 ms step; when and how the answer

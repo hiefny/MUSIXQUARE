@@ -9,8 +9,8 @@
  *
  * The invariant behind the resume rows: each native resume() that reaches
  * the platform from these owners is one count, under exactly one source.
- * app.ts (the dialog's own resume, its 1 s and 5 s waits, the dialog
- * requests) has no unit seam; its counts are read in the browser.
+ * app.ts (the dialog requests) has no unit seam; its counts are read in the
+ * browser (the dialog's resume and its 1 s and 5 s waits are the owner's since 7C-2).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {

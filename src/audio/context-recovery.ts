@@ -35,6 +35,7 @@ import {
   getPendingForegroundAudioContextRestartClockHealthRequirement,
   isForegroundAudioContextRestartHolding,
   isForegroundAudioContextRestartOwned,
+  prepareForegroundAudioContextRestart,
   prepareForegroundAudioContextRestartAfterClockStall,
   probeAudioContextHealth,
   reparkForegroundAudioContextRestartAfterResume,
@@ -1056,8 +1057,11 @@ async function waitForForegroundRestartClockRequirement(
   }
 }
 
-/** The dialog's clock check after its tap, for both of its own branches; it resumes nothing. */
-function probeGestureClock(
+/**
+ * A clock check that resumes nothing: the dialog's after its tap, for both of
+ * its own branches, and a local-file PLAY's foreground check (Phase 7 7C-3).
+ */
+function probeClockWithoutResume(
   context: AudioContext | null,
   isCurrent: () => boolean,
 ): Promise<AudioContextHealth> {
@@ -1112,7 +1116,7 @@ function recoverForegroundRestartFromGesture(
         return GESTURE_STOPPED;
       }
       const { context } = requirement;
-      const health = await probeGestureClock(
+      const health = await probeClockWithoutResume(
         context,
         () => caller.isCurrent() && requirement.isCurrent(),
       );
@@ -1212,7 +1216,7 @@ function recoverUnownedContextFromGesture(
         return finishPendingInterruptionForDialog(carry.attemptToken, resumed, caller);
       }
       const context = getExistingAudioContext();
-      const health = await probeGestureClock(context, caller.isCurrent);
+      const health = await probeClockWithoutResume(context, caller.isCurrent);
       if (!health.healthy || !resumed.running) {
         caller.unhealthy(health);
         if (health.reason === 'clock-stalled' && context && caller.isCurrent()) {
@@ -1255,6 +1259,68 @@ export function beginAudioOutputGestureRecovery(
     ...caller,
     cancelPendingInterruption: selector.intent === 'retry-failed-play',
   });
+}
+
+// ── A local-file PLAY's foreground clock check (transport; RO-01, Phase 7 7C-3) ──
+
+/** The PLAY, as its clock check reads it. */
+interface FileStartClockCaller {
+  /** The PLAY still acts (transport: its recovery intent, its invocation, its output). */
+  readonly isCurrent: () => boolean;
+}
+
+/**
+ * Start the file source (`proceed`); ask for a gesture, for a frozen clock
+ * whose restart is prepared or still preparing (`clock-stalled`, with that
+ * preparation) or for a context that is not running (`context-not-running`);
+ * or stop with no notice (`abort`).
+ */
+type FileStartClockVerdict =
+  | { readonly kind: 'proceed' | 'abort' | 'context-not-running' }
+  | { readonly kind: 'clock-stalled'; readonly preparation: ForegroundRestartPreparation };
+
+const FILE_START_PROCEED: FileStartClockVerdict = { kind: 'proceed' };
+const FILE_START_ABORT: FileStartClockVerdict = { kind: 'abort' };
+const FILE_START_NOT_RUNNING: FileStartClockVerdict = { kind: 'context-not-running' };
+
+/**
+ * A local-file PLAY's clock check before its source starts (RO-01, Phase 7
+ * 7C-3; transport keeps the notice, its generation and its retry). iOS may
+ * report `running` after foreground while its native clock is frozen, so the
+ * one incident a hidden -> visible return armed is sampled first. With none
+ * pending the answer is null at once: the PLAY goes on with no wait. The
+ * incident's currency is read before the caller's, in the probe and once
+ * after it. A healthy clock consumes the incident; a frozen one has the
+ * play-request restart park the context before any dialog shows, so the
+ * button's gesture resumes it synchronously, and the answer carries that
+ * preparation (nothing is read after it); an inconclusive sample proceeds and
+ * keeps the incident for a later PLAY.
+ */
+export function checkForegroundClockBeforeFileStart(
+  caller: FileStartClockCaller,
+): Promise<FileStartClockVerdict> | null {
+  const check = getPendingForegroundAudioContextClockHealthCheck();
+  // The probe starts inside this call; the rest runs after it.
+  return (
+    check &&
+    (async (): Promise<FileStartClockVerdict> => {
+      const isCurrent = (): boolean => check.isCurrent() && caller.isCurrent();
+      const health = await probeClockWithoutResume(check.context, isCurrent);
+      if (!isCurrent()) return FILE_START_ABORT;
+      if (health.healthy) {
+        consumeForegroundAudioContextClockHealthCheck(check.token);
+        return FILE_START_PROCEED;
+      }
+      if (health.reason === 'clock-stalled') {
+        const preparation = await prepareForegroundAudioContextRestart(check.token);
+        return preparation ? { kind: 'clock-stalled', preparation } : FILE_START_ABORT;
+      }
+      if (health.reason === 'not-running') return FILE_START_NOT_RUNNING;
+      // `hidden` and `superseded` stop. `inconclusive` is not evidence of a
+      // fault: proceed, and keep the token so a later PLAY samples it again.
+      return health.reason === 'inconclusive' ? FILE_START_PROCEED : FILE_START_ABORT;
+    })()
+  );
 }
 
 /**

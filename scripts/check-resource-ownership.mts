@@ -715,8 +715,11 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
   [
     'probeAudioContextHealth',
     new Map<string, Allowance>([
-      // The recovery dialog's clock check after its tap moved into the owner
-      // in Phase 7 7C-2 (app.ts 1 -> 0).
+      // A lock-screen PLAY's clock check moved into the owner's gesture
+      // recovery in Phase 7 7C-1 (media-session.ts 1 -> 0), the recovery
+      // dialog's clock check after its tap in 7C-2 (app.ts 1 -> 0), and a
+      // local-file PLAY's foreground clock check in 7C-3 (transport.ts 1 -> 0),
+      // through the dialog's site.
       [
         'src/audio/context-recovery.ts',
         {
@@ -725,7 +728,8 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
             "the owner's automatic clock check; since Phase 7 7C-1 its gesture recovery's " +
             'check for the dialog and a lock-screen PLAY (from media-session.ts, 1 -> 2); since ' +
             "7C-2 the dialog's check of the play-request restart and of the ordinary branch " +
-            '(from app.ts, 2 -> 3); attemptResume false',
+            "(from app.ts, 2 -> 3), which since 7C-3 also serves a local-file PLAY's " +
+            'foreground clock check (from transport.ts, still 3); attemptResume false',
         },
       ],
       [
@@ -736,12 +740,6 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
             'background output check, attemptResume true only after both owners report no attempt ' +
             '(outside the owner because of the transport import cycle)',
         },
-      ],
-      // A lock-screen PLAY's clock check moved into the owner's gesture
-      // recovery in Phase 7 7C-1 (media-session.ts 1 -> 0).
-      [
-        'src/player/transport.ts',
-        { count: 1, reason: "failed PLAY's foreground clock check, attemptResume false (7C-3)" },
       ],
     ]),
   ],

@@ -6,11 +6,10 @@ import { bus } from '../../core/events.ts';
 import { PLAYBACK_STATE } from '../../core/constants.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { newLoadEpoch, setCurrentAudioBuffer } from '../../player/_state.ts';
+import { AUDIO_CLOCK_SAMPLE_MS } from '../context-protocol.ts';
 import {
-  armForegroundAudioContextClockHealthCheck,
   consumeForegroundAudioContextClockHealthCheck,
   getPendingForegroundAudioContextClockHealthCheck,
-  prepareForegroundAudioContextRestart,
   requestRetiredAudioContextSuspendCleanup,
 } from '../context.ts';
 import {
@@ -18,6 +17,7 @@ import {
   beginPendingInterruptionRecoveryFromGesture,
   bindAudioContextInterruptionRecovery,
   cancelPendingAudioContextRecovery,
+  checkForegroundClockBeforeFileStart,
   finishPendingInterruptionRecoveryFromGesture,
   getPendingAudioContextInterruptionAttempt,
   getPendingAudioContextRecoveryAttemptForHealth,
@@ -83,6 +83,32 @@ function markActiveFileRoom(): void {
   setState('playback.mode', 'file');
   setState('playback.activity', 'playing');
   setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+}
+
+/**
+ * The page returns from the background: the binding arms the foreground
+ * incident on the hidden edge. Returns that incident's token.
+ */
+function returnToForeground(): object | undefined {
+  for (const value of ['hidden', 'visible']) {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+  return getPendingForegroundAudioContextClockHealthCheck()?.token;
+}
+
+/**
+ * A local-file PLAY's clock check after that return (Phase 7 7C-3) finds the
+ * clock frozen and prepares the play-request restart; the clock runs again
+ * once the check has answered. Resolves with the preparation, or null.
+ */
+function prepareOnFrozenClock(context: FakeAudioContext) {
+  context.clock = 'stalled';
+  const verdict = checkForegroundClockBeforeFileStart({ isCurrent: () => true });
+  return Promise.resolve(verdict).then((answer) => {
+    context.clock = 'running';
+    return answer?.kind === 'clock-stalled' ? answer.preparation : null;
+  });
 }
 
 describe('AudioContext interruption recovery', () => {
@@ -519,11 +545,9 @@ describe('AudioContext interruption recovery', () => {
     context.suspend.mockImplementation(async () => {
       context.dispatchState('suspended');
     });
-    const checkToken = armForegroundAudioContextClockHealthCheck(
-      context as unknown as AudioContext,
-    );
+    const checkToken = returnToForeground();
 
-    const preparation = await prepareForegroundAudioContextRestart(checkToken!);
+    const preparation = await prepareOnFrozenClock(context);
 
     expect(preparation?.status).toBe('prepared');
     expect(context.resume).not.toHaveBeenCalled();
@@ -535,10 +559,8 @@ describe('AudioContext interruption recovery', () => {
   it('keeps a prepared foreground restart token across a second hidden transition', async () => {
     const context = new FakeAudioContext();
     const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
-    const checkToken = armForegroundAudioContextClockHealthCheck(
-      context as unknown as AudioContext,
-    );
-    const preparation = await prepareForegroundAudioContextRestart(checkToken!);
+    const checkToken = returnToForeground();
+    const preparation = await prepareOnFrozenClock(context);
 
     expect(preparation?.status).toBe('prepared');
     expect(preparation?.isCurrent()).toBe(true);
@@ -1394,11 +1416,9 @@ describe('AudioContext interruption recovery', () => {
       bus.on('playback:local-output-rejoin', rejoin);
       bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
-      const checkToken = armForegroundAudioContextClockHealthCheck(
-        context as unknown as AudioContext,
-      );
-      const preparing = prepareForegroundAudioContextRestart(checkToken!);
-      await vi.advanceTimersByTimeAsync(500);
+      const checkToken = returnToForeground();
+      const preparing = prepareOnFrozenClock(context);
+      await vi.advanceTimersByTimeAsync(2 * AUDIO_CLOCK_SAMPLE_MS + 500);
       const retiredPreparation = await preparing;
       expect(retiredPreparation?.status).toBe('preparing');
       expect(consumeForegroundAudioContextClockHealthCheck(checkToken!)).toBe(true);

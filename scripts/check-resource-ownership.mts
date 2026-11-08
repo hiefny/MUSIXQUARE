@@ -654,7 +654,8 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
 // and the wrappers 7B-4 and 7B-5 route both owners' native calls through
 // (requestAudioContextResume, requestRetiredAudioContextSuspendCleanup,
 // requestAudioContextSuspend) were counted until Phase 7 7C-4 moved them into
-// the owner, module-private, where no other file can call them.
+// the owner, module-private, where no other production file can call them
+// (tests call the retired-suspend cleanup only through the owner's test seam).
 
 /**
  * RO-01: the functions of the AudioContext singleton that call native

@@ -41,8 +41,9 @@ behind a failing test) and 7C (the move behind one owner).
    clock check is the owner's (`checkForegroundClockBeforeFileStart`); transport keeps the
    notice, its generation and its retry. Since 7C-4 the play-request restart, the suspend ledger,
    the `statechange` dispatcher and the recovery resume are the owner's too, moved unchanged from
-   `context.ts`; the owner exports the restart's queries that `app.ts`, `output-health.ts` and
-   transport read, and keeps its other steps module-private.
+   `context.ts`; the owner exports seven of the restart's entries for `app.ts`, `output-health.ts`
+   and transport (three queries, and the claim, confirm, consume and retire that change its state)
+   and keeps its other steps module-private.
 2. **Only the owner calls native `resume()` and `suspend()`**, with three exceptions:
    1. `ensureRunning` wakes a context that is not running (PLAY, file activation, the engine's
       initialization). When an attempt holds the context, the owner's re-suspend rule undoes that

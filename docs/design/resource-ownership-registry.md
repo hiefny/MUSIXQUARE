@@ -229,11 +229,12 @@ RO-54 accepted-exception
   `beginPendingInterruptionRecoveryFromGesture` and `finishPendingInterruptionRecoveryFromGesture`,
   phase union `RecoveryPhase`). Since 7C-4 `context.ts` keeps the singleton (`getAudioContext`,
   `getExistingAudioContext`), `getCurrentTime`, `ensureRunning`, the health probe and the gesture
-  restart; the owner exports seven of the restart's queries for `app.ts`, `output-health.ts` and
-  `transport.ts` (`getPendingForegroundAudioContextClockHealthCheck`,
-  `consumeForegroundAudioContextClockHealthCheck`, `confirmForegroundAudioContextRestartHealth`,
-  `retireForegroundAudioContextRestart`, `whenForegroundAudioContextRestartReprepared`,
-  `isForegroundAudioContextRestartOwned`, `claimForegroundAudioContextRestartForDialog`), and
+  restart; the owner exports seven of the restart's entries for `app.ts`, `output-health.ts` and
+  `transport.ts`: three queries (`getPendingForegroundAudioContextClockHealthCheck`,
+  `isForegroundAudioContextRestartOwned`, `whenForegroundAudioContextRestartReprepared`) and four
+  steps that change its state (`claimForegroundAudioContextRestartForDialog`,
+  `confirmForegroundAudioContextRestartHealth`, `consumeForegroundAudioContextClockHealthCheck`,
+  `retireForegroundAudioContextRestart`), and
   keeps its other steps module-private. Since Phase 7 7B-4 both park the context through one
   suspend ledger (`requestAudioContextSuspend`, in `context.ts` until 7C-4: one lease and one
   late-suspend fence per context, so one native suspend in flight; a later request takes the
@@ -398,7 +399,8 @@ RO-54 accepted-exception
     the one commit, and the `/debug sync` counts of each tap).
   - A local-file PLAY's foreground clock check (Phase 7 7C-3):
     `src/audio/__tests__/audio-output-recovery-file-start.test.ts` (the owner's answer for each
-    probe reason, the incident it consumes or keeps, and the currency it reads) and, over the
+    probe reason, the incident it consumes or keeps, the currency it reads, and that its probe,
+    which the dialog's check after its tap shares, resumes nothing) and, over the
     real transport, `src/player/__tests__/output-recovery-play-counts.test.ts` (the `/debug sync`
     counts, notices and native calls of each path) beside
     `output-recovery-transport-boundary.test.ts`.

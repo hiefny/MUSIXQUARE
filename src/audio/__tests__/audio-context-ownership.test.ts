@@ -75,7 +75,7 @@ async function importOwners() {
     consumeForegroundAudioContextClockHealthCheck,
     getPendingForegroundAudioContextClockHealthCheck,
     isForegroundAudioContextRestartOwned,
-    retireForegroundAudioContextRestart,
+    retireAudioContextRecoveryAttempt,
     whenForegroundAudioContextRestartReprepared,
     ownerSubStepsForTests,
   } = recovery;
@@ -90,7 +90,7 @@ async function importOwners() {
       consumeForegroundAudioContextClockHealthCheck,
       getPendingForegroundAudioContextClockHealthCheck,
       isForegroundAudioContextRestartOwned,
-      retireForegroundAudioContextRestart,
+      retireAudioContextRecoveryAttempt,
       whenForegroundAudioContextRestartReprepared,
       ...ownerSubStepsForTests,
     },
@@ -1340,8 +1340,8 @@ describe('RO-01 retire, cancel and escalate', () => {
     bind(o, fake);
     const token = await parkStalledPlayback(o, fake);
 
-    expect(o.recovery.cancelPendingAudioContextRecovery({})).toBe(false);
-    expect(o.recovery.cancelPendingAudioContextRecovery(token)).toBe(true);
+    expect(o.recovery.retireAudioContextRecoveryAttempt({})).toBe(false);
+    expect(o.recovery.retireAudioContextRecoveryAttempt(token)).toBe(true);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(playbackScope(o, token)).toEqual(NO_ATTEMPT);
     expect(fake.state).toBe('suspended');
@@ -1349,8 +1349,8 @@ describe('RO-01 retire, cancel and escalate', () => {
 
     fake.transition('running');
     const { preparation } = await parkPlayRequestRestart(o, fake);
-    expect(o.context.retireForegroundAudioContextRestart({})).toBe(false);
-    expect(o.context.retireForegroundAudioContextRestart(preparation.attemptToken)).toBe(true);
+    expect(o.context.retireAudioContextRecoveryAttempt({})).toBe(false);
+    expect(o.context.retireAudioContextRecoveryAttempt(preparation.attemptToken)).toBe(true);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(preparation.isCurrent()).toBe(false);
     expect(o.context.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();

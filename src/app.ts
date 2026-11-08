@@ -56,7 +56,7 @@ import {
   beginAudioOutputGestureRecovery,
   claimForegroundAudioContextRestartForDialog,
   getPendingAudioContextRecoveryAttemptForHealth,
-  retireForegroundAudioContextRestart,
+  retireAudioContextRecoveryAttempt,
   whenForegroundAudioContextRestartReprepared,
   type ForegroundRestartPreparation,
 } from './audio/context-recovery.ts';
@@ -464,7 +464,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
           isForcedAppUpdatePending() ||
           !audioRecoveryIdentityStillCurrent(identity)
         ) {
-          retireForegroundAudioContextRestart(attemptToken);
+          retireAudioContextRecoveryAttempt(attemptToken);
           return;
         }
         observeAudioRecoveryOperation(runAudioRecoveryRequest(request), 'reprepared recovery');
@@ -576,7 +576,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     .finally(() => {
       if (audioRecoveryPrompt !== operation) return;
       const attemptToken = identity.foregroundRestartAttemptToken;
-      if (attemptToken && !reprepared) retireForegroundAudioContextRestart(attemptToken);
+      if (attemptToken && !reprepared) retireAudioContextRecoveryAttempt(attemptToken);
       audioRecoveryPrompt = null;
       activeAudioRecoveryIdentity = null;
       activeAudioRecoveryAbortController = null;

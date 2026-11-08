@@ -424,7 +424,7 @@ describe('clock verification waits', () => {
     const before = s.read();
     await s.o.context.resumePreparedForegroundAudioContextRestartFromGesture(attempt);
     await vi.advanceTimersByTimeAsync(120);
-    expect(s.o.context.retireForegroundAudioContextRestart(attempt)).toBe(true);
+    expect(s.o.context.retireAudioContextRecoveryAttempt(attempt)).toBe(true);
     expect(delta(s, before, ['CLOCK_WAITS', 'CLOCK_CANCELLED', 'CLOCK_WAIT_TOTAL_MS'])).toEqual([
       'CLOCK_WAITS:1',
       'CLOCK_CANCELLED:1',

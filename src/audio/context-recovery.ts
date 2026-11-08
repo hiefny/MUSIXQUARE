@@ -1311,18 +1311,6 @@ export function confirmForegroundAudioContextRestartHealth(attemptToken: object)
   return true;
 }
 
-/** Retire only the exact generic restart and its originating foreground check. */
-export function retireForegroundAudioContextRestart(attemptToken: object): boolean {
-  const attempt = pendingForegroundRestartAttempt;
-  if (!attempt || attempt.attemptToken !== attemptToken) return false;
-  const checkToken = attempt.checkToken;
-  retireForegroundRestartAttempt(attempt, true, 'cancelled');
-  if (pendingForegroundClockHealthIncident?.token === checkToken) {
-    pendingForegroundClockHealthIncident = null;
-  }
-  return true;
-}
-
 type RejoinMode = 'file' | 'youtube';
 type RecoveryCause = 'state-interruption' | 'background-clock-stalled';
 
@@ -1992,8 +1980,25 @@ function confirmPendingAudioContextRecoveryHealth(attemptToken: object): Context
   };
 }
 
-/** Drop only the exact superseded recovery attempt. */
-export function cancelPendingAudioContextRecovery(attemptToken: object): boolean {
+/**
+ * Retire only the exact attempt with this token, of either scope (Phase 7
+ * 7C-5: one retire-by-token API; each scope keeps its own effect). A
+ * play-request attempt is cancelled with its originating foreground check,
+ * and a context it left parked is restored through the retired-suspend
+ * cleanup while the page is visible; a playback-scope attempt is retired and
+ * the context is left as it is. true when the owner held an attempt with
+ * this token.
+ */
+export function retireAudioContextRecoveryAttempt(attemptToken: object): boolean {
+  const restart = pendingForegroundRestartAttempt;
+  if (restart?.attemptToken === attemptToken) {
+    const checkToken = restart.checkToken;
+    retireForegroundRestartAttempt(restart, true, 'cancelled');
+    if (pendingForegroundClockHealthIncident?.token === checkToken) {
+      pendingForegroundClockHealthIncident = null;
+    }
+    return true;
+  }
   const recovery = pendingRecovery;
   if (!recovery || recovery.attemptToken !== attemptToken) return false;
   retireRecovery(recovery);
@@ -2022,7 +2027,7 @@ function retireStalePendingAudioContextRecovery(attemptToken: object): boolean {
   ) {
     return false;
   }
-  retireRecovery(recovery);
+  retireAudioContextRecoveryAttempt(attemptToken);
   if (getPendingForegroundAudioContextClockHealthCheck()?.context !== recovery.context) {
     armForegroundAudioContextClockHealthCheck(recovery.context);
   }
@@ -2285,7 +2290,7 @@ function retireForegroundRestartForNextPlay(
   attemptToken: object,
   context: AudioContext | null,
 ): void {
-  const retired = retireForegroundAudioContextRestart(attemptToken);
+  const retired = retireAudioContextRecoveryAttempt(attemptToken);
   if (retired && context && document.visibilityState === 'visible') {
     armForegroundAudioContextClockHealthCheck(context);
   }
@@ -2389,7 +2394,7 @@ async function finishPendingInterruptionForDialog(
 function carryPendingInterruption(retry: boolean): UnownedGestureCarry {
   const attemptToken = getPendingAudioContextInterruptionAttempt();
   if (!retry) return { retry, attemptToken };
-  if (attemptToken) cancelPendingAudioContextRecovery(attemptToken);
+  if (attemptToken) retireAudioContextRecoveryAttempt(attemptToken);
   return { retry, attemptToken: null };
 }
 

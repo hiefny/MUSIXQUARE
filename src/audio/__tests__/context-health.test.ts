@@ -69,7 +69,7 @@ async function loadContext(options: FakeContextOptions = {}) {
     confirmForegroundAudioContextRestartHealth,
     consumeForegroundAudioContextClockHealthCheck,
     getPendingForegroundAudioContextClockHealthCheck,
-    retireForegroundAudioContextRestart,
+    retireAudioContextRecoveryAttempt,
     ownerSubStepsForTests,
   } = await import('../context-recovery.ts');
   const module = {
@@ -77,7 +77,7 @@ async function loadContext(options: FakeContextOptions = {}) {
     confirmForegroundAudioContextRestartHealth,
     consumeForegroundAudioContextClockHealthCheck,
     getPendingForegroundAudioContextClockHealthCheck,
-    retireForegroundAudioContextRestart,
+    retireAudioContextRecoveryAttempt,
     ...ownerSubStepsForTests,
   };
   module.getAudioContext();
@@ -654,7 +654,7 @@ describe('AudioContext foreground health', () => {
     // The recovery dialog retires this token when its failed-PLAY retry does
     // not start; the confirm already emptied the slot, so that retire is a
     // no-op and the re-arm behind it never ran (removed in Phase 7 7A-6).
-    expect(module.retireForegroundAudioContextRestart(preparation!.attemptToken)).toBe(false);
+    expect(module.retireAudioContextRecoveryAttempt(preparation!.attemptToken)).toBe(false);
     expect(module.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
 
     // A newer restart that starts while the retry runs has a token of its own.
@@ -664,7 +664,7 @@ describe('AudioContext foreground health', () => {
     );
     expect(newer?.status).toBe('prepared');
     const newerCalls = instance.resume.mock.calls.length + instance.suspend.mock.calls.length;
-    expect(module.retireForegroundAudioContextRestart(preparation!.attemptToken)).toBe(false);
+    expect(module.retireAudioContextRecoveryAttempt(preparation!.attemptToken)).toBe(false);
     expect(newer?.isCurrent()).toBe(true);
     expect(instance.resume.mock.calls.length + instance.suspend.mock.calls.length).toBe(newerCalls);
     expect(newerCalls).toBe(nativeCalls + 1);

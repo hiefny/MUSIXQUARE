@@ -11,7 +11,6 @@ import {
   armPendingAudioContextRecoveryFromBackground,
   beginPendingInterruptionRecoveryFromGesture,
   bindAudioContextInterruptionRecovery,
-  cancelPendingAudioContextRecovery,
   checkForegroundClockBeforeFileStart,
   consumeForegroundAudioContextClockHealthCheck,
   finishPendingInterruptionRecoveryFromGesture,
@@ -21,6 +20,7 @@ import {
   hasPendingAudioContextInterruption,
   isAudioContextInterruptionAttemptCurrent,
   ownerSubStepsForTests,
+  retireAudioContextRecoveryAttempt,
 } from '../context-recovery.ts';
 
 const { requestRetiredAudioContextSuspendCleanup } = ownerSubStepsForTests;
@@ -746,7 +746,7 @@ describe('AudioContext interruption recovery', () => {
     // Its clock requirement is not current (another queue occurrence plays),
     // so a gesture's recovery commits nothing; its checks run at the call.
     const finished = finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER);
-    expect(cancelPendingAudioContextRecovery(attempt!)).toBe(true);
+    expect(retireAudioContextRecoveryAttempt(attempt!)).toBe(true);
     expect(hasPendingAudioContextInterruption()).toBe(false);
     await expect(finished).resolves.toEqual({ kind: 'superseded' });
   });
@@ -782,7 +782,7 @@ describe('AudioContext interruption recovery', () => {
     await expect(
       finishPendingInterruptionRecoveryFromGesture(attempt!, CURRENT_CALLER),
     ).resolves.toEqual({ kind: 'superseded' });
-    expect(cancelPendingAudioContextRecovery(attempt!)).toBe(true);
+    expect(retireAudioContextRecoveryAttempt(attempt!)).toBe(true);
     expect(rejoin).not.toHaveBeenCalled();
     expect(hasPendingAudioContextInterruption()).toBe(false);
   });
@@ -1646,7 +1646,7 @@ describe("the playback scope's gesture recovery, second step (Phase 7 7C-1)", ()
 
       await expect(finished).resolves.toEqual({ kind: 'verified' });
       expect(rejoin).not.toHaveBeenCalled();
-      expect(cancelPendingAudioContextRecovery(attempt)).toBe(true);
+      expect(retireAudioContextRecoveryAttempt(attempt)).toBe(true);
       expect(hasPendingAudioContextInterruption()).toBe(false);
       dispose();
     } finally {

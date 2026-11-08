@@ -55,7 +55,7 @@ vi.mock('../context.ts', () => ({
 vi.mock('../context-recovery.ts', () => ({
   armPendingAudioContextRecoveryFromBackground: mocks.arm,
   getPendingAudioContextRecoveryAttemptForHealth: mocks.getPendingAttempt,
-  cancelPendingAudioContextRecovery: mocks.cancelPending,
+  retireAudioContextRecoveryAttempt: mocks.cancelPending,
   consumeForegroundAudioContextClockHealthCheck: mocks.consumeForeground,
   getPendingForegroundAudioContextClockHealthCheck: mocks.getForegroundRequirement,
   isForegroundAudioContextRestartOwned: mocks.isForegroundRestartOwned,

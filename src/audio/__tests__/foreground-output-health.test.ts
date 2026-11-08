@@ -89,8 +89,8 @@ describe('foreground restart and background output inspection ownership', () => 
     vi.stubGlobal('AudioContext', AudioContextConstructor);
     const contextModule = {
       ...(await import('../context.ts')),
-      retireForegroundAudioContextRestart: (await import('../context-recovery.ts'))
-        .retireForegroundAudioContextRestart,
+      retireAudioContextRecoveryAttempt: (await import('../context-recovery.ts'))
+        .retireAudioContextRecoveryAttempt,
       ...(await import('../context-recovery.ts')).ownerSubStepsForTests,
     };
     const { inspectBackgroundFileOutput } = await import('../output-health.ts');
@@ -125,6 +125,6 @@ describe('foreground restart and background output inspection ownership', () => 
     expect(
       contextModule.getPendingForegroundAudioContextRestartClockHealthRequirement()?.attemptToken,
     ).toBe(preparation?.attemptToken);
-    expect(contextModule.retireForegroundAudioContextRestart(preparation!.attemptToken)).toBe(true);
+    expect(contextModule.retireAudioContextRecoveryAttempt(preparation!.attemptToken)).toBe(true);
   });
 });

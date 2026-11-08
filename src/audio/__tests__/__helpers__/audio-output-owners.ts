@@ -40,7 +40,7 @@ async function importOwners() {
     consumeForegroundAudioContextClockHealthCheck,
     getPendingForegroundAudioContextClockHealthCheck,
     isForegroundAudioContextRestartOwned,
-    retireForegroundAudioContextRestart,
+    retireAudioContextRecoveryAttempt,
     whenForegroundAudioContextRestartReprepared,
     ownerSubStepsForTests,
   } = recovery;
@@ -56,7 +56,7 @@ async function importOwners() {
       consumeForegroundAudioContextClockHealthCheck,
       getPendingForegroundAudioContextClockHealthCheck,
       isForegroundAudioContextRestartOwned,
-      retireForegroundAudioContextRestart,
+      retireAudioContextRecoveryAttempt,
       whenForegroundAudioContextRestartReprepared,
       ...ownerSubStepsForTests,
     },
@@ -478,7 +478,7 @@ function startPlayRequest(
         : Promise.resolve('retired'),
     isCurrent: () => attempt?.isCurrent() ?? false,
     retire: () =>
-      attempt ? o.context.retireForegroundAudioContextRestart(attempt.attemptToken) : false,
+      attempt ? o.context.retireAudioContextRecoveryAttempt(attempt.attemptToken) : false,
   };
   playRequestAttempts.set(request, () => attempt?.attemptToken ?? null);
   return request;
@@ -577,7 +577,7 @@ export const playbackScope = {
    * pending attempt this way). true when the owner still held it.
    */
   retire(o: Owners, attempt: object): boolean {
-    return o.recovery.cancelPendingAudioContextRecovery(attempt);
+    return o.recovery.retireAudioContextRecoveryAttempt(attempt);
   },
   /**
    * The post-tap clock requirement, from the owner's exported answers only

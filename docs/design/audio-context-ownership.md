@@ -15,9 +15,10 @@
 
 The app creates one AudioContext (`getAudioContext` in `src/audio/context.ts`). On iOS WebKit it
 can report `running` while its clock is frozen, or stay suspended after a call, a lock or a route
-change, and only a trusted user gesture may resume it. Two machines drive it today:
+change, and only a trusted user gesture may resume it. Two flows drive it, two machines until
+Phase 7 7C-5 gave their attempts one type (`RecoveryAttempt`, told apart by its scope):
 
-| Machine                 | File                                                              | Starts when                                                                           |
+| Flow                    | File                                                              | Starts when                                                                           |
 | ----------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | Play-request restart    | `src/audio/context-recovery.ts` (`context.ts` until Phase 7 7C-4) | a PLAY after a return to the foreground finds the clock stalled                       |
 | Playback-scope recovery | `src/audio/context-recovery.ts`                                   | an OS interruption or a stalled clock during playback (`statechange`, visibility, G7) |
@@ -41,9 +42,12 @@ behind a failing test) and 7C (the move behind one owner).
    clock check is the owner's (`checkForegroundClockBeforeFileStart`); transport keeps the
    notice, its generation and its retry. Since 7C-4 the play-request restart, the suspend ledger,
    the `statechange` dispatcher and the recovery resume are the owner's too, moved unchanged from
-   `context.ts`; the owner exports seven of the restart's entries for `app.ts`, `output-health.ts`
-   and transport (three queries, and the claim, confirm, consume and retire that change its state)
-   and keeps its other steps module-private.
+   `context.ts`; the owner exports six of the restart's entries for `app.ts`, `output-health.ts`
+   and transport (three queries, and the claim, confirm and consume that change its state) and,
+   since 7C-5, one retire by token for an attempt of either scope
+   (`retireAudioContextRecoveryAttempt`), and keeps its other steps module-private. Since 7C-5
+   the two flows' attempts are one type with a scope (play request or playback scope), each scope
+   keeping its own slot and its own generation, so retiring one never voids the other.
 2. **Only the owner calls native `resume()` and `suspend()`**, with three exceptions:
    1. `ensureRunning` wakes a context that is not running (PLAY, file activation, the engine's
       initialization). When an attempt holds the context, the owner's re-suspend rule undoes that
@@ -129,8 +133,9 @@ behind a failing test) and 7C (the move behind one owner).
 7. **`output-health.ts` stays a reader outside the owner.** It reads `src/player/transport.ts`
    (`isFilePipelineBusyForPlay`, `isFileSourceNodeUsable`), and transport imports the engine,
    which binds the owner; inside the owner those reads would close an import cycle.
-8. **Phase unions live in the owner module.** After 7C-5 the C1 phase union is one type in
-   `context-recovery.ts`. No guard checks shared phase unions or duplicated helper names: with one
+8. **Phase unions live in the owner module.** Since 7C-5 the C1 phase union is one type in
+   `context-recovery.ts`, `RecoveryPhase`, which attempts of both scopes write through one funnel
+   (`setAttemptPhase`). No guard checks shared phase unions or duplicated helper names: with one
    union left the check would guard one item, and a string-union comparison could flag unrelated
    clusters.
 9. **Identity lists are documented, not merged.** `app.ts` aborts the recovery dialog on nine
@@ -230,6 +235,8 @@ behind a failing test) and 7C (the move behind one owner).
   `src/player/__tests__/media-session-lock-screen-pause.test.ts`.
 - Recovery dialog tap (7C-2): `src/audio/__tests__/audio-output-recovery-dialog.test.ts`.
 - The owner's test seam (7C-4): `src/audio/__tests__/audio-output-recovery-test-seam.test.ts`.
+- One attempt type for both scopes (7C-5):
+  `src/audio/__tests__/audio-output-recovery-attempt-type.test.ts`.
 - UI sounds ask first (7B-3): `src/audio/__tests__/ui-sounds.test.ts` (while an owner holds the
   context, no resume and no tone; otherwise a suspended context is resumed once and a running one
   plays the tone) and the holding table.

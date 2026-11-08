@@ -221,20 +221,25 @@ RO-54 accepted-exception
 
 - **Resource:** the singleton AudioContext's native running or suspended state, its suspend
   leases, its `statechange` listeners and the one-shot foreground clock-health incident.
-- **Current owners/flows:** two machines in `src/audio/context-recovery.ts`: the play-request
+- **Current owners/flows:** two flows in `src/audio/context-recovery.ts`: the play-request
   foreground restart (`prepareForegroundAudioContextRestart*`,
-  `resumePreparedForegroundAudioContextRestartFromGesture`, phase union `ForegroundRestartPhase`;
-  in `src/audio/context.ts` until Phase 7 7C-4) and playback-scope interruption recovery
-  (`bindAudioContextInterruptionRecovery`, since Phase 7 7C-1 the gesture recovery's two steps
-  `beginPendingInterruptionRecoveryFromGesture` and `finishPendingInterruptionRecoveryFromGesture`,
-  phase union `RecoveryPhase`). Since 7C-4 `context.ts` keeps the singleton (`getAudioContext`,
-  `getExistingAudioContext`), `getCurrentTime`, `ensureRunning`, the health probe and the gesture
-  restart; the owner exports seven of the restart's entries for `app.ts`, `output-health.ts` and
-  `transport.ts`: three queries (`getPendingForegroundAudioContextClockHealthCheck`,
-  `isForegroundAudioContextRestartOwned`, `whenForegroundAudioContextRestartReprepared`) and four
-  steps that change its state (`claimForegroundAudioContextRestartForDialog`,
-  `confirmForegroundAudioContextRestartHealth`, `consumeForegroundAudioContextClockHealthCheck`,
-  `retireForegroundAudioContextRestart`), and
+  `resumePreparedForegroundAudioContextRestartFromGesture`; in `src/audio/context.ts` until
+  Phase 7 7C-4) and playback-scope interruption recovery (`bindAudioContextInterruptionRecovery`,
+  since Phase 7 7C-1 the gesture recovery's two steps `beginPendingInterruptionRecoveryFromGesture`
+  and `finishPendingInterruptionRecoveryFromGesture`). Since 7C-5 their attempts are one type,
+  `RecoveryAttempt`, told apart by its scope (play request or playback scope), each scope with its
+  own slot and its own generation: one phase union (`RecoveryPhase`), one rule for whether the
+  owner still holds an attempt (`ownsAttempt`) and one retire by token
+  (`retireAudioContextRecoveryAttempt`; a play-request attempt's retire still restores a context it
+  left parked, a playback-scope attempt's leaves it as it is). Since 7C-4 `context.ts` keeps the
+  singleton (`getAudioContext`, `getExistingAudioContext`), `getCurrentTime`, `ensureRunning`, the
+  health probe and the gesture restart; the owner exports six of the restart's entries for
+  `app.ts`, `output-health.ts` and `transport.ts`: three queries
+  (`getPendingForegroundAudioContextClockHealthCheck`, `isForegroundAudioContextRestartOwned`,
+  `whenForegroundAudioContextRestartReprepared`) and three steps that change its state
+  (`claimForegroundAudioContextRestartForDialog`, `confirmForegroundAudioContextRestartHealth`,
+  `consumeForegroundAudioContextClockHealthCheck`); since 7C-5 the retire by token above, which
+  `app.ts` uses for a play-request attempt and `output-health.ts` for a playback-scope one; and it
   keeps its other steps module-private. Since Phase 7 7B-4 both park the context through one
   suspend ledger (`requestAudioContextSuspend`, in `context.ts` until 7C-4: one lease and one
   late-suspend fence per context, so one native suspend in flight; a later request takes the
@@ -313,9 +318,9 @@ RO-54 accepted-exception
   it for an attempt it still holds, for a local file and a current identity, that is parking the
   context for its dialog's tap, parked for the tap of a dialog that has it, or resuming from that
   tap; never for an OS interruption waiting for its automatic resume or a YouTube attempt (the
-  [ownership record](audio-context-ownership.md), Decision 6). Since Phase 7 7A-1 each machine
-  writes its phase only through one funnel (`setRestartPhase` and `setRecoveryPhase`, both in
-  `context-recovery.ts` since 7C-4), and `src/audio/output-recovery-counters.ts` observes the resource for
+  [ownership record](audio-context-ownership.md), Decision 6). Since Phase 7 7A-1 every phase
+  write goes through a funnel (one per flow until 7C-5 and one since, `setAttemptPhase` in
+  `context-recovery.ts`), and `src/audio/output-recovery-counters.ts` observes the resource for
   `/debug sync`: an observer, not an owner. The owners (since Phase 7 7C-2 also for the recovery
   dialog's own resume and its two waits), the recovery dialog in `app.ts` and UI sounds report
   events to it (each
@@ -349,7 +354,7 @@ RO-54 accepted-exception
   `suspend()` (since Phase 7 7B-4 only the ledger's, in `context-recovery.ts` since 7C-4),
   suspend lease create, settle and abandon, the late-suspend fence, clock-health arm and consume,
   confirm, retire and cancel.
-- **Deadline owner:** each machine times its own suspend preparation (500 ms). Since Phase 7 7B-4
+- **Deadline owner:** each flow times its own suspend preparation (500 ms). Since Phase 7 7B-4
   the suspend ledger times the suspend itself for both, its lease watchdog (750 ms) and the late
   fence after it (250 ms): either owner's second suspend comes after the fence, about 1,000 ms
   after the first, and two lost suspends end the attempt at about 1,750 ms (the playback scope's
@@ -405,6 +410,10 @@ RO-54 accepted-exception
     real transport, `src/player/__tests__/output-recovery-play-counts.test.ts` (the `/debug sync`
     counts, notices and native calls of each path) beside
     `output-recovery-transport-boundary.test.ts`.
+  - The two attempt scopes on one context (Phase 7 7C-5):
+    `src/audio/__tests__/audio-output-recovery-attempt-type.test.ts` (retiring either scope's
+    attempt leaves the other current; each scope's phase changes counted once; a clock-stall
+    attempt whose clock stays frozen after its tap; a late suspend with no binding seated).
   - The owner's one test seam (Phase 7 7C-4): the restart's sub-steps that no public route
     reproduces (arm, prepare, prepare after a clock stall, the gesture resume, the clock
     requirement and its wait) and the retired-suspend cleanup are module-private, and the owner
@@ -434,8 +443,10 @@ RO-54 accepted-exception
   7C-1 the playback scope's gesture recovery for the dialog and Media Session; since 7C-2 the
   recovery dialog's tap, its three branches and its two waits; since 7C-3 a local-file PLAY's
   foreground clock check; since 7C-4 the play-request restart, the suspend ledger, the dispatcher
-  and the recovery resume, moved byte for byte from `context.ts`. Two machines remain until 7C-5
-  gives them one attempt type, so the status stays `duplicated`.
+  and the recovery resume, moved byte for byte from `context.ts`; since 7C-5 the two flows'
+  attempts are one type with one phase union and funnel, one rule for whether the owner holds an
+  attempt and one retire by token, each scope keeping its own slot and generation. The status
+  stays `duplicated` until 7C-7 records the train's end state.
   Exceptions RO-36, RO-37, RO-44. The guard counts the native calls per file
   (CHECK 6; since 7B-4 `context-recovery.ts` calls no native suspend, and since 7B-5 one native
   resume, its automatic resume with nothing playing; since 7C-4 `context.ts` 3 and

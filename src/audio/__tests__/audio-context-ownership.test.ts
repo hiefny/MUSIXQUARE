@@ -5,11 +5,11 @@
  * RO-01 "AudioContext running state" (docs/design/resource-ownership-registry.md):
  * owner-boundary characterization, structural plan step C1-I4 (Phase 0c).
  *
- * Two machines drive one native AudioContext: the play-request foreground
+ * Two flows drive one native AudioContext: the play-request foreground
  * restart and the playback-scope interruption recovery, both in
- * src/audio/context-recovery.ts since Phase 7 7C-4. These tests pin
- * what they do on unchanged code so later consolidation (Phase 0d, Phase 7)
- * and fix lane G7 can show exactly which behaviour moved.
+ * src/audio/context-recovery.ts since Phase 7 7C-4 (two scopes of one attempt
+ * type since 7C-5). These tests pin what they do on unchanged code so later
+ * consolidation (Phase 0d, Phase 7) and fix lane G7 can show which behaviour moved.
  *
  * Boundary: the real context.ts, context-recovery.ts, output-health.ts,
  * ui-sounds.ts and media-session.ts with no module mocks. Inputs are the
@@ -574,8 +574,8 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
     const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
     await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
 
-    // What app.ts (dialog flight, settles before its 1 s race) and
-    // media-session.ts read: not running, nothing to verify, and both give up.
+    // What the dialog's flight (settled before the 1 s wait, the owner's since
+    // 7C-2) and media-session.ts read: not running, nothing to verify, both give up.
     await expect(gesture).resolves.toEqual({
       running: false,
       rejoinEmitted: false,
@@ -749,8 +749,8 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       await vi.advanceTimersByTimeAsync(10_000);
 
       // The G7 handover applies only after the deadline returned the caller:
-      // inside it the owner stays out of the caller's probe (app.ts and
-      // media-session.ts read this requirement, probe and confirm).
+      // inside it the owner stays out of the caller's probe (the second step
+      // the dialog and media-session.ts call reads this requirement and probes).
       await expect(gesture).resolves.toEqual({
         running: true,
         rejoinEmitted: false,
@@ -850,8 +850,8 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       await vi.advanceTimersByTimeAsync(1_000);
       expect(playbackScope(o, token)).toEqual(PARKED);
 
-      // Lock-screen PLAY: a prompt resume (default plan), then media-session.ts
-      // probes the exposed requirement while hidden and keeps the token.
+      // Lock-screen PLAY: a prompt resume (default plan), then the owner's second
+      // step probes the exposed requirement while hidden and keeps the token.
       const before = fake.ops.length;
       play();
       expect(fake.ops.slice(before)).toEqual(['resume()']);

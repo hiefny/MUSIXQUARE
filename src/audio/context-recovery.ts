@@ -73,7 +73,15 @@ interface ForegroundClockHealthIncident {
   readonly hiddenAtContextSeconds: number | null;
 }
 
-type ForegroundRestartPhase =
+/**
+ * The phases of a recovery attempt of either scope (Phase 7 7C-5: one
+ * union). A play-request attempt starts by parking the context and never
+ * waits for an automatic resume, so it takes the last six. Every write goes
+ * through setAttemptPhase.
+ */
+type RecoveryPhase =
+  | 'awaiting-resume'
+  | 'automatic-resuming'
   | 'preparing-suspend'
   | 'awaiting-gesture'
   | 'gesture-resuming'
@@ -81,17 +89,33 @@ type ForegroundRestartPhase =
   | 'completed'
   | 'cancelled';
 
-interface ForegroundRestartAttempt {
+/**
+ * One recovery attempt (RO-01; Phase 7 7C-5: one attempt type for both
+ * scopes). Its scope tells them apart: the restart a local-file PLAY
+ * prepares when its foreground clock check finds the clock frozen
+ * ('play-request'), or the playback scope's recovery of what plays
+ * ('playback-scope'). Each scope keeps its own slot and its own generation,
+ * so retiring an attempt of one never voids the other's.
+ */
+type RecoveryAttempt = PlayRequestAttempt | PlaybackScopeAttempt;
+
+/** What an attempt of either scope carries; `Result` is its resumes' answer. */
+interface RecoveryAttemptBase<Result> {
   readonly context: AudioContext;
-  readonly checkToken: object;
   readonly attemptToken: object;
+  /** Its scope's generation when it was created. */
   readonly generation: number;
-  phase: ForegroundRestartPhase;
+  phase: RecoveryPhase;
   /** Its side of the context's one suspend ledger (Phase 7 7B-4). */
   readonly suspend: AudioContextSuspendRequest;
-  gestureResume: Promise<ForegroundAudioContextRestartResumeResult> | null;
-  /** Its gesture's recovery resume, while that may still promote it (Phase 7 7B-5). */
-  resume: AudioContextResumeFlight<ForegroundAudioContextRestartResumeResult> | null;
+  gestureResume: Promise<Result> | null;
+  /** Its latest recovery resume (Phase 7 7B-5), while that may still promote it. */
+  resume: AudioContextResumeFlight<Result> | null;
+}
+
+interface PlayRequestAttempt extends RecoveryAttemptBase<ForegroundAudioContextRestartResumeResult> {
+  readonly scope: 'play-request';
+  readonly checkToken: object;
   resolvePrepared: (prepared: boolean) => void;
   readonly whenPrepared: Promise<boolean>;
   preparedSettled: boolean;
@@ -106,6 +130,24 @@ interface ForegroundRestartAttempt {
   /** Why it ended, read when its phase becomes 'cancelled'. */
   end: ForegroundRestartEnd;
   requirementWait: ForegroundRestartRequirementWait | null;
+}
+
+interface PlaybackScopeAttempt extends RecoveryAttemptBase<ContextResumeResult> {
+  readonly scope: 'playback-scope';
+  readonly identity: PlaybackIdentity;
+  readonly bindingToken: object;
+  automaticResume: Promise<ContextResumeResult> | null;
+  automaticHealthProbe: Promise<void> | null;
+  completed: boolean;
+  rejoinEmitted: boolean;
+  cause: RecoveryCause;
+  clockVerified: boolean;
+  /** The suspend preparation the attempt waits for: true once parked for it, false when it lost. */
+  preparation: Promise<boolean> | null;
+  settlePreparation: ((prepared: boolean) => void) | null;
+  prepareTimedOut: boolean;
+  notifyWhenPrepared: boolean;
+  preparedNotificationSent: boolean;
 }
 
 /** A parked attempt being parked again after an outside resume (Phase 7 7B-2). */
@@ -256,7 +298,7 @@ interface AudioContextStateDispatcher {
 }
 
 let pendingForegroundClockHealthIncident: ForegroundClockHealthIncident | null = null;
-let pendingForegroundRestartAttempt: ForegroundRestartAttempt | null = null;
+let pendingForegroundRestartAttempt: PlayRequestAttempt | null = null;
 let foregroundRestartGeneration = 0;
 /** The suspend ledger: one lease and one late fence per context (RO-01, Phase 7 7B-4). */
 const suspendLeases = new WeakMap<AudioContext, AudioContextSuspendLease>();
@@ -265,17 +307,19 @@ const stateDispatchers = new WeakMap<AudioContext, AudioContextStateDispatcher>(
 const retiredSuspendCleanupFlights = new WeakMap<AudioContext, Promise<void>>();
 
 /**
- * Every phase write of a play-request restart goes through here: the /debug
- * counts; a re-park's promise, which settles once the attempt leaves
- * preparing-suspend (true when it is parked for its gesture again); and the
- * dialog's wait for the clock requirement, which settles when the attempt
- * is promoted or ends (Phase 7 7B-5).
+ * Every phase write of an attempt of either scope goes through here (Phase 7
+ * 7C-5: one funnel): the /debug counts; and for a play-request attempt a
+ * re-park's promise, which settles once the attempt leaves preparing-suspend
+ * (true when it is parked for its gesture again), and the dialog's wait for
+ * the clock requirement, which settles when the attempt is promoted or ends
+ * (Phase 7 7B-5).
  */
-function setRestartPhase(attempt: ForegroundRestartAttempt, phase: ForegroundRestartPhase): void {
+function setAttemptPhase(attempt: RecoveryAttempt, phase: RecoveryPhase): void {
   const from = attempt.phase;
   if (from === phase) return;
   attempt.phase = phase;
   countAudioRecoveryPhase(attempt, from, phase);
+  if (attempt.scope === 'playback-scope') return;
   const reprepare = attempt.reprepare;
   if (reprepare && phase !== 'preparing-suspend') {
     attempt.reprepare = null;
@@ -318,15 +362,29 @@ interface ForegroundAudioContextRestartClockHealthRequirement {
   readonly isCurrent: () => boolean;
 }
 
-function foregroundRestartStillCurrent(attempt: ForegroundRestartAttempt): boolean {
+/**
+ * The owner still holds this exact attempt (Phase 7 7C-5: one rule for both
+ * scopes): its scope's slot holds it, its scope's generation has not moved
+ * and it has not ended (a completed playback-scope attempt is no longer
+ * held, though isAudioContextInterruptionAttemptCurrent still answers for
+ * it). A play-request attempt also needs its foreground incident current; a
+ * playback-scope attempt, its binding.
+ */
+function ownsAttempt(attempt: RecoveryAttempt): boolean {
+  if (attempt.phase === 'cancelled' || attempt.phase === 'completed') return false;
+  if (attempt.scope === 'playback-scope') {
+    return (
+      pendingRecovery === attempt &&
+      activeBindingToken === attempt.bindingToken &&
+      attempt.generation === recoveryGeneration
+    );
+  }
   const incident = pendingForegroundClockHealthIncident;
-  return Boolean(
+  return (
     pendingForegroundRestartAttempt === attempt &&
     incident?.token === attempt.checkToken &&
     incident.context === attempt.context &&
-    attempt.generation === foregroundRestartGeneration &&
-    attempt.phase !== 'cancelled' &&
-    attempt.phase !== 'completed',
+    attempt.generation === foregroundRestartGeneration
   );
 }
 
@@ -781,16 +839,16 @@ function dropRecoveryResume(entry: AudioContextResumeEntry): void {
 }
 
 /** The context is parked for this attempt: it waits for its gesture. */
-function parkForegroundRestart(attempt: ForegroundRestartAttempt): void {
-  setRestartPhase(attempt, 'awaiting-gesture');
+function parkForegroundRestart(attempt: PlayRequestAttempt): void {
+  setAttemptPhase(attempt, 'awaiting-gesture');
   if (!attempt.preparedSettled) {
     attempt.preparedSettled = true;
     attempt.resolvePrepared(true);
   }
 }
 
-function startFreshForegroundSuspend(attempt: ForegroundRestartAttempt): void {
-  if (!foregroundRestartStillCurrent(attempt) || attempt.phase !== 'preparing-suspend') return;
+function startFreshForegroundSuspend(attempt: PlayRequestAttempt): void {
+  if (!ownsAttempt(attempt) || attempt.phase !== 'preparing-suspend') return;
   requestAudioContextSuspend(attempt.context, attempt.suspend);
 }
 
@@ -799,18 +857,18 @@ function startFreshForegroundSuspend(attempt: ForegroundRestartAttempt): void {
  * the same attempt again, with the same suspend budget (C1-I13 a, Phase 7
  * 7B-2). A recovery dialog whose tap meets this re-park waits on `parked`.
  */
-function reparkForegroundRestart(attempt: ForegroundRestartAttempt): void {
+function reparkForegroundRestart(attempt: PlayRequestAttempt): void {
   let settle!: (parked: boolean) => void;
   const parked = new Promise<boolean>((resolve) => {
     settle = resolve;
   });
   attempt.reprepare = { parked, settle };
-  setRestartPhase(attempt, 'preparing-suspend');
+  setAttemptPhase(attempt, 'preparing-suspend');
   startFreshForegroundSuspend(attempt);
 }
 
 function retireForegroundRestartAttempt(
-  attempt: ForegroundRestartAttempt,
+  attempt: PlayRequestAttempt,
   restorePrepared = true,
   end: ForegroundRestartEnd = 'retired',
 ): void {
@@ -823,7 +881,7 @@ function retireForegroundRestartAttempt(
     abandonSuspendLease(suspend.suspendLease, true);
   }
   attempt.end = end;
-  setRestartPhase(attempt, 'cancelled');
+  setAttemptPhase(attempt, 'cancelled');
   if (!attempt.preparedSettled) {
     attempt.preparedSettled = true;
     attempt.resolvePrepared(false);
@@ -837,12 +895,13 @@ function retireForegroundRestartAttempt(
 
 function createForegroundRestartAttempt(
   incident: ForegroundClockHealthIncident,
-): ForegroundRestartAttempt {
+): PlayRequestAttempt {
   let resolvePrepared!: (prepared: boolean) => void;
   const whenPrepared = new Promise<boolean>((resolve) => {
     resolvePrepared = resolve;
   });
-  const attempt: ForegroundRestartAttempt = {
+  const attempt: PlayRequestAttempt = {
+    scope: 'play-request',
     context: incident.context,
     checkToken: incident.token,
     attemptToken: {},
@@ -855,14 +914,13 @@ function createForegroundRestartAttempt(
       suspendPrepareAttempts: 0,
       suspendLease: null,
       watchdogSlot: DEADLINE_PLAY_REQUEST_WATCHDOG,
-      preparing: () =>
-        foregroundRestartStillCurrent(attempt) && attempt.phase === 'preparing-suspend',
+      preparing: () => ownsAttempt(attempt) && attempt.phase === 'preparing-suspend',
       takesLateSuspend: () =>
-        foregroundRestartStillCurrent(attempt) &&
+        ownsAttempt(attempt) &&
         (attempt.phase === 'preparing-suspend' || attempt.phase === 'awaiting-gesture'),
       parked: () => parkForegroundRestart(attempt),
       lost: () => {
-        if (foregroundRestartStillCurrent(attempt)) retireForegroundRestartAttempt(attempt, false);
+        if (ownsAttempt(attempt)) retireForegroundRestartAttempt(attempt, false);
       },
       stale: () => undefined,
       exhausted: () => retireForegroundRestartAttempt(attempt, false),
@@ -888,7 +946,7 @@ function createForegroundRestartAttempt(
  */
 export function isForegroundAudioContextRestartOwned(context: AudioContext): boolean {
   const attempt = pendingForegroundRestartAttempt;
-  return Boolean(attempt && attempt.context === context && foregroundRestartStillCurrent(attempt));
+  return Boolean(attempt && attempt.context === context && ownsAttempt(attempt));
 }
 
 /**
@@ -905,7 +963,7 @@ function isForegroundAudioContextRestartHolding(): boolean {
   const attempt = pendingForegroundRestartAttempt;
   return Boolean(
     attempt &&
-    foregroundRestartStillCurrent(attempt) &&
+    ownsAttempt(attempt) &&
     (attempt.phase === 'preparing-suspend' ||
       (attempt.phase === 'awaiting-gesture' && attempt.dialog) ||
       attempt.phase === 'gesture-resuming'),
@@ -923,11 +981,7 @@ function isForegroundAudioContextRestartHolding(): boolean {
  */
 export function claimForegroundAudioContextRestartForDialog(attemptToken: object): boolean {
   const attempt = pendingForegroundRestartAttempt;
-  if (
-    !attempt ||
-    attempt.attemptToken !== attemptToken ||
-    !foregroundRestartStillCurrent(attempt)
-  ) {
+  if (!attempt || attempt.attemptToken !== attemptToken || !ownsAttempt(attempt)) {
     return false;
   }
   attempt.dialog = true;
@@ -1023,7 +1077,7 @@ async function prepareForegroundAudioContextRestart(
     attempt = null;
   }
   if (!attempt) attempt = createForegroundRestartAttempt(incident);
-  if (!foregroundRestartStillCurrent(attempt)) return null;
+  if (!ownsAttempt(attempt)) return null;
   if (attempt.phase === 'gesture-resuming' || attempt.phase === 'awaiting-clock-verification') {
     return null;
   }
@@ -1059,13 +1113,12 @@ async function prepareForegroundAudioContextRestart(
     whenPrepared.then((prepared): 'prepared' | 'stale' => (prepared ? 'prepared' : 'stale')),
     delay(AUDIO_SUSPEND_PREPARE_DEADLINE_MS).then(() => 'preparing' as const),
   );
-  if (initial === 'stale' || !foregroundRestartStillCurrent(attempt)) return null;
+  if (initial === 'stale' || !ownsAttempt(attempt)) return null;
   return {
     status: initial,
     attemptToken: attempt.attemptToken,
     whenPrepared,
-    isCurrent: () =>
-      foregroundRestartStillCurrent(attempt!) && attempt!.phase !== 'preparing-suspend',
+    isCurrent: () => ownsAttempt(attempt!) && attempt!.phase !== 'preparing-suspend',
   };
 }
 
@@ -1089,13 +1142,13 @@ async function prepareForegroundAudioContextRestartAfterClockStall(
  * prepared suspension. It may not promote that successor; put the successor
  * back through a fresh suspend lease instead.
  */
-function reparkSuccessorAfterRetiredResume(attempt: ForegroundRestartAttempt): void {
+function reparkSuccessorAfterRetiredResume(attempt: PlayRequestAttempt): void {
   const successor = pendingForegroundRestartAttempt;
   if (
     successor &&
     successor !== attempt &&
     successor.context === attempt.context &&
-    foregroundRestartStillCurrent(successor) &&
+    ownsAttempt(successor) &&
     successor.phase === 'awaiting-gesture'
   ) {
     reparkForegroundRestart(successor);
@@ -1121,7 +1174,7 @@ function reparkForegroundAudioContextRestartAfterResume(context: AudioContext): 
     attempt.phase === 'awaiting-gesture' &&
     attempt.dialog &&
     attempt.resume?.active() !== true &&
-    foregroundRestartStillCurrent(attempt)
+    ownsAttempt(attempt)
   ) {
     reparkForegroundRestart(attempt);
   }
@@ -1150,7 +1203,7 @@ function resumePreparedForegroundAudioContextRestartFromGesture(
   if (
     !attempt ||
     attempt.attemptToken !== attemptToken ||
-    !foregroundRestartStillCurrent(attempt) ||
+    !ownsAttempt(attempt) ||
     attempt.phase !== 'awaiting-gesture' ||
     !isAudioContextPrepared(attempt.context)
   ) {
@@ -1159,20 +1212,20 @@ function resumePreparedForegroundAudioContextRestartFromGesture(
   }
   if (attempt.gestureResume) return attempt.gestureResume;
 
-  setRestartPhase(attempt, 'gesture-resuming');
+  setAttemptPhase(attempt, 'gesture-resuming');
   attempt.resume?.drop();
   // The one recovery resume (Phase 7 7B-5), with this owner's step rules.
   const flight = requestAudioContextResume(attempt.context, {
     resumeSlot: RESUME_PLAY_REQUEST,
     deadlineSlot: DEADLINE_PLAY_REQUEST_RESUME,
-    holds: () => foregroundRestartStillCurrent(attempt),
+    holds: () => ownsAttempt(attempt),
     // Running is only provisional: the dialog's clock probe must pass before
     // commit, and this owner runs none of its own (K-I12-a).
-    promoted: () => setRestartPhase(attempt, 'awaiting-clock-verification'),
+    promoted: () => setAttemptPhase(attempt, 'awaiting-clock-verification'),
     // After the deadline it waits for its gesture again while the context is
     // parked, otherwise for a suspend with no lease.
     missed: () =>
-      setRestartPhase(
+      setAttemptPhase(
         attempt,
         isAudioContextPrepared(attempt.context) ? 'awaiting-gesture' : 'preparing-suspend',
       ),
@@ -1205,11 +1258,7 @@ function whenForegroundAudioContextRestartClockRequirement(
   attemptToken: object,
 ): Promise<ForegroundRestartRequirementOutcome> {
   const attempt = pendingForegroundRestartAttempt;
-  if (
-    !attempt ||
-    attempt.attemptToken !== attemptToken ||
-    !foregroundRestartStillCurrent(attempt)
-  ) {
+  if (!attempt || attempt.attemptToken !== attemptToken || !ownsAttempt(attempt)) {
     return Promise.resolve('retired');
   }
   if (attempt.phase === 'awaiting-clock-verification') return Promise.resolve('promoted');
@@ -1236,7 +1285,7 @@ function getPendingForegroundAudioContextRestartClockHealthRequirement(): Foregr
     context: attempt.context,
     attemptToken: attempt.attemptToken,
     isCurrent: () =>
-      foregroundRestartStillCurrent(attempt) &&
+      ownsAttempt(attempt) &&
       attempt.phase === 'awaiting-clock-verification' &&
       String(attempt.context.state) === 'running',
   };
@@ -1248,13 +1297,13 @@ export function confirmForegroundAudioContextRestartHealth(attemptToken: object)
   if (
     !attempt ||
     attempt.attemptToken !== attemptToken ||
-    !foregroundRestartStillCurrent(attempt) ||
+    !ownsAttempt(attempt) ||
     attempt.phase !== 'awaiting-clock-verification' ||
     String(attempt.context.state) !== 'running'
   ) {
     return false;
   }
-  setRestartPhase(attempt, 'completed');
+  setAttemptPhase(attempt, 'completed');
   pendingForegroundRestartAttempt = null;
   if (pendingForegroundClockHealthIncident?.token === attempt.checkToken) {
     pendingForegroundClockHealthIncident = null;
@@ -1276,15 +1325,6 @@ export function retireForegroundAudioContextRestart(attemptToken: object): boole
 
 type RejoinMode = 'file' | 'youtube';
 type RecoveryCause = 'state-interruption' | 'background-clock-stalled';
-type RecoveryPhase =
-  | 'awaiting-resume'
-  | 'automatic-resuming'
-  | 'preparing-suspend'
-  | 'awaiting-gesture'
-  | 'gesture-resuming'
-  | 'awaiting-clock-verification'
-  | 'completed'
-  | 'cancelled';
 
 interface PlaybackIdentity {
   mode: RejoinMode;
@@ -1335,44 +1375,10 @@ type PendingInterruptionGestureOutcome =
   | { readonly kind: 'escalated'; readonly escalation: AudioContextRecoveryEscalationResult }
   | { readonly kind: 'recovered'; readonly rejoinEmitted: boolean };
 
-interface PendingContextRecovery {
-  context: AudioContext;
-  identity: PlaybackIdentity;
-  bindingToken: object;
-  attemptToken: object;
-  generation: number;
-  automaticResume: Promise<ContextResumeResult> | null;
-  gestureResume: Promise<ContextResumeResult> | null;
-  automaticHealthProbe: Promise<void> | null;
-  /** Its latest recovery resume (Phase 7 7B-5), while that may still promote it. */
-  resume: AudioContextResumeFlight<ContextResumeResult> | null;
-  completed: boolean;
-  rejoinEmitted: boolean;
-  cause: RecoveryCause;
-  phase: RecoveryPhase;
-  clockVerified: boolean;
-  /** Its side of the context's one suspend ledger (Phase 7 7B-4). */
-  readonly suspend: AudioContextSuspendRequest;
-  /** The suspend preparation the attempt waits for: true once parked for it, false when it lost. */
-  preparation: Promise<boolean> | null;
-  settlePreparation: ((prepared: boolean) => void) | null;
-  prepareTimedOut: boolean;
-  notifyWhenPrepared: boolean;
-  preparedNotificationSent: boolean;
-}
-
-let pendingRecovery: PendingContextRecovery | null = null;
-let activeRecoveryAttempt: PendingContextRecovery | null = null;
+let pendingRecovery: PlaybackScopeAttempt | null = null;
+let activeRecoveryAttempt: PlaybackScopeAttempt | null = null;
 let activeBindingToken: object | null = null;
 let recoveryGeneration = 0;
-
-/** Every phase write of a playback-scope attempt goes through here (the /debug counts). */
-function setRecoveryPhase(recovery: PendingContextRecovery, phase: RecoveryPhase): void {
-  const from = recovery.phase;
-  if (from === phase) return;
-  recovery.phase = phase;
-  countAudioRecoveryPhase(recovery, from, phase);
-}
 
 // The ledger's live lease on a context (one at most since Phase 7 7B-4).
 registerAudioRecoveryOwner(isForegroundAudioContextRestartHolding, (context) =>
@@ -1406,7 +1412,7 @@ function playbackScopeHolding(): boolean {
   const recovery = pendingRecovery;
   return Boolean(
     recovery &&
-    recoveryStillOwnsAttempt(recovery) &&
+    ownsAttempt(recovery) &&
     recovery.identity.mode === 'file' &&
     (recovery.phase === 'preparing-suspend' ||
       recovery.phase === 'awaiting-gesture' ||
@@ -1455,19 +1461,9 @@ function identityStillCurrent(identity: PlaybackIdentity): boolean {
   return !!current && identitiesEqual(current, identity);
 }
 
-function recoveryStillOwnsAttempt(recovery: PendingContextRecovery): boolean {
-  return Boolean(
-    pendingRecovery === recovery &&
-    activeBindingToken === recovery.bindingToken &&
-    recovery.generation === recoveryGeneration &&
-    recovery.phase !== 'cancelled' &&
-    recovery.phase !== 'completed',
-  );
-}
-
-function retireRecovery(recovery: PendingContextRecovery): void {
+function retireRecovery(recovery: PlaybackScopeAttempt): void {
   if (recovery.phase === 'cancelled') return;
-  setRecoveryPhase(recovery, 'cancelled');
+  setAttemptPhase(recovery, 'cancelled');
   recovery.resume?.drop();
   recovery.resume = null;
   if (pendingRecovery === recovery) pendingRecovery = null;
@@ -1475,7 +1471,7 @@ function retireRecovery(recovery: PendingContextRecovery): void {
   if (recovery.generation === recoveryGeneration) recoveryGeneration += 1;
 }
 
-function settleSuspendPreparation(recovery: PendingContextRecovery, prepared: boolean): void {
+function settleSuspendPreparation(recovery: PlaybackScopeAttempt, prepared: boolean): void {
   const settle = recovery.settlePreparation;
   recovery.preparation = null;
   recovery.settlePreparation = null;
@@ -1488,18 +1484,18 @@ function settleSuspendPreparation(recovery: PendingContextRecovery, prepared: bo
  * for nobody. After two lost suspends the attempt gives up and arms the next
  * PLAY's clock check; a later request taking its place retires it.
  */
-function scopeSuspendRequest(attempt: () => PendingContextRecovery): AudioContextSuspendRequest {
+function scopeSuspendRequest(attempt: () => PlaybackScopeAttempt): AudioContextSuspendRequest {
   const preparing = (): boolean => {
     const recovery = attempt();
     return (
-      recoveryStillOwnsAttempt(recovery) &&
+      ownsAttempt(recovery) &&
       recovery.phase === 'preparing-suspend' &&
       identityStillCurrent(recovery.identity)
     );
   };
   const lost = (): void => {
     const recovery = attempt();
-    if (recoveryStillOwnsAttempt(recovery)) retireRecovery(recovery);
+    if (ownsAttempt(recovery)) retireRecovery(recovery);
     settleSuspendPreparation(recovery, false);
   };
   return {
@@ -1510,7 +1506,7 @@ function scopeSuspendRequest(attempt: () => PendingContextRecovery): AudioContex
     takesLateSuspend: preparing,
     parked: () => {
       const recovery = attempt();
-      setRecoveryPhase(recovery, 'awaiting-gesture');
+      setAttemptPhase(recovery, 'awaiting-gesture');
       if (recovery.prepareTimedOut || recovery.notifyWhenPrepared) emitPreparedRecovery(recovery);
       settleSuspendPreparation(recovery, true);
     },
@@ -1536,8 +1532,9 @@ function createRecovery(
   identity: PlaybackIdentity,
   bindingToken: object,
   cause: RecoveryCause,
-): PendingContextRecovery {
-  const recovery: PendingContextRecovery = {
+): PlaybackScopeAttempt {
+  const recovery: PlaybackScopeAttempt = {
+    scope: 'playback-scope',
     context,
     identity,
     bindingToken,
@@ -1564,10 +1561,10 @@ function createRecovery(
   return recovery;
 }
 
-function emitPreparedRecovery(recovery: PendingContextRecovery): void {
+function emitPreparedRecovery(recovery: PlaybackScopeAttempt): void {
   if (
     recovery.preparedNotificationSent ||
-    !recoveryStillOwnsAttempt(recovery) ||
+    !ownsAttempt(recovery) ||
     recovery.phase !== 'awaiting-gesture' ||
     !identityStillCurrent(recovery.identity)
   ) {
@@ -1578,7 +1575,7 @@ function emitPreparedRecovery(recovery: PendingContextRecovery): void {
     reason: 'clock-stalled',
     source: 'background-resume',
     queueItemId: recovery.identity.queueItemId,
-    isCurrent: () => recoveryStillOwnsAttempt(recovery) && identityStillCurrent(recovery.identity),
+    isCurrent: () => ownsAttempt(recovery) && identityStillCurrent(recovery.identity),
   });
 }
 
@@ -1591,7 +1588,7 @@ function adoptRetiredSuspendForCurrentPlayback(context: AudioContext, bindingTok
   if (String(context.state) === 'running') {
     if (
       recovery &&
-      recoveryStillOwnsAttempt(recovery) &&
+      ownsAttempt(recovery) &&
       identityStillCurrent(recovery.identity) &&
       recovery.cause === 'background-clock-stalled' &&
       recovery.phase === 'awaiting-gesture'
@@ -1606,10 +1603,7 @@ function adoptRetiredSuspendForCurrentPlayback(context: AudioContext, bindingTok
 
   const identity = activePlaybackIdentity();
   if (!identity || identity.mode !== 'file') return;
-  if (
-    recovery &&
-    (!recoveryStillOwnsAttempt(recovery) || !identitiesEqual(recovery.identity, identity))
-  ) {
+  if (recovery && (!ownsAttempt(recovery) || !identitiesEqual(recovery.identity, identity))) {
     retireRecovery(recovery);
     recovery = null;
   }
@@ -1623,25 +1617,25 @@ function adoptRetiredSuspendForCurrentPlayback(context: AudioContext, bindingTok
   }
   recovery.cause = 'background-clock-stalled';
   recovery.clockVerified = false;
-  setRecoveryPhase(recovery, 'awaiting-gesture');
+  setAttemptPhase(recovery, 'awaiting-gesture');
   recovery.notifyWhenPrepared = true;
   emitPreparedRecovery(recovery);
 }
 
 async function prepareStalledRecovery(
-  recovery: PendingContextRecovery,
+  recovery: PlaybackScopeAttempt,
   options: { notifyWhenPrepared?: boolean } = {},
 ): Promise<boolean> {
-  if (!recoveryStillOwnsAttempt(recovery)) return false;
+  if (!ownsAttempt(recovery)) return false;
   recovery.notifyWhenPrepared ||= options.notifyWhenPrepared === true;
 
   if (isAudioContextPrepared(recovery.context)) {
-    setRecoveryPhase(recovery, 'awaiting-gesture');
+    setAttemptPhase(recovery, 'awaiting-gesture');
     if (recovery.notifyWhenPrepared) emitPreparedRecovery(recovery);
     return true;
   }
 
-  setRecoveryPhase(recovery, 'preparing-suspend');
+  setAttemptPhase(recovery, 'preparing-suspend');
   recovery.clockVerified = false;
   recovery.prepareTimedOut = false;
   recovery.preparedNotificationSent = false;
@@ -1664,7 +1658,7 @@ async function prepareStalledRecovery(
   );
   if (outcome.type === 'timeout') {
     if (
-      recoveryStillOwnsAttempt(recovery) &&
+      ownsAttempt(recovery) &&
       recovery.phase === 'preparing-suspend' &&
       recovery.preparation === preparation
     ) {
@@ -1674,22 +1668,22 @@ async function prepareStalledRecovery(
   }
   return Boolean(
     outcome.prepared &&
-    recoveryStillOwnsAttempt(recovery) &&
+    ownsAttempt(recovery) &&
     (recovery.phase as RecoveryPhase) === 'awaiting-gesture' &&
     isAudioContextPrepared(recovery.context),
   );
 }
 
 function emitUnhealthyRecovery(
-  recovery: PendingContextRecovery,
+  recovery: PlaybackScopeAttempt,
   reason: 'context-not-running' | 'clock-stalled',
 ): void {
-  if (!recoveryStillOwnsAttempt(recovery) || !identityStillCurrent(recovery.identity)) return;
+  if (!ownsAttempt(recovery) || !identityStillCurrent(recovery.identity)) return;
   bus.emit('audio:output-recovery-needed', {
     reason,
     source: 'background-resume',
     queueItemId: recovery.identity.queueItemId,
-    isCurrent: () => recoveryStillOwnsAttempt(recovery) && identityStillCurrent(recovery.identity),
+    isCurrent: () => ownsAttempt(recovery) && identityStillCurrent(recovery.identity),
   });
 }
 
@@ -1698,11 +1692,11 @@ function emitUnhealthyRecovery(
  * recovery owns its own exact probe; gesture recovery leaves the same token
  * for the dialog/PLAY caller so it can preserve transient activation.
  */
-function scheduleAutomaticClockVerification(recovery: PendingContextRecovery): void {
+function scheduleAutomaticClockVerification(recovery: PlaybackScopeAttempt): void {
   if (
     document.visibilityState !== 'visible' ||
     recovery.automaticHealthProbe ||
-    !recoveryStillOwnsAttempt(recovery) ||
+    !ownsAttempt(recovery) ||
     recovery.phase !== 'awaiting-clock-verification'
   ) {
     return;
@@ -1712,14 +1706,14 @@ function scheduleAutomaticClockVerification(recovery: PendingContextRecovery): v
     attemptResume: false,
     context: recovery.context,
     isCurrent: () =>
-      recoveryStillOwnsAttempt(recovery) &&
+      ownsAttempt(recovery) &&
       recovery.attemptToken === attemptToken &&
       recovery.phase === 'awaiting-clock-verification' &&
       identityStillCurrent(recovery.identity),
   })
     .then(async (health) => {
       if (
-        !recoveryStillOwnsAttempt(recovery) ||
+        !ownsAttempt(recovery) ||
         recovery.attemptToken !== attemptToken ||
         recovery.phase !== 'awaiting-clock-verification'
       ) {
@@ -1735,12 +1729,12 @@ function scheduleAutomaticClockVerification(recovery: PendingContextRecovery): v
       }
       if (health.reason === 'clock-stalled') {
         recovery.cause = 'background-clock-stalled';
-        setRecoveryPhase(recovery, 'preparing-suspend');
+        setAttemptPhase(recovery, 'preparing-suspend');
         await prepareStalledRecovery(recovery, { notifyWhenPrepared: true });
         return;
       }
       if (health.reason === 'not-running') {
-        setRecoveryPhase(recovery, 'awaiting-resume');
+        setAttemptPhase(recovery, 'awaiting-resume');
         emitUnhealthyRecovery(recovery, 'context-not-running');
       }
       // `hidden` and `inconclusive` preserve the provisional token. The next
@@ -1753,10 +1747,10 @@ function scheduleAutomaticClockVerification(recovery: PendingContextRecovery): v
   recovery.automaticHealthProbe = operation;
 }
 
-function completeRunningRecovery(recovery: PendingContextRecovery): boolean {
+function completeRunningRecovery(recovery: PlaybackScopeAttempt): boolean {
   if (recovery.completed) return recovery.rejoinEmitted;
   if (
-    !recoveryStillOwnsAttempt(recovery) ||
+    !ownsAttempt(recovery) ||
     !recovery.clockVerified ||
     recovery.phase !== 'awaiting-clock-verification' ||
     String(recovery.context.state) !== 'running'
@@ -1765,7 +1759,7 @@ function completeRunningRecovery(recovery: PendingContextRecovery): boolean {
   }
   pendingRecovery = null;
   recovery.completed = true;
-  setRecoveryPhase(recovery, 'completed');
+  setAttemptPhase(recovery, 'completed');
   if (!identityStillCurrent(recovery.identity)) return false;
   recovery.rejoinEmitted = true;
   countAudioRecovery(CONTEXT_RECOVERED_REJOINS);
@@ -1776,7 +1770,7 @@ function completeRunningRecovery(recovery: PendingContextRecovery): boolean {
   return true;
 }
 
-function contextResumeResult(recovery: PendingContextRecovery): ContextResumeResult {
+function contextResumeResult(recovery: PlaybackScopeAttempt): ContextResumeResult {
   const rejoinEmitted = completeRunningRecovery(recovery);
   return { running: String(recovery.context.state) === 'running', rejoinEmitted };
 }
@@ -1787,13 +1781,13 @@ function contextResumeResult(recovery: PendingContextRecovery): ContextResumeRes
  * gesture: the old resume cannot promote it, but its concrete running state
  * must not silently undo the newer attempt's suspension.
  */
-function handleRetiredResumeLanding(recovery: PendingContextRecovery): void {
+function handleRetiredResumeLanding(recovery: PlaybackScopeAttempt): void {
   const successor = pendingRecovery;
   if (
     !successor ||
     successor === recovery ||
     successor.context !== recovery.context ||
-    !recoveryStillOwnsAttempt(successor) ||
+    !ownsAttempt(successor) ||
     !identityStillCurrent(successor.identity)
   ) {
     return;
@@ -1806,21 +1800,21 @@ function handleRetiredResumeLanding(recovery: PendingContextRecovery): void {
     }
     return;
   }
-  setRecoveryPhase(successor, 'awaiting-clock-verification');
+  setAttemptPhase(successor, 'awaiting-clock-verification');
   successor.clockVerified = false;
   scheduleAutomaticClockVerification(successor);
 }
 
 function resumeContext(
-  recovery: PendingContextRecovery,
+  recovery: PlaybackScopeAttempt,
   source: 'automatic' | 'gesture',
 ): Promise<ContextResumeResult> {
   const slot = source === 'automatic' ? 'automaticResume' : 'gestureResume';
   const existing = recovery[slot];
   if (existing) return existing;
 
-  if (recoveryStillOwnsAttempt(recovery)) {
-    setRecoveryPhase(recovery, source === 'automatic' ? 'automatic-resuming' : 'gesture-resuming');
+  if (ownsAttempt(recovery)) {
+    setAttemptPhase(recovery, source === 'automatic' ? 'automatic-resuming' : 'gesture-resuming');
     recovery.clockVerified = false;
   }
   const reportBlockedDemoResume = (): void => {
@@ -1844,9 +1838,9 @@ function resumeContext(
   const flight = requestAudioContextResume(recovery.context, {
     resumeSlot: source === 'gesture' ? RESUME_PLAY_GESTURE : RESUME_AUTO,
     deadlineSlot: source === 'gesture' ? DEADLINE_GESTURE_RESUME : DEADLINE_AUTO_RESUME,
-    holds: () => recoveryStillOwnsAttempt(recovery),
+    holds: () => ownsAttempt(recovery),
     promoted: (callerWaits) => {
-      setRecoveryPhase(recovery, 'awaiting-clock-verification');
+      setAttemptPhase(recovery, 'awaiting-clock-verification');
       recovery.clockVerified = false;
       // A gesture caller probes its own token while its flight is open. Once
       // the resume deadline has returned it running:false, this late
@@ -1856,7 +1850,7 @@ function resumeContext(
     // After the deadline a clock-stalled attempt still parked waits for its
     // gesture again; otherwise the attempt waits for a resume.
     missed: () =>
-      setRecoveryPhase(
+      setAttemptPhase(
         recovery,
         recovery.cause === 'background-clock-stalled' && isAudioContextPrepared(recovery.context)
           ? 'awaiting-gesture'
@@ -1878,7 +1872,7 @@ function resumeContext(
   return operation;
 }
 
-function recoveryCanAcceptGesture(recovery: PendingContextRecovery): boolean {
+function recoveryCanAcceptGesture(recovery: PlaybackScopeAttempt): boolean {
   if (recovery.cause !== 'background-clock-stalled') {
     return (
       recovery.phase === 'awaiting-resume' ||
@@ -1927,7 +1921,7 @@ function observeRunningInterruption(): void {
   ) {
     // Some WebKit revisions update `state` without delivering statechange in
     // time. Promote only to provisional verification; never commit here.
-    setRecoveryPhase(recovery, 'awaiting-clock-verification');
+    setAttemptPhase(recovery, 'awaiting-clock-verification');
     recovery.clockVerified = false;
   }
 }
@@ -1965,7 +1959,7 @@ export function beginPendingInterruptionRecoveryFromGesture(): Promise<ContextRe
     return resumeContext(recovery, 'gesture');
   }
   if (String(recovery.context.state) === 'running') {
-    setRecoveryPhase(recovery, 'awaiting-clock-verification');
+    setAttemptPhase(recovery, 'awaiting-clock-verification');
     recovery.clockVerified = false;
     return Promise.resolve(contextResumeResult(recovery));
   }
@@ -1978,14 +1972,14 @@ function confirmPendingAudioContextRecoveryHealth(attemptToken: object): Context
   if (
     !recovery ||
     recovery.attemptToken !== attemptToken ||
-    !recoveryStillOwnsAttempt(recovery) ||
+    !ownsAttempt(recovery) ||
     recovery.phase !== 'awaiting-clock-verification' ||
     !identityStillCurrent(recovery.identity) ||
     String(recovery.context.state) !== 'running'
   ) {
     return { running: false, rejoinEmitted: false };
   }
-  setRecoveryPhase(recovery, 'awaiting-clock-verification');
+  setAttemptPhase(recovery, 'awaiting-clock-verification');
   recovery.clockVerified = true;
   const foregroundCheck = getPendingForegroundAudioContextClockHealthCheck();
   if (foregroundCheck?.context === recovery.context) {
@@ -2020,7 +2014,7 @@ function retireStalePendingAudioContextRecovery(attemptToken: object): boolean {
   if (
     !recovery ||
     recovery.attemptToken !== attemptToken ||
-    !recoveryStillOwnsAttempt(recovery) ||
+    !ownsAttempt(recovery) ||
     recovery.identity.mode !== 'file' ||
     recovery.phase !== 'awaiting-clock-verification' ||
     String(recovery.context.state) !== 'running' ||
@@ -2047,7 +2041,7 @@ async function escalatePendingAudioContextRecoveryToClockStalled(
   if (
     !recovery ||
     recovery.attemptToken !== attemptToken ||
-    !recoveryStillOwnsAttempt(recovery) ||
+    !ownsAttempt(recovery) ||
     !identityStillCurrent(recovery.identity)
   ) {
     return 'rejected';
@@ -2067,17 +2061,16 @@ async function escalatePendingAudioContextRecoveryToClockStalled(
 
   recovery.cause = 'background-clock-stalled';
   recovery.clockVerified = false;
-  setRecoveryPhase(recovery, 'preparing-suspend');
+  setAttemptPhase(recovery, 'preparing-suspend');
   await prepareStalledRecovery(recovery, { notifyWhenPrepared: true });
   if (
-    recoveryStillOwnsAttempt(recovery) &&
+    ownsAttempt(recovery) &&
     (recovery.phase as RecoveryPhase) === 'awaiting-gesture' &&
     isAudioContextPrepared(recovery.context)
   ) {
     return 'prepared';
   }
-  return recoveryStillOwnsAttempt(recovery) &&
-    (recovery.phase as RecoveryPhase) === 'preparing-suspend'
+  return ownsAttempt(recovery) && (recovery.phase as RecoveryPhase) === 'preparing-suspend'
     ? 'preparing'
     : 'rejected';
 }
@@ -2105,7 +2098,7 @@ export async function finishPendingInterruptionRecoveryFromGesture(
   const recovery = pendingRecovery;
   const requirementIsCurrent = (): boolean =>
     !!recovery &&
-    recoveryStillOwnsAttempt(recovery) &&
+    ownsAttempt(recovery) &&
     recovery.phase === 'awaiting-clock-verification' &&
     String(recovery.context.state) === 'running' &&
     identityStillCurrent(recovery.identity);
@@ -2568,7 +2561,7 @@ export async function armPendingAudioContextRecoveryFromBackground(
   }
 
   const prepared = await prepareStalledRecovery(recovery);
-  return prepared && recoveryStillOwnsAttempt(recovery) ? recovery.attemptToken : null;
+  return prepared && ownsAttempt(recovery) ? recovery.attemptToken : null;
 }
 
 /** Bind one context and return an exact disposer for engine re-initialization. */
@@ -2601,12 +2594,12 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
     bus.on('state:setup.sessionStarted', retireSupersededDemoOutput),
   ];
 
-  const continueRecoveryInForeground = (recovery: PendingContextRecovery): void => {
+  const continueRecoveryInForeground = (recovery: PlaybackScopeAttempt): void => {
     if (
       disposed ||
       activeBindingToken !== bindingToken ||
       document.visibilityState !== 'visible' ||
-      !recoveryStillOwnsAttempt(recovery) ||
+      !ownsAttempt(recovery) ||
       !identityStillCurrent(recovery.identity)
     ) {
       return;
@@ -2662,14 +2655,11 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
     observedHidden = false;
     hiddenContinuityCaptured = false;
     let recovery = pendingRecovery?.context === context ? pendingRecovery : null;
-    if (
-      recovery &&
-      (!recoveryStillOwnsAttempt(recovery) || !identityStillCurrent(recovery.identity))
-    ) {
+    if (recovery && (!ownsAttempt(recovery) || !identityStillCurrent(recovery.identity))) {
       retireRecovery(recovery);
       recovery = null;
     }
-    if (recovery && recoveryStillOwnsAttempt(recovery) && identityStillCurrent(recovery.identity)) {
+    if (recovery && ownsAttempt(recovery) && identityStillCurrent(recovery.identity)) {
       const foregroundCheck = getPendingForegroundAudioContextClockHealthCheck();
       if (foregroundCheck?.context === context) {
         consumeForegroundAudioContextClockHealthCheck(foregroundCheck.token);
@@ -2720,7 +2710,7 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
 
     if (recovery?.cause === 'background-clock-stalled') {
       recovery.clockVerified = false;
-      setRecoveryPhase(recovery, 'awaiting-gesture');
+      setAttemptPhase(recovery, 'awaiting-gesture');
       emitPreparedRecovery(recovery);
       return;
     }
@@ -2804,7 +2794,7 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
         recovery.phase === 'gesture-resuming' ||
         recovery.phase === 'awaiting-clock-verification'
       ) {
-        setRecoveryPhase(recovery, 'awaiting-clock-verification');
+        setAttemptPhase(recovery, 'awaiting-clock-verification');
         return;
       }
       if (recovery.cause === 'background-clock-stalled' && recovery.phase === 'awaiting-gesture') {
@@ -2816,7 +2806,7 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
         });
         return;
       }
-      setRecoveryPhase(recovery, 'awaiting-clock-verification');
+      setAttemptPhase(recovery, 'awaiting-clock-verification');
       recovery.clockVerified = false;
       scheduleAutomaticClockVerification(recovery);
     }

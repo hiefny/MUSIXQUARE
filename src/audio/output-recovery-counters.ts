@@ -131,9 +131,10 @@ const WAIT = 'awaiting-clock-verification';
 const waitStarts = new WeakMap<object, number>();
 
 /**
- * Each owner's one phase funnel reports every change of an attempt's phase:
- * a clock verification wait starts and ends here, and an attempt waiting for
- * a tap that goes back to suspending is a re-suspend after running.
+ * The owner's one phase funnel (for an attempt of either scope since Phase
+ * 7 7C-5) reports every change of an attempt's phase: a clock verification
+ * wait starts and ends here, and an attempt waiting for a tap that goes
+ * back to suspending is a re-suspend after running.
  */
 export function countAudioRecoveryPhase(attempt: object, from: string, to: string): void {
   if (to === WAIT) {

@@ -282,3 +282,76 @@ describe("the currency a local-file PLAY's clock check reads (owner rows, real o
     expect(play.reads()).toBe(6);
   });
 });
+
+type Counters = typeof import('../output-recovery-counters.ts');
+
+/** The two millisecond slots move with the fake clock; these rows read the others. */
+const MILLISECOND_SLOTS = new Set(['CLOCK_WAIT_TOTAL_MS', 'CLOCK_WAIT_MAX_MS']);
+
+/** Every `/debug sync` count slot that moved since `before`, by its name. */
+function countChanges(c: Counters, before: readonly number[]): Record<string, number> {
+  const now = c.readAudioRecoveryCounts()[0];
+  const changes: Record<string, number> = {};
+  for (const [name, slot] of Object.entries(c)) {
+    if (typeof slot !== 'number' || !/^[A-Z_]+$/u.test(name)) continue;
+    if (name.startsWith('AUDIO_RECOVERY_') || MILLISECOND_SLOTS.has(name)) continue;
+    const delta = now[slot]! - before[slot]!;
+    if (delta !== 0) changes[name] = delta;
+  }
+  return changes;
+}
+
+// RO-01 allowed requesters: only output-health's background check asks the
+// probe to resume a context first. This check samples the clock through the
+// owner's probe that resumes nothing, the one the recovery dialog's check
+// after its tap uses, so neither wakes a context outside a gesture.
+describe("the owner's clock probe that resumes nothing, for this check and the dialog's after its tap (owner rows, real owners)", () => {
+  it('answers context-not-running at once, with no resume and no count, when the context is not running as the check starts', async () => {
+    const { o, fake } = await returned();
+    const c = await import('../output-recovery-counters.ts');
+    // The context stopped with no event the binding saw.
+    fake.transition('suspended', { statechange: false });
+    const before = c.readAudioRecoveryCounts()[0];
+    const ops = fake.ops.length;
+
+    const answer = track(o.recovery.checkForegroundClockBeforeFileStart(playCaller()));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.ops.slice(ops)).toEqual([]);
+    expect(countChanges(c, before)).toEqual({});
+    expect(answer.settled()).toBe(true);
+    await expect(answer.promise).resolves.toEqual({ kind: 'context-not-running' });
+  });
+
+  it("the dialog's check after a refused tap on its ordinary branch: not-running, with no resume but the tap's", async () => {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    bind(o, fake);
+    const c = await import('../output-recovery-counters.ts');
+    // A failed PLAY's notice with no restart: the context stopped with no
+    // event the binding saw, and the tap's own resume is refused.
+    fake.transition('suspended', { statechange: false });
+    fake.planResume({ outcome: 'reject' });
+    const unhealthy: string[] = [];
+    const before = c.readAudioRecoveryCounts()[0];
+    const ops = fake.ops.length;
+
+    const gesture = o.recovery.beginAudioOutputGestureRecovery(
+      { intent: 'retry-failed-play' },
+      {
+        isCurrent: () => true,
+        signal: new AbortController().signal,
+        unhealthy: (health) => {
+          unhealthy.push(health.reason);
+        },
+      },
+    );
+    expect(fake.ops.slice(ops)).toEqual(['resume()']);
+    const finished = gesture!.finish();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(finished).resolves.toEqual({ kind: 'stopped' });
+    expect(fake.ops.slice(ops)).toEqual(['resume()', 'resume:rejected']);
+    expect(unhealthy).toEqual(['not-running']);
+    expect(countChanges(c, before)).toEqual({ RESUME_DIALOG: 1, DEADLINES_WATCHED: 1 });
+  });
+});

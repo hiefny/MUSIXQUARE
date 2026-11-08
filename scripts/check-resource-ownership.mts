@@ -716,17 +716,18 @@ const INDIRECT_RESUME_BASELINES = new Map<string, Baseline>([
       // recovery in Phase 7 7C-1 (media-session.ts 1 -> 0), the recovery
       // dialog's clock check after its tap in 7C-2 (app.ts 1 -> 0), and a
       // local-file PLAY's foreground clock check in 7C-3 (transport.ts 1 -> 0),
-      // through the dialog's site.
+      // through the dialog's site; in 7C-5 the owner's other two checks went
+      // through that same site (3 -> 1).
       [
         'src/audio/context-recovery.ts',
         {
-          count: 3,
+          count: 1,
           reason:
-            "the owner's automatic clock check; since Phase 7 7C-1 its gesture recovery's " +
-            'check for the dialog and a lock-screen PLAY (from media-session.ts, 1 -> 2); since ' +
-            "7C-2 the dialog's check of the play-request restart and of the ordinary branch " +
-            "(from app.ts, 2 -> 3), which since 7C-3 also serves a local-file PLAY's " +
-            'foreground clock check (from transport.ts, still 3); attemptResume false',
+            "the owner's one no-resume probe (probeClockWithoutResume): the dialog's check after " +
+            "its tap since Phase 7 7C-2 (from app.ts), a local-file PLAY's foreground clock check " +
+            'since 7C-3 (from transport.ts), and since 7C-5 the automatic clock check and the ' +
+            "gesture recovery's check for the dialog and a lock-screen PLAY (from media-session.ts " +
+            'in 7C-1), which had sites of their own (3 -> 1); attemptResume false',
         },
       ],
       [

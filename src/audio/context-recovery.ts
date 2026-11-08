@@ -1684,15 +1684,14 @@ function scheduleAutomaticClockVerification(recovery: PlaybackScopeAttempt): voi
     return;
   }
   const attemptToken = recovery.attemptToken;
-  const operation = probeAudioContextHealth({
-    attemptResume: false,
-    context: recovery.context,
-    isCurrent: () =>
+  const operation = probeClockWithoutResume(
+    recovery.context,
+    () =>
       ownsAttempt(recovery) &&
       recovery.attemptToken === attemptToken &&
       recovery.phase === 'awaiting-clock-verification' &&
       identityStillCurrent(recovery.identity),
-  })
+  )
     .then(async (health) => {
       if (
         !ownsAttempt(recovery) ||
@@ -2088,11 +2087,10 @@ export async function finishPendingInterruptionRecoveryFromGesture(
       ? { kind: 'stale-retired' }
       : { kind: 'superseded' };
   }
-  const health = await probeAudioContextHealth({
-    attemptResume: false,
-    context: recovery.context,
-    isCurrent: () => caller.isCurrent() && requirementIsCurrent(),
-  });
+  const health = await probeClockWithoutResume(
+    recovery.context,
+    () => caller.isCurrent() && requirementIsCurrent(),
+  );
   if (!health.healthy) {
     caller.unhealthy?.(health);
     if (health.reason !== 'clock-stalled') return { kind: 'unverified' };
@@ -2243,8 +2241,10 @@ async function waitForForegroundRestartClockRequirement(
 }
 
 /**
- * A clock check that resumes nothing: the dialog's after its tap, for both of
- * its own branches, and a local-file PLAY's foreground check (Phase 7 7C-3).
+ * A clock check that resumes nothing, the owner's one probe site: the
+ * dialog's after its tap, for both of its own branches, a local-file PLAY's
+ * foreground check (Phase 7 7C-3), and since 7C-5 the automatic clock
+ * verification and the playback scope's second step.
  */
 function probeClockWithoutResume(
   context: AudioContext | null,

@@ -908,14 +908,13 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       // not restartAudioContextFromGesture (2 -> 1). That recovery resume,
       // the retired-suspend cleanup and the suspend ledger (7B-4) were pinned
       // here too until Phase 7 7C-4 made them module-private in the owner.
+      // Since 7C-5 the owner probes through its one no-resume probe (3 -> 1).
       expect(report.indirectResumeCalls).toEqual({
         ensureRunning: 4,
         restartAudioContextFromGesture: 1,
-        probeAudioContextHealth: 4,
+        probeAudioContextHealth: 2,
       });
       expect(usesOf(report.indirectResumeSites)).toEqual([
-        'src/audio/context-recovery.ts probeAudioContextHealth()',
-        'src/audio/context-recovery.ts probeAudioContextHealth()',
         'src/audio/context-recovery.ts probeAudioContextHealth()',
         'src/audio/context-recovery.ts restartAudioContextFromGesture()',
         'src/audio/engine.ts ensureRunning()',
@@ -1053,7 +1052,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(listed.status, listed.stderr).toBe(0);
       expect(listed.stdout).toContain(
         'indirect AudioContext resume callers: ensureRunning 4, restartAudioContextFromGesture 1, ' +
-          'probeAudioContextHealth 4; initAudio uses',
+          'probeAudioContextHealth 2; initAudio uses',
       );
       expect(listed.stdout).toMatch(
         /indirect resume: src\/audio\/context-recovery\.ts:\d+ probeAudioContextHealth\(\) in probeClockWithoutResume/u,

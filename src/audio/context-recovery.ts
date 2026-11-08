@@ -2029,49 +2029,31 @@ function retireStalePendingAudioContextRecovery(attemptToken: object): boolean {
 }
 
 /**
- * Escalate only the exact provisional state-interruption whose trusted PLAY
- * probe proved the native clock is frozen. Preparation retains the same token;
- * the recovery event is emitted only after suspend/interrupted is concrete.
+ * Escalate the exact provisional state-interruption attempt whose trusted
+ * gesture's probe proved the native clock is frozen. Its one caller, the
+ * second step, reads this attempt's requirement current in the same
+ * synchronous block (held, awaiting clock verification, running, with a
+ * current identity), so only its cause is left to tell (Phase 7 7C-5): a
+ * clock-stall attempt resumed by its own gesture is not escalated again.
+ * Preparation retains the same token; the recovery event is emitted only
+ * after suspend/interrupted is concrete.
  */
 async function escalatePendingAudioContextRecoveryToClockStalled(
-  attemptToken: object,
+  recovery: PlaybackScopeAttempt,
 ): Promise<AudioContextRecoveryEscalationResult> {
-  const recovery = pendingRecovery;
-  if (
-    !recovery ||
-    recovery.attemptToken !== attemptToken ||
-    !ownsAttempt(recovery) ||
-    !identityStillCurrent(recovery.identity)
-  ) {
-    return 'rejected';
-  }
-  if (recovery.cause === 'background-clock-stalled') {
-    if (recovery.phase === 'awaiting-gesture' && isAudioContextPrepared(recovery.context)) {
-      return 'prepared';
-    }
-    return recovery.phase === 'preparing-suspend' ? 'preparing' : 'rejected';
-  }
-  if (
-    recovery.phase !== 'awaiting-clock-verification' ||
-    String(recovery.context.state) !== 'running'
-  ) {
-    return 'rejected';
-  }
-
+  if (recovery.cause === 'background-clock-stalled') return 'rejected';
   recovery.cause = 'background-clock-stalled';
   recovery.clockVerified = false;
   setAttemptPhase(recovery, 'preparing-suspend');
   await prepareStalledRecovery(recovery, { notifyWhenPrepared: true });
   if (
     ownsAttempt(recovery) &&
-    (recovery.phase as RecoveryPhase) === 'awaiting-gesture' &&
+    recovery.phase === 'awaiting-gesture' &&
     isAudioContextPrepared(recovery.context)
   ) {
     return 'prepared';
   }
-  return ownsAttempt(recovery) && (recovery.phase as RecoveryPhase) === 'preparing-suspend'
-    ? 'preparing'
-    : 'rejected';
+  return ownsAttempt(recovery) && recovery.phase === 'preparing-suspend' ? 'preparing' : 'rejected';
 }
 
 /**
@@ -2119,7 +2101,7 @@ export async function finishPendingInterruptionRecoveryFromGesture(
   if (!health.healthy) {
     return {
       kind: 'escalated',
-      escalation: await escalatePendingAudioContextRecoveryToClockStalled(attemptToken),
+      escalation: await escalatePendingAudioContextRecoveryToClockStalled(recovery),
     };
   }
   const confirmed = confirmPendingAudioContextRecoveryHealth(attemptToken);

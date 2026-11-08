@@ -1343,12 +1343,6 @@ interface PendingInterruptionGestureCaller {
   readonly unhealthy?: (health: AudioContextHealth) => void;
   /** Media Session: this PLAY clears a local pause on the same mode (owner answer Q12, 7B-6). */
   readonly clearsLocalPause?: () => boolean;
-  /**
-   * false verifies only: RO-37's form while the dialog's failed-PLAY retry
-   * cancelled the attempt itself. No caller passes it since Phase 7 7C-2: a
-   * retry's tap carries no attempt (UnownedGestureCarry).
-   */
-  readonly commit?: boolean;
 }
 
 /**
@@ -1356,10 +1350,10 @@ interface PendingInterruptionGestureCaller {
  * caller or the attempt is no longer current, or no running attempt is left
  * to verify; a stale attempt was retired (7B-6) and the caller rejoins
  * itself; the probe gave no verdict on the clock; a frozen clock was
- * escalated; a healthy clock was only verified; or the attempt committed.
+ * escalated; or the attempt committed.
  */
 type PendingInterruptionGestureOutcome =
-  | { readonly kind: 'not-running' | 'superseded' | 'stale-retired' | 'unverified' | 'verified' }
+  | { readonly kind: 'not-running' | 'superseded' | 'stale-retired' | 'unverified' }
   | { readonly kind: 'escalated'; readonly escalation: AudioContextRecoveryEscalationResult }
   | { readonly kind: 'recovered'; readonly rejoinEmitted: boolean };
 
@@ -2128,7 +2122,6 @@ export async function finishPendingInterruptionRecoveryFromGesture(
       escalation: await escalatePendingAudioContextRecoveryToClockStalled(attemptToken),
     };
   }
-  if (caller.commit === false) return { kind: 'verified' };
   const confirmed = confirmPendingAudioContextRecoveryHealth(attemptToken);
   return confirmed.running
     ? { kind: 'recovered', rejoinEmitted: confirmed.rejoinEmitted }

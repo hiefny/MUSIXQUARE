@@ -1633,24 +1633,4 @@ describe("the playback scope's gesture recovery, second step (Phase 7 7C-1)", ()
     expect(rejoin).not.toHaveBeenCalled();
     dispose();
   });
-
-  it("only verifies a healthy clock for the dialog's failed-PLAY retry, which cancels the attempt itself (RO-37)", async () => {
-    vi.useFakeTimers();
-    try {
-      const { rejoin, dispose, attempt } = await provisionalAttempt();
-      const finished = finishPendingInterruptionRecoveryFromGesture(attempt, {
-        ...CURRENT_CALLER,
-        commit: false,
-      });
-      await vi.advanceTimersByTimeAsync(180);
-
-      await expect(finished).resolves.toEqual({ kind: 'verified' });
-      expect(rejoin).not.toHaveBeenCalled();
-      expect(retireAudioContextRecoveryAttempt(attempt)).toBe(true);
-      expect(hasPendingAudioContextInterruption()).toBe(false);
-      dispose();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });

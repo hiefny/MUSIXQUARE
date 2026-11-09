@@ -35,10 +35,11 @@ export default defineConfig({
       // the owner-boundary harness, the UI sound suite, and the boundary,
       // holding and parity tables; since Phase 7 7C-2 the recovery dialog's
       // tap through the owner's entry, since 7C-3 a local-file PLAY's
-      // foreground clock check, since 7C-4 the owner's one test seam, and
-      // since 7C-5 its two attempt scopes on one context.
+      // foreground clock check, since 7C-4 the owner's one test seam, since
+      // 7C-5 its two attempt scopes on one context, and since 7C-K8 a
+      // restore's tap while a YouTube attempt waits.
       'src/audio/__tests__/{audio-context-ownership,ui-sounds}.test.ts',
-      'src/audio/__tests__/audio-output-recovery-{attempt-type,boundary,dialog,file-start,holding,parity,test-seam}.test.ts',
+      'src/audio/__tests__/audio-output-recovery-{attempt-type,boundary,dialog,file-start,holding,parity,restore-tap,test-seam}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',
       'src/pro-room/__tests__/device-failure-sequence-qa.test.ts',

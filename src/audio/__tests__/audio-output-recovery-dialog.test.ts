@@ -529,7 +529,7 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     expect(countChanges(s, before)).toEqual({ RESUME_DIALOG: 1, DEADLINES_WATCHED: 1 });
   });
 
-  it('the ordinary branch carrying a YouTube attempt after the room switched to a file: the second step finds it retired, and the dialog stops', async () => {
+  it('a restore while a YouTube attempt waits after the room switched to a file: the ordinary branch carries no attempt, and its clock check answers recovered (Phase 7 7C-K8)', async () => {
     const fake = new FakeNativeAudioContext();
     const o = await loadOwners(fake);
     const c = await import('../output-recovery-counters.ts');
@@ -549,12 +549,12 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     const finished = tap(s, dialogSelector('restore-playing-output'), side)!.finish();
     await vi.advanceTimersByTimeAsync(5_000);
 
-    // Known gap (C1-I6, ordinary branch carries a non-file token), the
-    // dialog's half through the owner's entry: the tap carries the YouTube
-    // attempt, the resume lets the owner retire it (identity check), and its
-    // second step ends there, with no probe, notice or rejoin. app.ts then
-    // ends the dialog with no rejoin of its own.
-    await expect(finished).resolves.toEqual({ kind: 'stopped' });
+    // Phase 7 7C-K8, the owner's decision of 2026-11-07 (it was Known gap
+    // C1-I6): a restore's ordinary branch carries no attempt. The resume lets
+    // the owner retire the YouTube attempt (identity check), with no notice or
+    // rejoin of its own; the branch's clock check then answers recovered, and
+    // app.ts publishes its own 'audio-recovery-gesture' rejoin (code reading).
+    await expect(finished).resolves.toEqual({ kind: 'recovered', rejoinEmitted: false });
     expect(fake.ops.slice(ops)).toEqual(['resume()', 'statechange:running', 'resume:resolved']);
     expect(side.unhealthy).toEqual([]);
     expect(bus.needed).toEqual([]);

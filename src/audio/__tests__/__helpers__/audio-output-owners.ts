@@ -612,12 +612,12 @@ export function ownerView(o: Owners): { request: 'owned' | 'none'; scope: ScopeV
 }
 
 /**
- * The owner side of app.ts's ordinary dialog branch, modelled: app.ts itself
- * is not loaded, so neither its choice of branch nor its own rejoin is pinned
- * here. These are the owner answers that branch reads on a tap when no
- * play-request attempt exists: whether a file attempt is pending, which
- * attempt accepts a gesture, and, after the gesture resume the branch issues,
- * whether the owner still holds that attempt.
+ * The owner side of the recovery dialog's ordinary branch, modelled: the
+ * owner's answers around that branch's tap when no play-request attempt
+ * exists. Whether a file attempt is pending (the entry's choice of branch),
+ * which attempt accepts a gesture, and, after a context resume like the one
+ * the branch issues, whether the owner still holds that attempt: it retires
+ * the non-file one itself, so a restore's branch carries none (Phase 7 7C-K8).
  */
 export async function ordinaryBranchOwnerSide(o: Owners): Promise<{
   fileAttemptPending: boolean;

@@ -104,8 +104,10 @@ behind a failing test) and 7C (the move behind one owner).
    wait, the wait for the play-request clock requirement (its AbortSignal and currency end it),
    the probe, the retirement and re-arm, the commit (the caller's confirm, RO-36, or the owner's)
    and the playback scope's second step, or prepares a play-request restart for a frozen clock. It
-   reads the dialog's currency where the dialog did and none after a commit. A failed PLAY's retry
-   carries no playback-scope attempt, by type (RO-37). The dialog keeps its slot, its follow-up
+   reads the dialog's currency where the dialog did and none after a commit. Its ordinary branch
+   carries no playback-scope attempt: a failed PLAY's retry cancels a pending one before the
+   resume (RO-37), and since 7C-K8 a restore leaves an attempt for other playback to the owner's
+   identity check (it was Known gap C1-I6). The dialog keeps its slot, its follow-up
    queue (the re-queue included), its claim, the retry and its own rejoin.
 5. **Queries have no side effects.** A query answers from the owner's state and never changes it.
    Until 7C-1 `getPendingAudioContextClockHealthRequirement` in `context-recovery.ts` promoted a

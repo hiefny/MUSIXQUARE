@@ -294,8 +294,10 @@ RO-54 accepted-exception
   the dialog's AbortSignal and currency end it), probes the clock, retires the play-request
   attempt and arms the next PLAY's clock check, commits through the caller's confirm (RO-36) or
   the owner's own, runs the playback scope's second step, or prepares a play-request restart for
-  a frozen clock, which `app.ts` queues. A failed PLAY's retry carries no playback-scope attempt,
-  by type: its tap cancels a pending one before the resume. `app.ts` keeps the primer, the slot
+  a frozen clock, which `app.ts` queues. The ordinary branch carries no playback-scope attempt:
+  a failed PLAY's retry cancels a pending one before the resume, and a restore takes the branch
+  only while no file attempt is pending, so an attempt for other playback is left to the owner's
+  identity check (Phase 7 7C-K8; it was Known gap C1-I6). `app.ts` keeps the primer, the slot
   flag, the follow-up queue, the claim, the dialog itself, RO-51, the retry and its own
   `audio-recovery-gesture` rejoin.
   Since Phase 7 7C-3 a local-file PLAY's foreground clock check is the owner's too:

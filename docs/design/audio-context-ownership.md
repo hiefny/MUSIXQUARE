@@ -236,6 +236,8 @@ behind a failing test) and 7C (the move behind one owner).
 - Lock-screen PLAY: `src/player/__tests__/media-session.test.ts`,
   `src/player/__tests__/media-session-lock-screen-pause.test.ts`.
 - Recovery dialog tap (7C-2): `src/audio/__tests__/audio-output-recovery-dialog.test.ts`.
+- A restore's tap while a YouTube attempt waits (7C-K8):
+  `src/audio/__tests__/audio-output-recovery-restore-tap.test.ts`.
 - The owner's test seam (7C-4): `src/audio/__tests__/audio-output-recovery-test-seam.test.ts`.
 - One attempt type for both scopes (7C-5):
   `src/audio/__tests__/audio-output-recovery-attempt-type.test.ts`.

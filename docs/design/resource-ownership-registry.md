@@ -405,6 +405,10 @@ RO-54 accepted-exception
     `src/audio/__tests__/audio-output-recovery-dialog.test.ts` (each branch's native resume
     inside the call, where the dialog's currency is read, the waits, the retirement and re-arm,
     the one commit, and the `/debug sync` counts of each tap).
+  - A restore's tap while a YouTube attempt waits after the room switched to a file (Phase 7
+    7C-K8): `src/audio/__tests__/audio-output-recovery-restore-tap.test.ts` (the tap retires no
+    attempt, the owner's identity check retires it once the context runs, and the tap's
+    `/debug sync` counts, in three orders of its resume's `statechange`).
   - A local-file PLAY's foreground clock check (Phase 7 7C-3):
     `src/audio/__tests__/audio-output-recovery-file-start.test.ts` (the owner's answer for each
     probe reason, the incident it consumes or keeps, the currency it reads, and that its probe,

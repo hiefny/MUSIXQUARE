@@ -340,13 +340,13 @@ RO-54 accepted-exception
   is not running without asking; when an attempt holds it, that owner's re-suspend rule parks it
   again (the play-request attempt's since Phase 7 7B-2; kept by owner answer Q10).
   `probeAudioContextHealth` (defined in `context.ts`; called from `output-health.ts` and
-  `context-recovery.ts`, three times since Phase 7 7C-1 took the lock-screen PLAY's check from
-  `media-session.ts` and 7C-2 the recovery dialog's from `app.ts`; since 7C-3 the dialog's
-  no-resume probe also serves a local-file PLAY's foreground clock check, which
-  `src/player/transport.ts` asks the owner for and no longer probes itself, and since 7C-5 it is
-  the owner's one probe site, its automatic and second-step checks included) resumes only for its one
-  `attemptResume: true` caller, the background check in `output-health.ts`, after both of that
-  file's ownership checks report no attempt. The recovery dialog and media session call the
+  `context-recovery.ts`, there three times from Phase 7 7C-2 until 7C-5, after 7C-1 took the
+  lock-screen PLAY's check from `media-session.ts` and 7C-2 the recovery dialog's from `app.ts`,
+  and once since 7C-5, the owner's one probe site, its automatic and second-step checks included;
+  since 7C-3 the dialog's no-resume probe also serves a local-file PLAY's foreground clock check,
+  which `src/player/transport.ts` asks the owner for and no longer probes itself) resumes only for
+  its one `attemptResume: true` caller, the background check in `output-health.ts`, after both of
+  that file's ownership checks report no attempt. The recovery dialog and media session call the
   owner's gesture functions. UI sounds ask the owner first and wake the context only while no
   owner holds it for a tap (Phase 7 7B-3).
 - **Lifecycle operations:** native `resume()` (in `context.ts` for `ensureRunning`, the probe

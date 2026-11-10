@@ -400,9 +400,9 @@ export interface PlayRequest {
   /** Whether a dialog may still act for this attempt. */
   isCurrent(): boolean;
   /**
-   * The dialog gives up on this attempt (app.ts retires its token when its
-   * requirement wait ends with nothing). true when the owner still held the
-   * attempt and retired it now, false when it was already gone.
+   * The dialog gives up on this attempt (the owner retires its token when the
+   * dialog's requirement wait ends with nothing). true when the owner still
+   * held the attempt and retired it now, false when it was already gone.
    */
   retire(): boolean;
 }
@@ -573,8 +573,8 @@ export const playbackScope = {
     return o.recovery.isAudioContextInterruptionAttemptCurrent(attempt);
   },
   /**
-   * A caller drops that exact attempt (app.ts's failed-PLAY dialog cancels a
-   * pending attempt this way). true when the owner still held it.
+   * A caller drops that exact attempt (the owner cancels a pending attempt
+   * this way for a failed PLAY's retry). true when the owner still held it.
    */
   retire(o: Owners, attempt: object): boolean {
     return o.recovery.retireAudioContextRecoveryAttempt(attempt);

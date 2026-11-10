@@ -116,10 +116,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
     it('rejects block lines out of ascending ID order and headings in another order', () => {
       const findings = findingsOf(
         withRegistry((registry) =>
-          registry.replace(
-            'RO-01 duplicated\nRO-02 duplicated\n',
-            'RO-02 duplicated\nRO-01 duplicated\n',
-          ),
+          registry.replace(/^RO-01 (\S+)\nRO-02 (\S+)\n/mu, 'RO-02 $2\nRO-01 $1\n'),
         ),
       );
       expect(findings).toMatch(/RO-01 is out of ascending ID order in the block/u);

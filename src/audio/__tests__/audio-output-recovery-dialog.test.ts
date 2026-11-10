@@ -510,7 +510,7 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     });
   });
 
-  it("a failed PLAY's retry with no restart cancels a pending playback-scope attempt inside its tap, before its resume, and carries none (RO-37)", async () => {
+  it("a failed PLAY's retry with no restart cancels a pending playback-scope attempt inside its tap, before its resume, and carries none", async () => {
     const s = await scene();
     await expect(playbackScope.armStalled(s.o, s.fake)).resolves.toBe('prepared');
     const bus = recordBus(s.o);

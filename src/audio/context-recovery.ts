@@ -2130,7 +2130,7 @@ interface AudioOutputGestureCaller {
   readonly unhealthy: (health: AudioContextHealth) => void;
 }
 
-/** The ordinary branch's caller: a failed PLAY's retry cancels a pending attempt first (RO-37). */
+/** The ordinary branch's caller: a failed PLAY's retry cancels a pending attempt first. */
 interface UnownedGestureCaller extends AudioOutputGestureCaller {
   readonly cancelPendingInterruption: boolean;
 }
@@ -2354,8 +2354,8 @@ async function finishPendingInterruptionForDialog(
 }
 
 /**
- * A failed PLAY's retry cancels a pending attempt before its tap's resume
- * (RO-37), so nothing can commit that attempt, publish its rejoin and also
+ * A failed PLAY's retry cancels a pending attempt before its tap's resume,
+ * so nothing can commit that attempt, publish its rejoin and also
  * retry.
  */
 function cancelPendingInterruptionForRetry(): void {

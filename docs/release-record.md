@@ -46,7 +46,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### App 9.0.41 열차(Phase 7 7C: AudioContext 복구를 주인 하나 뒤로, 파일로 바뀐 방의 복원 탭 하나, 9.0.41/v814) 배포 전: 7C-1 ~ 7C-5와 7C-7은 중립(사용자가 보거나 듣는 것 그대로)이고 하나뿐인 의도한 변경 7C-K8(알려진 빈 곳 8)은 오너가 정함(2026-11-07), 버전 올리기 머리의 로컬 측정과 target `app` 판정을 마쳤고 최종 전체 관문은 아직(보고서 §15.10이 채움), PR·CI·배포는 아직
+### App 9.0.41 열차(Phase 7 7C: AudioContext 복구를 주인 하나 뒤로, 파일로 바뀐 방의 복원 탭 하나, 9.0.41/v814) 배포 전: 7C-1 ~ 7C-5와 7C-7은 중립(사용자가 보거나 듣는 것 그대로)이고 하나뿐인 의도한 변경 7C-K8(알려진 빈 곳 8)은 오너가 정함(2026-11-07), 버전 올리기 머리의 로컬 측정과 target `app` 판정, 최종 전체 관문(2026-11-10 `7a1e98fb`, 런타임은 `8cc49d34`와 같음, 모두 통과)을 마쳤고, PR·CI·배포는 아직
 
 - [ ] 범위와 상태(오너 결정 2026-11-02·11-07·11-10, 미병합·미배포): 운영 9.0.40 / v813(아래 9.0.40 절) 다음 App 패치인 9.0.41 / v814(App 빌드
       814)로 target `app`, 업데이트 창 한 번, 바닥 795 그대로(`raise_app_build_floor` false, Developer API D1 false)다. Phase 7의 셋째이자 마지막
@@ -97,9 +97,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `guard:release-identity` 'MUSIXQUARE 9.0.41; service-worker cache epoch v814'), 그 머리에서 전체 로컬 관문(typecheck, `typecheck:tests`, lint,
       `format:check`, `build:checked` 한 명령, 모든 `guard:*`, 자원 소유권, `check:workers`, 커버리지, 단위 전체 두 번, `build:e2e` 뒤 critical E2E와
       CI 복구 명세, 오디오 lab 세 번, 운영 빌드의 후보 E2E, 저장소의 WebKit 레인(참고 근거))이 통과하고, 배포 대상이 App뿐이며(버전 올리기 머리의
-      로컬 판정: App 12, 다른 다섯 Worker 0, 의존성 변경 없음, 배포 SHA를 넣은 로컬 부분 릴리스 판정 compatible), eager 크기를 `f11a5cba`의 깨끗한
-      빌드와 견준다(버전 올리기 머리의 로컬 측정: eager JS gzip 467,725 B, +117 B. Phase 7 +1,085 B / +1,200 B). 최종 관문: 아직(보고서 §15.10이
-      채움). 머지 전에 런타임 커밋이 더해지면 버전 올리기를 다시 마지막에 두고 다시 돈다. (3) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main
+      로컬 판정: App 12, 다른 다섯 Worker 0, 의존성 변경 없음, 배포 SHA를 넣은 로컬 부분 릴리스 판정 compatible. 최종 관문 머리에서 다시 돌려 같음),
+      eager 크기를 `f11a5cba`의 깨끗한 빌드와 견준다(버전 올리기 머리의 로컬 측정: eager JS gzip 467,725 B, +117 B. Phase 7 +1,085 B / +1,200 B.
+      최종 관문 머리에서 다시 재도 같음). 최종 관문: 2026-11-10 22:02 ~ 23:03 KST에 `7a1e98fb`(버전 올리기 뒤 문서 커밋 둘, 런타임은 `8cc49d34`와
+      같음)에서 위 검사가 모두 통과했다(`build:checked` 한 명령이 위 두 줄을 냄, 단위 전체 두 번 786 파일 18,833 / 0 / 1, `test:e2e:critical` 101 / 101,
+      복구 데모 3 / 3, lab 25 / 25 세 번, 후보 E2E 19 / 19, WebKit 레인 111 통과·5 건너뜀(참고), 보고서 §15.10). 머지 전에 런타임 커밋이
+      더해지면 버전 올리기를 다시 마지막에 두고 다시 돈다. (3) PR CI, 자동 코드 리뷰, dispatch 직전 머지, exact-main
       CI success, 그 뒤 Release target `app`, Developer API D1 false, `raise_app_build_floor` false. 기록 PR을 열차 PR 머지와 deploy job 시작 사이에
       머지하지 않는다. (4) 배포 직후 공개 최소 빌드 상태(저장·유효 795, live App 814), `/service-worker.js`의 `CACHE_VERSION = "v814"`,
       `index.html`의 `/bootstrap.js?cache=v814`, Operations Drift Audit을 보고, 머지 뒤 main SHA에서 Full E2E를 한 번 돌려 보고서에 적되 exact-main

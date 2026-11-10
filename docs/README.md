@@ -132,7 +132,11 @@ runbooks. Neither belongs in a general setup document.
   after every increment the unit suite, critical coverage, the guards, the CI recovery specs and the audio lab, and
   three gates (the unit suite twice, `test:e2e:critical` 101 / 101, the demo spec 3 / 3, the lab three times), each
   followed by an independent review and its fixes; Chromium only (local WebKit has no AudioContext), no device. The
-  final gate on the bump head has not run yet (its QA round fills this sentence). The open items 8.11.12 and 8.11.7
+  final gate passed on 2026-11-10 on `7a1e98fb` (the bump and two documentation commits, the same runtime): the
+  static checks, `build:checked` as one command with both lines above, every guard, the coverage lanes, the unit suite
+  twice (786 files, 18,833 passed, 1 skipped), `test:e2e:critical` 101 / 101, the demo spec 3 / 3, the lab three
+  times, the candidate E2E 19 / 19 and the WebKit lane as advisory evidence (111 passed, 5 skipped), with the bundle
+  and target `app` numbers unchanged. The open items 8.11.12 and 8.11.7
   link this report and stay open. The default rollback is a forward revert at the next free App number; 7C reverts
   alone until another App train stacks on it, and 7B now reverts only forward with it. Known gap 3 and three fixable
   items found in the build go to the next App update, as the owner decided on 2026-11-09 and 2026-11-10.

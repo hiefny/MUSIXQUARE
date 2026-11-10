@@ -149,8 +149,8 @@ runbooks. Neither belongs in a general setup document.
   42852117870 passed its smokes on the first try (entry `main-Bdxv_hdi.js`, 860,084 B, the entry measured on the
   bump head); the release owner's public reads showed the floor 795 with live App 814 and the home page at bootstrap
   v814, and no one looked at production in a browser or on a device. Drift Audit 42852720012 failed its first attempt
-  on one read that timed out (the demo-tracks bucket's R2 CORS; 31 pass, 0 fail, 5 manual-only, no drift row) and
-  passed on the rerun (32 pass / 0 fail / 5 manual-only, counted from the log's table). The post-merge Full E2E
+  on one read that timed out (the demo-tracks bucket's R2 CORS; 31 pass, 0 fail, 1 error, 5 manual-only, no drift row)
+  and passed on the rerun (32 pass / 0 fail / 5 manual-only, counted from the log's table). The post-merge Full E2E
   42852713897 on `91f6bb0c` failed its first attempt on one row of a CI recovery spec the train did not change
   (`e2e/demo-output-recovery.test.ts:191`, at its line 213: no `playback:local-output-rejoin` within 15 s after the
   tap on the recovery dialog; `e2e` 969 passed and 1 failed, `webkit-mobile` 111 passed and 5 skipped plus the

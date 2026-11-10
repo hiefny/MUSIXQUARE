@@ -991,8 +991,9 @@ headless, trace 끔, 재시도 0, 한 번에 브라우저 실행 하나다. 앱 
   `CACHE_VERSION` 읽기와 데스크톱 Chromium의 업데이트 창 확인은 근거에 없다. 배포 뒤 브라우저와 기기 확인은 아무도 하지 않았다(오너의 D10 ~
   D14와 휴대폰의 K8 장면도 아직, 게이트 아님).
 - **Operations Drift Audit** [42852720012](https://github.com/hiefny/MUSIXQUARE/actions/runs/42852720012)(workflow_dispatch, `91f6bb0c`):
-  attempt 1(01:15:35 생성, job 01:15:41 ~ 01:16:37)은 failure, 결과 attention-required. 요약 표(01:16:00 생성, artifact 13780693486)는 31 pass / 0
-  fail / 1 error / 5 manual-only이고(행을 세어 냄) ERROR 한 행은 'R2 CORS musixquare-demo-tracks response timed out.'이다(읽기 하나의 시간 초과이고
+  attempt 1(01:15:35 생성, job 01:15:41 ~ 01:16:37)은 failure, 결과 attention-required. 요약 표(01:16:00 생성. 로그는 보고서를 artifact
+  13780693486으로 올렸다고 적지만, 배포 기록이 읽을 때 실행의 artifact 목록에는 attempt 2의 것 하나뿐이었고 그 ID의 읽기는 404였음)는 31 pass /
+  0 fail / 1 error / 5 manual-only이고(행을 세어 냄) ERROR 한 행은 'R2 CORS musixquare-demo-tracks response timed out.'이다(읽기 하나의 시간 초과이고
   어긋남 행은 없음). 다시 돌린 attempt 2(02:32:09 생성, job 02:32:15 ~ 02:32:47)는 success, 결과 automated-checks-passed: 32 pass / 0 fail / 5
   manual-only(행을 세어 냄, artifact 13788015086), App build floor 행 'Stored floor 795 (enforced 795) is within the live App build 814 reported
   55 s ago.'.

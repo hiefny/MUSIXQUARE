@@ -2,10 +2,11 @@
  * MUSIXQUARE — AudioContext Recovery Timing (RO-01)
  *
  * The timing home of the shared AudioContext's output recovery: both owners,
- * context.ts (the play-request restart) and context-recovery.ts (the playback
- * scope), and the recovery dialog in app.ts import their waits from here, with
- * the prepared-state predicate the two owners share. Equal values with
- * different jobs keep separate names.
+ * the play-request restart (in context.ts until Phase 7 7C-4) and the
+ * playback scope in context-recovery.ts (since 7C-2 also the recovery
+ * dialog's waits after its tap, which app.ts imported before), import their
+ * waits from here, with the prepared-state predicate the two owners share.
+ * Equal values with different jobs keep separate names.
  *
  * A leaf on purpose. Tests replace context.ts with factories that lack these
  * names, so they cannot live there; and audio/constants.ts sits in another

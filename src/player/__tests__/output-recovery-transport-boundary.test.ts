@@ -297,25 +297,37 @@ describe('the local-file PLAY clock check after a foreground return (real owners
     expect(request.confirmForegroundRestart?.(attemptToken)).toBe(false);
 
     // The dialog's tap. Its production caller is app.ts, which unit tests
-    // cannot load, and a raw resume of the parked context is an outside
-    // resume that the attempt does not take as its tap; until the owner
-    // function of Phase 7 7C-2 this one sub-step stands in for the tap. When
-    // 7C-4 withdraws the export it rewrites this stand-in together with the
-    // clock probe and the confirm checks below, which that owner function
-    // then makes itself.
-    await o.context.resumePreparedForegroundAudioContextRestartFromGesture(attemptToken);
+    // cannot load, so the row makes app.ts's call of the owner's tap entry
+    // (Phase 7 7C-2) with the request the dialog shows and the request's
+    // closure as its confirm, whose answers are recorded here. The entry
+    // resumes the parked context inside the call; its rest, once the dialog
+    // has closed, waits for that resume, probes the clock and confirms once.
+    const confirm = vi.fn((token: object) => request.confirmForegroundRestart!(token));
+    const gesture = o.recovery.beginAudioOutputGestureRecovery(
+      { intent: 'retry-failed-play', foregroundRestartAttemptToken: attemptToken },
+      {
+        isCurrent: () => true,
+        signal: new AbortController().signal,
+        confirm,
+        unhealthy: () => undefined,
+      },
+    );
+    await vi.advanceTimersByTimeAsync(0);
     expect(fake.ops.slice(before)).toEqual([
       ...ONE_SUSPEND,
       'resume()',
       'statechange:running',
       'resume:resolved',
     ]);
-    // The dialog's own clock probe after the tap (app.ts) passes on a clock
-    // that runs again.
+    // The owner's clock probe after the tap passes on a clock that runs
+    // again, and a wrong token confirms nothing.
     fake.runClock();
 
     expect(request.confirmForegroundRestart?.({})).toBe(false);
-    expect(request.confirmForegroundRestart?.(attemptToken)).toBe(true);
+    const finished = gesture!.finish();
+    await vi.advanceTimersByTimeAsync(AUDIO_CLOCK_SAMPLE_MS);
+    await expect(finished).resolves.toEqual({ kind: 'recovered', rejoinEmitted: false });
+    expect(confirm.mock.results.map((result) => result.value)).toEqual([true]);
     expect(request.confirmForegroundRestart?.(attemptToken)).toBe(false);
     expect(request.isCurrent?.()).toBe(true);
 

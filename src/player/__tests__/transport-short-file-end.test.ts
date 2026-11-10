@@ -17,7 +17,6 @@ const audio = vi.hoisted(() => ({
 vi.mock('../../audio/context.ts', () => ({
   getCurrentTime: () => audio.now(),
   ensureRunning: vi.fn(),
-  getPendingForegroundAudioContextClockHealthCheck: () => null,
   getAudioContext: () => ({
     state: 'running',
     get currentTime() {

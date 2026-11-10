@@ -73,13 +73,7 @@ const mocks = vi.hoisted(() => ({
   decodeAudioData: vi.fn(),
   createBufferSource: vi.fn(),
   ensureRunning: vi.fn(),
-  getPendingForegroundHealthCheck: vi.fn<
-    () => { context: unknown; token: object; isCurrent: () => boolean } | null
-  >(() => null),
   probeAudioContextHealth: vi.fn(),
-  consumeForegroundHealthCheck: vi.fn(),
-  confirmForegroundRestartHealth: vi.fn(),
-  prepareForegroundRestart: vi.fn(),
   getCurrentTime: vi.fn(() => 100),
   initAudio: vi.fn(),
   sendRecoveryRequest: vi.fn(),
@@ -95,11 +89,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../audio/context.ts', () => ({
   ensureRunning: mocks.ensureRunning,
   getCurrentTime: mocks.getCurrentTime,
-  getPendingForegroundAudioContextClockHealthCheck: mocks.getPendingForegroundHealthCheck,
   probeAudioContextHealth: mocks.probeAudioContextHealth,
-  consumeForegroundAudioContextClockHealthCheck: mocks.consumeForegroundHealthCheck,
-  confirmForegroundAudioContextRestartHealth: mocks.confirmForegroundRestartHealth,
-  prepareForegroundAudioContextRestart: mocks.prepareForegroundRestart,
   getAudioContext: vi.fn(() => ({
     state: mocks.contextState,
     currentTime: 0,
@@ -397,25 +387,19 @@ beforeEach(() => {
   // Default mock behaviour (clearAllMocks wipes calls only, but the per-test
   // mockImplementationOnce queues must start empty and defaults re-primed).
   mocks.ensureRunning.mockReset();
-  mocks.getPendingForegroundHealthCheck.mockReset();
   mocks.probeAudioContextHealth.mockReset();
-  mocks.consumeForegroundHealthCheck.mockReset();
-  mocks.confirmForegroundRestartHealth.mockReset();
-  mocks.prepareForegroundRestart.mockReset();
   mocks.initAudio.mockReset();
   mocks.decodeAudioData.mockReset();
   mocks.readStoredFile.mockReset();
   mocks.cleanupStoredFile.mockReset();
   mocks.ensureRunning.mockResolvedValue(undefined);
   mocks.contextState = 'running';
-  mocks.getPendingForegroundHealthCheck.mockReturnValue(null);
   mocks.probeAudioContextHealth.mockResolvedValue({
     healthy: true,
     reason: 'healthy',
     state: 'running',
     clockAdvanceSeconds: 0.5,
   });
-  mocks.confirmForegroundRestartHealth.mockReturnValue(true);
   mocks.initAudio.mockResolvedValue(undefined);
   mocks.decodeAudioData.mockResolvedValue({ duration: 120 } as AudioBuffer);
   mocks.readStoredFile.mockResolvedValue(null);
@@ -1938,58 +1922,41 @@ describe('pin (c) — stopAllMedia during the in-flight play window', () => {
 });
 
 describe('play invocation owner — stale unlock/watchdog isolation', () => {
-  it.each(['resume-failure', 'healthy-foreground'] as const)(
-    'keeps the replacement PLAY current after stale-lock recovery: %s',
-    async (outcome) => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
-      const queueItemId = selectIndex(0);
-      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
-      const hungOwner = deferred<void>();
-      mocks.ensureRunning.mockReturnValueOnce(hungOwner.promise);
-      const first = play(1);
-      clearAllManagedTimers();
-      vi.setSystemTime(new Date('2026-08-21T00:00:06.000Z'));
+  it('keeps the replacement PLAY current after stale-lock recovery: resume-failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
+    const queueItemId = selectIndex(0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const hungOwner = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(hungOwner.promise);
+    const first = play(1);
+    clearAllManagedTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:06.000Z'));
 
-      let recovery:
-        | {
-            queueItemId: QueueItemId | null;
-            isCurrent?: () => boolean;
-            retry?: () => Promise<boolean>;
-          }
-        | undefined;
-      bus.on('audio:output-recovery-needed', (event) => {
-        recovery = event;
-      });
-      const healthToken = {};
-      if (outcome === 'resume-failure') {
-        mocks.ensureRunning.mockRejectedValueOnce(new Error('replacement resume blocked'));
-      } else {
-        mocks.getPendingForegroundHealthCheck.mockReturnValueOnce({
-          context: { state: 'running' },
-          token: healthToken,
-          isCurrent: () => true,
-        });
-      }
+    let recovery:
+      | {
+          queueItemId: QueueItemId | null;
+          isCurrent?: () => boolean;
+          retry?: () => Promise<boolean>;
+        }
+      | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recovery = event;
+    });
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('replacement resume blocked'));
 
-      const started = await play(2);
-      if (outcome === 'resume-failure') {
-        expect(started).toBe(false);
-        expect(recovery?.queueItemId).toBe(queueItemId);
-        expect(recovery?.isCurrent?.()).toBe(true);
-        await expect(recovery?.retry?.()).resolves.toBe(true);
-        await expect(recovery?.retry?.()).resolves.toBe(false);
-      } else {
-        expect(started).toBe(true);
-        expect(mocks.consumeForegroundHealthCheck).toHaveBeenCalledWith(healthToken);
-      }
-      expect(mocks.createBufferSource).toHaveBeenCalledOnce();
-      hungOwner.resolve();
-      await first;
-      expect(mocks.createBufferSource).toHaveBeenCalledOnce();
-      expect(getPlayLockSnapshot()).toMatchObject({ locked: false, consistent: true });
-    },
-  );
+    const started = await play(2);
+    expect(started).toBe(false);
+    expect(recovery?.queueItemId).toBe(queueItemId);
+    expect(recovery?.isCurrent?.()).toBe(true);
+    await expect(recovery?.retry?.()).resolves.toBe(true);
+    await expect(recovery?.retry?.()).resolves.toBe(false);
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+    hungOwner.resolve();
+    await first;
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+    expect(getPlayLockSnapshot()).toMatchObject({ locked: false, consistent: true });
+  });
 
   it('self-heals a stale lock even when WebKit never runs its watchdog timer', async () => {
     vi.useFakeTimers();
@@ -2226,103 +2193,12 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
     expect(getPlayerNode()).not.toBeNull();
   });
 
-  it('checks and consumes the one foreground clock incident before starting a file source', async () => {
-    selectIndex(0);
-    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
-    const checkToken = {};
-    const isCurrent = vi.fn(() => true);
-    mocks.getPendingForegroundHealthCheck.mockReturnValueOnce({
-      context: { state: 'running' },
-      token: checkToken,
-      isCurrent,
-    });
-
-    await expect(play(4)).resolves.toBe(true);
-
-    expect(mocks.probeAudioContextHealth).toHaveBeenCalledWith(
-      expect.objectContaining({ attemptResume: false }),
-    );
-    expect(mocks.consumeForegroundHealthCheck).toHaveBeenCalledWith(checkToken);
-    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
-  });
-
-  it('prepares a frozen foreground clock and retries only after its exact gesture token', async () => {
-    const queueItemId = selectIndex(0);
-    const buffer = { duration: 120 } as AudioBuffer;
-    setCurrentAudioBuffer(buffer);
-    const checkToken = {};
-    const restartAttemptToken = {};
-    const restartIsCurrent = vi.fn(() => true);
-    mocks.getPendingForegroundHealthCheck
-      .mockReturnValueOnce({
-        context: { state: 'running' },
-        token: checkToken,
-        isCurrent: vi.fn(() => true),
-      })
-      .mockReturnValue(null);
-    mocks.probeAudioContextHealth.mockResolvedValueOnce({
-      healthy: false,
-      reason: 'clock-stalled',
-      state: 'running',
-      clockAdvanceSeconds: 0,
-    });
-    mocks.prepareForegroundRestart.mockResolvedValueOnce({
-      status: 'prepared',
-      attemptToken: restartAttemptToken,
-      whenPrepared: Promise.resolve(true),
-      isCurrent: restartIsCurrent,
-    });
-    let recoveryEvent:
-      | {
-          queueItemId: QueueItemId | null;
-          foregroundRestartAttemptToken?: object;
-          confirmForegroundRestart?: (attemptToken: object) => boolean;
-          isCurrent?: () => boolean;
-          retry?: () => Promise<boolean>;
-        }
-      | undefined;
-    bus.on('audio:output-recovery-needed', (event) => {
-      recoveryEvent = event;
-    });
-
-    await expect(play(5)).resolves.toBe(false);
-    expect(getPlayerNode()).toBeNull();
-    expect(recoveryEvent?.queueItemId).toBe(queueItemId);
-    expect(recoveryEvent?.foregroundRestartAttemptToken).toBe(restartAttemptToken);
-    expect(recoveryEvent?.isCurrent?.()).toBe(true);
-
-    expect(recoveryEvent?.confirmForegroundRestart?.({})).toBe(false);
-    expect(mocks.confirmForegroundRestartHealth).not.toHaveBeenCalled();
-    expect(recoveryEvent?.confirmForegroundRestart?.(restartAttemptToken)).toBe(true);
-    expect(mocks.confirmForegroundRestartHealth).toHaveBeenCalledWith(restartAttemptToken);
-    restartIsCurrent.mockReturnValue(false);
-    expect(recoveryEvent?.isCurrent?.()).toBe(true);
-    await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
-    expect(getPlayerNode()?.buffer).toBe(buffer);
-    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
-  });
-
-  it('does not block PLAY on an inconclusive foreground clock sample', async () => {
-    selectIndex(0);
-    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
-    const checkToken = {};
-    mocks.getPendingForegroundHealthCheck.mockReturnValueOnce({
-      context: { state: 'running' },
-      token: checkToken,
-      isCurrent: vi.fn(() => true),
-    });
-    mocks.probeAudioContextHealth.mockResolvedValueOnce({
-      healthy: false,
-      reason: 'inconclusive',
-      state: 'running',
-      clockAdvanceSeconds: 0,
-    });
-
-    await expect(play(6)).resolves.toBe(true);
-
-    expect(mocks.consumeForegroundHealthCheck).not.toHaveBeenCalled();
-    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
-  });
+  // A local-file PLAY's foreground clock check (healthy, frozen with its
+  // gesture-token retry, inconclusive) is the owner's since Phase 7 7C-3, and
+  // since 7C-4 its incident and restart are the owner's own state, which a
+  // context.ts factory no longer stands in for. Its three rows here moved to
+  // the real owners in output-recovery-transport-boundary.test.ts under the
+  // same titles.
 
   it('invalidates a failed PLAY recovery token on a newer PAUSE intent', async () => {
     selectIndex(0);

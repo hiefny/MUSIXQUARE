@@ -19,7 +19,6 @@ vi.mock('../../audio/engine.ts', () => ({
 vi.mock('../../audio/context.ts', () => ({
   getCurrentTime: () => native.clock,
   ensureRunning: async () => {},
-  getPendingForegroundAudioContextClockHealthCheck: () => null,
   getAudioContext: () => ({
     state: 'running',
     sampleRate: 48000,

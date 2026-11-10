@@ -12,14 +12,14 @@ import { isFilePipelineBusyForPlay, isFileSourceNodeUsable } from '../player/tra
 import { isPlaybackPlayingFile } from '../player/ownership.ts';
 import {
   armPendingAudioContextRecoveryFromBackground,
-  cancelPendingAudioContextRecovery,
-  getPendingAudioContextRecoveryAttemptForHealth,
-} from './context-recovery.ts';
-import {
   consumeForegroundAudioContextClockHealthCheck,
-  getExistingAudioContext,
+  getPendingAudioContextRecoveryAttemptForHealth,
   getPendingForegroundAudioContextClockHealthCheck,
   isForegroundAudioContextRestartOwned,
+  retireAudioContextRecoveryAttempt,
+} from './context-recovery.ts';
+import {
+  getExistingAudioContext,
   probeAudioContextHealth,
   type AudioContextHealthReason,
 } from './context.ts';
@@ -166,7 +166,7 @@ export async function inspectBackgroundFileOutput(): Promise<BackgroundFileOutpu
     health.reason === 'clock-stalled' ? 'background-clock-stalled' : 'state-interruption';
   const attempt = await armPendingAudioContextRecoveryFromBackground(context, cause);
   if (!attempt || !identityStillCurrent(identity)) {
-    if (attempt) cancelPendingAudioContextRecovery(attempt);
+    if (attempt) retireAudioContextRecoveryAttempt(attempt);
     return { status: 'stale', reason: 'superseded', ...NO_REJOIN };
   }
   return { status: 'needs-gesture', reason: health.reason, ...NO_REJOIN };

@@ -19,8 +19,8 @@
  * - the two suspend leases one foreground incident can start;
  * - statechange dispatch order and listener counts per owner;
  * - prepared notices per suspend ordering;
- * - the owner side of app.ts's ordinary dialog branch carrying a non-file
- *   attempt (modelled: app.ts is not loaded).
+ * - the owner side of the recovery dialog's ordinary branch while a non-file
+ *   attempt waits, which the owner retires itself (modelled; Phase 7 7C-K8).
  *
  * "Known gap (C1-...)" marks today's behaviour where it is not the desired
  * one. Where a planned C1 increment would change a row, the row names it;
@@ -468,7 +468,7 @@ describe('RO-01 two suspend requests from one foreground incident', () => {
 
 /**
  * Phase 7 7B-4 (owner answer Q6, E11, E22): one statechange listener per
- * context, the suspend ledger's dispatcher in context.ts, and inside it the
+ * context, the suspend ledger's dispatcher (the owner's since 7C-4), and inside it the
  * fixed order binding, lease, late fence, play-request resume promotion,
  * whichever part arrived first. Before, every owner added its own listener,
  * so the order was the order the listeners were added and differed per
@@ -706,14 +706,14 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
 });
 
 /**
- * The owner side of app.ts's ordinary dialog branch, modelled
- * (ordinaryBranchOwnerSide): app.ts is not loaded, so its choice of branch
- * and its own rejoin are not pinned here; that half is code reading, and its
- * browser row is a later test step. This row pins what the owner answers
- * and does around the branch's gesture resume.
+ * The owner side of the recovery dialog's ordinary branch, modelled
+ * (ordinaryBranchOwnerSide): what the owner answers and does around a context
+ * resume while a non-file attempt waits, the reason a restore's ordinary
+ * branch carries no attempt since Phase 7 7C-K8. The branch itself is pinned
+ * through the owner's entry in audio-output-recovery-dialog.test.ts.
  */
 describe('RO-01 the owner side of the ordinary dialog branch with a non-file attempt (modelled)', () => {
-  it('the gesture carries a YouTube attempt after the room switched to a file; the owner retires it', async () => {
+  it('a YouTube attempt accepts the gesture after the room switched to a file; no file attempt is pending, and after the resume the owner retires it itself', async () => {
     const fake = new FakeNativeAudioContext();
     const o = await loadOwners(fake);
     stageYouTube(o);
@@ -734,12 +734,12 @@ describe('RO-01 the owner side of the ordinary dialog branch with a non-file att
     const owner = await ordinaryBranchOwnerSide(o);
     await vi.advanceTimersByTimeAsync(5_000);
 
-    // Known gap (C1-I6, ordinary branch carries a non-file token), owner
-    // half: no file attempt is pending, the attempt that accepts the file
-    // dialog's gesture is the YouTube one, and after the resume the owner has
-    // retired it (identity check), with no notice and no rejoin of its own.
-    // app.ts then reads it as not current and ends the dialog with no rejoin
-    // (code reading).
+    // Phase 7 7C-K8 (it was Known gap C1-I6), owner half: no file attempt is
+    // pending, the attempt that accepts the file dialog's gesture is the
+    // YouTube one, and after the resume the owner has retired it (identity
+    // check), with no notice and no rejoin of its own. So a restore's ordinary
+    // branch carries no attempt: its own clock check answers, and on a healthy
+    // clock app.ts publishes its own rejoin (code reading).
     expect(owner).toEqual({
       fileAttemptPending: false,
       gestureAttempt: youtubeAttempt,

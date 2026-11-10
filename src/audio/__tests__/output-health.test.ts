@@ -49,16 +49,16 @@ vi.mock('../../player/_state.ts', () => ({
 // src/player/__tests__/output-recovery-transport-boundary.test.ts; the hidden
 // gap read is pinned by the PRO row below.
 vi.mock('../context.ts', () => ({
-  consumeForegroundAudioContextClockHealthCheck: mocks.consumeForeground,
   getExistingAudioContext: mocks.getContext,
-  getPendingForegroundAudioContextClockHealthCheck: mocks.getForegroundRequirement,
-  isForegroundAudioContextRestartOwned: mocks.isForegroundRestartOwned,
   probeAudioContextHealth: mocks.probe,
 }));
 vi.mock('../context-recovery.ts', () => ({
   armPendingAudioContextRecoveryFromBackground: mocks.arm,
   getPendingAudioContextRecoveryAttemptForHealth: mocks.getPendingAttempt,
-  cancelPendingAudioContextRecovery: mocks.cancelPending,
+  retireAudioContextRecoveryAttempt: mocks.cancelPending,
+  consumeForegroundAudioContextClockHealthCheck: mocks.consumeForeground,
+  getPendingForegroundAudioContextClockHealthCheck: mocks.getForegroundRequirement,
+  isForegroundAudioContextRestartOwned: mocks.isForegroundRestartOwned,
 }));
 
 import { inspectBackgroundFileOutput } from '../output-health.ts';

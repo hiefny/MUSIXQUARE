@@ -1016,6 +1016,49 @@ describe('initMediaSession', () => {
     disposeNew();
   });
 
+  it('commits nothing when a PAUSE comes while a trusted PLAY checks the resumed clock', async () => {
+    vi.useFakeTimers();
+    const rejoin = vi.fn();
+    const recoveryNeeded = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    bus.on('audio:output-recovery-needed', recoveryNeeded);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePlaying();
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+    const context = new FakeInterruptedAudioContext();
+    context.resume
+      .mockRejectedValueOnce(new Error('autoplay blocked'))
+      .mockImplementationOnce(async () => {
+        context.state = 'running';
+      });
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    try {
+      context.dispatchState('suspended');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(context.resume).toHaveBeenCalledOnce();
+      // The PLAY's resume lands at once; its clock check takes a 180 ms sample.
+      _handlers['play']();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(context.resume).toHaveBeenCalledTimes(2);
+      // transport is mocked here, so the output still reads as playing and only
+      // the PLAY's own flight ends: the healthy clock is never committed.
+      _handlers['pause']();
+      expect(isLocalFilePaused()).toBe(true);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(rejoinReasons(rejoin)).toEqual([]);
+      expect(recoveryRequests(recoveryNeeded)).toEqual([]);
+      expect(context.resume).toHaveBeenCalledTimes(2);
+      expect(context.suspend).not.toHaveBeenCalled();
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('pause handler calls togglePlay when playing', () => {
     setPlaybackFilePlaying();
     _handlers['pause']();

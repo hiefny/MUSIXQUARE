@@ -237,7 +237,6 @@ vi.mock('../../audio/context.ts', () => ({
   }),
   ensureRunning: async () => {},
   getCurrentTime: () => 100,
-  getPendingForegroundAudioContextClockHealthCheck: () => null,
 }));
 vi.mock('../../audio/engine.ts', () => ({
   initAudio: async () => {},

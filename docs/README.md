@@ -38,8 +38,8 @@ supersede them explicitly when the product boundary changes.
 - [Page navigation ownership](design/page-navigation-ownership.md)
 - [System-audio receive ownership](design/system-audio-receive-ownership.md)
 - [YouTube start ownership](design/youtube-start-ownership.md)
-- [AudioContext ownership](design/audio-context-ownership.md) (proposed during Phase 7;
-  accepted when its last train lands)
+- [AudioContext ownership](design/audio-context-ownership.md) (accepted with Phase 7 train 7C,
+  2026-11-10)
 - [Signaling liveness](design/signaling-liveness.md)
 - [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md)
 - [Initial bundle and lazy-loading policy](design/initial-bundle-loading-policy.md)
@@ -96,6 +96,53 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 7 train 7C: the AudioContext recovery behind one owner, and one restore tap that realigns the room (App 9.0.41 / v814, 2026-11-10)](design/phase7-7c-audio-recovery-owner-2026-11-10.md):
+  prepared, not merged or released. One App update (App 9.0.41 / v814, App build 814, target `app`, one update
+  dialog; `raise_app_build_floor` false, Developer API D1 false, the build floor stays 795), Phase 7's third and
+  last App train, on branch `agent/p7-7c` from main `f11a5cba` (#578, Phase 7 T2, tests only, whose App runtime
+  equals production 9.0.40's `b44cbbfb`). Five behaviour-neutral increments, each with its tests first, move the
+  recovery protocol behind one owner, `src/audio/context-recovery.ts`: 7C-1 (I5) the playback scope's gesture
+  recovery for the recovery dialog and the lock-screen PLAY; 7C-2 (I6) the recovery dialog's tap, its three branches
+  and its 1 s and 5 s waits (`src/app.ts` keeps the iOS primer, the dialog slot, the follow-up queue, the retry, the
+  settings and the realign; RO-51's early return and subscription are unchanged); 7C-3 (I7) a local-file PLAY's
+  foreground clock check; 7C-4 (I9) the play-request restart, the suspend ledger, the `statechange` dispatcher and the
+  recovery resume, moved byte for byte from `src/audio/context.ts` (1,473 to 238 lines), with one test seam that no
+  production file imports (0 B); 7C-5 (I10) one attempt type for both recovery scopes, each keeping its own slot and
+  generation, with one phase union, one retire by token and three neutral cuts. Across them every row of the
+  owner-table unit files passes under the same title before and after (rows rewritten in place, renamed or
+  re-described are listed apart and never counted as proof), and every Known gap row and the owner's two 2026-11-05
+  keeps stay byte for byte. The one intended change, 7C-K8 (Known gap 8, C1-I6, the owner's decision of 2026-11-07):
+  when a YouTube recovery attempt waits for a tap and the room switches to a local file, one tap of the file's
+  recovery dialog used to wake the audio and end 'stopped'; it now also realigns the room once through the existing
+  `playback:local-output-rejoin` request ('audio-recovery-gesture'). On a frozen clock the same dialog shows again,
+  and when the state changes after the settle the tap still ends 'stopped' (a limit of the change). Its failing test
+  (`6fc72489`) fails only the flipped row on its parent, its fix (`30d3393f`) changes the owner file only, and its
+  five commits revert together (the report's §4.7 resolves the two conflicts with 7C-7 and lists the 7C-7 lines to
+  edit; RO-37 stays deleted). 7C-7 records the end state: RO-01 `owner-in-place`, RO-37 deleted (the retry cancels
+  inside the owner and the ordinary branch carries nothing), RO-36 unchanged after a re-check, RO-44 re-dated, the
+  ownership decision record accepted, the guard self-test's block-order row made independent of RO-01's status, and
+  two stale test comments rewritten in place. The bump `8cc49d34` changes the seven version lines of 9.0.40's bump
+  and is the last runtime commit ('PASS: v814 (8cc49d34) covers all committed PWA runtime changes.'; 'MUSIXQUARE
+  9.0.41; service-worker cache epoch v814'); only documentation follows it. Measured locally on the bump head: against
+  the deployed SHAs (App `b44cbbfb`, PRO room `683074bc`, the other four `71f5b96c`) the App has 12 changed runtime
+  paths (the eight runtime files and the four version mirrors), the other five Workers 0 and no runtime dependency
+  change, so the local partial-release check is compatible for `app` and refuses `pro-room`; the eager first load is
+  467,725 B of JavaScript (gzip), +117 B against a clean build of `f11a5cba`. The increments sum to +130 B (7C-1
+  +174, 7C-2 -12, 7C-3 +36, 7C-4 +13, 7C-5 -55, 7C-K8 -26, 7C-7 0); the bump's -13 B is gzip noise (raw sizes equal)
+  and, as in the earlier Phase reports, no increment, so Phase 7 stands at +1,098 B of the owner's +1,200 B, and the
+  program net of Phases 0 to 7 is recorded as a note, not an owner decision. Earlier rounds ran after each of 7C-1
+  to 7C-K8 the unit suite (the 7C-5 and 7C-K8 checks also had one and two tooling-row timeouts that passed alone),
+  critical coverage, the guards, the CI recovery specs and the audio lab (25 rows from 7C-2), and three gates (the
+  unit suite twice, `test:e2e:critical` 101 / 101, the demo spec 3 / 3, the lab three times), each followed by an
+  independent review and its fixes; Chromium only (local WebKit has no AudioContext), no device. The final gate
+  passed on 2026-11-10 on `7a1e98fb` (the bump and two documentation commits, the same runtime): the static checks,
+  `build:checked` as one command with both lines above, every guard, the coverage lanes, the unit suite twice (786
+  files, 18,833 passed, 1 skipped), `test:e2e:critical` 101 / 101, the demo spec 3 / 3, the lab three times, the
+  candidate E2E 19 / 19 and the WebKit lane as advisory evidence (111 passed, 5 skipped), with the bundle and target
+  `app` numbers unchanged; its independent review's fixes changed documentation only (the report's §15.11). The open
+  items 8.11.12 and 8.11.7 link this report and stay open. The default rollback is a forward revert at the next free App number; 7C reverts
+  alone until another App train stacks on it, and 7B now reverts only forward with it. Known gap 3 and three fixable
+  items found in the build go to the next App update, as the owner decided on 2026-11-09 and 2026-11-10.
 - [App 9.0.40 / v813 train: Korean text on the public pages at tracking 0, and the demo step label easing into its size and weight (2026-11-06)](design/app-9-0-40-train-2026-11-06.md):
   released on 2026-11-06 14:53 KST in Release 42170829938 (PR #576, squash `b44cbbfb`) as App 9.0.40 / v813 (App
   build 813, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App
@@ -166,8 +213,8 @@ runbooks. Neither belongs in a general setup document.
   for the first time, and the demo and public page specs over the new CSS), `webkit-mobile` 111 passed and 5
   skipped plus the service worker test, and the large-room R2 smoke; that first attempt also passed the chat row
   that timed out in 9.0.39's attempt 1, which closes that open item. That meets this train's part of the condition
-  for the next App train, which merges once this record has merged. Next come Phase 7 T2 (tests only, no App update)
-  and then 7C, the next App update, with its number decided then. The owner's device checks (the
+  for the next App train, which merges once this record has merged. Phase 7 T2 (tests only, no App update) merged on
+  2026-11-07 (#578), and the next App update is the 9.0.41 / v814 train with 7C (prepared, above). The owner's device checks (the
   public pages on iPhone Safari and a desktop browser, the events page on a 390 px phone, the demo step buttons at
   320 px in Korean, Malayalam and a right-to-left locale, once on iPhone Safari) wait. The release record's §2
   carries the train as post-deploy items, its §4 the 9.0.40 entry and current boundary line (5), and the hotfix
@@ -248,14 +295,15 @@ runbooks. Neither belongs in a general setup document.
   next App train, which merges once this record has merged. The owner paused the project work
   until next week after this record, then asked on 2026-11-06 for the next App update, the 9.0.40 / v813 train
   (Korean text on the public pages at tracking 0 and the demo step label, released on 2026-11-06 14:53 KST,
-  above); Phase 7 T2 (tests only, no App update) comes next, then 7C, the next App update, with its
-  number decided then. The owner's device checks (7B's later set, the
+  above); Phase 7 T2 (tests only, no App update) merged on 2026-11-07 (#578), and 7C is the 9.0.41 / v814 train
+  (prepared, above). The owner's device checks (7B's later set, the
   digits, the demo step buttons in Korean, Malayalam and a right-to-left locale, the same on iPhone Safari) wait.
   The release record's §2 carries the train as post-deploy items, its §4 the 9.0.39 entry and current boundary line
   (5), and the hotfix procedure's 9.0.25 bullet names 9.0.39's merge SHA, Release ID and App version. This train's
   merge ended 9.0.38's standalone revert window and the path that reverses 7A's patches alone; the default rollback
   is a forward revert at 9.0.41 / v814 or the next free number now that 9.0.40 shipped (its merge also ended this
-  train's standalone revert window), and 7B alone can be reverted only until T2 merges.
+  train's standalone revert window); T2's merge on 2026-11-07 ended 7B's standalone revert window, and once 7C (the
+  9.0.41 / v814 train, prepared, above) merges, 7B reverts only forward together with it.
   Not verified: real devices, WebKit for 7B (local WebKit has no AudioContext), Safari's drawing of the new cmap,
   and the opening step's first frames in WebKit or in right-to-left locales; Linux saw only the PR and exact-main CI
   gates and the post-merge Full E2E.
@@ -306,8 +354,9 @@ runbooks. Neither belongs in a general setup document.
   bump is recorded (QA rounds 9 and 10, the second after the review fixes); the 9.0.39 train reran
   the comparison scenes after the review fixes and ran the bump head's full local gate (its QA rounds 3 and 4), and
   its post-merge Full E2E passed on the rerun of its one failed job, a chat row outside 7B (its round 6; the audio lab
-  is outside CI). The device checks and the four open items linked to this report stay open, and 7B alone can be
-  reverted only until T2 merges.
+  is outside CI). The device checks and the four open items linked to this report stay open; T2's merge on 2026-11-07
+  ended 7B's standalone revert window, and once 7C (the 9.0.41 / v814 train, prepared, above) merges, 7B reverts only
+  forward together with it.
 - [App 9.0.38 / v811 train: the owner's UI tidy, the demo text sizes, the chat '#1', unused rules, the /debug COPY button and the phone start-screen scrollbar (2026-11-04)](design/app-9-0-38-train-2026-11-04.md):
   released on 2026-11-05 06:14 KST in Release 41913839299 (PR #572, squash `9e62c26c`) as App 9.0.38 / v811 (App build
   811, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

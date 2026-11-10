@@ -33,7 +33,6 @@ vi.mock('../../audio/context.ts', () => ({
     }),
   }),
   ensureRunning: vi.fn(),
-  getPendingForegroundAudioContextClockHealthCheck: () => null,
 }));
 vi.mock('../../audio/engine.ts', () => ({
   initAudio: vi.fn(),

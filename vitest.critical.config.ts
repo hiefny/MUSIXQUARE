@@ -33,9 +33,13 @@ export default defineConfig({
       // The AudioContext output-recovery owners (RO-01), enrolled in Phase 7
       // prep (T0) before the structural plan's C1 merges their two machines:
       // the owner-boundary harness, the UI sound suite, and the boundary,
-      // holding and parity tables.
+      // holding and parity tables; since Phase 7 7C-2 the recovery dialog's
+      // tap through the owner's entry, since 7C-3 a local-file PLAY's
+      // foreground clock check, since 7C-4 the owner's one test seam, since
+      // 7C-5 its two attempt scopes on one context, and since 7C-K8 a
+      // restore's tap while a YouTube attempt waits.
       'src/audio/__tests__/{audio-context-ownership,ui-sounds}.test.ts',
-      'src/audio/__tests__/audio-output-recovery-{boundary,holding,parity}.test.ts',
+      'src/audio/__tests__/audio-output-recovery-{attempt-type,boundary,dialog,file-start,holding,parity,restore-tap,test-seam}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',
       'src/pro-room/__tests__/device-failure-sequence-qa.test.ts',
@@ -43,6 +47,9 @@ export default defineConfig({
       'src/player/__tests__/{busy-guard,concurrency-invariants,load-epoch-initial,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
       // The Media Session gesture path into the same owners (Phase 7 prep, T0).
       'src/player/__tests__/{media-session,media-session-lock-screen-pause}.test.ts',
+      // A local-file PLAY's foreground clock check over the same owners: its
+      // `/debug sync` counts path by path (Phase 7 7C-3).
+      'src/player/__tests__/output-recovery-play-counts.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
       // The link-liveness owner (RO-15): enrolled in Phase 4 C5-6, the resume probe since C5-7,
@@ -162,20 +169,26 @@ export default defineConfig({
           // 2026-08-21 (Node 24 baseline 84.15, 78.67, 89.65, 87.71). With
           // the AudioContext owner suites enrolled on 2026-11-02 (Phase 7
           // prep, T0), two identical Node 24 runs on main 7d60f134 measured
-          // 90.99, 88.66, 88.57, 93.37: about one point below each.
-          statements: 89,
+          // 90.99, 88.66, 88.57, 93.37: about one point below each. Since
+          // Phase 7 7C-4 it also holds the play-request restart and the
+          // suspend ledger; two identical Node 24 runs on 2026-11-08 measured
+          // 91.94, 88.72, 94.11, 94.15.
+          statements: 90,
           branches: 87,
-          functions: 87,
-          lines: 92,
+          functions: 93,
+          lines: 93,
         },
-        // The shared AudioContext and its play-request restart, enrolled with
-        // the owner suites on 2026-11-02 about one point below two identical
-        // Node 24 runs on main 7d60f134: 89.53, 84.36, 95.52, 91.68.
+        // The shared AudioContext, enrolled with the owner suites on
+        // 2026-11-02 about one point below two identical Node 24 runs on main
+        // 7d60f134: 89.53, 84.36, 95.52, 91.68. Since Phase 7 7C-4 it keeps
+        // the singleton and its primitives only (the play-request restart
+        // moved into the owner): 92.98, 92.1, 100, 92.59 in two identical
+        // Node 24 runs on 2026-11-08.
         'src/audio/context.ts': {
-          statements: 88,
-          branches: 83,
-          functions: 94,
-          lines: 90,
+          statements: 91,
+          branches: 91,
+          functions: 99,
+          lines: 91,
         },
         'src/audio/system-capture.ts': {
           statements: 80,

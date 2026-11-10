@@ -31,12 +31,35 @@ async function importOwners() {
     import('../../../player/_state.ts'),
     import('../../../player/ownership.ts'),
   ]);
+  // `context` keeps the play-request restart's names the tables read since
+  // Phase 7 7C-4 moved it into context-recovery.ts: context.ts's own exports,
+  // the owner's exported ones and its sub-steps (its one test seam).
+  const {
+    claimForegroundAudioContextRestartForDialog,
+    confirmForegroundAudioContextRestartHealth,
+    consumeForegroundAudioContextClockHealthCheck,
+    getPendingForegroundAudioContextClockHealthCheck,
+    isForegroundAudioContextRestartOwned,
+    retireAudioContextRecoveryAttempt,
+    whenForegroundAudioContextRestartReprepared,
+    ownerSubStepsForTests,
+  } = recovery;
   return {
     bus: events.bus,
     setState: state.setState,
     getState: state.getState,
     PLAYBACK_STATE: constants.PLAYBACK_STATE,
-    context,
+    context: {
+      ...context,
+      claimForegroundAudioContextRestartForDialog,
+      confirmForegroundAudioContextRestartHealth,
+      consumeForegroundAudioContextClockHealthCheck,
+      getPendingForegroundAudioContextClockHealthCheck,
+      isForegroundAudioContextRestartOwned,
+      retireAudioContextRecoveryAttempt,
+      whenForegroundAudioContextRestartReprepared,
+      ...ownerSubStepsForTests,
+    },
     recovery,
     playerState,
     ownership,
@@ -377,9 +400,9 @@ export interface PlayRequest {
   /** Whether a dialog may still act for this attempt. */
   isCurrent(): boolean;
   /**
-   * The dialog gives up on this attempt (app.ts retires its token when its
-   * requirement wait ends with nothing). true when the owner still held the
-   * attempt and retired it now, false when it was already gone.
+   * The dialog gives up on this attempt (the owner retires its token when the
+   * dialog's requirement wait ends with nothing). true when the owner still
+   * held the attempt and retired it now, false when it was already gone.
    */
   retire(): boolean;
 }
@@ -401,6 +424,9 @@ export interface PlayRequestOptions {
    */
   readonly dialog?: boolean;
 }
+
+/** Each play request's attempt (opaque), for the recovery dialog's selector. */
+const playRequestAttempts = new WeakMap<PlayRequest, () => object | null>();
 
 function startPlayRequest(
   o: Owners,
@@ -429,7 +455,7 @@ function startPlayRequest(
     }
     return value ? value.status : 'stale';
   });
-  return {
+  const request: PlayRequest = {
     first,
     prepared: preparation.then((value) => (value ? value.whenPrepared : false)),
     incident,
@@ -452,8 +478,10 @@ function startPlayRequest(
         : Promise.resolve('retired'),
     isCurrent: () => attempt?.isCurrent() ?? false,
     retire: () =>
-      attempt ? o.context.retireForegroundAudioContextRestart(attempt.attemptToken) : false,
+      attempt ? o.context.retireAudioContextRecoveryAttempt(attempt.attemptToken) : false,
   };
+  playRequestAttempts.set(request, () => attempt?.attemptToken ?? null);
+  return request;
 }
 
 export const playRequest = {
@@ -519,10 +547,13 @@ export const playbackScope = {
     if (token) return 'prepared';
     return o.recovery.getPendingAudioContextRecoveryAttemptForHealth() ? 'preparing' : 'stale';
   },
-  /** The dialog's or hardware PLAY's trusted gesture on the pending attempt. */
+  /**
+   * The dialog's or hardware PLAY's trusted gesture on the pending attempt:
+   * the owner's first step, its resume and that resume's answer.
+   */
   tap(o: Owners): Promise<{ running: boolean }> {
     return o.recovery
-      .resumePendingAudioContextInterruptionFromGesture()
+      .beginPendingInterruptionRecoveryFromGesture()
       .then((result) => ({ running: result.running }));
   },
   view(o: Owners): ScopeView {
@@ -542,23 +573,31 @@ export const playbackScope = {
     return o.recovery.isAudioContextInterruptionAttemptCurrent(attempt);
   },
   /**
-   * A caller drops that exact attempt (app.ts's failed-PLAY dialog cancels a
-   * pending attempt this way). true when the owner still held it.
+   * A caller drops that exact attempt (the owner cancels a pending attempt
+   * this way for a failed PLAY's retry). true when the owner still held it.
    */
   retire(o: Owners, attempt: object): boolean {
-    return o.recovery.cancelPendingAudioContextRecovery(attempt);
+    return o.recovery.retireAudioContextRecoveryAttempt(attempt);
   },
   /**
-   * The post-tap clock requirement the dialog and Media Session read. It
-   * moves a running state-interruption attempt to clock verification, so
-   * tests read it only where that is part of the pinned behaviour.
+   * The post-tap clock requirement, from the owner's exported answers only
+   * (it changes nothing): 'none' with no attempt pending, the shared context
+   * not running, or an owner holding the context for its tap; otherwise
+   * 'same' while that attempt is the live one, else 'not-current' ('other'
+   * cannot occur: one attempt is pending at a time). For the attempts these
+   * tables arm, background clock stalls that no read promotes, it is the
+   * answer the dialog and Media Session read after the tap.
    */
   requirement(o: Owners): Requirement {
-    const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
-    if (!requirement) return 'none';
     const attempt = o.recovery.getPendingAudioContextRecoveryAttemptForHealth();
-    if (requirement.attemptToken !== attempt) return 'other';
-    return requirement.isCurrent() ? 'same' : 'not-current';
+    if (
+      !attempt ||
+      String(o.context.getExistingAudioContext()?.state) !== 'running' ||
+      o.recovery.isAudioOutputRecoveryHolding()
+    ) {
+      return 'none';
+    }
+    return o.recovery.isAudioContextInterruptionAttemptCurrent(attempt) ? 'same' : 'not-current';
   },
 };
 
@@ -573,12 +612,12 @@ export function ownerView(o: Owners): { request: 'owned' | 'none'; scope: ScopeV
 }
 
 /**
- * The owner side of app.ts's ordinary dialog branch, modelled: app.ts itself
- * is not loaded, so neither its choice of branch nor its own rejoin is pinned
- * here. These are the owner answers that branch reads on a tap when no
- * play-request attempt exists: whether a file attempt is pending, which
- * attempt accepts a gesture, and, after the gesture resume the branch issues,
- * whether the owner still holds that attempt.
+ * The owner side of the recovery dialog's ordinary branch, modelled: the
+ * owner's answers around that branch's tap when no play-request attempt
+ * exists. Whether a file attempt is pending (the entry's choice of branch),
+ * which attempt accepts a gesture, and, after a context resume like the one
+ * the branch issues, whether the owner still holds that attempt: it retires
+ * the non-file one itself, so a restore's branch carries none (Phase 7 7C-K8).
  */
 export async function ordinaryBranchOwnerSide(o: Owners): Promise<{
   fileAttemptPending: boolean;
@@ -595,4 +634,26 @@ export async function ordinaryBranchOwnerSide(o: Owners): Promise<{
       : 'retired';
   }
   return { fileAttemptPending, gestureAttempt, afterResume };
+}
+
+// ─── Driver: the recovery dialog's tap ────────────────────────────
+
+/** The request app.ts's recovery dialog shows, as its tap passes it to the owner's entry. */
+export interface DialogSelector {
+  readonly intent: 'retry-failed-play' | 'restore-playing-output';
+  readonly foregroundRestartAttemptToken?: object;
+}
+
+/**
+ * The selector of app.ts's recovery dialog for the owner's tap entry
+ * (beginAudioOutputGestureRecovery, Phase 7 7C-2): its intent and, for a
+ * failed PLAY's clock-stalled notice, that play request's attempt once its
+ * first answer settled.
+ */
+export function dialogSelector(
+  intent: DialogSelector['intent'],
+  request?: PlayRequest,
+): DialogSelector {
+  const attemptToken = request ? playRequestAttempts.get(request)?.() : null;
+  return attemptToken ? { intent, foregroundRestartAttemptToken: attemptToken } : { intent };
 }

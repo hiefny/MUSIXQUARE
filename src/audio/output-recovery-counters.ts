@@ -7,9 +7,10 @@
  * suspends, dialog requests, refused taps and overlaps the Phase 7 trains are
  * judged by. Nothing here is sent anywhere.
  *
- * The owners (context.ts, context-recovery.ts), the recovery dialog (app.ts)
- * and UI sounds (ui-sounds.ts) report events; this module keeps monotonic
- * counts, one time sum and one maximum, never a copy of owner state and no
+ * The owners (both in context-recovery.ts since Phase 7 7C-4) and the
+ * primitives they share in context.ts, the recovery dialog (app.ts) and UI
+ * sounds (ui-sounds.ts) report events; this module keeps monotonic counts,
+ * one time sum and one maximum, never a copy of owner state and no
  * identifiers. Where a count needs an owner's answer (live suspend leases on
  * a context, an attempt waiting for a tap: since Phase 7 7B-3 the owner's
  * holding answer, the one UI sounds ask), the owner registers a read-only
@@ -19,8 +20,8 @@
  *
  * A mock-free leaf on purpose: test files replace context.ts, core/log.ts and
  * core/timers.ts with factories, so it imports none of them and reads time
- * from performance.now(). context-recovery.ts imports context.ts, so neither
- * owner could count inside the other.
+ * from performance.now(). context-recovery.ts imports context.ts, so
+ * context.ts could not count inside the owner.
  *
  * Owner decision Q4 (2026-11-02): the page's counts are kept for the next
  * page in this tab. The page navigation owner (RO-23) calls
@@ -35,17 +36,23 @@ import { PREVIOUS_AUDIO_RECOVERY_KEY } from '../core/navigation-contract.ts';
 
 // ── Slots ────────────────────────────────────────────────────────────
 // Resume attempts, by where the native resume() was asked for.
-/** context.ts: the play-request restart's gesture resume. */
+/**
+ * context-recovery.ts: the play-request restart's gesture resume (context.ts
+ * until Phase 7 7C-4).
+ */
 export const RESUME_PLAY_REQUEST = 0;
 /** context-recovery.ts: the playback scope's gesture resume. */
 export const RESUME_PLAY_GESTURE = 1;
-/** app.ts: the recovery dialog's own gesture resume (no owner attempt). */
+/**
+ * context-recovery.ts: the recovery dialog's own gesture resume (no owner
+ * attempt), counted in app.ts until Phase 7 7C-2.
+ */
 export const RESUME_DIALOG = 2;
 /** context-recovery.ts: an automatic resume, with or without an attempt. */
 export const RESUME_AUTO = 3;
 export const RESUME_ENSURE_RUNNING = 4;
 export const RESUME_PROBE = 5;
-/** context.ts: undoing a retired suspend. */
+/** context-recovery.ts: undoing a retired suspend (context.ts until Phase 7 7C-4). */
 export const RESUME_RETIRE = 6;
 export const RESUME_UI_SOUND = 7;
 // Deadlines that fired: the timer settled before what it watched.
@@ -124,9 +131,10 @@ const WAIT = 'awaiting-clock-verification';
 const waitStarts = new WeakMap<object, number>();
 
 /**
- * Each owner's one phase funnel reports every change of an attempt's phase:
- * a clock verification wait starts and ends here, and an attempt waiting for
- * a tap that goes back to suspending is a re-suspend after running.
+ * The owner's one phase funnel (for an attempt of either scope since Phase
+ * 7 7C-5) reports every change of an attempt's phase: a clock verification
+ * wait starts and ends here, and an attempt waiting for a tap that goes
+ * back to suspending is a re-suspend after running.
  */
 export function countAudioRecoveryPhase(attempt: object, from: string, to: string): void {
   if (to === WAIT) {
@@ -155,8 +163,9 @@ const liveSuspendLeases: LiveSuspendLeases[] = [];
 
 /**
  * An owner's read-only queries, registered once when its module loads. Since
- * Phase 7 7B-4 the one suspend ledger (context.ts) answers for the live
- * leases, so the playback scope registers its holding answer alone.
+ * Phase 7 7B-4 the one suspend ledger answers for the live leases, so the
+ * playback scope registers its holding answer alone; since 7C-4 both register
+ * from context-recovery.ts, the ledger's first.
  */
 export function registerAudioRecoveryOwner(
   isWaitingForTap: WaitingForTap,

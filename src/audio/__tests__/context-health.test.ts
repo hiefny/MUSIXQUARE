@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import type { probeAudioContextHealth } from '../context.ts';
+import { AUDIO_CLOCK_SAMPLE_MS } from '../context-protocol.ts';
 
 interface FakeContextOptions {
   state?: AudioContextState | 'interrupted';
@@ -60,9 +61,66 @@ async function loadContext(options: FakeContextOptions = {}) {
   }
   vi.stubGlobal('AudioContext', AudioContextConstructor);
   vi.resetModules();
-  const module = await import('../context.ts');
+  // The play-request restart's names as these rows read them since Phase 7
+  // 7C-4 moved it into context-recovery.ts: context.ts's own exports, the
+  // owner's exported ones and its sub-steps (its one test seam).
+  const context = await import('../context.ts');
+  const {
+    confirmForegroundAudioContextRestartHealth,
+    consumeForegroundAudioContextClockHealthCheck,
+    getPendingForegroundAudioContextClockHealthCheck,
+    retireAudioContextRecoveryAttempt,
+    ownerSubStepsForTests,
+  } = await import('../context-recovery.ts');
+  const module = {
+    ...context,
+    confirmForegroundAudioContextRestartHealth,
+    consumeForegroundAudioContextClockHealthCheck,
+    getPendingForegroundAudioContextClockHealthCheck,
+    retireAudioContextRecoveryAttempt,
+    ...ownerSubStepsForTests,
+  };
   module.getAudioContext();
   return { instance, module };
+}
+
+/**
+ * The engine's binding of the loaded context (context-recovery.ts, same
+ * module graph): from then on each hidden edge arms the next foreground
+ * incident and captures the hidden continuity, as a return from the
+ * background does. Returns its disposer.
+ */
+async function bindForegroundReturns(instance: FakeAudioContext): Promise<() => void> {
+  const recovery = await import('../context-recovery.ts');
+  return recovery.bindAudioContextInterruptionRecovery(instance as unknown as AudioContext);
+}
+
+function setVisibility(value: 'hidden' | 'visible'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
+/**
+ * The binding of the loaded context, a return from the background that arms
+ * one foreground incident (its token), and a local-file PLAY's clock check on
+ * this file's frozen clock (context-recovery.ts, Phase 7 7C-3): after its two
+ * clock samples it prepares the play-request restart, and the promise
+ * resolves with that preparation, or null.
+ */
+async function prepareAfterForegroundReturn(
+  instance: FakeAudioContext,
+  module: Awaited<ReturnType<typeof loadContext>>['module'],
+) {
+  const recovery = await import('../context-recovery.ts');
+  recovery.bindAudioContextInterruptionRecovery(instance as unknown as AudioContext);
+  setVisibility('hidden');
+  setVisibility('visible');
+  const checkToken = module.getPendingForegroundAudioContextClockHealthCheck()?.token;
+  const verdict = recovery.checkForegroundClockBeforeFileStart({ isCurrent: () => true });
+  const preparing = Promise.resolve(verdict).then((answer) =>
+    answer?.kind === 'clock-stalled' ? answer.preparation : null,
+  );
+  return { checkToken, preparing };
 }
 
 describe('AudioContext foreground health', () => {
@@ -180,13 +238,13 @@ describe('AudioContext foreground health', () => {
 
   it('keeps only the exact one-shot foreground clock-health incident', async () => {
     const { instance, module } = await loadContext();
-    const first = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-    );
+    const dispose = await bindForegroundReturns(instance);
+    setVisibility('hidden');
+    const first = module.getPendingForegroundAudioContextClockHealthCheck()?.token ?? null;
     const firstRequirement = module.getPendingForegroundAudioContextClockHealthCheck();
-    const second = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-    );
+    setVisibility('visible');
+    setVisibility('hidden');
+    const second = module.getPendingForegroundAudioContextClockHealthCheck()?.token ?? null;
     const secondRequirement = module.getPendingForegroundAudioContextClockHealthCheck();
 
     expect(firstRequirement?.token).toBe(first);
@@ -196,36 +254,37 @@ describe('AudioContext foreground health', () => {
     expect(module.consumeForegroundAudioContextClockHealthCheck(first!)).toBe(false);
     expect(module.consumeForegroundAudioContextClockHealthCheck(second!)).toBe(true);
     expect(module.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
+    dispose();
   });
 
   it('reports no hidden continuity gap when wall and AudioContext clocks advance together', async () => {
     vi.setSystemTime(new Date('2026-08-22T00:00:00.000Z'));
     const { instance, module } = await loadContext({ clock: 'running' });
-    const token = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-      { captureHiddenContinuity: true },
-    );
+    const dispose = await bindForegroundReturns(instance);
+    setVisibility('hidden');
+    const token = module.getPendingForegroundAudioContextClockHealthCheck()?.token;
 
     await vi.advanceTimersByTimeAsync(2_000);
 
     const requirement = module.getPendingForegroundAudioContextClockHealthCheck();
     expect(requirement?.token).toBe(token);
     expect(requirement?.getHiddenContinuityGapSeconds()).toBeCloseTo(0, 6);
+    dispose();
   });
 
   it('reports the hidden continuity gap when wall time advances but AudioContext freezes', async () => {
     vi.setSystemTime(new Date('2026-08-22T00:00:00.000Z'));
     const { instance, module } = await loadContext({ clock: 'stalled' });
-    const token = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-      { captureHiddenContinuity: true },
-    );
+    const dispose = await bindForegroundReturns(instance);
+    setVisibility('hidden');
+    const token = module.getPendingForegroundAudioContextClockHealthCheck()?.token;
 
     await vi.advanceTimersByTimeAsync(2_000);
 
     const requirement = module.getPendingForegroundAudioContextClockHealthCheck();
     expect(requirement?.token).toBe(token);
     expect(requirement?.getHiddenContinuityGapSeconds()).toBeCloseTo(2, 6);
+    dispose();
   });
 
   it('prepares and confirms an identity-less foreground restart only after clock health', async () => {
@@ -552,11 +611,8 @@ describe('AudioContext foreground health', () => {
   it('restores a visible context when a retired generic suspend lands late', async () => {
     const { instance, module } = await loadContext({ clock: 'stalled' });
     instance.suspend.mockImplementation(() => new Promise<void>(() => undefined));
-    const checkToken = module.armForegroundAudioContextClockHealthCheck(
-      instance as unknown as AudioContext,
-    );
-    const preparing = module.prepareForegroundAudioContextRestart(checkToken!);
-    await vi.advanceTimersByTimeAsync(500);
+    const { checkToken, preparing } = await prepareAfterForegroundReturn(instance, module);
+    await vi.advanceTimersByTimeAsync(2 * AUDIO_CLOCK_SAMPLE_MS + 500);
     const preparation = await preparing;
     expect(preparation?.status).toBe('preparing');
 
@@ -598,7 +654,7 @@ describe('AudioContext foreground health', () => {
     // The recovery dialog retires this token when its failed-PLAY retry does
     // not start; the confirm already emptied the slot, so that retire is a
     // no-op and the re-arm behind it never ran (removed in Phase 7 7A-6).
-    expect(module.retireForegroundAudioContextRestart(preparation!.attemptToken)).toBe(false);
+    expect(module.retireAudioContextRecoveryAttempt(preparation!.attemptToken)).toBe(false);
     expect(module.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
 
     // A newer restart that starts while the retry runs has a token of its own.
@@ -608,7 +664,7 @@ describe('AudioContext foreground health', () => {
     );
     expect(newer?.status).toBe('prepared');
     const newerCalls = instance.resume.mock.calls.length + instance.suspend.mock.calls.length;
-    expect(module.retireForegroundAudioContextRestart(preparation!.attemptToken)).toBe(false);
+    expect(module.retireAudioContextRecoveryAttempt(preparation!.attemptToken)).toBe(false);
     expect(newer?.isCurrent()).toBe(true);
     expect(instance.resume.mock.calls.length + instance.suspend.mock.calls.length).toBe(newerCalls);
     expect(newerCalls).toBe(nativeCalls + 1);

@@ -9,8 +9,8 @@
  *
  * The invariant behind the resume rows: each native resume() that reaches
  * the platform from these owners is one count, under exactly one source.
- * app.ts (the dialog's own resume, its 1 s and 5 s waits, the dialog
- * requests) has no unit seam; its counts are read in the browser.
+ * app.ts (the dialog requests) has no unit seam; its counts are read in the
+ * browser (the dialog's resume and its 1 s and 5 s waits are the owner's since 7C-2).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -122,7 +122,7 @@ describe('each native resume counts once, under its source', () => {
       ['RESUME_PLAY_GESTURE'],
       async (s) => {
         await parkStalledFile(s);
-        return () => s.o.recovery.resumePendingAudioContextInterruptionFromGesture();
+        return () => s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
       },
     ],
     [
@@ -221,7 +221,7 @@ describe('a deadline counts only when it fires', () => {
   };
   const scopeTap: Arrange = async (s) => {
     await parkStalledFile(s);
-    return () => s.o.recovery.resumePendingAudioContextInterruptionFromGesture();
+    return () => s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
   };
   const automatic: Arrange = async (s) => {
     stageFile(s.o);
@@ -424,7 +424,7 @@ describe('clock verification waits', () => {
     const before = s.read();
     await s.o.context.resumePreparedForegroundAudioContextRestartFromGesture(attempt);
     await vi.advanceTimersByTimeAsync(120);
-    expect(s.o.context.retireForegroundAudioContextRestart(attempt)).toBe(true);
+    expect(s.o.context.retireAudioContextRecoveryAttempt(attempt)).toBe(true);
     expect(delta(s, before, ['CLOCK_WAITS', 'CLOCK_CANCELLED', 'CLOCK_WAIT_TOTAL_MS'])).toEqual([
       'CLOCK_WAITS:1',
       'CLOCK_CANCELLED:1',
@@ -509,7 +509,7 @@ describe('suspends, refused taps and overlaps', () => {
     const before = s.read();
 
     // The playback scope is still preparing its suspend; a stale restart token.
-    await s.o.recovery.resumePendingAudioContextInterruptionFromGesture();
+    await s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
     await s.o.context.resumePreparedForegroundAudioContextRestartFromGesture({});
 
     expect(s.fake.calls('resume')).toBe(0);

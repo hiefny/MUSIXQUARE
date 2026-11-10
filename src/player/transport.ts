@@ -501,16 +501,11 @@ import {
   setCurrentAudioBuffer,
 } from './_state.ts';
 
+import { ensureRunning, getAudioContext, getCurrentTime } from '../audio/context.ts';
 import {
+  checkForegroundClockBeforeFileStart,
   confirmForegroundAudioContextRestartHealth,
-  consumeForegroundAudioContextClockHealthCheck,
-  ensureRunning,
-  getAudioContext,
-  getCurrentTime,
-  getPendingForegroundAudioContextClockHealthCheck,
-  prepareForegroundAudioContextRestart,
-  probeAudioContextHealth,
-} from '../audio/context.ts';
+} from '../audio/context-recovery.ts';
 import { showLoader, showToast } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
 
@@ -1497,34 +1492,21 @@ async function _internalPlay(
   }
 
   // iOS may report `running` after foreground while its native audio clock is
-  // frozen. Probe only the one foreground incident armed by visibility change;
-  // ordinary PLAY calls stay latency-free. A confirmed stall is suspended
-  // before showing recovery UI so the button's trusted gesture can perform the
-  // native resume synchronously.
-  const foregroundHealthCheck = getPendingForegroundAudioContextClockHealthCheck();
-  if (foregroundHealthCheck) {
-    const health = await probeAudioContextHealth({
-      attemptResume: false,
-      context: foregroundHealthCheck.context,
-      isCurrent: () =>
-        foregroundHealthCheck.isCurrent() &&
-        recoveryIntentIsCurrent() &&
-        isCurrentPlayInvocation(expectedPlayInvocation) &&
-        recoveryOutputIsCurrent(),
-    });
-    if (
-      !foregroundHealthCheck.isCurrent() ||
-      !recoveryIntentIsCurrent() ||
-      !isCurrentPlayInvocation(expectedPlayInvocation) ||
-      !recoveryOutputIsCurrent()
-    ) {
-      return false;
-    }
-    if (health.healthy) {
-      consumeForegroundAudioContextClockHealthCheck(foregroundHealthCheck.token);
-    } else if (health.reason === 'clock-stalled') {
-      const preparation = await prepareForegroundAudioContextRestart(foregroundHealthCheck.token);
-      if (!preparation || !recoveryIntentIsCurrent()) return false;
+  // frozen. The owner samples only the one foreground incident armed by
+  // visibility change; ordinary PLAY calls stay latency-free (no incident, no
+  // await). A confirmed stall is suspended before showing recovery UI so the
+  // button's trusted gesture can perform the native resume synchronously.
+  const foregroundClockCheck = checkForegroundClockBeforeFileStart({
+    isCurrent: () =>
+      recoveryIntentIsCurrent() &&
+      isCurrentPlayInvocation(expectedPlayInvocation) &&
+      recoveryOutputIsCurrent(),
+  });
+  if (foregroundClockCheck) {
+    const clock = await foregroundClockCheck;
+    if (clock.kind === 'clock-stalled') {
+      const { preparation } = clock;
+      if (!recoveryIntentIsCurrent()) return false;
       const announcePreparedRecovery = (): void => {
         if (!preparation.isCurrent() || !recoveryIntentIsCurrent()) return;
         emitFailedPlayRecovery('clock-stalled', preparation.attemptToken, preparation.isCurrent);
@@ -1541,14 +1523,14 @@ async function _internalPlay(
           });
       }
       return false;
-    } else if (health.reason === 'not-running') {
+    } else if (clock.kind === 'context-not-running') {
       emitFailedPlayRecovery('context-not-running');
       return false;
-    } else if (health.reason === 'hidden' || health.reason === 'superseded') {
+    } else if (clock.kind === 'abort') {
       return false;
     }
-    // `inconclusive` is not evidence of a fault. Continue this trusted PLAY
-    // but retain the one-shot token so a later PLAY can sample it again.
+    // `proceed`: a healthy clock consumed the incident; an inconclusive one
+    // kept it for a later PLAY.
   }
 
   log.debug('[Play] Stage 3: Initializing audio engine');

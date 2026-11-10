@@ -179,32 +179,34 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   participant-local re-align flows): two kinds of flow restart the local-file
   source node after its output broke. Their contracts differ, so they stay
   separate owners ([registry RO-10](resource-ownership-registry.md#ro-10-local-file-source-node-restart)
-  and the registry's principle 5). Line numbers are a 2026-10-24 snapshot.
+  and the registry's principle 5). Line numbers are a 2026-11-10 snapshot of
+  the Phase 7 7C code.
   - **The failed-PLAY retry may publish a room PLAY.** When `_internalPlay`
     cannot start output (`context-not-running` or `clock-stalled`, at
-    `transport.ts:1459`, :1526, :1541), `emitFailedPlayRecovery` (:1367-1446)
+    `transport.ts:1458`, :1512, :1527), `emitFailedPlayRecovery` (:1366-1445)
     offers the exact continuation of that `play()` through
     `audio:output-recovery-needed`. `app.ts` maps a `play` source to the
-    `retry-failed-play` dialog (`app.ts:389-391`), which runs the retry once
-    after a trusted tap (`app.ts:675-693`). The retry calls `play()` with
+    `retry-failed-play` dialog (`app.ts:361-363`), which runs the retry once
+    after a trusted tap (`app.ts:546-558`). The retry calls `play()` with
     `suppressPrompt`, the original `outputOnly` and the captured
-    `recoveryGeneration` (`transport.ts:1425-1435`), then awaits the original
-    caller's `onRecoveredStarted` (:1438). For a host start that continuation
+    `recoveryGeneration` (`transport.ts:1424-1434`), then awaits the original
+    caller's `onRecoveredStarted` (:1437). For a host start that continuation
     broadcasts the room PLAY: `startHostFileAndBroadcastPlay` through
-    `commitStarted` (`transport.ts:612-664`), the playlist restore
-    (`playlist.ts:1461-1484`) and the demo host start, which sends DEMO_PLAY
-    (`demo/mode.ts:1388-1404`). A guest's continuation stays local: it
-    updates the guest's own sync state and diagnostics and at most asks the
-    host for another sync ping, and it publishes no room command. A guest has
-    four: the authoritative PLAY (`playback.ts:566-585`), the SYNC_PONG start
+    `commitStarted` (`transport.ts:614-663`) and the demo host start, which
+    sends DEMO_PLAY (`demo/mode.ts:1392-1408`); the playlist's restore of a
+    PRO file had one until 9.0.13, and since then it restores the file
+    paused. A guest's continuation stays local: it updates the guest's own
+    sync state and diagnostics and at most asks the host for another sync
+    ping, and it publishes no room command. A guest has
+    four: the authoritative PLAY (`playback.ts:546-565`), the SYNC_PONG start
     (`network/sync.ts:441-460`), the preload activation in
-    `loadPreloadedTrack` (`decode.ts:1057-1085`) and the finished download in
-    `finalizeGuestFile` (`decode.ts:1402-1430`).
+    `loadPreloadedTrack` (`decode.ts:1040-1068`) and the finished download in
+    `finalizeGuestFile` (`decode.ts:1385-1413`).
   - **The rejoin router never publishes a room command**
     (`local-output-rejoin.ts:1-7`). For a file it picks one participant-local
     primitive: PRO reconciliation (:171-205); for a Standard host,
     `playback:refresh-current-position` (:207-216), which
-    `playback.ts:955-976` turns into `play(position, …, { outputOnly: true })`
+    `playback.ts:921-942` turns into `play(position, …, { outputOnly: true })`
     with no continuation; for a Standard guest, `sync:force-resync`
     (`local-output-rejoin.ts:220-223`), after which the next SYNC_PONG starts
     the file through an ordinary `play()` (`network/sync.ts:999-1005`,
@@ -212,37 +214,37 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
     success cooldown `SUCCESS_COOLDOWN_MS` (`local-output-rejoin.ts:26-27`)
     and its `rejoinGeneration` are unrelated to the counter below.
   - **Who supersedes whom.** The fence is `failedPlayRecoveryGeneration`
-    (`transport.ts:304-307`). Two callers pass `recoveryGeneration`: the retry,
-    with the value it captured (:1425-1435), and the replay of a queued intent,
-    with the value the intent was queued under (:1153, :1244-1253). The replay
-    also awaits the queued caller's `onRecoveredStarted` (:1254-1261). `play()`
-    rejects either on entry once the counter has moved (:1122-1125), and neither
+    (`transport.ts:311-314`). Two callers pass `recoveryGeneration`: the retry,
+    with the value it captured (:1424-1434), and the replay of a queued intent,
+    with the value the intent was queued under (:1152, :1243-1252). The replay
+    also awaits the queued caller's `onRecoveredStarted` (:1253-1260). `play()`
+    rejects either on entry once the counter has moved (:1121-1124), and neither
     increments it. The counter increments when a `play()` without
-    `recoveryGeneration` queues behind a live lock (:1145) or reaches the claim
-    point (:1165); on stale-lock recovery (`abortPlayLockOwner`, :415: the
+    `recoveryGeneration` queues behind a live lock (:1144) or reaches the claim
+    point (:1164); on stale-lock recovery (`abortPlayLockOwner`, :422: the
     watchdog fire, a blocked `play()`, and
-    `recoverStalePlayLock('background-resume')` from `app.ts:783`); on every
-    `stopAllMedia` (`transport.ts:975`); and in
-    `invalidatePendingFilePlayIntent` (:455: `pause`, a paused seek or skip, a
+    `recoverStalePlayLock('background-resume')` from `app.ts:644`); on every
+    `stopAllMedia` (`transport.ts:974`); and in
+    `invalidatePendingFilePlayIntent` (:462: `pause`, a paused seek or skip, a
     paused operator seek, a PRO paused commit). So the router's refresh, a
     guest's SYNC_PONG start and a PRO playing commit retire an outstanding
-    retry, and with it the room PLAY of its continuation, once they reach :1165
-    (a busy pipeline defers only after that increment, :1170). A `play()` that
-    returns earlier does not: one whose `shouldApply` is false (:1121); an
+    retry, and with it the room PLAY of its continuation, once they reach :1164
+    (a busy pipeline defers only after that increment, :1169). A `play()` that
+    returns earlier does not: one whose `shouldApply` is false (:1120); an
     output-only call that meets a consistent lock with an armed watchdog, unless
-    that owner is already in `start-source` with nothing queued (:1128-1141);
-    and an output-only call that meets a queued intent (:1164). The refresh
+    that owner is already in `start-source` with nothing queued (:1127-1140);
+    and an output-only call that meets a queued intent (:1163). The refresh
     listener itself returns before `play()` while the pipeline is busy (C9) or
     when a Standard host's canonical end has passed. Because the retry
     increments nothing, it holds its ground only through the lock: a refresh
     that arrives while the retry holds the lock short of `start-source` yields
     to it.
   - The retry is single-shot. `recoveryClaimed` and
-    `foregroundRestartConfirmed` (`transport.ts:1357-1358`) are closure state
+    `foregroundRestartConfirmed` (`transport.ts:1356-1357`) are closure state
     of the failed invocation, not module state, so a second `retry()` of the
     same prompt returns false.
   - The dialog adds its own order (`app.ts`): one dialog at a time, and a
-    different request replaces the open one (:401-415). A failed-PLAY tap
+    different request replaces the open one (:379-390). A failed-PLAY tap
     claims a pending native AudioContext recovery so
     `audio/context-recovery.ts` does not also publish its
     `audio-context-recovered` rejoin: since Phase 7 7C-2 the owner's tap
@@ -250,23 +252,23 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
     `beginAudioOutputGestureRecovery` calls, cancels the attempt before the
     resume, and carries no attempt to commit for a retry or, since 7C-K8, a restore), and that
     dialog emits no rejoin after its retry. Only a `restore-playing-output` dialog
-    (source `background-resume`) emits one (:697-707). While any audio
+    (source `background-resume`) emits one (:562-568). While any audio
     recovery dialog is open, the background-return Sync leaves the file
-    alone (:824-827, `background-return-sync.ts:192`).
+    alone (:685-688, `background-return-sync.ts:209`).
   - Timer keys keep their names. `navigator-lock-watchdog` is M3's 15 s
-    `PLAY_LOCK_WATCHDOG_MS` (`transport.ts:80`), armed per claim (:1194-1205),
-    cleared at :417, :976 and :1220, and read by the stale-lock check
-    (:434-440). `playback-unlock-delay` is the retired 10 ms unlock timer:
-    nothing arms it, and the claim and both teardowns still clear it (:1182,
-    :418, :977).
+    `PLAY_LOCK_WATCHDOG_MS` (`transport.ts:80`), armed per claim (:1193-1204),
+    cleared at :424, :975 and :1219, and read by the stale-lock check
+    (:441-447). `playback-unlock-delay` is the retired 10 ms unlock timer:
+    nothing arms it, and the claim and both teardowns still clear it (:1181,
+    :425, :976).
   - Scope: the local-file source node only. YouTube re-alignment has more
     owners
     ([registry RO-05](resource-ownership-registry.md#ro-05-guest-youtube-re-align-retry-chains)):
     the router's YouTube lane, the background-return chain, the PRO
-    visibility recovery (`pro-room/runtime.ts:188`, :3411-3439), the
+    visibility recovery (`pro-room/runtime.ts:191`, :3462-3490), the
     iframe's deferred crash-recovery rendezvous
-    (`youtube/iframe.ts:3514`, :2711-2713) and the native-control pending
-    rejoin (`youtube/native-control-authority.ts:361-387`).
+    (`youtube/iframe.ts:3593`, :2743-2745) and the native-control pending
+    rejoin (`youtube/native-control-authority.ts:476-501`).
 
   _Pin (k), plus the failed-PLAY cases of the play-invocation-owner block in
   `concurrency-invariants.test.ts` (one exact retry and its continuation, a

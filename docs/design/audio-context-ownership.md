@@ -1,13 +1,13 @@
 # AudioContext Ownership
 
-- **Status:** Proposed (Phase 7 T1, 2026-11-02). Amended with each Phase 7 increment that moves an
-  owner or changes a rule below; Accepted when the last Phase 7 train (7C) lands.
+- **Status:** Accepted (Phase 7 7C, 2026-11-10). Proposed in Phase 7 T1 (2026-11-02) and amended
+  with each Phase 7 increment that moved an owner or changed a rule below.
 - **Applies to:** the app's one AudioContext: its native running or suspended state, its suspend
   leases, its `statechange` listeners and the one-shot foreground clock-health incident (resource
   ownership registry [RO-01](resource-ownership-registry.md#ro-01-audiocontext-running-state);
   structural plan C1, Phase 7 trains 7A, 7B and 7C).
-- **Related:** [Resource ownership registry](resource-ownership-registry.md) (RO-01, RO-36, RO-37,
-  RO-44, RO-51), [Playback concurrency invariants](playback-concurrency-invariants.md),
+- **Related:** [Resource ownership registry](resource-ownership-registry.md) (RO-01, RO-36, RO-44,
+  RO-51), [Playback concurrency invariants](playback-concurrency-invariants.md),
   [Source complexity safety limits](source-complexity-ratchet.md), QA025 and QA026 in
   [QA domains](../qa-domains.md).
 
@@ -15,8 +15,9 @@
 
 The app creates one AudioContext (`getAudioContext` in `src/audio/context.ts`). On iOS WebKit it
 can report `running` while its clock is frozen, or stay suspended after a call, a lock or a route
-change, and only a trusted user gesture may resume it. Two flows drive it, two machines until
-Phase 7 7C-5 gave their attempts one type (`RecoveryAttempt`, told apart by its scope):
+change, and only a trusted user gesture may resume it. Two flows recover it, two machines until
+Phase 7 7C-5 gave their attempts one type (`RecoveryAttempt`, told apart by its scope), both in
+the one owner:
 
 | Flow                    | File                                                              | Starts when                                                                           |
 | ----------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -26,13 +27,17 @@ Phase 7 7C-5 gave their attempts one type (`RecoveryAttempt`, told apart by its 
 Each kept its own suspend lease and its own `statechange` listeners until 7B-4 (Decision 3), and
 its own gesture resume until 7B-5 (Decision 4). `src/app.ts` sequenced both in the recovery dialog ('Audio paused unexpectedly' with the 'Restore
 audio' button in English) until 7C-2 (Decision 4), `src/player/media-session.ts` repeated the playback scope's gesture
-sequence for a lock-screen PLAY until 7C-1 (Decision 4), and `src/audio/ui-sounds.ts` resumes the context on a trusted press before it
-plays a UI sound, without asking either machine (until 7B-3, Decision 2.3). Phase 7 makes
+sequence for a lock-screen PLAY until 7C-1 (Decision 4), and `src/audio/ui-sounds.ts` resumed the context on a trusted press before it
+played a UI sound, without asking either machine, until 7B-3 (Decision 2.3). Phase 7 made
 `context-recovery.ts` the one owner of the recovery protocol in three app updates: 7A (counters
 and sound-neutral cleanup), 7B (the behaviour changes the owner approved on 2026-11-02, each
-behind a failing test) and 7C (the move behind one owner).
+behind a failing test) and 7C (the move behind one owner, with one intended change, 7C-K8, the
+fix of Known gap C1-I6 the owner chose on 2026-11-07). Since 7C the owner is the only module
+that keeps an attempt's phase, times an attempt or suspends the context natively (Decisions 1
+and 2); the recovery dialog in `app.ts` keeps its slot, its follow-up queue, the retry and its
+own rejoin (Decision 4).
 
-## Decision (proposed)
+## Decision
 
 1. **One owner.** `src/audio/context-recovery.ts` owns the recovery protocol: the suspend lease, the
    `statechange` dispatcher, the gesture resume and the clock verification. `src/audio/context.ts`
@@ -106,7 +111,7 @@ behind a failing test) and 7C (the move behind one owner).
    and the playback scope's second step, or prepares a play-request restart for a frozen clock. It
    reads the dialog's currency where the dialog did and none after a commit. Its ordinary branch
    carries no playback-scope attempt: a failed PLAY's retry cancels a pending one before the
-   resume (RO-37), and since 7C-K8 a restore leaves an attempt for other playback to the owner's
+   resume, and since 7C-K8 a restore leaves an attempt for other playback to the owner's
    identity check (it was Known gap C1-I6). The dialog keeps its slot, its follow-up
    queue (the re-queue included), its claim, the retry and its own rejoin.
 5. **Queries have no side effects.** A query answers from the owner's state and never changes it.

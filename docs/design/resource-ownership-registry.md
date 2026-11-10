@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Maintained contract                                                                                                                                                                                                                                                                                                         |
 | Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                     |
-| Last source review | 2026-10-22 (`main` `c08b6c39`, App 9.0.1)                                                                                                                                                                                                                                                                                   |
+| Last source review | 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1)                                                                                                          |
 | Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                           |
 | Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md) |
 
@@ -90,62 +90,61 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
-**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 first stayed out of Phase 4 ([Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)). After known-accepted #18 retired, owner decision 2026-10-25 (about 16:30 KST) adds a fourth app update, train 4D: C5-9 (the side route's outage deadline moves into the link-liveness owner, RO-15) and its ratchet, with a forward revert to the 9.0.10 side-route behaviour if the owner's later device check fails ([Phase 4 train 4D report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)). Phase 5 also ships two app updates (owner decision P5-D3 A, 2026-10-25): train 5A moves the system-audio receive slot without changing behaviour (C4-1 to C4-8 and C4-12, with C4-6 and C4-7 inside it because every today-behaviour and gap test of the four receive-slot contract suites stays green), and train 5B carries the behaviour changes the owner picks, each with its failing test first ([Phase 5 train 5A report](phase5-5a-receive-slot-2026-10-25.md#오너-결정)). Phase 6 ships four app updates (owner decision Q1, 2026-10-30): trains 6A to 6D, each after its tests-only and guard-only steps; train 6A (behaviour-neutral: start-timer owner queries, one start-timing home, one verified iframe audio restore) is the first, as App 9.0.30 / v803 after the separate app font update 9.0.29, and a forward revert or a forward fix adds an update outside the four ([Phase 6 train 6A report](phase6-6a-start-constants-owner-queries-2026-10-31.md#오너-결정-2026-10-30-모두-권장)). Phase 7 ships three app updates (owner decision Q2, 2026-11-02): trains 7A (the on-device audio recovery counts in `/debug sync` and behaviour-neutral recovery cleanup), 7B (the sound recovery changes the owner answered, each with its failing test first) and 7C (one recovery owner, behaviour-neutral), each after its tests-only and guard-only steps; a forward revert or a forward fix adds an update outside the three ([Phase 7 train 7A report](phase7-7a-audio-recovery-counters-2026-11-03.md#오너-결정-2026-11-02-밤과-11-03-아침-모두-권장)).
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 first stayed out of Phase 4 ([Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)). After known-accepted #18 retired, owner decision 2026-10-25 (about 16:30 KST) adds a fourth app update, train 4D: C5-9 (the side route's outage deadline moves into the link-liveness owner, RO-15) and its ratchet, with a forward revert to the 9.0.10 side-route behaviour if the owner's later device check fails ([Phase 4 train 4D report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)). Phase 5 also ships two app updates (owner decision P5-D3 A, 2026-10-25): train 5A moves the system-audio receive slot without changing behaviour (C4-1 to C4-8 and C4-12, with C4-6 and C4-7 inside it because every today-behaviour and gap test of the four receive-slot contract suites stays green), and train 5B carries the behaviour changes the owner picks, each with its failing test first ([Phase 5 train 5A report](phase5-5a-receive-slot-2026-10-25.md#오너-결정)). Phase 6 ships four app updates (owner decision Q1, 2026-10-30): trains 6A to 6D, each after its tests-only and guard-only steps; train 6A (behaviour-neutral: start-timer owner queries, one start-timing home, one verified iframe audio restore) is the first, as App 9.0.30 / v803 after the separate app font update 9.0.29, and a forward revert or a forward fix adds an update outside the four ([Phase 6 train 6A report](phase6-6a-start-constants-owner-queries-2026-10-31.md#오너-결정-2026-10-30-모두-권장)). Phase 7 ships three app updates (owner decision Q2, 2026-11-02): trains 7A (the on-device audio recovery counts in `/debug sync` and behaviour-neutral recovery cleanup), 7B (the sound recovery changes the owner answered, each with its failing test first) and 7C (one recovery owner, behaviour-neutral apart from its one intended change, 7C-K8, which fixes Known gap C1-I6 by the owner's decision of 2026-11-07), each after its tests-only and guard-only steps; a forward revert or a forward fix adds an update outside the three ([Phase 7 train 7A report](phase7-7a-audio-recovery-counters-2026-11-03.md#오너-결정-2026-11-02-밤과-11-03-아침-모두-권장)).
 
 ## Index
 
-| ID    | Resource                                                 | Area           | Status             | Consolidation                  |
-| ----- | -------------------------------------------------------- | -------------- | ------------------ | ------------------------------ |
-| RO-01 | AudioContext running state                               | Audio          | duplicated         | 0d, 7; fix lane G7             |
-| RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6 done; rest: decision     |
-| RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6 done; rest: decision     |
-| RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5A, 5B    |
-| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-48     |
-| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-49     |
-| RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                   |
-| RO-08 | PRO asset duration read                                  | Workers        | owner-in-place     | Done (0d, 1)                   |
-| RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                           |
-| RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | Done (4, C13 docs)             |
-| RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)               |
-| RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6 done; pushes: 7              |
-| RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                           |
-| RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                           |
-| RO-15 | Standard logical data connection liveness                | Transport      | owner-in-place     | Done (4, C5-1 and C5-6 to 10)  |
-| RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | Done (4, C5-6)                 |
-| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (C5-1 and C5-8 done)         |
-| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
-| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)                 |
-| RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                           |
-| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | owner-in-place     | Done (5B, C4-13)               |
-| RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                          |
-| RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                          |
-| RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | Done (2, C6-11)                |
-| RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)                 |
-| RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision     |
-| RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                       |
-| RO-28 | Account session reads and refresh pulses                 | Account        | owner-in-place     | Done (2)                       |
-| RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | Done (4, C5-2)                 |
-| RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | Done (2, C6-12)                |
-| RO-31 | Presence delivery does not re-arm the playback outbox    | Workers        | accepted-exception | Revisit on EPOCH_STALE logs    |
-| RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect   |
-| RO-33 | Guest YouTube recovery stays its own owner               | YouTube        | accepted-exception | Revisit with device evidence   |
-| RO-34 | PRO YouTube arm adapter stays eager                      | YouTube        | accepted-exception | Revisit with an iOS proof      |
-| RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7             |
-| RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7             |
-| RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
-| RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check    |
-| RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)          |
-| RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Revisit on an aliased context  |
-| RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round    |
-| RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision                 |
-| RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                       |
-| RO-48 | Guest YouTube re-align lanes stay two                    | Output rejoin  | accepted-exception | Revisit with device evidence   |
-| RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect    |
-| RO-50 | App build floor                                          | Workers        | owner-in-place     | None                           |
-| RO-51 | Return-from-background dialog                            | Page lifecycle | duplicated         | One slot on a 4th requester    |
-| RO-52 | PRO browser completion final object                      | Workers        | owner-in-place     | Revisit on copy diagnostics    |
-| RO-53 | PRO browser receipt ledger                               | Workers        | owner-in-place     | None                           |
-| RO-54 | Sign-in completion window text wait                      | UI             | accepted-exception | None (by design)               |
+| ID    | Resource                                              | Area           | Status             | Consolidation                  |
+| ----- | ----------------------------------------------------- | -------------- | ------------------ | ------------------------------ |
+| RO-01 | AudioContext running state                            | Audio          | owner-in-place     | Done (0d, 7; fix lane G7)      |
+| RO-02 | YouTube Standard shared start                         | YouTube        | duplicated         | 0d, 6 done; rest: decision     |
+| RO-03 | YouTube arm protocol, Standard and PRO copies         | YouTube        | duplicated         | 0d, 6 done; rest: decision     |
+| RO-04 | System-audio receive slot                             | System audio   | duplicated         | Fix lane G5, G6; 0d, 5A, 5B    |
+| RO-05 | Guest YouTube re-align retry chains                   | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-48     |
+| RO-06 | Host shared start, playlist queue and guided demo     | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-49     |
+| RO-07 | PRO signaling broadcast delivery                      | Workers        | owner-in-place     | Done (0d, 1)                   |
+| RO-08 | PRO asset duration read                               | Workers        | owner-in-place     | Done (0d, 1)                   |
+| RO-09 | Owner-transfer saga row                               | Workers        | owner-in-place     | None                           |
+| RO-10 | Local-file source node restart                        | Output rejoin  | owner-in-place     | Done (4, C13 docs)             |
+| RO-11 | Deferred-start mailbox `playback.pendingPlayTime`     | Playback       | accepted-exception | None (by design)               |
+| RO-12 | YouTube iframe audio state                            | YouTube        | duplicated         | 6 done; pushes: 7              |
+| RO-13 | YouTube manual-offset transaction                     | YouTube        | owner-in-place     | None                           |
+| RO-14 | YouTube iframe instance lifecycle                     | YouTube        | owner-in-place     | None                           |
+| RO-15 | Standard logical data connection liveness             | Transport      | owner-in-place     | Done (4, C5-1 and C5-6 to 10)  |
+| RO-16 | Data-PC SDP lane                                      | Transport      | owner-in-place     | Done (4, C5-6)                 |
+| RO-17 | Host per-guest connection close                       | Transport      | duplicated         | 4 (C5-1 and C5-8 done)         |
+| RO-18 | Host-to-guest bulk lanes                              | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
+| RO-19 | Guest fetch of the current track                      | Transfer       | owner-in-place     | Done (4, C5-3)                 |
+| RO-20 | PRO system-audio lease and publication                | System audio   | owner-in-place     | None                           |
+| RO-21 | PRO checkpoint re-apply after a disruption            | PRO room       | owner-in-place     | Done (5B, C4-13)               |
+| RO-22 | Waiting service worker activation                     | Page lifecycle | duplicated         | 0d, 3                          |
+| RO-23 | App-owned page navigation                             | Page lifecycle | duplicated         | 0d, 2                          |
+| RO-24 | `inert` page lock                                     | Page lifecycle | owner-in-place     | Done (2, C6-11)                |
+| RO-25 | Developer API authority fence row                     | Workers        | owner-in-place     | None (D5 open)                 |
+| RO-26 | Top-document fullscreen state                         | UI             | duplicated         | 2 done; requests: decision     |
+| RO-27 | Playlist rows and scroll position                     | UI             | owner-in-place     | Done (2)                       |
+| RO-28 | Account session reads and refresh pulses              | Account        | owner-in-place     | Done (2)                       |
+| RO-29 | PRO presence heartbeat timer slot                     | PRO room       | owner-in-place     | Done (4, C5-2)                 |
+| RO-30 | Back-button history entries                           | Page lifecycle | owner-in-place     | Done (2, C6-12)                |
+| RO-31 | Presence delivery does not re-arm the playback outbox | Workers        | accepted-exception | Revisit on EPOCH_STALE logs    |
+| RO-32 | Two R2 duration readers                               | Workers        | accepted-exception | Revisit on a coupling defect   |
+| RO-33 | Guest YouTube recovery stays its own owner            | YouTube        | accepted-exception | Revisit with device evidence   |
+| RO-34 | PRO YouTube arm adapter stays eager                   | YouTube        | accepted-exception | Revisit with an iOS proof      |
+| RO-36 | Failed-PLAY confirm closure stays on the bus          | Audio          | accepted-exception | Revisit on a token query       |
+| RO-39 | Two Cloudflare Realtime control clients               | System audio   | accepted-exception | Revisit after a build check    |
+| RO-42 | PRO-only capture policy stays eager                   | System audio   | accepted-exception | Revisit after a build check    |
+| RO-43 | Update prompt stays eager                             | Page lifecycle | accepted-exception | None (C6-15 rejected)          |
+| RO-44 | AudioContext native-call guard is syntactic           | Audio          | accepted-exception | Revisit on an aliased context  |
+| RO-45 | No guard for new module-level lifecycle slots         | All            | accepted-exception | After the first guard round    |
+| RO-46 | Invalidation events are sent once                     | Workers        | accepted-exception | Owner decision                 |
+| RO-47 | Header loader `_default` holder                       | UI             | owner-in-place     | Done (2)                       |
+| RO-48 | Guest YouTube re-align lanes stay two                 | Output rejoin  | accepted-exception | Revisit with device evidence   |
+| RO-49 | Queue and demo start anchors stay two                 | Output rejoin  | accepted-exception | Revisit on an anchor defect    |
+| RO-50 | App build floor                                       | Workers        | owner-in-place     | None                           |
+| RO-51 | Return-from-background dialog                         | Page lifecycle | duplicated         | One slot on a 4th requester    |
+| RO-52 | PRO browser completion final object                   | Workers        | owner-in-place     | Revisit on copy diagnostics    |
+| RO-53 | PRO browser receipt ledger                            | Workers        | owner-in-place     | None                           |
+| RO-54 | Sign-in completion window text wait                   | UI             | accepted-exception | None (by design)               |
 
 ## Machine-readable ID list
 
@@ -163,7 +162,7 @@ ID order with no repeats; `status` is one word: `duplicated`, `owner-in-place` o
 - every record ID the guard's own manifests name has a block line.
 
 ```resource-ownership
-RO-01 duplicated
+RO-01 owner-in-place
 RO-02 duplicated
 RO-03 duplicated
 RO-04 duplicated
@@ -198,7 +197,6 @@ RO-32 accepted-exception
 RO-33 accepted-exception
 RO-34 accepted-exception
 RO-36 accepted-exception
-RO-37 accepted-exception
 RO-39 accepted-exception
 RO-42 accepted-exception
 RO-43 accepted-exception
@@ -333,8 +331,12 @@ RO-54 accepted-exception
   waiting for a tap: since 7B-3 each owner's holding answer, so a UI sound resume while waiting
   stays 0) at the moment it counts.
   `context-recovery.ts` carries the `Resource owner: RO-01` header.
-- **Target single owner:** `src/audio/context-recovery.ts` as the only native resume and suspend
-  owner; `context.ts` keeps the singleton. The rules Phase 7 works to are proposed in
+- **Target single owner:** reached in Phase 7 7C. `src/audio/context-recovery.ts` is the only
+  owner of the recovery protocol (the suspend lease, the `statechange` dispatcher, the gesture
+  resume and the clock check), and only the owner suspends natively. `src/audio/context.ts` holds
+  the singleton and three primitives: the gesture restart the owner uses
+  (`restartAudioContextFromGesture`), and for allowed requesters `ensureRunning` and the probe's
+  resume (`probeAudioContextHealth`). UI sounds ask, then wake. The rules are accepted in
   [AudioContext ownership](audio-context-ownership.md).
 - **Allowed requesters:** `ensureRunning` callers (transport, decode, engine) wake a context that
   is not running without asking; when an attempt holds it, that owner's re-suspend rule parks it
@@ -356,19 +358,20 @@ RO-54 accepted-exception
   `suspend()` (since Phase 7 7B-4 only the ledger's, in `context-recovery.ts` since 7C-4),
   suspend lease create, settle and abandon, the late-suspend fence, clock-health arm and consume,
   confirm, retire and cancel.
-- **Deadline owner:** each flow times its own suspend preparation (500 ms). Since Phase 7 7B-4
-  the suspend ledger times the suspend itself for both, its lease watchdog (750 ms) and the late
-  fence after it (250 ms): either owner's second suspend comes after the fence, about 1,000 ms
-  after the first, and two lost suspends end the attempt at about 1,750 ms (the playback scope's
-  came at 750 ms and ended at 1,500 ms before). Since 7B-5 the one recovery resume times every
-  attempt's resume (750 ms: the gesture's, and the playback scope's automatic one). Fix lane G7:
-  once that deadline has returned the gesture caller, the playback-scope owner verifies a late
-  `running` itself (its promotion of the late resume, since 7B-5 however the running state
-  arrives), and its visible edge verifies an attempt of either cause still awaiting clock
-  verification (`continueRecoveryInForeground`). Both use the owner's existing automatic probe,
-  with no new timer. The recovery dialog's 1 s wait for its tap's flight and its wait of at most
-  5 s for the clock requirement stay in `app.ts` until 7C-2; since 7B-5 that wait ends on the
-  owner's answer, not on a 50 ms poll.
+- **Deadline owner:** `src/audio/context-recovery.ts`, for every attempt. Each scope times its
+  own suspend preparation (500 ms). Since Phase 7 7B-4 the suspend ledger times the suspend
+  itself for both, its lease watchdog (750 ms) and the late fence after it (250 ms): either
+  scope's second suspend comes after the fence, about 1,000 ms after the first, and two lost
+  suspends end the attempt at about 1,750 ms (the playback scope's came at 750 ms and ended at
+  1,500 ms before). Since 7B-5 the one recovery resume times every attempt's resume (750 ms: the
+  gesture's, and the playback scope's automatic one). Fix lane G7: once that deadline has
+  returned the gesture caller, the playback scope verifies a late `running` itself (its
+  promotion of the late resume, since 7B-5 however the running state arrives), and its visible
+  edge verifies an attempt of either cause still awaiting clock verification
+  (`continueRecoveryInForeground`). Both use the owner's existing automatic probe, with no new
+  timer. Since 7C-2 the owner also times the recovery dialog's 1 s wait for its tap's flight and
+  its wait of at most 5 s for the clock requirement, which `app.ts` timed before; since 7B-5
+  that wait ends on the owner's answer, not on a 50 ms poll.
 - **Timing-constant home:** the leaf `src/audio/context-protocol.ts` since Phase 7 7A-2 (C1-I1),
   one named export per value: `AUDIO_RESUME_DEADLINE_MS` (`ensureRunning` and a probe that may
   resume), the probe's `AUDIO_CLOCK_SAMPLE_MS` and `AUDIO_CLOCK_MIN_ADVANCE_SECONDS`, both
@@ -398,7 +401,7 @@ RO-54 accepted-exception
   - Visibility: `context-recovery.test.ts` "never calls native resume while hidden without active
     playback"; `audio-context-ownership.test.ts` "a late resume … that settles while hidden is
     verified on the visible edge" (G7).
-  - Both machines and UI sounds together (Phase 7 T0): `audio-output-recovery-boundary.test.ts`,
+  - Both scopes and UI sounds together (Phase 7 T0): `audio-output-recovery-boundary.test.ts`,
     `audio-output-recovery-holding.test.ts` and `audio-output-recovery-parity.test.ts` in
     `src/audio/__tests__/`, over the owners with no module mocks.
   - The recovery dialog's tap through the owner (Phase 7 7C-2):
@@ -436,7 +439,24 @@ RO-54 accepted-exception
     `e2e/audio-lab/output-recovery-counts.lab.ts` (never in CI), and by the CI specs
     `e2e/back-navigation.test.ts` ('a required audio recovery dialog survives Back'),
     `e2e/background-resume.test.ts` and `e2e/demo-output-recovery.test.ts`.
-- **Status:** `duplicated`. Phase 7 (one lease, one `statechange` dispatcher, owner gesture
+- **Status:** `owner-in-place` since Phase 7 7C-7 (2026-11-10), which records the end state of
+  the third train: `src/audio/context-recovery.ts` is the one owner of the recovery protocol and
+  no independent second machine is left. A context has one suspend lease and one late fence
+  (`suspendLeases`, `requestAudioContextSuspend`) and one `statechange` dispatcher
+  (`stateDispatchers`; one listener per context in `audio-context-ownership.test.ts` and
+  `audio-output-recovery-boundary.test.ts`); the attempts have one type and one phase union
+  (`RecoveryAttempt`, `RecoveryPhase`, written through `setAttemptPhase`), one gesture resume
+  (the recovery resume, `requestAudioContextResume`), one clock-requirement query
+  (`getPendingForegroundAudioContextRestartClockHealthRequirement`; the playback scope's query
+  that promoted when read went in 7C-1) and one prepared-state predicate
+  (`isAudioContextPrepared` in `context-protocol.ts`). The changes that removed the last
+  independent machine, with their tests: 7C-5 gave both flows one attempt type (the seven rows
+  of `src/audio/__tests__/audio-output-recovery-attempt-type.test.ts`), and 7C-K8 left the
+  ordinary dialog branch carrying no attempt (the row of `audio-output-recovery-dialog.test.ts`
+  'a restore while a YouTube attempt waits after the room switched to a file: the ordinary
+  branch carries no attempt, and its clock check answers recovered (Phase 7 7C-K8)', and the
+  rows of `src/audio/__tests__/audio-output-recovery-restore-tap.test.ts`).
+  Phase 7 (one lease, one `statechange` dispatcher, owner gesture
   functions, UI sounds yield); its first train took over the app part of Phase 0d, the shared
   recovery timing and the prepared-state predicate (C1-I1, 7A-2), and it counts the recovery on
   the device for `/debug sync` (7A-1). Its second train changes the behaviour the owner approved
@@ -445,15 +465,18 @@ RO-54 accepted-exception
   lease and one `statechange` dispatcher per context since 7B-4, and one recovery resume for both
   owners with the dialog's wait on the owner since 7B-5, kept in `context.ts` until 7C-4 moved
   them into the owner; one lock-screen PLAY after a local pause rejoins since 7B-6. Fix lane G7.
-  Its third train moves the protocol behind the owner with no change users see or hear: since
-  7C-1 the playback scope's gesture recovery for the dialog and Media Session; since 7C-2 the
-  recovery dialog's tap, its three branches and its two waits; since 7C-3 a local-file PLAY's
-  foreground clock check; since 7C-4 the play-request restart, the suspend ledger, the dispatcher
-  and the recovery resume, moved byte for byte from `context.ts`; since 7C-5 the two flows'
-  attempts are one type with one phase union and funnel, one rule for whether the owner holds an
-  attempt and one retire by token, each scope keeping its own slot and generation. The status
-  stays `duplicated` until 7C-7 records the train's end state.
-  Exceptions RO-36, RO-37, RO-44. The guard counts the native calls per file
+  Its third train moves the protocol behind the owner with no change users see or hear apart from
+  7C-K8: since 7C-1 the playback scope's gesture recovery for the dialog and Media Session; since
+  7C-2 the recovery dialog's tap, its three branches and its two waits; since 7C-3 a local-file
+  PLAY's foreground clock check; since 7C-4 the play-request restart, the suspend ledger, the
+  dispatcher and the recovery resume, moved byte for byte from `context.ts`; since 7C-5 the two
+  flows' attempts are one type with one phase union and funnel, one rule for whether the owner
+  holds an attempt and one retire by token, each scope keeping its own slot and generation; and
+  7C-K8, its one intended change (the owner's decision of 2026-11-07), lets a restore's ordinary
+  branch carry no attempt (it was Known gap C1-I6).
+  Exceptions RO-36, RO-44; RO-37 was deleted with 7C-7 (Phase 7 train 7C): a failed PLAY's retry
+  cancels a pending attempt inside the owner since 7C-2, and the ordinary branch carries no
+  attempt since 7C-K8. The guard counts the native calls per file
   (CHECK 6; since 7B-4 `context-recovery.ts` calls no native suspend, and since 7B-5 one native
   resume, its automatic resume with nothing playing; since 7C-4 `context.ts` 3 and
   `context-recovery.ts` 4, a rise on the owner's side, as the ledger's suspend, the recovery
@@ -3789,9 +3812,12 @@ entry needs the owner's acceptance and is not implied by this registry.
   event.
 - **Evidence:** the commit happens in `app.ts`, and after it the attempt is no longer current; a
   replacement would need a defined channel back to transport before `app.ts` checks currency,
-  and the generic branch has no transport caller. The closure is correct and tested.
+  and the generic branch has no transport caller. The closure is correct and tested. Re-checked
+  on 2026-11-10 against the Phase 7 7C code, with the condition below unchanged: since 7C-2 the
+  owner's play-request branch makes that commit by calling the closure `app.ts` passes it (the
+  dialog's `confirm`), and no query reads a committed play-request attempt by token.
 - **Behaviour risk:** none.
-- **Revisit when:** Phase 7 makes a committed attempt queryable by token. Phase 7 7B-2's re-notify
+- **Revisit when:** a change makes a committed attempt queryable by token. Phase 7 7B-2's re-notify
   does not: after a re-park the dialog shows the same request again with the same closures, and the
   owner's re-park query answers only for an attempt still being parked, not a committed one. Nor
   does 7B-5's answer for the dialog's wait (`whenForegroundAudioContextRestartClockRequirement`):
@@ -3799,17 +3825,6 @@ entry needs the owner's acceptance and is not implied by this registry.
   committed attempt as gone. Nor does the dialog's claim of the attempt it shows
   (`claimForegroundAudioContextRestartForDialog`, a 7B fix): keyed by the token, it marks only the
   current attempt and answers false for a committed one.
-- **Status:** `accepted-exception`.
-
-### RO-37 Defensive retry-versus-semantic branch stays in `app.ts`
-
-- **Parent:** RO-01. Plan step C1-I2(c) dropped.
-- **Exception:** the recovery dialog keeps cancelling a semantic attempt token on the
-  `retry-failed-play` path instead of deleting that branch as unreachable.
-- **Evidence:** deleting it saves a few bytes, but a future path that carries a semantic token into
-  a failed-PLAY retry would then confirm, emit the rejoin and also retry.
-- **Behaviour risk:** none.
-- **Revisit when:** Phase 7 encodes the retry-versus-semantic exclusivity in the flight-result type.
 - **Status:** `accepted-exception`.
 
 ### RO-39 Two Cloudflare Realtime control clients
@@ -3882,8 +3897,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   with nothing playing): the native calls moved with their code, a rise on the owner's side, 9 in
   all as before. On `cd8eaf47`
   (App 9.0.34), again on `34dbe592` (App 9.0.36) on 2026-11-04, on the Phase 7 7B code on
-  2026-11-05, on the 7C-1 and 7C-2 code on 2026-11-07 and on the 7C-3 and 7C-4 code on
-  2026-11-08, the app creates its one AudioContext in one place (`getAudioContext` in
+  2026-11-05, on the 7C-1 and 7C-2 code on 2026-11-07, on the 7C-3 and 7C-4 code on
+  2026-11-08 and on the 7C-5 and 7C-K8 code on 2026-11-10, the app creates its one AudioContext
+  in one place (`getAudioContext` in
   `src/audio/context.ts`), has no `OfflineAudioContext`, never calls `close()` on it and never
   takes its `resume` or `suspend` as a reference (`.bind`, `.call`, destructuring). The recovery
   attempts' fields named `resume` and `suspend` (since 7B-5 and 7B-4) hold a resume flight and a

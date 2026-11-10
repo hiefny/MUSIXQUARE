@@ -117,27 +117,30 @@ runbooks. Neither belongs in a general setup document.
   `playback:local-output-rejoin` request ('audio-recovery-gesture'). On a frozen clock the same dialog shows again,
   and when the state changes after the settle the tap still ends 'stopped' (a limit of the change). Its failing test
   (`6fc72489`) fails only the flipped row on its parent, its fix (`30d3393f`) changes the owner file only, and its
-  five commits revert together. 7C-7 records the end state: RO-01 `owner-in-place`, RO-37 deleted (the retry cancels
+  five commits revert together (the report's §4.7 resolves the two conflicts with 7C-7 and lists the 7C-7 lines to
+  edit; RO-37 stays deleted). 7C-7 records the end state: RO-01 `owner-in-place`, RO-37 deleted (the retry cancels
   inside the owner and the ordinary branch carries nothing), RO-36 unchanged after a re-check, RO-44 re-dated, the
   ownership decision record accepted, the guard self-test's block-order row made independent of RO-01's status, and
   two stale test comments rewritten in place. The bump `8cc49d34` changes the seven version lines of 9.0.40's bump
   and is the last runtime commit ('PASS: v814 (8cc49d34) covers all committed PWA runtime changes.'; 'MUSIXQUARE
   9.0.41; service-worker cache epoch v814'); only documentation follows it. Measured locally on the bump head: against
   the deployed SHAs (App `b44cbbfb`, PRO room `683074bc`, the other four `71f5b96c`) the App has 12 changed runtime
-  paths (the eight owner files and the four version mirrors), the other five Workers 0 and no runtime dependency
+  paths (the eight runtime files and the four version mirrors), the other five Workers 0 and no runtime dependency
   change, so the local partial-release check is compatible for `app` and refuses `pro-room`; the eager first load is
-  467,725 B of JavaScript (gzip), +117 B against a clean build of `f11a5cba` (7C-1 +174, 7C-2 -12, 7C-3 +36, 7C-4
-  +13, 7C-5 -55, 7C-K8 -26, 7C-7 0, the bump -13 of gzip noise), so Phase 7 stands at +1,085 B of the owner's
-  +1,200 B, and the program net of Phases 0 to 7 is recorded as a note, not an owner decision. Earlier rounds ran
-  after every increment the unit suite, critical coverage, the guards, the CI recovery specs and the audio lab, and
-  three gates (the unit suite twice, `test:e2e:critical` 101 / 101, the demo spec 3 / 3, the lab three times), each
-  followed by an independent review and its fixes; Chromium only (local WebKit has no AudioContext), no device. The
-  final gate passed on 2026-11-10 on `7a1e98fb` (the bump and two documentation commits, the same runtime): the
-  static checks, `build:checked` as one command with both lines above, every guard, the coverage lanes, the unit suite
-  twice (786 files, 18,833 passed, 1 skipped), `test:e2e:critical` 101 / 101, the demo spec 3 / 3, the lab three
-  times, the candidate E2E 19 / 19 and the WebKit lane as advisory evidence (111 passed, 5 skipped), with the bundle
-  and target `app` numbers unchanged. The open items 8.11.12 and 8.11.7
-  link this report and stay open. The default rollback is a forward revert at the next free App number; 7C reverts
+  467,725 B of JavaScript (gzip), +117 B against a clean build of `f11a5cba`. The increments sum to +130 B (7C-1
+  +174, 7C-2 -12, 7C-3 +36, 7C-4 +13, 7C-5 -55, 7C-K8 -26, 7C-7 0); the bump's -13 B is gzip noise (raw sizes equal)
+  and, as in the earlier Phase reports, no increment, so Phase 7 stands at +1,098 B of the owner's +1,200 B, and the
+  program net of Phases 0 to 7 is recorded as a note, not an owner decision. Earlier rounds ran after each of 7C-1
+  to 7C-K8 the unit suite (the 7C-5 and 7C-K8 checks also had one and two tooling-row timeouts that passed alone),
+  critical coverage, the guards, the CI recovery specs and the audio lab (25 rows from 7C-2), and three gates (the
+  unit suite twice, `test:e2e:critical` 101 / 101, the demo spec 3 / 3, the lab three times), each followed by an
+  independent review and its fixes; Chromium only (local WebKit has no AudioContext), no device. The final gate
+  passed on 2026-11-10 on `7a1e98fb` (the bump and two documentation commits, the same runtime): the static checks,
+  `build:checked` as one command with both lines above, every guard, the coverage lanes, the unit suite twice (786
+  files, 18,833 passed, 1 skipped), `test:e2e:critical` 101 / 101, the demo spec 3 / 3, the lab three times, the
+  candidate E2E 19 / 19 and the WebKit lane as advisory evidence (111 passed, 5 skipped), with the bundle and target
+  `app` numbers unchanged; its independent review's fixes changed documentation only (the report's §15.11). The open
+  items 8.11.12 and 8.11.7 link this report and stay open. The default rollback is a forward revert at the next free App number; 7C reverts
   alone until another App train stacks on it, and 7B now reverts only forward with it. Known gap 3 and three fixable
   items found in the build go to the next App update, as the owner decided on 2026-11-09 and 2026-11-10.
 - [App 9.0.40 / v813 train: Korean text on the public pages at tracking 0, and the demo step label easing into its size and weight (2026-11-06)](design/app-9-0-40-train-2026-11-06.md):

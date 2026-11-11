@@ -12485,8 +12485,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding-left: var(--safe-physical-left);
       padding-right: 0;
       padding-top: 8px;
-      height: calc(var(--app-height, 100dvh) - var(--safe-top) - var(--safe-bottom));
-      max-height: calc(var(--app-height, 100dvh) - var(--safe-top) - var(--safe-bottom));
+      /* These screens open over the Play pane, which reaches the bottom edge
+         of the screen. They cover it down to that edge, so its last row does
+         not show in the strip under the home indicator, and their end
+         padding takes the bottom inset: the content box is the safe box. */
+      height: calc(var(--app-height, 100dvh) - var(--safe-top));
+      max-height: calc(var(--app-height, 100dvh) - var(--safe-top));
+      padding-bottom: var(--safe-bottom);
       min-height: 0;
       overflow-y: hidden;
       background: var(--bg);

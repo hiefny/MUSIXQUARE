@@ -219,10 +219,15 @@ describe("RO-01 a restore's tap while a YouTube attempt waits after the room swi
 
 describe("RO-01 a restore's tap while a parked YouTube clock-stall attempt waits after the room switched to a file (App 9.0.42)", () => {
   it.each([0, 20, 100, 150])(
-    'a re-suspend that would take %i ms: the tap retires the attempt first, so nothing parks the context again under its clock check, and it answers recovered (it was the Known gap 6 edge left by 7C-K8)',
+    'a re-suspend and cleanup wake that would each take %i ms: the tap retires the attempt first, so nothing parks the context again under its clock check, and it answers recovered (it was the Known gap 6 edge left by 7C-K8)',
     async (latencyMs) => {
       const s = await youtubeStallParkedThenFile();
+      // Before App 9.0.42 the attempt's owner parked the context again after
+      // the tap's resume and its retired suspend was undone by a cleanup
+      // wake; at 100 and 150 ms the clock check met 'suspended' and the tap
+      // answered stopped. The tap's own resume takes the first plan.
       s.fake.planSuspend({ latencyMs });
+      s.fake.planResume({}, { latencyMs });
       const side = dialog();
       const suspends = s.fake.calls('suspend');
       const ops = s.fake.ops.length;

@@ -426,6 +426,8 @@ describe('service-worker CACHE_VERSION guard', () => {
     for (const file of bundled) expect(appReleasePaths).toContain(file);
   });
 
+  // Three guard runs over a fresh repository: 15.5 s under a full unit run on
+  // a loaded Windows machine, past the 15-second default, so it gets more room.
   it('allows removing retired promo studies without exempting adjacent browser runtime', () => {
     const repository = createRepository();
     const promoSource = 'browser/auxiliary-runtime/promo/logo-animation.ts';
@@ -442,7 +444,7 @@ describe('service-worker CACHE_VERSION guard', () => {
     const result = runGuard(repository);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('browser/classic-runtime/wordmark-anim.ts');
-  });
+  }, 30_000);
 
   it('allows only the reviewed Static Assets build-policy transition', () => {
     const repository = createRepository();

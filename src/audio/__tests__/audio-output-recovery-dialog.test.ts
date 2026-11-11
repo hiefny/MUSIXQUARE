@@ -550,10 +550,11 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     await vi.advanceTimersByTimeAsync(5_000);
 
     // Phase 7 7C-K8, the owner's decision of 2026-11-07 (it was Known gap
-    // C1-I6): a restore's ordinary branch carries no attempt. The resume lets
-    // the owner retire the YouTube attempt (identity check), with no notice or
-    // rejoin of its own; the branch's clock check then answers recovered, and
-    // app.ts publishes its own 'audio-recovery-gesture' rejoin (code reading).
+    // C1-I6): a restore's ordinary branch carries no attempt. Since App 9.0.42
+    // (the owner's decision of 2026-11-10) the tap retires the YouTube attempt
+    // itself before its resume, with no notice or rejoin of its own; the
+    // branch's clock check then answers recovered, and app.ts publishes its
+    // own 'audio-recovery-gesture' rejoin (code reading).
     await expect(finished).resolves.toEqual({ kind: 'recovered', rejoinEmitted: false });
     expect(fake.ops.slice(ops)).toEqual(['resume()', 'statechange:running', 'resume:resolved']);
     expect(side.unhealthy).toEqual([]);

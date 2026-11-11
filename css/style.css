@@ -12412,6 +12412,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .chat-drawer {
       --chat-drawer-default-snap-height: var(--app-height, 100dvh);
       left: 0;
+      /* The base rule also sets `right: 0`. With a width the box is
+         over-constrained, and a right-to-left page then drops `left`: the
+         drawer sat the sidebar's width to the right, covering the sidebar. */
+      right: auto;
       width: calc(100% - (200px + var(--safe-physical-right)));
       height: var(--chat-live-height, var(--chat-snap-height));
       max-height: calc(var(--app-height, 100dvh) + 22px);
@@ -12480,6 +12484,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     #media-source-overlay,
     #youtube-url-overlay {
       left: 0;
+      /* The base rule sets all four insets. With a width as well the box is
+         over-constrained, and a right-to-left page then drops `left`: these
+         screens slid under the sidebar by its width. */
+      right: auto;
       top: var(--safe-top);
       width: calc(100% - (200px + var(--safe-physical-right)));
       padding-left: var(--safe-physical-left);
@@ -12519,7 +12527,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     #media-source-overlay .ob-actions {
       grid-column: 2;
       grid-row: 1;
-      padding: 0 28px 0 0;
+      /* The close button's column follows the writing direction, so its
+         inset from the pane edge does too. */
+      padding: 0;
+      padding-inline-end: 28px;
       margin: 0;
       background: transparent;
       border: none;

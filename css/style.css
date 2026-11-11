@@ -12774,6 +12774,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       background: var(--setup-panel-bg);
       height: 100%;
       padding-block: var(--safe-top) var(--safe-bottom);
+      padding-inline-start: 0;
       padding-inline-end: var(--safe-right);
       /* Each step already owns its scrolling body; keep the action rail and
          the safe padding outside that scrollport. */

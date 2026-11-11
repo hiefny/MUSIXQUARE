@@ -143,7 +143,7 @@ function stageFilePlayback(o: Owners, queueItemId: string = QUEUE_A): void {
 }
 
 function bind(o: Owners, fake: FakeNativeAudioContext): () => void {
-  const dispose = o.recovery.bindPlaybackScopeRecovery(fake.native);
+  const dispose = o.recovery.bindAudioContextInterruptionRecovery(fake.native);
   disposers.push(dispose);
   return dispose;
 }

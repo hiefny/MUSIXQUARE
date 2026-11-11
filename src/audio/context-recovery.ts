@@ -119,7 +119,7 @@ interface PlayRequestAttempt extends RecoveryAttemptBase<PlayRequestResumeResult
   resolvePrepared: (prepared: boolean) => void;
   readonly whenPrepared: Promise<boolean>;
   preparedSettled: boolean;
-  reprepare: PlayRequestReprepare | null;
+  reprepare: PlayRequestAttemptReprepare | null;
   /**
    * A recovery dialog has taken it (claimPlayRequestAttemptForDialog).
    * Only then does the owner park it again after an outside resume and hold
@@ -129,7 +129,7 @@ interface PlayRequestAttempt extends RecoveryAttemptBase<PlayRequestResumeResult
   dialog: boolean;
   /** Why it ended, read when its phase becomes 'cancelled'. */
   end: PlayRequestAttemptEnd;
-  requirementWait: PlayRequestRequirementWait | null;
+  requirementWait: PlayRequestClockRequirementWait | null;
 }
 
 interface PlaybackScopeAttempt extends RecoveryAttemptBase<ContextResumeResult> {
@@ -157,7 +157,7 @@ interface PlaybackScopeAttempt extends RecoveryAttemptBase<ContextResumeResult> 
 }
 
 /** A parked attempt being parked again after an outside resume (Phase 7 7B-2). */
-interface PlayRequestReprepare {
+interface PlayRequestAttemptReprepare {
   readonly parked: Promise<boolean>;
   readonly settle: (parked: boolean) => void;
 }
@@ -170,12 +170,12 @@ interface PlayRequestReprepare {
  */
 type PlayRequestAttemptEnd = 'retired' | 'cancelled' | 'superseded';
 
-type PlayRequestRequirementOutcome = 'promoted' | PlayRequestAttemptEnd;
+type PlayRequestClockRequirementOutcome = 'promoted' | PlayRequestAttemptEnd;
 
 /** The recovery dialog's wait for the attempt's clock requirement (Phase 7 7B-5). */
-interface PlayRequestRequirementWait {
-  readonly settled: Promise<PlayRequestRequirementOutcome>;
-  readonly settle: (outcome: PlayRequestRequirementOutcome) => void;
+interface PlayRequestClockRequirementWait {
+  readonly settled: Promise<PlayRequestClockRequirementOutcome>;
+  readonly settle: (outcome: PlayRequestClockRequirementOutcome) => void;
 }
 
 /**
@@ -946,7 +946,7 @@ function createPlayRequestAttempt(incident: ForegroundClockHealthIncident): Play
 }
 
 /**
- * True while the exact foreground restart attempt owns this context. Other
+ * True while the exact play-request attempt owns this context. Other
  * health/recovery paths must defer instead of issuing a second native resume.
  */
 export function isPlayRequestRestartOwned(context: AudioContext): boolean {
@@ -1128,8 +1128,8 @@ async function preparePlayRequestRestart(
 }
 
 /**
- * Start an exact generic restart after a trusted, tokenless PLAY proves the
- * running native clock is frozen. Callers may show recovery UI immediately
+ * Start an exact play-request restart after a trusted, tokenless PLAY proves
+ * the running native clock is frozen. Callers may show recovery UI immediately
  * only for `prepared`; `preparing` must await the exact `whenPrepared` fence.
  */
 async function preparePlayRequestRestartAfterClockStall(
@@ -1161,7 +1161,7 @@ function reparkSuccessorAfterRetiredResume(attempt: PlayRequestAttempt): void {
 }
 
 /**
- * The binding's `running` statechange (bindPlaybackScopeRecovery):
+ * The binding's `running` statechange (bindAudioContextInterruptionRecovery):
  * something outside this owner (the OS, ensureRunning, a UI sound) resumed a context
  * whose play-request attempt waits for the tap of a dialog that has taken
  * it. Park the same attempt again at once, as the playback scope
@@ -1259,15 +1259,15 @@ function resumePreparedPlayRequestRestartFromGesture(
  */
 function whenPlayRequestClockRequirement(
   attemptToken: object,
-): Promise<PlayRequestRequirementOutcome> {
+): Promise<PlayRequestClockRequirementOutcome> {
   const attempt = pendingPlayRequestAttempt;
   if (!attempt || attempt.attemptToken !== attemptToken || !ownsAttempt(attempt)) {
     return Promise.resolve('retired');
   }
   if (attempt.phase === 'awaiting-clock-verification') return Promise.resolve('promoted');
   if (!attempt.requirementWait) {
-    let settle!: (outcome: PlayRequestRequirementOutcome) => void;
-    const settled = new Promise<PlayRequestRequirementOutcome>((resolve) => {
+    let settle!: (outcome: PlayRequestClockRequirementOutcome) => void;
+    const settled = new Promise<PlayRequestClockRequirementOutcome>((resolve) => {
       settle = resolve;
     });
     attempt.requirementWait = { settled, settle };
@@ -1490,8 +1490,7 @@ function scopeSuspendRequest(attempt: () => PlaybackScopeAttempt): AudioContextS
     parked: () => {
       const recovery = attempt();
       setAttemptPhase(recovery, 'awaiting-gesture');
-      if (recovery.prepareTimedOut || recovery.notifyWhenPrepared)
-        emitPreparedPlaybackScopeAttempt(recovery);
+      if (recovery.prepareTimedOut || recovery.notifyWhenPrepared) emitPreparedRecovery(recovery);
       settleSuspendPreparation(recovery, true);
     },
     lost,
@@ -1546,7 +1545,7 @@ function createPlaybackScopeAttempt(
   return recovery;
 }
 
-function emitPreparedPlaybackScopeAttempt(recovery: PlaybackScopeAttempt): void {
+function emitPreparedRecovery(recovery: PlaybackScopeAttempt): void {
   if (
     recovery.preparedNotificationSent ||
     !ownsAttempt(recovery) ||
@@ -1610,7 +1609,7 @@ function adoptRetiredSuspendForCurrentPlayback(context: AudioContext, bindingTok
   recovery.clockVerified = false;
   setAttemptPhase(recovery, 'awaiting-gesture');
   recovery.notifyWhenPrepared = true;
-  emitPreparedPlaybackScopeAttempt(recovery);
+  emitPreparedRecovery(recovery);
 }
 
 async function prepareStalledPlaybackScopeAttempt(
@@ -1622,7 +1621,7 @@ async function prepareStalledPlaybackScopeAttempt(
 
   if (isAudioContextPrepared(recovery.context)) {
     setAttemptPhase(recovery, 'awaiting-gesture');
-    if (recovery.notifyWhenPrepared) emitPreparedPlaybackScopeAttempt(recovery);
+    if (recovery.notifyWhenPrepared) emitPreparedRecovery(recovery);
     return true;
   }
 
@@ -1665,7 +1664,7 @@ async function prepareStalledPlaybackScopeAttempt(
   );
 }
 
-function emitUnhealthyPlaybackScopeAttempt(
+function emitUnhealthyRecovery(
   recovery: PlaybackScopeAttempt,
   reason: 'context-not-running' | 'clock-stalled',
 ): void {
@@ -1725,7 +1724,7 @@ function scheduleAutomaticClockVerification(recovery: PlaybackScopeAttempt): voi
       }
       if (health.reason === 'not-running') {
         setAttemptPhase(recovery, 'awaiting-resume');
-        emitUnhealthyPlaybackScopeAttempt(recovery, 'context-not-running');
+        emitUnhealthyRecovery(recovery, 'context-not-running');
       }
       // `hidden` and `inconclusive` preserve the provisional token. The next
       // exact foreground/PLAY probe may resolve it; neither is proof of harm.
@@ -1817,7 +1816,7 @@ function resumeContext(
       document.visibilityState === 'visible' &&
       isAudioContextPrepared(recovery.context)
     ) {
-      emitUnhealthyPlaybackScopeAttempt(recovery, 'context-not-running');
+      emitUnhealthyRecovery(recovery, 'context-not-running');
     }
   };
 
@@ -2334,8 +2333,8 @@ function recoverPlaybackScopeFromGesture(
     finish: async () => {
       const resumed = await waitForGestureFlight(flight);
       if (!caller.isCurrent()) return GESTURE_STOPPED;
-      // Chained and returned, not awaited: the dialog hears the answer on the
-      // same microtask turn as it did while this step was a helper of its own.
+      // Chained and returned, not awaited: an `await` here would settle
+      // `finish` a microtask turn or two sooner than it always has.
       return finishPlaybackScopeRecoveryFromGesture(attemptToken, {
         running: resumed.running,
         isCurrent: caller.isCurrent,
@@ -2551,7 +2550,7 @@ export async function armPlaybackScopeAttemptFromBackground(
 }
 
 /** Bind one context and return an exact disposer for engine re-initialization. */
-export function bindPlaybackScopeRecovery(context: AudioContext): () => void {
+export function bindAudioContextInterruptionRecovery(context: AudioContext): () => void {
   let disposed = false;
   let resumeWithoutPlayback: Promise<void> | null = null;
   let observedHidden = document.visibilityState === 'hidden';
@@ -2702,7 +2701,7 @@ export function bindPlaybackScopeRecovery(context: AudioContext): () => void {
       // C1-I11, one prepared notice; App 9.0.42).
       if (recovery.phase === 'awaiting-gesture') return;
       setAttemptPhase(recovery, 'awaiting-gesture');
-      emitPreparedPlaybackScopeAttempt(recovery);
+      emitPreparedRecovery(recovery);
       return;
     }
 

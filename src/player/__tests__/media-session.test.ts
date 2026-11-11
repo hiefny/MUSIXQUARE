@@ -75,7 +75,7 @@ import { updateMediaSessionMetadata, initMediaSession } from '../media-session.t
 import { isLocalFilePaused, setLocalFilePaused } from '../_state.ts';
 import { setLocalYouTubePaused } from '../../youtube/_state.ts';
 import { togglePlay, stopPlayback, skipTime, pause } from '../transport.ts';
-import { bindPlaybackScopeRecovery } from '../../audio/context-recovery.ts';
+import { bindAudioContextInterruptionRecovery } from '../../audio/context-recovery.ts';
 import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
 
 const CURRENT_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
@@ -628,7 +628,7 @@ describe('initMediaSession', () => {
       .mockImplementationOnce(async () => {
         context.state = 'running';
       });
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -656,7 +656,7 @@ describe('initMediaSession', () => {
       .mockImplementationOnce(async () => {
         context.state = 'running';
       });
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -695,7 +695,7 @@ describe('initMediaSession', () => {
       .mockImplementationOnce(async () => {
         context.state = 'running';
       });
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -735,7 +735,7 @@ describe('initMediaSession', () => {
       });
     // The native suspend is slow: its state change arrives only later.
     context.suspend.mockImplementationOnce(() => new Promise<void>(() => undefined));
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     try {
       context.dispatchState('suspended');
       await vi.advanceTimersByTimeAsync(0);
@@ -775,7 +775,7 @@ describe('initMediaSession', () => {
     context.resume.mockImplementation(async () => {
       context.state = 'running';
     });
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     try {
       // An interruption while hidden: the playing file resumes at once, and
       // its clock proof waits for the return.
@@ -818,7 +818,7 @@ describe('initMediaSession', () => {
       context.resume
         .mockRejectedValueOnce(new Error('autoplay blocked'))
         .mockImplementationOnce(() => gestureResume);
-      const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
       try {
         context.dispatchState('suspended');
         await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -867,7 +867,7 @@ describe('initMediaSession', () => {
       context.resume
         .mockRejectedValueOnce(new Error('autoplay blocked'))
         .mockImplementationOnce(() => gestureResume);
-      const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       context.dispatchState('suspended');
       await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -908,7 +908,7 @@ describe('initMediaSession', () => {
     context.resume
       .mockRejectedValueOnce(new Error('autoplay blocked'))
       .mockImplementationOnce(() => gestureResume);
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -947,7 +947,7 @@ describe('initMediaSession', () => {
     context.resume
       .mockRejectedValueOnce(new Error('autoplay blocked'))
       .mockImplementationOnce(() => gestureResume);
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -985,7 +985,7 @@ describe('initMediaSession', () => {
     oldContext.resume
       .mockRejectedValueOnce(new Error('old autoplay blocked'))
       .mockImplementationOnce(() => oldGestureResume);
-    const disposeOld = bindPlaybackScopeRecovery(oldContext as unknown as AudioContext);
+    const disposeOld = bindAudioContextInterruptionRecovery(oldContext as unknown as AudioContext);
     oldContext.dispatchState('suspended');
     await vi.waitFor(() => expect(oldContext.resume).toHaveBeenCalledOnce());
     _handlers['play']();
@@ -998,7 +998,7 @@ describe('initMediaSession', () => {
       .mockImplementationOnce(async () => {
         newContext.state = 'running';
       });
-    const disposeNew = bindPlaybackScopeRecovery(newContext as unknown as AudioContext);
+    const disposeNew = bindAudioContextInterruptionRecovery(newContext as unknown as AudioContext);
     newContext.dispatchState('suspended');
     await vi.waitFor(() => expect(newContext.resume).toHaveBeenCalledOnce());
     _handlers['play']();
@@ -1034,7 +1034,7 @@ describe('initMediaSession', () => {
       .mockImplementationOnce(async () => {
         context.state = 'running';
       });
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     try {
       context.dispatchState('suspended');
       await vi.advanceTimersByTimeAsync(0);

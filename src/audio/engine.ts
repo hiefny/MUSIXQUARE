@@ -15,7 +15,7 @@ import { getState, setState } from '../core/state.ts';
 import { getManagedTimer, setManagedTimer } from '../core/timers.ts';
 
 import { getAudioContext, ensureRunning } from './context.ts';
-import { bindPlaybackScopeRecovery } from './context-recovery.ts';
+import { bindAudioContextInterruptionRecovery } from './context-recovery.ts';
 import {
   rampParam,
   safeDisconnect,
@@ -637,7 +637,7 @@ async function _doInitAudio(): Promise<void> {
   // Always remove the old observer first to prevent duplicates on re-init.
   try {
     _disposeContextRecovery?.();
-    _disposeContextRecovery = bindPlaybackScopeRecovery(ctx);
+    _disposeContextRecovery = bindAudioContextInterruptionRecovery(ctx);
   } catch (e) {
     log.debug('[Audio] statechange listener setup failed', e);
   }

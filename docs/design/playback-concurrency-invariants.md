@@ -187,7 +187,7 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
     offers the exact continuation of that `play()` through
     `audio:output-recovery-needed`. `app.ts` maps a `play` source to the
     `retry-failed-play` dialog (`app.ts:361-363`), which runs the retry once
-    after a trusted tap (`app.ts:546-558`). The retry calls `play()` with
+    after a trusted tap (`app.ts:544-556`). The retry calls `play()` with
     `suppressPrompt`, the original `outputOnly` and the captured
     `recoveryGeneration` (`transport.ts:1424-1434`), then awaits the original
     caller's `onRecoveredStarted` (:1437). For a host start that continuation
@@ -223,7 +223,7 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
     `recoveryGeneration` queues behind a live lock (:1144) or reaches the claim
     point (:1164); on stale-lock recovery (`abortPlayLockOwner`, :422: the
     watchdog fire, a blocked `play()`, and
-    `recoverStalePlayLock('background-resume')` from `app.ts:644`); on every
+    `recoverStalePlayLock('background-resume')` from `app.ts:642`); on every
     `stopAllMedia` (`transport.ts:974`); and in
     `invalidatePendingFilePlayIntent` (:462: `pause`, a paused seek or skip, a
     paused operator seek, a PRO paused commit). So the router's refresh, a

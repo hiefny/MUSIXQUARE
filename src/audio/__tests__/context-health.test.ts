@@ -92,7 +92,7 @@ async function loadContext(options: FakeContextOptions = {}) {
  */
 async function bindForegroundReturns(instance: FakeAudioContext): Promise<() => void> {
   const recovery = await import('../context-recovery.ts');
-  return recovery.bindPlaybackScopeRecovery(instance as unknown as AudioContext);
+  return recovery.bindAudioContextInterruptionRecovery(instance as unknown as AudioContext);
 }
 
 function setVisibility(value: 'hidden' | 'visible'): void {
@@ -112,7 +112,7 @@ async function prepareAfterForegroundReturn(
   module: Awaited<ReturnType<typeof loadContext>>['module'],
 ) {
   const recovery = await import('../context-recovery.ts');
-  recovery.bindPlaybackScopeRecovery(instance as unknown as AudioContext);
+  recovery.bindAudioContextInterruptionRecovery(instance as unknown as AudioContext);
   setVisibility('hidden');
   setVisibility('visible');
   const checkToken = module.getPendingForegroundAudioContextClockHealthCheck()?.token;

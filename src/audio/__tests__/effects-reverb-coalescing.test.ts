@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('../context.ts', () => ({ getAudioContext: () => h.ctx, ensureRunning: async () => {} }));
-vi.mock('../context-recovery.ts', () => ({ bindPlaybackScopeRecovery: () => () => {} }));
+vi.mock('../context-recovery.ts', () => ({ bindAudioContextInterruptionRecovery: () => () => {} }));
 vi.mock('../helpers.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../helpers.ts')>()),
   generateReverbIR: h.generateReverbIR,

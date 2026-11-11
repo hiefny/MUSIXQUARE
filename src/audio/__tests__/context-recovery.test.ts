@@ -10,7 +10,7 @@ import { AUDIO_CLOCK_SAMPLE_MS } from '../context-protocol.ts';
 import {
   armPlaybackScopeAttemptFromBackground,
   beginPlaybackScopeRecoveryFromGesture,
-  bindPlaybackScopeRecovery,
+  bindAudioContextInterruptionRecovery,
   checkForegroundClockBeforeFileStart,
   consumeForegroundAudioContextClockHealthCheck,
   finishPlaybackScopeRecoveryFromGesture,
@@ -127,7 +127,7 @@ describe('AudioContext interruption recovery', () => {
         else context.resume.mockImplementation(() => new Promise<void>(() => undefined));
         const recoveryNeeded = vi.fn();
         bus.on('audio:output-recovery-needed', recoveryNeeded);
-        dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+        dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
         context.dispatchState('suspended');
         await vi.advanceTimersByTimeAsync(751);
         expect(recoveryNeeded).toHaveBeenCalledOnce();
@@ -170,7 +170,7 @@ describe('AudioContext interruption recovery', () => {
       const recoveryNeeded = vi.fn();
       bus.on('playback:local-output-rejoin', rejoin);
       bus.on('audio:output-recovery-needed', recoveryNeeded);
-      dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
       context.dispatchState('suspended');
       setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
       expect(getPendingPlaybackScopeAttemptForHealth()).toBeNull();
@@ -195,7 +195,7 @@ describe('AudioContext interruption recovery', () => {
     });
     const rejoin = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     const attempt = await armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
     expect(attempt).toBeTypeOf('object');
@@ -229,7 +229,7 @@ describe('AudioContext interruption recovery', () => {
       });
       const rejoin = vi.fn();
       bus.on('playback:local-output-rejoin', rejoin);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,
         value: 'hidden',
@@ -281,7 +281,7 @@ describe('AudioContext interruption recovery', () => {
         });
       const rejoin = vi.fn();
       bus.on('playback:local-output-rejoin', rejoin);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,
         value: 'hidden',
@@ -320,7 +320,7 @@ describe('AudioContext interruption recovery', () => {
     });
     const rejoin = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('interrupted');
     expect(context.resume).toHaveBeenCalledOnce();
@@ -349,7 +349,7 @@ describe('AudioContext interruption recovery', () => {
     const rejoin = vi.fn();
     bus.on('audio:output-recovery-needed', recoveryNeeded);
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     // The automatic resume is refused, so the PLAY's own resume brings the
     // context back and no automatic clock check races the PLAY's.
     context.resume.mockRejectedValueOnce(new Error('autoplay blocked'));
@@ -404,7 +404,7 @@ describe('AudioContext interruption recovery', () => {
       context.suspend.mockImplementation(() => new Promise<void>(() => undefined));
       const recoveryNeeded = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const attempt = await armPlaybackScopeAttemptFromBackground(
         context as unknown as AudioContext,
@@ -431,7 +431,7 @@ describe('AudioContext interruption recovery', () => {
     const context = new FakeAudioContext();
     const rejoin = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     markActiveFileRoom();
@@ -444,7 +444,7 @@ describe('AudioContext interruption recovery', () => {
   it('contains a rejected best-effort resume outside active playback', async () => {
     const context = new FakeAudioContext();
     context.resume.mockRejectedValueOnce(new Error('native resume rejected'));
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -455,7 +455,7 @@ describe('AudioContext interruption recovery', () => {
 
   it('never calls native resume while hidden without active playback', () => {
     const context = new FakeAudioContext();
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden',
@@ -472,7 +472,7 @@ describe('AudioContext interruption recovery', () => {
     setState('playback.mode', 'youtube');
     setState('playback.activity', 'playing');
     const context = new FakeAudioContext();
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden',
@@ -488,7 +488,7 @@ describe('AudioContext interruption recovery', () => {
     markActiveFileRoom();
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
     const context = new FakeAudioContext();
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden',
@@ -509,7 +509,7 @@ describe('AudioContext interruption recovery', () => {
         getPendingForegroundAudioContextClockHealthCheck()?.token ?? null;
     };
     document.addEventListener('visibilitychange', earlierVisibilityListener);
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden',
@@ -541,7 +541,7 @@ describe('AudioContext interruption recovery', () => {
 
   it('defers a generic foreground suspend statechange to its exact leaf lease', async () => {
     const context = new FakeAudioContext();
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     context.suspend.mockImplementation(async () => {
       context.dispatchState('suspended');
     });
@@ -558,7 +558,7 @@ describe('AudioContext interruption recovery', () => {
 
   it('keeps a prepared foreground restart token across a second hidden transition', async () => {
     const context = new FakeAudioContext();
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     const checkToken = returnToForeground();
     const preparation = await prepareOnFrozenClock(context);
 
@@ -590,7 +590,7 @@ describe('AudioContext interruption recovery', () => {
       });
       const rejoin = vi.fn();
       bus.on('playback:local-output-rejoin', rejoin);
-      const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,
@@ -638,7 +638,7 @@ describe('AudioContext interruption recovery', () => {
       });
       const rejoin = vi.fn();
       bus.on('playback:local-output-rejoin', rejoin);
-      const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,
@@ -686,7 +686,7 @@ describe('AudioContext interruption recovery', () => {
     const context = new FakeAudioContext();
     const rejoin = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     setState('playback.activity', 'paused');
@@ -705,7 +705,7 @@ describe('AudioContext interruption recovery', () => {
       });
     const rejoin = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledTimes(1));
@@ -733,7 +733,7 @@ describe('AudioContext interruption recovery', () => {
     const context = new FakeAudioContext();
     const rejoin = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('interrupted');
     await Promise.resolve();
@@ -762,7 +762,7 @@ describe('AudioContext interruption recovery', () => {
       });
     const rejoin = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -797,7 +797,7 @@ describe('AudioContext interruption recovery', () => {
     context.resume
       .mockRejectedValueOnce(new Error('autoplay blocked'))
       .mockImplementationOnce(() => gestureResume);
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
@@ -837,7 +837,7 @@ describe('AudioContext interruption recovery', () => {
       const rejoin = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
       bus.on('playback:local-output-rejoin', rejoin);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const firstAttempt = await armPlaybackScopeAttemptFromBackground(
         context as unknown as AudioContext,
@@ -879,7 +879,7 @@ describe('AudioContext interruption recovery', () => {
     markActiveFileRoom();
     const context = new FakeAudioContext();
     context.resume.mockRejectedValueOnce(new Error('autoplay blocked'));
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     expect(getPendingPlaybackScopeAttemptForGesture()).toBeNull();
     expect(isPlaybackScopeAttemptCurrent({})).toBe(false);
@@ -910,7 +910,7 @@ describe('AudioContext interruption recovery', () => {
       const recoveryNeeded = vi.fn();
       bus.on('playback:local-output-rejoin', rejoin);
       bus.on('audio:output-recovery-needed', recoveryNeeded);
-      const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       context.dispatchState('suspended');
       await vi.advanceTimersByTimeAsync(360);
@@ -937,7 +937,7 @@ describe('AudioContext interruption recovery', () => {
       });
       const recoveryNeeded = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
-      const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       context.dispatchState('suspended');
       await vi.advanceTimersByTimeAsync(0);
@@ -965,7 +965,7 @@ describe('AudioContext interruption recovery', () => {
     markActiveFileRoom();
     const context = new FakeAudioContext();
     context.suspend.mockRejectedValueOnce(new Error('native suspend rejected'));
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     await expect(
       armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext),
@@ -993,7 +993,7 @@ describe('AudioContext interruption recovery', () => {
       });
       const recoveryNeeded = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const arm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const preparingAttempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1047,7 +1047,7 @@ describe('AudioContext interruption recovery', () => {
       });
       const recoveryNeeded = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const firstArm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const firstAttempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1093,7 +1093,7 @@ describe('AudioContext interruption recovery', () => {
       });
       const recoveryNeeded = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const arm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const attempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1141,7 +1141,7 @@ describe('AudioContext interruption recovery', () => {
       const rejoin = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
       bus.on('playback:local-output-rejoin', rejoin);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const arm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const attempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1189,7 +1189,7 @@ describe('AudioContext interruption recovery', () => {
       const rejoin = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
       bus.on('playback:local-output-rejoin', rejoin);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const arm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const attempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1226,7 +1226,7 @@ describe('AudioContext interruption recovery', () => {
       setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');
       const context = new FakeAudioContext();
       context.suspend.mockImplementation(() => new Promise<undefined>(() => undefined));
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const arm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const attempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1249,7 +1249,7 @@ describe('AudioContext interruption recovery', () => {
       markActiveFileRoom();
       const context = new FakeAudioContext();
       context.suspend.mockResolvedValue(undefined);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const arm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const attempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1283,7 +1283,7 @@ describe('AudioContext interruption recovery', () => {
       });
       const recoveryNeeded = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const arm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const attempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1320,7 +1320,7 @@ describe('AudioContext interruption recovery', () => {
       const rejoin = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
       bus.on('playback:local-output-rejoin', rejoin);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const firstArm = armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
       const firstAttempt = getPendingPlaybackScopeAttemptForHealth();
@@ -1367,7 +1367,7 @@ describe('AudioContext interruption recovery', () => {
     const rejoin = vi.fn();
     bus.on('audio:output-recovery-needed', recoveryNeeded);
     bus.on('playback:local-output-rejoin', rejoin);
-    bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     const attempt = await armPlaybackScopeAttemptFromBackground(context as unknown as AudioContext);
     expect(attempt).toBeTypeOf('object');
@@ -1406,7 +1406,7 @@ describe('AudioContext interruption recovery', () => {
       const rejoin = vi.fn();
       bus.on('audio:output-recovery-needed', recoveryNeeded);
       bus.on('playback:local-output-rejoin', rejoin);
-      bindPlaybackScopeRecovery(context as unknown as AudioContext);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
       const checkToken = returnToForeground();
       const preparing = prepareOnFrozenClock(context);
@@ -1449,7 +1449,7 @@ describe('AudioContext interruption recovery', () => {
 
   it('returns a non-running result when no interruption attempt is pending', async () => {
     const context = new FakeAudioContext();
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     dispose();
 
     await expect(beginPlaybackScopeRecoveryFromGesture()).resolves.toEqual({
@@ -1463,7 +1463,7 @@ describe('AudioContext interruption recovery', () => {
     const context = new FakeAudioContext();
     const rejoin = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     dispose();
     context.dispatchState('interrupted');
@@ -1483,7 +1483,7 @@ describe("the playback scope's gesture recovery, second step (Phase 7 7C-1)", ()
     const recoveryNeeded = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
     bus.on('audio:output-recovery-needed', recoveryNeeded);
-    const dispose = bindPlaybackScopeRecovery(context as unknown as AudioContext);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     const attempt = await armPlaybackScopeAttemptFromBackground(
       context as unknown as AudioContext,
       'state-interruption',

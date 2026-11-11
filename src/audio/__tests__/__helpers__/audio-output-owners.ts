@@ -120,7 +120,7 @@ export function stageIdle(o: Owners): void {
 
 /** The engine's statechange binding for this context. */
 export function bind(o: Owners, fake: FakeNativeAudioContext): () => void {
-  const dispose = o.recovery.bindPlaybackScopeRecovery(fake.native);
+  const dispose = o.recovery.bindAudioContextInterruptionRecovery(fake.native);
   disposers.push(dispose);
   return dispose;
 }

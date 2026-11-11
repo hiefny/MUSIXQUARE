@@ -221,8 +221,8 @@ RO-54 accepted-exception
   leases, its `statechange` listeners and the one-shot foreground clock-health incident.
 - **Current owners/flows:** two flows in `src/audio/context-recovery.ts`: the play-request
   foreground restart (`preparePlayRequestRestart*`,
-  `resumePreparedPlayRequestRestartFromGesture`; in `src/audio/context.ts` until
-  Phase 7 7C-4) and playback-scope interruption recovery (`bindPlaybackScopeRecovery`,
+  `resumePreparedPlayRequestRestartFromGesture`; in `src/audio/context.ts`, under earlier names, until
+  Phase 7 7C-4) and playback-scope interruption recovery (`bindAudioContextInterruptionRecovery`,
   since Phase 7 7C-1 the gesture recovery's two steps `beginPlaybackScopeRecoveryFromGesture`
   and `finishPlaybackScopeRecoveryFromGesture`). Since 7C-5 their attempts are one type,
   `RecoveryAttempt`, told apart by its scope (play request or playback scope), each scope with its

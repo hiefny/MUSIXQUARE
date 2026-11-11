@@ -170,8 +170,9 @@ own rejoin (Decision 4).
   (`src/player/__tests__/media-session-pending-start.test.ts`,
   `src/player/__tests__/transport-ended-stop.test.ts`); they are the latch. Since 7B-3 every test
   file that loads UI sounds evaluates it too (22 more under a `context.ts` factory). Its holding
-  query is answered inside the owner since 7C-4 (it read the play-request owner's
-  `playRequestHolding` from `context.ts` before), only after the UI sound
+  query is answered inside the owner since 7C-4 (it read the play-request owner's holding answer
+  from `context.ts` before, exported there as `isForegroundAudioContextRestartHolding`; the owner's
+  private `playRequestHolding` now), only after the UI sound
   preference, which among those files only `src/audio/__tests__/ui-sounds.test.ts` turns on; that
   file sets the answer through a `context-recovery.ts` factory of `isAudioOutputRecoveryHolding`.
   Since 7B-4 the binding and the playback scope's suspend preparation call the ledger, and since

@@ -2178,13 +2178,19 @@ const GESTURE_STOPPED: AudioOutputGestureOutcome = { kind: 'stopped' };
  * only (1 s, DEADLINE_GESTURE_FLOW; in app.ts until Phase 7 7C-2): when the
  * timer wins, whether the context runs then stands for the flight's answer.
  * Only the ordinary branch's resume can lose it; the owners' resumes settle
- * by their 750 ms deadline.
+ * by their 750 ms deadline. That branch waits for a resume still in flight
+ * once more, up to the dialog's 5 s limit (DEADLINE_CLOCK_REQUIREMENT, App
+ * 9.0.42).
  */
-function waitForGestureFlight(flight: Promise<GestureFlightResult>): Promise<GestureFlightResult> {
+function waitForGestureFlight(
+  flight: Promise<GestureFlightResult>,
+  slot = DEADLINE_GESTURE_FLOW,
+  waitMs = AUDIO_RECOVERY_GESTURE_WAIT_MS,
+): Promise<GestureFlightResult> {
   return raceAudioRecoveryDeadline(
-    DEADLINE_GESTURE_FLOW,
+    slot,
     flight,
-    delay(AUDIO_RECOVERY_GESTURE_WAIT_MS).then(() => ({
+    delay(waitMs).then(() => ({
       running: String(getExistingAudioContext()?.state) === 'running',
       rejoinEmitted: false,
     })),
@@ -2383,8 +2389,13 @@ function cancelPendingInterruptionForTap(): void {
  * 9.0.42, the owner's decision of 2026-11-10; until then the owner's
  * identity check retired it once it saw the context run, Phase 7 7C-K8).
  * The branch carries no attempt. After the dialog closed: the 1 s wait,
- * which only this resume can lose; then the clock probe, and a frozen clock
- * prepares a play-request restart for a new tap.
+ * which only this resume can lose, and while the context does not run yet,
+ * one more wait for that resume up to the dialog's 5 s limit: no owner
+ * attempt verifies a late running state here, so the branch itself checks
+ * the clock once it runs and the dialog realigns once, with no new dialog
+ * (App 9.0.42, the owner's decision of 2026-11-11; the shape the playback
+ * scope keeps since 7B-5). Then the clock probe, and a frozen clock prepares
+ * a play-request restart for a new tap.
  */
 function recoverUnownedContextFromGesture(
   caller: AudioOutputGestureCaller,
@@ -2397,10 +2408,22 @@ function recoverUnownedContextFromGesture(
       log.warn('[Audio] Gesture recovery failed', error);
       return { running: false, rejoinEmitted: false };
     });
+  let flightSettled = false;
+  void flight.then(() => {
+    flightSettled = true;
+  });
   return {
     finish: async () => {
-      const resumed = await waitForGestureFlight(flight);
+      let resumed = await waitForGestureFlight(flight);
       if (!caller.isCurrent()) return GESTURE_STOPPED;
+      if (!resumed.running && !flightSettled) {
+        resumed = await waitForGestureFlight(
+          flight,
+          DEADLINE_CLOCK_REQUIREMENT,
+          AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS,
+        );
+        if (!caller.isCurrent()) return GESTURE_STOPPED;
+      }
       const context = getExistingAudioContext();
       const health = await probeClockWithoutResume(context, caller.isCurrent);
       if (!health.healthy || !resumed.running) {

@@ -15,6 +15,10 @@ interface DemoOutputProbe {
   starts: number;
   liveSources: Set<AudioBufferSourceNode>;
   rejoins: string[];
+  /** The source of every recovery dialog request since recordRejoins. */
+  requests: string[];
+  /** The source of the last request when the dialog's button was first clicked. */
+  requestAtTap: string | null;
 }
 
 type ProbeWindow = Window & { __demoOutputProbe: DemoOutputProbe };
@@ -32,8 +36,22 @@ async function instrumentNativeOutput(page: Page): Promise<void> {
       starts: 0,
       liveSources: new Set(),
       rejoins: [],
+      requests: [],
+      requestAtTap: null,
     };
     (window as unknown as ProbeWindow).__demoOutputProbe = probe;
+    // Which request the dialog served when its button was clicked: the
+    // capture listener runs in the click's task, before the dialog's own.
+    window.addEventListener(
+      'click',
+      (event) => {
+        const target = event.target as Element | null;
+        if (probe.requestAtTap === null && target?.closest?.('#btn-dialog-ok')) {
+          probe.requestAtTap = probe.requests.at(-1) ?? 'none';
+        }
+      },
+      true,
+    );
     const contexts = new WeakSet<AudioContext>();
     function observe(context: AudioContext): void {
       probe.context = context;
@@ -104,7 +122,7 @@ async function waitForDemoAudio(page: Page): Promise<void> {
     .toBe(true);
 }
 
-/** Record every local output rejoin the page publishes from now on. */
+/** Record every local output rejoin and recovery dialog request the page publishes from now on. */
 async function recordRejoins(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = window as unknown as ProbeWindow & Record<string, unknown>;
@@ -115,11 +133,18 @@ async function recordRejoins(page: Page): Promise<void> {
     bus.on('playback:local-output-rejoin', (payload) => {
       probe.rejoins.push(String((payload as { reason?: unknown } | undefined)?.reason));
     });
+    bus.on('audio:output-recovery-needed', (payload) => {
+      probe.requests.push(String((payload as { source?: unknown } | undefined)?.source));
+    });
   });
 }
 
 async function readRejoins(page: Page): Promise<string[]> {
   return page.evaluate(() => [...(window as unknown as ProbeWindow).__demoOutputProbe.rejoins]);
+}
+
+async function readRequestAtTap(page: Page): Promise<string | null> {
+  return page.evaluate(() => (window as unknown as ProbeWindow).__demoOutputProbe.requestAtTap);
 }
 
 async function suspendAndRejectResume(page: Page): Promise<void> {
@@ -209,16 +234,34 @@ test.describe('Demo output recovery', () => {
       expect(await readRejoins(pair.guestPage)).toEqual([]);
 
       await restoreThroughPrompt(pair.guestPage);
-      // The first rejoin of any reason ends this wait; the array is exact.
-      await expect.poll(async () => (await readRejoins(pair.guestPage)).length).toBeGreaterThan(0);
-      // The page script's suspend is an interruption the context's own
-      // recovery owns: the tap resumes that attempt, and its health
-      // confirmation publishes the one rejoin. The dialog adds none of its
-      // own ('audio-recovery-gesture').
-      expect(await readRejoins(pair.guestPage)).toEqual(['audio-context-recovered']);
+      const tapped = await readRequestAtTap(pair.guestPage);
+      if (tapped === 'background-resume') {
+        // The first rejoin of any reason ends this wait; the array is exact.
+        await expect
+          .poll(async () => (await readRejoins(pair.guestPage)).length)
+          .toBeGreaterThan(0);
+        // The page script's suspend is an interruption the context's own
+        // recovery owns: the tap resumes that attempt, and its health
+        // confirmation publishes the one rejoin. The dialog adds none of its
+        // own ('audio-recovery-gesture').
+        expect(await readRejoins(pair.guestPage)).toEqual(['audio-context-recovered']);
+      }
       await expect.poll(() => readState(pair.guestPage, 'network.hostConn.open')).toBe(true);
       await waitForDemoAudio(pair.hostPage);
-      expect(await readRejoins(pair.guestPage)).toEqual(['audio-context-recovered']);
+      if (tapped === 'background-resume') {
+        expect(await readRejoins(pair.guestPage)).toEqual(['audio-context-recovered']);
+      } else {
+        // On a loaded machine the guest's room PLAY can run while its resume
+        // is still refused: it fails and its dialog, with the same text,
+        // replaces the return's before the tap. That tap retries the failed
+        // PLAY, or a newer room PLAY starts the track first; a retry
+        // publishes no rejoin. The sound is back either way (above), the
+        // dialog adds no rejoin of its own, and the owner's at most once.
+        expect(tapped).toBe('play');
+        await pair.guestPage.waitForTimeout(2_000);
+        expect([[], ['audio-context-recovered']]).toContainEqual(await readRejoins(pair.guestPage));
+        await waitForDemoAudio(pair.guestPage);
+      }
     } finally {
       await cleanupContexts(pair);
     }

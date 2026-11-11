@@ -372,7 +372,7 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
 });
 
 test.describe('prepared dialog (playing round trip)', () => {
-  test('(ii) the tap rejoins once; Known gap (C1-I11, one prepared notice): the dialog opens twice in Chromium', async ({
+  test('(ii) the tap rejoins once; one stall, one notice: the dialog opens once in Chromium (App 9.0.42; it was Known gap C1-I11, one prepared notice)', async ({
     page,
   }) => {
     const before = await openPreparedDialog(page);
@@ -387,19 +387,44 @@ test.describe('prepared dialog (playing round trip)', () => {
     expect(lab.starts - before).toBe(1);
     expect(countOps(fromTap(lab), 'resume@')).toBe(1);
     expect(await readState(page, 'playback.activity')).toBe('playing');
-    // One stall, two notices: the dialog shows, closes and shows again
-    // within a few ms before the tap.
-    expect(lab.needed).toEqual([BACKGROUND, BACKGROUND]);
-    expect(lab.dialogShows).toBe(2);
+    // One stall, one notice: the dialog shows once and stays until the tap.
+    // Before App 9.0.42 the owner's second notice, from the statechange
+    // Chromium delivers after the suspend promise, closed it and showed it
+    // again within a few ms.
+    expect(lab.needed).toEqual([BACKGROUND]);
+    expect(lab.dialogShows).toBe(1);
     const returned = opsFrom(lab.ops, 'freeze');
-    expect(dialogMoves(returned)).toEqual([
-      'dialog:shown',
-      'dialog:hidden',
-      'dialog:shown',
-      'dialog:hidden',
-    ]);
-    const shown = timesOf(returned, 'dialog:shown');
-    expect(shown[1]! - shown[0]!).toBeLessThan(100);
+    expect(dialogMoves(returned)).toEqual(['dialog:shown', 'dialog:hidden']);
+  });
+
+  test('(ii-b) a tap while the clock stays frozen: the owner parks the audio once more and the same dialog shows again, and its tap on a running clock rejoins once (App 9.0.42)', async ({
+    page,
+  }) => {
+    const before = await openPreparedDialog(page);
+    // The first tap wakes the context, but its clock is still frozen.
+    await page.locator(OK).click();
+    await expect.poll(async () => (await readLab(page)).dialogShows).toBe(2);
+    await page.waitForTimeout(500);
+    const asked = await readLab(page);
+    await unfreeze(page);
+    await page.locator(OK).click();
+    await expect(page.locator(DIALOG)).toHaveCount(0);
+    await page.waitForTimeout(2_000);
+    const lab = await readLab(page);
+    report('(ii-b)', lab, before);
+
+    // Before App 9.0.42 the first tap ended there (its clock check was
+    // rejected): no dialog and no sound until the page was hidden and shown.
+    expect(asked.needed).toEqual([BACKGROUND, BACKGROUND]);
+    expect(asked.state).toBe('suspended');
+    expect(asked.rejoins).toEqual([]);
+    expect(countOps(opsFrom(asked.ops, 'freeze'), ' suspend:')).toBe(2);
+    expect(lab.dialogShows).toBe(2);
+    expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
+    expect(lab.rejoins).toEqual(['audio-context-recovered']);
+    expect(lab.state).toBe('running');
+    expect(lab.starts - before).toBe(1);
+    expect(await readState(page, 'playback.activity')).toBe('playing');
   });
 
   test("(iii) a seek while the return check parks the audio: one suspend, one dialog request, the seek's, and its tap plays from the moved position", async ({
@@ -614,9 +639,10 @@ test.describe('trusted input with UI sounds on, prepared dialog', () => {
     expect(countOps(fromTap(lab), ' suspend:')).toBe(0);
     expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
     expect(countOps(fromTap(lab), ' tone')).toBe(0);
-    // The two notices of one stall before the tap (known gap 3, row (ii)).
-    expect(lab.needed).toEqual([BACKGROUND, BACKGROUND]);
-    expect(lab.dialogShows).toBe(2);
+    // The one notice of one stall before the tap (row (ii); two until App
+    // 9.0.42, Known gap 3).
+    expect(lab.needed).toEqual([BACKGROUND]);
+    expect(lab.dialogShows).toBe(1);
     expect(lab.rejoins).toEqual(['audio-context-recovered']);
     expect(lab.starts - before).toBe(1);
   });
@@ -649,8 +675,8 @@ test.describe('trusted input with UI sounds on, prepared dialog', () => {
     expect(countOps(fromTap(lab), 'resume@pointerdown:')).toBe(0);
     expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
     expect(countOps(fromTap(lab), ' tone')).toBe(0);
-    // No reopen: the two shows of one stall before the tap (known gap 3).
-    expect(lab.dialogShows).toBe(2);
+    // No reopen: the one show of the stall before the tap (row (ii)).
+    expect(lab.dialogShows).toBe(1);
     expect(lab.rejoins).toEqual(['audio-context-recovered']);
     expect(lab.starts - before).toBe(1);
     await expect(page.locator(DIALOG)).toHaveCount(0);
@@ -668,7 +694,7 @@ test.describe('trusted input with UI sounds on, prepared dialog', () => {
     expect(countOps(fromTap(lab), 'resume@pointerdown:')).toBe(0);
     expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
     expect(countOps(fromTap(lab), ' tone')).toBe(0);
-    expect(lab.dialogShows).toBe(2);
+    expect(lab.dialogShows).toBe(1);
     expect(lab.rejoins).toEqual(['audio-context-recovered']);
     expect(lab.starts - before).toBe(1);
   });
@@ -695,8 +721,8 @@ test.describe('trusted input with UI sounds on, prepared dialog', () => {
     expect(countOps(fromTap(lab), ' suspend:')).toBe(0);
     expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
     expect(countOps(fromTap(lab), ' tone')).toBe(0);
-    expect(lab.needed).toEqual([BACKGROUND, BACKGROUND]);
-    expect(lab.dialogShows).toBe(2);
+    expect(lab.needed).toEqual([BACKGROUND]);
+    expect(lab.dialogShows).toBe(1);
     expect(lab.rejoins).toEqual(['audio-context-recovered']);
     expect(lab.state).toBe('running');
     expect(lab.starts - before).toBe(1);
@@ -716,7 +742,7 @@ test.describe('trusted input with UI sounds on, prepared dialog', () => {
     // Phase 7 7B-3 (Q9): before, the UI sound's keydown resume came first.
     expect(countOps(fromTap(lab), 'resume@keydown:')).toBe(1);
     expect(countOps(fromTap(lab), ' tone')).toBe(0);
-    expect(lab.dialogShows).toBe(2);
+    expect(lab.dialogShows).toBe(1);
     expect(lab.rejoins).toEqual(['audio-context-recovered']);
     expect(lab.starts - before).toBe(1);
   });

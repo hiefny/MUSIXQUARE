@@ -40,7 +40,9 @@ export const AUDIO_RETIRED_SUSPEND_CLEANUP_DEADLINE_MS = 500;
 export const AUDIO_RECOVERY_GESTURE_WAIT_MS = 1_000;
 /**
  * The recovery dialog after its tap: the limit of its wait for the restart's
- * clock requirement, which the owner's promise ends sooner (Phase 7 7B-5).
+ * clock requirement, which the owner's promise ends sooner (Phase 7 7B-5),
+ * and since App 9.0.42 of its ordinary branch's wait for its own resume
+ * still in flight after the 1 s wait, which that resume ends sooner.
  */
 export const AUDIO_RECOVERY_CLOCK_REQUIREMENT_WAIT_MS = 5_000;
 

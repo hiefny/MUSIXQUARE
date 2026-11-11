@@ -250,7 +250,8 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
     `audio-context-recovered` rejoin: since Phase 7 7C-2 the owner's tap
     entry does it (`recoverUnownedContextFromGesture`, which the dialog's
     `beginAudioOutputGestureRecovery` calls, cancels the attempt before the
-    resume, and carries no attempt to commit for a retry or, since 7C-K8, a restore), and that
+    resume, for a retry and since App 9.0.42 a restore too, and carries no attempt to commit for
+    either since 7C-K8), and that
     dialog emits no rejoin after its retry. Only a `restore-playing-output` dialog
     (source `background-resume`) emits one (:562-568). While any audio
     recovery dialog is open, the background-return Sync leaves the file

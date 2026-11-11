@@ -1651,6 +1651,8 @@ describe('release deployment rollback state', () => {
     ).toThrow('app has undeployed production-source changes');
   });
 
+  // About 70 git processes: 24 to 41 s on a loaded Windows machine, past the
+  // 30 s it had, so it gets more room.
   it('blocks an unselected app when a localized build input changes', () => {
     const repository = createDirectory();
     const git = (args: string[], options: { capture?: boolean } = {}): string =>
@@ -1713,7 +1715,7 @@ describe('release deployment rollback state', () => {
         changedHelper,
       ]);
     }
-  }, 30_000);
+  }, 90_000);
 
   it('invokes npm through its JavaScript CLI on Windows', () => {
     expect(

@@ -9,9 +9,9 @@
  * once. These rows drive the owners through the tables' one driver and their
  * public entries only, and read nothing the attempt-type merge renames, so
  * they stay byte for byte through it. Also pinned here: a stalled attempt
- * whose tap brought the context running while its clock stays frozen, and
- * the suspend ledger's own cleanup of a late suspend on a context that no
- * binding is seated for.
+ * whose tap brought the context running while its clock stays frozen (parked
+ * once more for one more tap since App 9.0.42), and the suspend ledger's own
+ * cleanup of a late suspend on a context that no binding is seated for.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeNativeAudioContext } from './__helpers__/fake-audio-context.ts';
@@ -154,40 +154,63 @@ describe('RO-01 one slot and one generation per scope', () => {
 });
 
 describe("RO-01 a stalled attempt's clock still frozen after its tap", () => {
-  it('the second step answers that the escalation was rejected, and the attempt waits in clock verification', async () => {
+  it('the second step parks it once more for one more tap; a second frozen tap is rejected, and the attempt waits in clock verification (App 9.0.42, owner decision 2026-11-10)', async () => {
     const s = await scene();
     await expect(playbackScope.armStalled(s.o, s.fake)).resolves.toBe('prepared');
     const attempt = playbackScope.current(s.o)!;
     const bus = recordBus(s.o);
     s.fake.freezeClock();
     const unhealthy: string[] = [];
+    const caller = (running: boolean) => ({
+      running,
+      isCurrent: () => true,
+      unhealthy: (health: { readonly reason: string }) => {
+        unhealthy.push(health.reason);
+      },
+    });
 
     // The tap's resume brings the parked context running inside its
     // deadline, so the attempt goes on to clock verification for its caller.
     const resumed = await s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
     expect(resumed).toEqual({ running: true, rejoinEmitted: false });
-    const finished = s.o.recovery.finishPendingInterruptionRecoveryFromGesture(attempt, {
-      running: resumed.running,
-      isCurrent: () => true,
-      unhealthy: (health) => {
-        unhealthy.push(health.reason);
-      },
-    });
+    const finished = s.o.recovery.finishPendingInterruptionRecoveryFromGesture(
+      attempt,
+      caller(resumed.running),
+    );
     await vi.advanceTimersByTimeAsync(2_000);
 
-    // Only a state-interruption attempt escalates to a new suspend; this one
-    // was a clock stall already, so nothing is prepared or asked again.
-    await expect(finished).resolves.toEqual({ kind: 'escalated', escalation: 'rejected' });
+    // The clock is still frozen: the owner parks the same attempt once more
+    // and notifies, so its dialog asks for one more tap.
+    await expect(finished).resolves.toEqual({ kind: 'escalated', escalation: 'prepared' });
     expect(unhealthy).toEqual(['clock-stalled']);
-    expect(bus.needed).toEqual([]);
+    expect(bus.needed).toEqual(['background-resume:clock-stalled']);
+    expect(bus.rejoins).toEqual([]);
+    expect(s.fake.state).toBe('suspended');
+    expect(s.fake.calls('suspend')).toBe(2);
+    expect(playbackScope.view(s.o)).toEqual({ attempt: 'file', gesture: true });
+    expect(playbackScope.isCurrent(s.o, attempt)).toBe(true);
+
+    // One more at most: the next tap on a clock still frozen is rejected, as
+    // every such tap was before, and nothing is prepared or asked again.
+    const again = await s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
+    expect(again).toEqual({ running: true, rejoinEmitted: false });
+    const second = s.o.recovery.finishPendingInterruptionRecoveryFromGesture(
+      attempt,
+      caller(again.running),
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(second).resolves.toEqual({ kind: 'escalated', escalation: 'rejected' });
+    expect(unhealthy).toEqual(['clock-stalled', 'clock-stalled']);
+    expect(bus.needed).toEqual(['background-resume:clock-stalled']);
     expect(bus.rejoins).toEqual([]);
     expect(s.fake.state).toBe('running');
-    expect(s.fake.calls('suspend')).toBe(1);
+    expect(s.fake.calls('suspend')).toBe(2);
     expect(playbackScope.view(s.o)).toEqual({ attempt: 'file', gesture: false });
     expect(playbackScope.isCurrent(s.o, attempt)).toBe(true);
   });
 
-  it("the dialog's tap on it stops, with the counts of the playback scope's tap", async () => {
+  it("the dialog's tap on it: the dialog shows the same request once more, and a second frozen tap stops with the counts of the playback scope's tap (App 9.0.42)", async () => {
     const s = await scene();
     await expect(playbackScope.armStalled(s.o, s.fake)).resolves.toBe('prepared');
     const bus = recordBus(s.o);
@@ -200,16 +223,68 @@ describe("RO-01 a stalled attempt's clock still frozen after its tap", () => {
       .finish();
     await vi.advanceTimersByTimeAsync(2_000);
 
-    await expect(finished).resolves.toEqual({ kind: 'stopped' });
+    // app.ts shows the same request again for 'escalated'.
+    await expect(finished).resolves.toEqual({ kind: 'escalated' });
     expect(side.unhealthy).toEqual(['clock-stalled']);
-    expect(bus.needed).toEqual([]);
+    expect(bus.needed).toEqual(['background-resume:clock-stalled']);
+    expect(bus.rejoins).toEqual([]);
+    expect(s.fake.state).toBe('suspended');
+    expect(playbackScope.view(s.o)).toEqual({ attempt: 'file', gesture: true });
+    // The tap's resume and its 1 s race, one clock wait that goes back to
+    // recovery, and the attempt's second suspend (its lease watchdog and its
+    // preparation race).
+    expect(countChanges(s, before)).toEqual({
+      RESUME_PLAY_GESTURE: 1,
+      DEADLINES_WATCHED: 4,
+      CLOCK_WAITS: 1,
+      CLOCK_RECOVERY_NEEDED: 1,
+      SUSPEND_CALLS: 1,
+      SECOND_SUSPENDS: 1,
+    });
+
+    const second = counts(s);
+    const stopped = s.o.recovery
+      .beginAudioOutputGestureRecovery({ intent: 'restore-playing-output' }, side.caller)!
+      .finish();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(stopped).resolves.toEqual({ kind: 'stopped' });
+    expect(side.unhealthy).toEqual(['clock-stalled', 'clock-stalled']);
+    expect(bus.needed).toEqual(['background-resume:clock-stalled']);
     expect(bus.rejoins).toEqual([]);
     expect(playbackScope.view(s.o)).toEqual({ attempt: 'file', gesture: false });
-    expect(countChanges(s, before)).toEqual({
+    expect(countChanges(s, second)).toEqual({
       RESUME_PLAY_GESTURE: 1,
       DEADLINES_WATCHED: 2,
       CLOCK_WAITS: 1,
     });
+  });
+
+  it("the dialog's second tap on a clock that runs again commits once with the owner's one rejoin (App 9.0.42)", async () => {
+    const s = await scene();
+    await expect(playbackScope.armStalled(s.o, s.fake)).resolves.toBe('prepared');
+    const bus = recordBus(s.o);
+    s.fake.freezeClock();
+    const side = dialog();
+
+    const first = s.o.recovery
+      .beginAudioOutputGestureRecovery({ intent: 'restore-playing-output' }, side.caller)!
+      .finish();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(first).resolves.toEqual({ kind: 'escalated' });
+
+    s.fake.runClock();
+    const second = s.o.recovery
+      .beginAudioOutputGestureRecovery({ intent: 'restore-playing-output' }, side.caller)!
+      .finish();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(second).resolves.toEqual({ kind: 'recovered', rejoinEmitted: true });
+    expect(side.unhealthy).toEqual(['clock-stalled']);
+    expect(bus.needed).toEqual(['background-resume:clock-stalled']);
+    expect(bus.rejoins).toEqual(['audio-context-recovered']);
+    expect(s.fake.state).toBe('running');
+    expect(playbackScope.view(s.o)).toEqual({ attempt: 'none', gesture: false });
   });
 });
 

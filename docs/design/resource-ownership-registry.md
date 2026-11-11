@@ -279,7 +279,10 @@ RO-54 accepted-exception
   to verify, fix lane G7), observes a running state-interruption attempt itself (the requirement
   query that did so when read is gone, [ownership record](audio-context-ownership.md) Decision 5),
   probes this attempt's clock with its caller's currency, and escalates a frozen clock or commits
-  (the attempt's one `audio-context-recovered` rejoin). `src/player/media-session.ts` calls both
+  (the attempt's one `audio-context-recovered` rejoin). Since App 9.0.42 (the owner's decision of
+  2026-11-10) a local file's clock-stall attempt whose own tap found the clock still frozen is
+  parked once more and notified, so its dialog asks for one more tap; the next frozen tap is
+  rejected as before. `src/player/media-session.ts` calls both
   and keeps its coalescing and its own rejoin decision. Since 7C-2 the recovery dialog's tap is
   the owner's too (before, `src/app.ts` sequenced the play-request restart and the ordinary
   branch, and called the first step in its tap and the second after its 1 s race): `app.ts` makes
@@ -288,14 +291,17 @@ RO-54 accepted-exception
   restart the dialog serves; for a restore, a pending file attempt of the playback scope, and
   none yet that accepts the gesture starts nothing; else the ordinary branch, which restarts the
   context itself) and issues that resume before it returns. Its `finish`, once the dialog has
-  closed, waits 1 s for that resume, waits for the play-request clock requirement (5 s at most;
+  closed, waits 1 s for that resume (the ordinary branch, while its own resume is still in flight,
+  up to 5 s more since App 9.0.42), waits for the play-request clock requirement (5 s at most;
   the dialog's AbortSignal and currency end it), probes the clock, retires the play-request
   attempt and arms the next PLAY's clock check, commits through the caller's confirm (RO-36) or
   the owner's own, runs the playback scope's second step, or prepares a play-request restart for
-  a frozen clock, which `app.ts` queues. The ordinary branch carries no playback-scope attempt:
-  a failed PLAY's retry cancels a pending one before the resume, and a restore takes the branch
-  only while no file attempt is pending, so an attempt for other playback is left to the owner's
-  identity check (Phase 7 7C-K8; it was Known gap C1-I6). `app.ts` keeps the primer, the slot
+  a frozen clock, which `app.ts` queues. The ordinary branch carries no playback-scope attempt
+  (Phase 7 7C-K8; it was Known gap C1-I6): it cancels a pending one that accepts the gesture
+  before the resume, a failed PLAY's retry so the exact failed PLAY owns the gesture, and since
+  App 9.0.42 (the owner's decision of 2026-11-10) a restore too, which takes the branch only
+  while no file attempt is pending, so an attempt for other playback can neither park the
+  context again under the dialog's clock check nor wait on, and the restore realigns. `app.ts` keeps the primer, the slot
   flag, the follow-up queue, the claim, the dialog itself, RO-51, the retry and its own
   `audio-recovery-gesture` rejoin.
   Since Phase 7 7C-3 a local-file PLAY's foreground clock check is the owner's too:

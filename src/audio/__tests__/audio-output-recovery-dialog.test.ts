@@ -550,10 +550,11 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     await vi.advanceTimersByTimeAsync(5_000);
 
     // Phase 7 7C-K8, the owner's decision of 2026-11-07 (it was Known gap
-    // C1-I6): a restore's ordinary branch carries no attempt. The resume lets
-    // the owner retire the YouTube attempt (identity check), with no notice or
-    // rejoin of its own; the branch's clock check then answers recovered, and
-    // app.ts publishes its own 'audio-recovery-gesture' rejoin (code reading).
+    // C1-I6): a restore's ordinary branch carries no attempt. Since App 9.0.42
+    // (the owner's decision of 2026-11-10) the tap retires the YouTube attempt
+    // itself before its resume, with no notice or rejoin of its own; the
+    // branch's clock check then answers recovered, and app.ts publishes its
+    // own 'audio-recovery-gesture' rejoin (code reading).
     await expect(finished).resolves.toEqual({ kind: 'recovered', rejoinEmitted: false });
     expect(fake.ops.slice(ops)).toEqual(['resume()', 'statechange:running', 'resume:resolved']);
     expect(side.unhealthy).toEqual([]);
@@ -561,4 +562,109 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     expect(bus.rejoins).toEqual([]);
     expect(playbackScope.view(o)).toEqual({ attempt: 'none', gesture: false });
   });
+});
+
+/**
+ * The ordinary branch's own resume landing after the dialog's 1 s wait
+ * (App 9.0.42, the owner's decision of 2026-11-11). No device or browser run
+ * has shown it: the rows guard the case on the fake context. With no owner
+ * attempt to verify a late running state (the playback scope's 7B-5 rule,
+ * kept by the owner's decision of 2026-11-05), the branch waits for that
+ * resume up to the dialog's 5 s limit, then checks the clock: a healthy one
+ * answers recovered, so app.ts realigns once (its rejoin, or a failed PLAY's
+ * retry), with no new dialog. Past the limit it stops as before.
+ */
+describe("RO-01 the ordinary branch's resume after the dialog's 1 s wait (App 9.0.42)", () => {
+  /** The 7C-K8 scene: a YouTube attempt waits, then the room switches to a file. */
+  async function youtubeAttemptThenFile(): Promise<Scene> {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    const c = await import('../output-recovery-counters.ts');
+    stageYouTube(o);
+    bind(o, fake);
+    fake.planResume({ outcome: 'reject' });
+    fake.transition('interrupted');
+    await vi.advanceTimersByTimeAsync(1_000);
+    stageFile(o, QUEUE_B);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(playbackScope.view(o)).toEqual({ attempt: 'youtube', gesture: true });
+    return { o, fake, c };
+  }
+
+  /** A local file's OS interruption whose automatic resume was refused: its attempt waits. */
+  async function fileAttemptWaits(): Promise<Scene> {
+    const s = await scene();
+    s.fake.planResume({ outcome: 'reject' });
+    s.fake.transition('interrupted');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(playbackScope.view(s.o)).toEqual({ attempt: 'file', gesture: true });
+    return s;
+  }
+
+  it.each([
+    [
+      'a restore after the room switched to a file',
+      youtubeAttemptThenFile,
+      'restore-playing-output',
+    ],
+    ["a failed PLAY's retry", fileAttemptWaits, 'retry-failed-play'],
+  ] as const)(
+    '%s, its resume landing 1.5 s after the tap: the branch waits for it and answers recovered, with no new notice',
+    async (_label, stage, intent) => {
+      const s = await stage();
+      s.fake.planResume({ latencyMs: 1_500 });
+      const bus = recordBus(s.o);
+      const side = dialog();
+      const before = counts(s);
+
+      const outcome = settled(tap(s, dialogSelector(intent), side)!.finish());
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(outcome.value).toBe('waiting');
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      // app.ts then realigns once: its own rejoin for a restore, the failed
+      // PLAY's retry for a retry (code reading).
+      expect(outcome.value).toEqual({ kind: 'recovered', rejoinEmitted: false });
+      expect(side.unhealthy).toEqual([]);
+      expect(s.fake.state).toBe('running');
+      expect(bus.needed).toEqual([]);
+      expect(bus.rejoins).toEqual([]);
+      expect(playbackScope.view(s.o)).toEqual({ attempt: 'none', gesture: false });
+      expect(countChanges(s, before)).toEqual({
+        RESUME_DIALOG: 1,
+        DEADLINE_GESTURE_FLOW: 1,
+        DEADLINES_WATCHED: 2,
+      });
+    },
+  );
+
+  it.each([
+    ['lands 7 s after the tap', { latencyMs: 7_000 }],
+    ['never settles', { outcome: 'never' as const }],
+  ])(
+    'a restore whose resume %s: the branch stops at its 5 s limit, as before',
+    async (_label, plan) => {
+      const s = await youtubeAttemptThenFile();
+      s.fake.planResume(plan);
+      const bus = recordBus(s.o);
+      const side = dialog();
+      const before = counts(s);
+
+      const outcome = settled(tap(s, dialogSelector('restore-playing-output'), side)!.finish());
+      await vi.advanceTimersByTimeAsync(5_900);
+      expect(outcome.value).toBe('waiting');
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(outcome.value).toEqual({ kind: 'stopped' });
+      expect(side.unhealthy).toEqual(['not-running']);
+      expect(bus.needed).toEqual([]);
+      expect(bus.rejoins).toEqual([]);
+      expect(countChanges(s, before)).toEqual({
+        RESUME_DIALOG: 1,
+        DEADLINE_GESTURE_FLOW: 1,
+        DEADLINE_CLOCK_REQUIREMENT: 1,
+        DEADLINES_WATCHED: 2,
+      });
+    },
+  );
 });

@@ -96,6 +96,23 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.42 / v815 train: the audio recovery's obvious defects fixed (2026-11-11)](design/app-9-0-42-train-2026-11-11.md):
+  prepared, not merged or released. A small App update after Phase 7 7C (9.0.41 / v814) by the owner's decisions of
+  2026-11-09, 2026-11-10 and 2026-11-11, on main `7c9e4c1f` (whose App runtime equals 9.0.41's `91f6bb0c`). Four
+  intended increments, each with its failing test first, a before/after table, its own section and a revert note,
+  all in the one recovery owner `src/audio/context-recovery.ts`: a local file's clock-stall attempt whose own tap
+  finds the clock still frozen is parked once more so the same dialog asks for one more tap (found item 1 of 7C); the
+  restore tap retires a waiting non-file attempt first so it always realigns (found items 2 and 3, the Known gap 6
+  edge 7C-K8 left); a stalled attempt parked already is not notified again, so the return's dialog no longer closes
+  and reopens in Chromium (Known gap 3); and the dialog's ordinary branch waits up to its 5 s limit for its own
+  resume still in flight after the 1 s wait, then realigns once with no new dialog (a guard for a case no device or
+  browser run has shown, by the owner's choice). The CI recovery spec `e2e/demo-output-recovery.test.ts:191`, which
+  failed in 9.0.41's post-merge Full E2E, is made robust: its triage found a guest room PLAY failing while the
+  return's dialog was open and replacing it with the failed PLAY's dialog of the same text (11 of 20 runs under full
+  CPU load; the tap's resume took 50 to 339 ms), which corrects the cause the 9.0.41 record had inferred. The
+  lock-screen pause-and-play case and Known gap 6 are recorded only, and two tooling test rows get more time. Eager
+  JavaScript grows by 45 B gzip (Phase 7 net 1,143 B of its 1,200 B limit); target `app`, one update dialog, floor
+  795 unchanged.
 - [Phase 7 train 7C: the AudioContext recovery behind one owner, and one restore tap that realigns the room (App 9.0.41 / v814, 2026-11-10)](design/phase7-7c-audio-recovery-owner-2026-11-10.md):
   released on 2026-11-11 01:14 KST in Release 42852117870 (PR #579, squash `91f6bb0c`) as App 9.0.41 / v814 (App
   build 814, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App
@@ -157,11 +174,14 @@ runbooks. Neither belongs in a general setup document.
   service worker test, and the large-room R2 smoke passed), and the rerun of the failed job passed (`e2e` 970
   passed). Triage on a work computer ran that one row twenty times per SHA: with the machine idle, 20 of 20 on
   `91f6bb0c` and on the pre-merge main `f11a5cba`; with every CPU thread kept busy, 12 passed and 8 failed on each,
-  all at line 213. So the failure is inherited and depends on load: when the tap's native resume lands after the
-  dialog's 1 s wait, the output plays without a rejoin and without a new dialog, and that device can stay out of step
-  with the room (not confirmed on a phone or in WebKit). It is a new open item in the release record's 9.0.41
-  section; its fix is a candidate for the next small App update under the owner's obvious-defect rule of 2026-11-09,
-  and the owner has been told and has not answered yet. A failing CI recovery spec holds the next App train even when
+  all at line 213. So the failure is inherited and depends on load. This entry first gave its cause as the tap's
+  native resume landing after the dialog's 1 s wait; that was inferred from the end state and one log line, with no
+  resume time measured. The 9.0.42 train's triage corrected it: in all 11 failures of 20 runs under the same load a
+  guest room PLAY failed while the return's recovery dialog was open (its resume still refused) and replaced that
+  dialog with the failed PLAY's, which has the same text; the tap then retried that PLAY (a retry publishes no
+  rejoin) or a newer room PLAY started the track first. The sound came back every time, and the tap's resume took
+  50 to 339 ms. It is an open item in the release record's 9.0.41 section; by the owner's decision of 2026-11-11,
+  App 9.0.42 makes the spec robust and also guards the unobserved late-resume case. A failing CI recovery spec holds the next App train even when
   inherited, so that train merges only after this record has merged and carries the fix or records the owner's other
   decision. The owner's device rows (D10 to D14) and the 7C-K8 scene on a phone wait; they are not a gate. The
   release record's §2 carries the train as post-deploy items, its §4 the 9.0.41 entry and current boundary line (5),

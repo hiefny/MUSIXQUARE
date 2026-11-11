@@ -711,7 +711,10 @@ function getChatDrawerLiveSafeTopInset(
   const travel = viewportHeight - halfHeight;
   if (travel <= 0) return 0;
   const progress = Math.min(1, Math.max(0, (height - halfHeight) / travel));
-  return safeTopInset * progress;
+  // The bottom-anchored sheet can stretch above the viewport during an upward
+  // pull. Let its background stretch while keeping the header below the safe edge.
+  const overshoot = Math.max(0, height - viewportHeight);
+  return safeTopInset * progress + overshoot;
 }
 
 function setChatDrawerLiveGeometry(

@@ -2846,7 +2846,9 @@ describe('optional account UI', () => {
     const deletePressRules =
       stylesheet.match(/^\s{2}\.dialog-secondary\.dialog-danger:active\s*\{([^}]*)\}/m)?.[1] ?? '';
 
-    expect(dialogRules).toContain('max-height: calc(100dvh - 48px)');
+    // The shared overlay owns the safe-area height bound; the browser geometry
+    // checks in e2e/safe-area-layout.test.ts verify the resulting visible edges.
+    expect(dialogRules).toContain('max-height: var(--dialog-available-height)');
     expect(dialogRules).toContain('transform: translateY(18px)');
     expect(dialogRules).not.toContain('scale(');
     expect(shownDialogRules).toContain('transform: translateY(0)');
@@ -2967,15 +2969,16 @@ describe('optional account UI', () => {
 
     // Both windows take the shared dialog overlay's centering.
     expect(overlayRules).toContain('align-items: center');
+    expect(overlayRules).toContain('--dialog-edge-gap: 24px');
     for (const id of ['account-dialog-overlay', 'administrator-permissions-overlay']) {
       expect(parsed.getElementById(id)?.classList.contains('dialog-overlay')).toBe(true);
     }
     // A landscape phone only tightens the spacing and caps the panel, so the
     // window stays centered instead of sticking to the top.
     expect(shortRules).toMatch(
-      /\.administrator-permissions-overlay \{\s*padding-block: 12px;\s*\}/,
+      /\.administrator-permissions-overlay \{\s*--dialog-edge-gap: 12px;\s*\}/,
     );
-    expect(shortRules).toContain('max-height: calc(100dvh - 24px)');
+    expect(shortRules).toContain('max-height: var(--dialog-available-height)');
     expect(shortRules).not.toContain('align-items');
   });
 

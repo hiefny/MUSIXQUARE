@@ -1451,6 +1451,79 @@ describe('Chat Module', () => {
       document.documentElement.style.removeProperty('--safe-top');
     });
 
+    it.each([
+      { name: 'portrait', width: 820, height: 1180, safeTop: 24 },
+      { name: 'landscape', width: 1180, height: 820, safeTop: 24 },
+      { name: 'without a top inset', width: 1180, height: 820, safeTop: 0 },
+    ])(
+      'keeps the full drawer content below the safe top during upward overshoot ($name)',
+      async ({ width, height, safeTop }) => {
+        renderChatShell();
+        vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(width);
+        vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(height);
+        document.documentElement.style.setProperty('--app-height', `${height}px`);
+        document.documentElement.style.setProperty('--safe-top', `${safeTop}px`);
+
+        const drawer = document.getElementById('chat-drawer') as HTMLElement;
+        drawer.getBoundingClientRect = vi.fn(() => {
+          const liveHeight = Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'));
+          const renderedHeight = Number.isFinite(liveHeight)
+            ? liveHeight
+            : height * (drawer.dataset.chatSnap === 'full' ? 1 : 0.5);
+          return new DOMRect(0, height - renderedHeight, width, renderedHeight);
+        });
+
+        const { initChat, toggleChatDrawer } = await import('../chat.ts');
+        initChat();
+        try {
+          toggleChatDrawer();
+          const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+          // Reach full through the handle, then test its elastic upward boundary.
+          header.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+          expect(drawer.dataset.chatSnap).toBe('full');
+          header.dispatchEvent(
+            new MouseEvent('mousedown', {
+              bubbles: true,
+              cancelable: true,
+              button: 0,
+              clientY: 300,
+            }),
+          );
+          window.dispatchEvent(
+            new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 0 }),
+          );
+
+          const liveHeight = Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'));
+          const livePadding = Number.parseFloat(
+            drawer.style.getPropertyValue('--chat-live-safe-top'),
+          );
+          expect(liveHeight - height).toBeGreaterThan(16);
+          // The rubber-band background may extend above the viewport; the header's
+          // content origin must stay at the safe edge, before its own inner padding.
+          expect(drawer.getBoundingClientRect().top + livePadding).toBeCloseTo(safeTop);
+
+          window.dispatchEvent(
+            new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: 0 }),
+          );
+          expect(drawer.dataset.chatSnap).toBe('full');
+          expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'))).toBe(
+            height,
+          );
+          expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-safe-top'))).toBe(
+            safeTop,
+          );
+          const settled = new Event('transitionend');
+          Object.defineProperty(settled, 'propertyName', { value: 'height' });
+          drawer.dispatchEvent(settled);
+          expect(drawer.style.getPropertyValue('--chat-live-safe-top')).toBe('');
+        } finally {
+          if (drawer.classList.contains('open')) toggleChatDrawer();
+          document.documentElement.style.removeProperty('--app-height');
+          document.documentElement.style.removeProperty('--safe-top');
+        }
+      },
+    );
+
     it('resolves an env safe-top token through a real padding property', async () => {
       renderChatShell();
       vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);

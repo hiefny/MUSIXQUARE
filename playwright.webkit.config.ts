@@ -28,6 +28,7 @@ export default defineConfig({
     'component-cascade.test.ts',
     'auxiliary-component-cascade.test.ts',
     'account-complete-fonts.test.ts',
+    'safe-area-layout.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

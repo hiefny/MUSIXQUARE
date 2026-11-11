@@ -83,13 +83,15 @@ beforeEach(() => {
   document.body.innerHTML = `
     <div id="toast"><span id="toast-msg"></span></div>
     <header id="main-header">
-      <span id="header-loading-text">
-        <span class="material-elastic-spinner header-loading-spinner" aria-hidden="true">
-          <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
-        </span>
-        <span class="header-loading-text-content"></span>
-      </span>
       <div id="header-progress-bg" style="transform: scaleX(0)"></div>
+      <div class="header-safe-content">
+        <span id="header-loading-text">
+          <span class="material-elastic-spinner header-loading-spinner" aria-hidden="true">
+            <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+          </span>
+          <span class="header-loading-text-content"></span>
+        </span>
+      </div>
     </header>
   `;
   initToast();
@@ -634,23 +636,34 @@ describe('header loader layout contract', () => {
 
     const baseStyles = stylesheet.slice(0, compactStart);
     const headerRules = baseStyles.match(/\n\s*header\s*\{([^}]*)\}/)?.[1] ?? '';
+    const safeContentRules = baseStyles.match(/\.header-safe-content\s*\{([^}]*)\}/)?.[1] ?? '';
     const baseLoaderRules = baseStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    // The fixed header includes the iOS status-bar inset in its total height,
-    // while its logo is centered only inside the content area below that inset.
-    // The loader must use that same vertical rail instead of centering across
-    // the status bar (which would move it up by half the safe-area height).
+    // The progress fill includes the status-bar area. Logo and loader share a
+    // clipped content boundary below it, including while their transforms run.
     expect(headerRules).toMatch(/height:\s*var\(--header-height\);/);
-    expect(headerRules).toMatch(/padding:\s*var\(--safe-top\)/);
-    expect(baseLoaderRules).toMatch(/top:\s*var\(--safe-top\);/);
-    expect(baseLoaderRules).toMatch(/height:\s*calc\(100% - var\(--safe-top\)\);/);
+    expect(headerRules).toMatch(/padding:\s*0;/);
+    expect(safeContentRules).toMatch(/position:\s*absolute;/);
+    expect(safeContentRules).toMatch(
+      /inset:\s*var\(--safe-top\) var\(--safe-physical-right\) 0 var\(--safe-physical-left\);/,
+    );
+    expect(safeContentRules).toMatch(/padding:\s*0 24px;/);
+    expect(safeContentRules).toMatch(/overflow:\s*hidden;/);
+    expect(baseLoaderRules).toMatch(/top:\s*0;/);
+    expect(baseLoaderRules).toMatch(/height:\s*100%;/);
   });
 
-  it('uses the whole header while preserving a single-line compact sidebar rail', async () => {
+  it('shares the safe content boundary while preserving a single-line compact sidebar rail', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const markup = await readFile('index.html', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
-    expect(parsed.getElementById('header-loading-text')?.parentElement?.id).toBe('main-header');
+    const header = parsed.getElementById('main-header');
+    const safeContent = header?.querySelector(':scope > .header-safe-content');
+    expect(safeContent).not.toBeNull();
+    expect(parsed.getElementById('header-progress-bg')?.parentElement).toBe(header);
+    expect(parsed.getElementById('header-loading-text')?.parentElement).toBe(safeContent);
+    expect(parsed.getElementById('app-logo')?.parentElement?.parentElement).toBe(safeContent);
+    expect(parsed.getElementById('role-badge')?.parentElement?.parentElement).toBe(safeContent);
     expect(
       parsed.querySelector('#header-loading-text > .header-loading-text-content')?.textContent,
     ).toBe('Loading...');
@@ -667,15 +680,21 @@ describe('header loader layout contract', () => {
     const compactStyles = compactRules.join('\n');
     const compactLoaderRules =
       compactStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
+    const compactSafeContentRules =
+      compactStyles.match(/\.header-safe-content\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(baseLoaderRules).toMatch(/left:\s*calc\(24px \+ var\(--safe-left\)\);/);
+    expect(baseLoaderRules).toMatch(/left:\s*24px;/);
     expect(baseLoaderRules).toMatch(
-      /right:\s*calc\(24px \+ var\(--safe-right\) \+ var\(--header-actions-inset, 0px\)\);/,
+      /right:\s*calc\(24px \+ var\(--header-actions-inset, 0px\)\);/,
     );
     expect(baseLoaderRules).toMatch(/width:\s*auto;/);
-    expect(compactLoaderRules).toMatch(/top:\s*calc\(10px \+ var\(--safe-top\)\)\s*;/);
+    expect(compactSafeContentRules).toMatch(
+      /inset:\s*var\(--safe-top\) var\(--safe-physical-right\) var\(--safe-bottom\) 0;/,
+    );
+    expect(compactSafeContentRules).toMatch(/padding:\s*29px 16px 16px;/);
+    expect(compactLoaderRules).toMatch(/top:\s*10px\s*;/);
     expect(compactLoaderRules).toMatch(/left:\s*29px\s*;/);
-    expect(compactLoaderRules).toMatch(/right:\s*calc\(16px \+ var\(--safe-right\)\)\s*;/);
+    expect(compactLoaderRules).toMatch(/right:\s*16px\s*;/);
     expect(compactLoaderRules).toMatch(/width:\s*auto\s*;/);
     expect(compactLoaderRules).toMatch(/height:\s*54px\s*;/);
     expect(compactLoaderRules).toMatch(/line-height:\s*18px;/);
@@ -683,8 +702,8 @@ describe('header loader layout contract', () => {
     expect(compactLoaderRules).toMatch(/overflow-wrap:\s*normal;/);
     // Unlike the portrait header, the compact header is the full-height
     // sidebar. A downward exit would therefore stay visible across its nav;
-    // moving through the sidebar's clipped top edge keeps the swap on the
-    // logo rail.
+    // moving through the safe content's clipped top edge keeps the swap on the
+    // logo rail without passing through the status-bar area.
     expect(compactStyles.match(/\n\s*header\s*\{([^}]*)\}/)?.[1] ?? '').toMatch(
       /overflow:\s*hidden\s*;/,
     );

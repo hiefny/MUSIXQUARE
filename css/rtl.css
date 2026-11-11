@@ -4,9 +4,15 @@
  * machine-readable values and physically meaningful audio diagrams LTR while
  * the surrounding application follows the document direction. */
 
+  :root[dir='rtl'],
+  html[dir='rtl'] body {
+    --safe-left: calc(env(safe-area-inset-right, 0px) * var(--desktop-layout-ratio, 1));
+    --safe-right: calc(env(safe-area-inset-left, 0px) * var(--desktop-layout-ratio, 1));
+  }
+
   :root[dir='rtl'] {
-    --safe-left: env(safe-area-inset-right, 0px);
-    --safe-right: env(safe-area-inset-left, 0px);
+    --safe-physical-left: env(safe-area-inset-left, 0px);
+    --safe-physical-right: env(safe-area-inset-right, 0px);
     --font-sans: var(--font-sans-arabic);
   }
 
@@ -162,5 +168,21 @@
       .chat-pinned-notice-text
     ) {
     text-align: start;
+  }
+}
+
+/* Explicit sides avoid the legacy CSS compiler expanding logical inset into
+ * :dir()/:is() selectors that older supported TV browsers cannot read. */
+@layer responsive {
+  html[dir='rtl'] .header-loading-text {
+    left: calc(24px + var(--header-actions-inset, 0px));
+    right: 24px;
+  }
+
+  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
+    html[dir='rtl'] .header-loading-text {
+      left: 16px;
+      right: 29px;
+    }
   }
 }

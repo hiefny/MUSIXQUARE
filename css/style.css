@@ -176,6 +176,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
+    /* Physical viewport edges stay fixed when inline spacing mirrors in RTL. */
+    --safe-physical-left: var(--safe-left);
+    --safe-physical-right: var(--safe-right);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
 
     --header-height: calc(60px + var(--safe-top));
@@ -790,7 +793,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* --- Header --- */
   header {
     height: var(--header-height);
-    padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
+    padding: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -922,6 +925,18 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       stroke-dasharray: 58 42;
       stroke-dashoffset: -18;
     }
+  }
+
+  /* The progress surface fills the screen edge; moving content is clipped to
+     the safe row. The same boundary owns the compact sidebar's content. */
+  .header-safe-content {
+    position: absolute;
+    inset: var(--safe-top) var(--safe-physical-right) 0 var(--safe-physical-left);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    overflow: hidden;
   }
 
   .header-content-wrapper {
@@ -1272,16 +1287,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Loading Text (Hidden by default, moves up from below) */
   .header-loading-text {
     position: absolute;
-    /* The header includes the iOS status-bar safe area, but its logo is
-       centered only inside the 60px content row below that inset. Keep the
-       loader on the same vertical axis while allowing it to use the full
-       horizontal header rail. */
-    top: var(--safe-top);
-    left: calc(24px + var(--safe-left));
+    /* The parent owns the safe inset for both the logo and status motion. */
+    top: 0;
+    left: 24px;
     /* The account pill stays in place while loading; JS publishes its width. */
-    right: calc(24px + var(--safe-right) + var(--header-actions-inset, 0px));
+    right: calc(24px + var(--header-actions-inset, 0px));
     width: auto;
-    height: calc(100% - var(--safe-top));
+    height: 100%;
     display: flex;
     align-items: center;
 
@@ -1407,6 +1419,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-height: 0;
     -webkit-overflow-scrolling: touch;
     display: none;
+    /* A pane is positioned before it is ever shown. The custom scrollbar
+       gives a static parent an inline `position: relative`, and it adopts
+       these panes while they are hidden; that inline style would then outrank
+       the compact layout's fixed pane below and leave its inset on a pane
+       that still fills the page. */
+    position: relative;
     flex-direction: column;
     overflow: hidden;
     overscroll-behavior-y: contain;
@@ -5073,12 +5091,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .dialog-overlay {
+    --dialog-edge-gap: 24px;
+    --dialog-available-height: calc(
+      var(--desktop-viewport-height, var(--app-height, 100dvh)) -
+        max(var(--dialog-edge-gap), var(--safe-top)) -
+        max(var(--dialog-edge-gap), var(--safe-bottom))
+    );
     position: fixed;
     inset: 0;
     display: none;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: max(var(--dialog-edge-gap), var(--safe-top)) max(24px, var(--safe-physical-right))
+      max(var(--dialog-edge-gap), var(--safe-bottom)) max(24px, var(--safe-physical-left));
     /* Match other overlays (sync/media/setup) for consistency */
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: none;
@@ -5116,8 +5141,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .dialog.account-dialog {
     position: relative;
-    max-height: calc(100vh - 48px);
-    max-height: calc(100dvh - 48px);
+    max-height: var(--dialog-available-height);
     display: flex;
     flex-direction: column;
     animation: none;
@@ -5158,8 +5182,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .dialog.administrator-permissions-dialog {
-    max-height: calc(100vh - 48px);
-    max-height: calc(100dvh - 48px);
+    max-height: var(--dialog-available-height);
     display: flex;
     flex-direction: column;
     animation: none;
@@ -5665,13 +5688,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   @media (max-height: 480px) {
     .account-dialog-overlay,
     .administrator-permissions-overlay {
-      padding-block: 12px;
+      --dialog-edge-gap: 12px;
     }
 
     .dialog.account-dialog,
     .dialog.administrator-permissions-dialog {
-      max-height: calc(100vh - 24px);
-      max-height: calc(100dvh - 24px);
+      max-height: var(--dialog-available-height);
     }
   }
 
@@ -6206,12 +6228,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      Both pages share it, so the title keeps its offset inside the panel. */
   @media (max-height: 480px) {
     #dialog-overlay.dialog-stepped {
-      padding-block: 12px;
+      --dialog-edge-gap: 12px;
     }
 
     #dialog-overlay.dialog-stepped .dialog {
-      max-height: calc(var(--app-height, 100vh) - 24px);
-      max-height: calc(100dvh - 24px);
+      max-height: var(--dialog-available-height);
     }
 
     #dialog-overlay.dialog-stepped .dialog-header {
@@ -10959,10 +10980,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: currentColor;
   }
 
+  .video-wrapper:fullscreen .fullscreen-btn,
+  .video-wrapper:-webkit-full-screen .fullscreen-btn {
+    bottom: calc(12px + var(--safe-bottom));
+    right: calc(12px + var(--safe-physical-right));
+  }
+
   .video-wrapper.fake-fullscreen .fullscreen-btn {
     z-index: 100001;
-    bottom: 24px;
-    right: 24px;
+    bottom: calc(24px + var(--safe-bottom));
+    right: calc(24px + var(--safe-physical-right));
   }
 }
 
@@ -12150,11 +12177,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding-bottom: 41px;
     }
   }
-  /* Compact sidebar geometry: 720–1279px wide, or wider but under 540px tall, with independent short-height variants. Navigation/overlay visibility is owned by states below. */
+  /* Compact sidebar geometry: 720–1279px wide, or wider but under 720px tall. */
   @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
     /* ── Sidebar (header) — right side ── */
     header {
-      width: calc(200px + var(--safe-right));
+      width: calc(200px + var(--safe-physical-right));
       height: var(--app-height, 100dvh);
       min-height: var(--app-height, 100dvh);
       right: 0;
@@ -12163,14 +12190,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       bottom: 0;
       flex-direction: column;
       justify-content: flex-start;
-      padding: 29px 16px 16px;
-      padding-inline-end: calc(16px + var(--safe-right));
+      padding: 0;
       border-inline-start: none;
       border-inline-end: none;
       background: var(--surface-1);
       z-index: 2501;
       border-bottom: none;
       overflow: hidden;
+    }
+
+    .header-safe-content {
+      inset: var(--safe-top) var(--safe-physical-right) var(--safe-bottom) 0;
+      padding: 29px 16px 16px;
+      flex-direction: column;
+      justify-content: flex-start;
     }
 
     /* Logo: compact, centered */
@@ -12209,9 +12242,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     .header-loading-text {
-      top: calc(10px + var(--safe-top));
+      top: 10px;
       left: 29px;
-      right: calc(16px + var(--safe-right));
+      right: 16px;
       width: auto;
       height: 54px;
       line-height: 18px;
@@ -12229,17 +12262,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --app-entrance-up-transform: translateY(-50%) translateX(30px);
       --app-entered-transform: translateY(-50%);
       position: fixed;
-      top: calc((45px + var(--app-height, 100dvh) - 54px) / 2);
+      top: calc(
+        (var(--safe-top) + 45px + var(--app-height, 100dvh) - var(--safe-bottom) - 54px) / 2
+      );
       transform: translateY(-50%);
       bottom: auto;
       left: auto;
       right: 0;
-      width: calc(200px + var(--safe-right));
+      width: calc(200px + var(--safe-physical-right));
       height: auto;
       flex-direction: column;
       justify-content: flex-start;
-      padding: 8px 12px 8px 20px;
-      padding-inline-end: calc(20px + var(--safe-right));
+      padding: 8px 20px;
+      padding-right: calc(20px + var(--safe-physical-right));
       background: transparent;
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
@@ -12291,14 +12326,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       overflow-y: auto;
       display: block;
       position: fixed;
-      top: 0;
+      /* Inset the scrollport, not its scrolling contents: every scroll
+         position and floating playlist action shares the safe boundary. */
+      top: var(--safe-top);
       left: 0;
-      width: calc(100% - (200px + var(--safe-right)));
-      height: var(--app-height, 100dvh);
+      width: calc(100% - (200px + var(--safe-physical-right)));
+      height: calc(var(--app-height, 100dvh) - var(--safe-top) - var(--safe-bottom));
       z-index: 90;
       background: var(--bg);
       padding: 16px 24px 8px 24px;
-      padding-inline-start: calc(24px + var(--safe-left));
+      padding-left: calc(24px + var(--safe-physical-left));
       box-sizing: border-box;
       border-radius: 0;
       -webkit-overflow-scrolling: touch;
@@ -12363,13 +12400,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .chat-drawer {
       --chat-drawer-default-snap-height: var(--app-height, 100dvh);
       left: 0;
-      width: calc(100% - (200px + var(--safe-right)));
+      width: calc(100% - (200px + var(--safe-physical-right)));
       height: var(--chat-live-height, var(--chat-snap-height));
       max-height: calc(var(--app-height, 100dvh) + 22px);
       min-height: 0;
       border-radius: 0;
       z-index: 3000;
-      padding-inline-start: var(--safe-left);
+      padding-left: var(--safe-physical-left);
+      padding-right: 0;
       bottom: 0;
     }
 
@@ -12404,11 +12442,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
        second time moves them left by exactly the 200px sidebar width. */
     body > .cscroll-track {
       left: auto;
-      right: calc(200px + var(--safe-right));
+      right: calc(200px + var(--safe-physical-right));
     }
 
     #youtube-url-overlay .setup-join-area > .cscroll-track {
-      right: calc(200px + var(--safe-right) + 56px);
+      right: calc(200px + var(--safe-physical-right) + 56px);
     }
 
     .language-list-frame > .cscroll-track {
@@ -12430,12 +12468,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     #media-source-overlay,
     #youtube-url-overlay {
       left: 0;
-      width: calc(100% - (200px + var(--safe-right)));
-      padding-inline-start: var(--safe-left);
+      top: var(--safe-top);
+      width: calc(100% - (200px + var(--safe-physical-right)));
+      padding-left: var(--safe-physical-left);
+      padding-right: 0;
       padding-top: 8px;
-      height: var(--app-height, 100dvh);
-      max-height: var(--app-height, 100dvh);
-      min-height: var(--app-height, 100dvh);
+      height: calc(var(--app-height, 100dvh) - var(--safe-top) - var(--safe-bottom));
+      max-height: calc(var(--app-height, 100dvh) - var(--safe-top) - var(--safe-bottom));
+      min-height: 0;
       overflow-y: hidden;
       background: var(--bg);
     }
@@ -12529,7 +12569,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       }
 
       html:not(.keyboard-open) .bottom-nav {
-        top: calc((var(--app-height, 100dvh) - 54px) / 2);
+        top: calc((var(--safe-top) + var(--app-height, 100dvh) - var(--safe-bottom) - 54px) / 2);
       }
     }
 
@@ -12554,9 +12594,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
         flex-direction: row;
         justify-content: space-evenly; /* Distribute icons across the sidebar width */
         padding: 0 8px;
-        padding-inline-end: calc(8px + var(--safe-right));
-        width: calc(200px + var(--safe-right));
-        top: calc((45px + var(--app-height, 100dvh) - 54px) / 2);
+        padding-right: calc(8px + var(--safe-physical-right));
+        width: calc(200px + var(--safe-physical-right));
+        top: calc((var(--safe-top) + 45px + var(--app-height, 100dvh) - var(--safe-bottom) - 54px) / 2);
         gap: 0;
         left: auto;
         right: 0;
@@ -12632,35 +12672,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       }
 
       html:not(.keyboard-open) .bottom-nav {
-        top: calc((var(--app-height, 100dvh) - 54px) / 2);
+        top: calc((var(--safe-top) + var(--app-height, 100dvh) - var(--safe-bottom) - 54px) / 2);
         /* JS publishes --app-height on the next animation frame after a
            resize. Modern dynamic viewport units cap that one-frame stale
            value immediately; older engines keep the compatible line above. */
-        top: calc((min(var(--app-height, 100vh), 100dvh) - 54px) / 2);
+        top: calc((var(--safe-top) + min(var(--app-height, 100vh), 100dvh) - var(--safe-bottom) - 54px) / 2);
       }
-    }
-  }
-  /* iPad standalone portrait uses the sidebar layout but still needs its real top safe-area inset. */
-  @media (min-width: 720px) and (max-width: 1279px) and (orientation: portrait) {
-    html.ios-standalone header {
-      padding-top: calc(29px + var(--safe-top));
-    }
-
-    html.ios-standalone .tab-content.active {
-      padding-top: calc(16px + var(--safe-top));
-    }
-
-    html.ios-standalone .chat-drawer[data-chat-snap='full'] {
-      padding-top: var(--safe-top);
-    }
-
-    html.ios-standalone #media-source-overlay,
-    html.ios-standalone #youtube-url-overlay {
-      padding-top: calc(8px + var(--safe-top));
-    }
-
-    html.ios-standalone #setup-overlay .desktop-step-header {
-      padding-top: calc(var(--setup-head-py) + var(--safe-top));
     }
   }
   @media (min-width: 720px) {
@@ -12693,6 +12710,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       align-items: flex-start;
       text-align: left;
       padding-inline-start: var(--safe-left);
+      padding-block: var(--safe-top) var(--safe-bottom);
       color: var(--text-main);
       position: relative;
       overflow: hidden;
@@ -12761,8 +12779,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       min-width: var(--setup-panel-w);
       background: var(--setup-panel-bg);
       height: 100%;
-      padding: 0;
-      overflow-y: auto;
+      padding-block: var(--safe-top) var(--safe-bottom);
+      padding-inline-start: 0;
+      padding-inline-end: var(--safe-right);
+      /* Each step already owns its scrolling body; keep the action rail and
+         the safe padding outside that scrollport. */
+      overflow: hidden;
       display: flex;
       flex-direction: column;
       justify-content: center;

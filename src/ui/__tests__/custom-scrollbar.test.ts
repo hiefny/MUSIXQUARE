@@ -1223,10 +1223,86 @@ describe('compact-landscape scrollbar ownership contract', () => {
     const compactStyles = compactRules.join('\n');
 
     expect(compactStyles).toMatch(
-      /body\s*>\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*;/s,
+      /body\s*>\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-physical-right\)\)\s*;/s,
     );
     expect(compactStyles).not.toMatch(
-      /(?:^|})\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*;/s,
+      /(?:^|})\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-(?:physical-)?right\)\)\s*;/s,
+    );
+  });
+
+  it('positions only a static parent, leaving one that its stylesheet positions alone', () => {
+    const sheet = document.createElement('style');
+    sheet.textContent = '.stylesheet-positioned { position: relative; }';
+    document.head.appendChild(sheet);
+    try {
+      const unpositioned = createScrollbox('static-parent');
+      const positioned = createScrollbox('stylesheet-positioned-parent');
+      const positionedParent = positioned.container.parentElement!;
+      positionedParent.className = 'stylesheet-positioned';
+
+      initCustomScrollbar(unpositioned.container);
+      initCustomScrollbar(positioned.container);
+
+      // The track is positioned against the parent, so a static one is pinned
+      // inline. That inline value then outranks every later stylesheet position.
+      expect(unpositioned.container.parentElement!.style.position).toBe('relative');
+      expect(positionedParent.style.position).toBe('');
+    } finally {
+      sheet.remove();
+    }
+  });
+
+  it('positions every tab pane in the stylesheet before the scrollbar adopts it', async () => {
+    const [markup, stylesheet] = await Promise.all([
+      readFile('index.html', 'utf8'),
+      readFile('css/style.css', 'utf8'),
+    ]);
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const panes = [...parsed.querySelectorAll<HTMLElement>('.tab-content')];
+    expect(panes.map((pane) => pane.id)).toEqual([
+      'tab-play',
+      'tab-playlist',
+      'tab-connect',
+      'tab-guide',
+      'tab-settings',
+    ]);
+    // Four panes are hidden when the scrollbar adopts their scroll bodies, so
+    // only a rule that does not depend on `.active` positions them by then.
+    expect(
+      panes.filter((pane) => pane.classList.contains('active')).map((pane) => pane.id),
+    ).toEqual(['tab-play']);
+    for (const pane of panes) {
+      expect(
+        pane.querySelector(':scope > .tab-body[data-custom-scroll]'),
+        `#${pane.id} scroll body`,
+      ).not.toBeNull();
+    }
+
+    const root = parseCss(stylesheet);
+    const basePositions: string[] = [];
+    root.walkAtRules('layer', (layer) => {
+      if (layer.params !== 'base') return;
+      layer.each((node) => {
+        if (node.type !== 'rule' || node.selector !== '.tab-content') return;
+        node.walkDecls('position', (declaration) => {
+          basePositions.push(declaration.value);
+        });
+      });
+    });
+    expect(basePositions).toEqual(['relative']);
+
+    // A pane pinned inline to `relative` would keep filling the page while the
+    // compact layout's safe-area inset moved it past the bottom edge.
+    const compactRules: string[] = [];
+    root.walkAtRules('media', (rule) => {
+      if (rule.params === COMPACT_LAYOUT_QUERY) compactRules.push(rule.toString());
+    });
+    const compactPane =
+      compactRules.join('\n').match(/\n\s*\.tab-content\.active\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(compactPane).toMatch(/position:\s*fixed;/);
+    expect(compactPane).toMatch(/top:\s*var\(--safe-top\);/);
+    expect(compactPane).toMatch(
+      /height:\s*calc\(var\(--app-height, 100dvh\) - var\(--safe-top\) - var\(--safe-bottom\)\);/,
     );
   });
 

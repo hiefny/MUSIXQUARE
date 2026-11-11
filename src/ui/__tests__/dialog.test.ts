@@ -1679,8 +1679,10 @@ describe('Dialog System', () => {
       );
       expect(start).toBeGreaterThan(-1);
       const media = STYLE_SOURCE.slice(start, STYLE_SOURCE.indexOf('\n  }\n', start));
-      expect(media).toMatch(/#dialog-overlay\.dialog-stepped \{\s*padding-block: 12px;/);
-      expect(media).toContain('max-height: calc(100dvh - 24px)');
+      // Keep the compact spacing request here; e2e/safe-area-layout.test.ts
+      // checks how the shared overlay's safe-area bound fits the actual viewport.
+      expect(media).toMatch(/#dialog-overlay\.dialog-stepped \{\s*--dialog-edge-gap: 12px;/);
+      expect(media).toContain('max-height: var(--dialog-available-height)');
       expect(media).toMatch(/\.dialog-choice-surface \{\s*padding-block: 11px;/);
       expect(media).toMatch(/\.dialog-actions > button \{\s*min-height: 48px;/);
     });

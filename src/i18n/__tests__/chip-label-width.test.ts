@@ -405,9 +405,11 @@ const LABEL_BOX_SOURCES: Readonly<Record<string, readonly BoxSource[]>> = {
     source('css/style.css', '.nav-item', null, { flex: '1', padding: '0' }),
     source('css/style.css', '.nav-item span', null, { 'font-size': '10px' }),
     source('css/style.css', '.bottom-nav', SIDE_RAIL, {
-      width: 'calc(200px + var(--safe-right))',
-      padding: '8px 12px 8px 20px',
-      'padding-inline-end': 'calc(20px + var(--safe-right))',
+      // The physical cutout enlarges the rail and its padding equally, so
+      // the 200 - 2 * 20 content width (and 108px label box) is unchanged.
+      width: 'calc(200px + var(--safe-physical-right))',
+      padding: '8px 20px',
+      'padding-right': 'calc(20px + var(--safe-physical-right))',
     }),
     source('css/style.css', '.bottom-nav button', SIDE_RAIL, { padding: '0 12px', gap: '10px' }),
     source('css/style.css', '.bottom-nav button svg', SIDE_RAIL, { width: '18px' }),

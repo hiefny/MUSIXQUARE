@@ -1419,6 +1419,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-height: 0;
     -webkit-overflow-scrolling: touch;
     display: none;
+    /* A pane is positioned before it is ever shown. The custom scrollbar
+       gives a static parent an inline `position: relative`, and it adopts
+       these panes while they are hidden; that inline style would then outrank
+       the compact layout's fixed pane below and leave its inset on a pane
+       that still fills the page. */
+    position: relative;
     flex-direction: column;
     overflow: hidden;
     overscroll-behavior-y: contain;

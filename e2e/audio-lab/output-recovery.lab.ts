@@ -397,6 +397,36 @@ test.describe('prepared dialog (playing round trip)', () => {
     expect(dialogMoves(returned)).toEqual(['dialog:shown', 'dialog:hidden']);
   });
 
+  test('(ii-b) a tap while the clock stays frozen: the owner parks the audio once more and the same dialog shows again, and its tap on a running clock rejoins once (App 9.0.42)', async ({
+    page,
+  }) => {
+    const before = await openPreparedDialog(page);
+    // The first tap wakes the context, but its clock is still frozen.
+    await page.locator(OK).click();
+    await expect.poll(async () => (await readLab(page)).dialogShows).toBe(2);
+    await page.waitForTimeout(500);
+    const asked = await readLab(page);
+    await unfreeze(page);
+    await page.locator(OK).click();
+    await expect(page.locator(DIALOG)).toHaveCount(0);
+    await page.waitForTimeout(2_000);
+    const lab = await readLab(page);
+    report('(ii-b)', lab, before);
+
+    // Before App 9.0.42 the first tap ended there (its clock check was
+    // rejected): no dialog and no sound until the page was hidden and shown.
+    expect(asked.needed).toEqual([BACKGROUND, BACKGROUND]);
+    expect(asked.state).toBe('suspended');
+    expect(asked.rejoins).toEqual([]);
+    expect(countOps(opsFrom(asked.ops, 'freeze'), ' suspend:')).toBe(2);
+    expect(lab.dialogShows).toBe(2);
+    expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
+    expect(lab.rejoins).toEqual(['audio-context-recovered']);
+    expect(lab.state).toBe('running');
+    expect(lab.starts - before).toBe(1);
+    expect(await readState(page, 'playback.activity')).toBe('playing');
+  });
+
   test("(iii) a seek while the return check parks the audio: one suspend, one dialog request, the seek's, and its tap plays from the moved position", async ({
     page,
   }) => {

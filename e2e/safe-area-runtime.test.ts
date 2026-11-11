@@ -50,10 +50,53 @@ const samples: Sample[] = [
   },
 ];
 const TABS = ['play', 'playlist', 'connect', 'settings', 'guide'] as const;
+const PLAY_LAST_ROW_ACTIONS = ['btn-sync', 'btn-media-source'] as const;
 const TOLERANCE_PX = 1;
 
 function none(): Insets {
   return { top: 0, right: 0, bottom: 0, left: 0 };
+}
+
+// The list panes end at the home indicator, so no scroll position paints into
+// it. The Play pane is a composed screen: cut there, its last row of actions
+// showed three quarters of a button on a 1024x768 tablet. Its scrollport
+// reaches the bottom edge of the screen instead.
+function paneBottom(tab: (typeof TABS)[number], sample: Sample): number {
+  return tab === 'play' ? sample.height : sample.height - sample.insets.bottom;
+}
+
+async function expectPlayPaneShowsItsLastRow(
+  page: Page,
+  sample: Sample,
+  label: string,
+): Promise<void> {
+  for (const id of PLAY_LAST_ROW_ACTIONS) {
+    const action = page.locator(`#${id}`);
+    await expect(action, `${label} #${id}`).toBeVisible();
+    const box = (await action.boundingBox())!;
+    // Below the fold the row is reached by scrolling; on the screen it must
+    // be painted down to its own bottom edge, not cut by the pane.
+    if (box.y + box.height > sample.height) continue;
+    const painted = await action.evaluate(
+      (node, point) => {
+        const hit = document.elementFromPoint(point.x, point.y);
+        return hit !== null && node.contains(hit);
+      },
+      { x: box.x + box.width / 2, y: box.y + box.height - 2 },
+    );
+    expect(painted, `${label} #${id} is painted down to its bottom edge`).toBe(true);
+  }
+  // The pane's end padding grows by the bottom inset, so the end of the
+  // scroll still lifts the content clear of the home indicator.
+  const contentEnd = await page.locator('#tab-play').evaluate((pane) => {
+    pane.scrollTop = pane.scrollHeight;
+    const end = pane.querySelector('.tab-body')!.getBoundingClientRect().bottom;
+    pane.scrollTop = 0;
+    return end;
+  });
+  expect(contentEnd, `${label} end of the scroll clears the bottom inset`).toBeLessThanOrEqual(
+    sample.height - sample.insets.bottom + TOLERANCE_PX,
+  );
 }
 
 async function startRoom(page: Page, sample: Sample): Promise<void> {
@@ -87,9 +130,7 @@ test.describe('compact tab panes in a running room', () => {
   );
 
   for (const sample of samples) {
-    test(`every tab pane fills the safe content box beside the sidebar (${sample.name})`, async ({
-      page,
-    }) => {
+    test(`every tab pane keeps its box beside the sidebar (${sample.name})`, async ({ page }) => {
       await startRoom(page, sample);
       const direction = await page.evaluate(() => document.documentElement.dir || 'ltr');
       expect(direction).toBe(sample.locale ? 'rtl' : 'ltr');
@@ -108,9 +149,10 @@ test.describe('compact tab panes in a running room', () => {
           TOLERANCE_PX,
         );
         expect(
-          Math.abs(box.y + box.height - (sample.height - sample.insets.bottom)),
+          Math.abs(box.y + box.height - paneBottom(tab, sample)),
           `${label} bottom`,
         ).toBeLessThanOrEqual(TOLERANCE_PX);
+        if (tab === 'play') await expectPlayPaneShowsItsLastRow(page, sample, label);
         expect(Math.abs(box.x), `${label} left`).toBeLessThanOrEqual(TOLERANCE_PX);
         expect(Math.abs(box.x + box.width - sidebar.x), `${label} right`).toBeLessThanOrEqual(
           TOLERANCE_PX,

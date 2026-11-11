@@ -343,6 +343,39 @@ for (const sample of cases) {
   });
 }
 
+// In the sidebar layout the list panes end at the home indicator (rows above),
+// but the Play pane is a composed screen: its scrollport reaches the bottom
+// edge of the screen so the last row of actions is not cut there, and its end
+// padding grows by the same inset so the end of the scroll still clears it.
+for (const sample of cases.filter((sample) =>
+  [
+    'compact iPad landscape',
+    'compact iPad portrait',
+    'phone landscape',
+    'compact zero-inset baseline',
+  ].includes(sample.name),
+)) {
+  test(`lets the sidebar-layout Play pane reach the bottom edge (${sample.name})`, async ({
+    page,
+  }) => {
+    await mount(page, sample);
+    await activateTab(page, 'play');
+    const play = page.locator('#tab-play');
+    const playBox = (await play.boundingBox())!;
+    expect(playBox.y).toBeCloseTo(sample.insets.top, 0);
+    expect(playBox.y + playBox.height).toBeCloseTo(sample.height, 0);
+    const endPadding = await play.evaluate((pane) =>
+      Number.parseFloat(getComputedStyle(pane).paddingBottom),
+    );
+    expect(endPadding).toBeCloseTo(8 + sample.insets.bottom, 0);
+
+    await activateTab(page, 'settings');
+    const listBox = (await page.locator('#tab-settings').boundingBox())!;
+    expect(listBox.y).toBeCloseTo(sample.insets.top, 0);
+    expect(listBox.y + listBox.height).toBeCloseTo(sample.height - sample.insets.bottom, 0);
+  });
+}
+
 const veryShortCases: ViewportCase[] = [
   {
     name: 'super-compact RTL with a right-only cutout',

@@ -157,11 +157,14 @@ runbooks. Neither belongs in a general setup document.
   service worker test, and the large-room R2 smoke passed), and the rerun of the failed job passed (`e2e` 970
   passed). Triage on a work computer ran that one row twenty times per SHA: with the machine idle, 20 of 20 on
   `91f6bb0c` and on the pre-merge main `f11a5cba`; with every CPU thread kept busy, 12 passed and 8 failed on each,
-  all at line 213. So the failure is inherited and depends on load: when the tap's native resume lands after the
-  dialog's 1 s wait, the output plays without a rejoin and without a new dialog, and that device can stay out of step
-  with the room (not confirmed on a phone or in WebKit). It is a new open item in the release record's 9.0.41
-  section; its fix is a candidate for the next small App update under the owner's obvious-defect rule of 2026-11-09,
-  and the owner has been told and has not answered yet. A failing CI recovery spec holds the next App train even when
+  all at line 213. So the failure is inherited and depends on load. This entry first gave its cause as the tap's
+  native resume landing after the dialog's 1 s wait; that was inferred from the end state and one log line, with no
+  resume time measured. The 9.0.42 train's triage corrected it: in all 11 failures of 20 runs under the same load a
+  guest room PLAY failed while the return's recovery dialog was open (its resume still refused) and replaced that
+  dialog with the failed PLAY's, which has the same text; the tap then retried that PLAY (a retry publishes no
+  rejoin) or a newer room PLAY started the track first. The sound came back every time, and the tap's resume took
+  50 to 339 ms. It is an open item in the release record's 9.0.41 section; by the owner's decision of 2026-11-11,
+  App 9.0.42 makes the spec robust and also guards the unobserved late-resume case. A failing CI recovery spec holds the next App train even when
   inherited, so that train merges only after this record has merged and carries the fix or records the owner's other
   decision. The owner's device rows (D10 to D14) and the 7C-K8 scene on a phone wait; they are not a gate. The
   release record's §2 carries the train as post-deploy items, its §4 the 9.0.41 entry and current boundary line (5),

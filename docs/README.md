@@ -96,6 +96,19 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Audio recovery owner names: an increment for the next App train (2026-11-11)](design/audio-recovery-names-2026-11-11.md):
+  prepared as a draft PR, not merged or released, and with no version bump on purpose: by the owner's decision of
+  2026-11-11 it is not shipped alone and rides the next App update, whose train puts these commits before its own
+  bump and takes this report as that increment's section. Names only, in the AudioContext recovery's one owner
+  `src/audio/context-recovery.ts`: 50 of its 139 top-level names say play request and playback scope instead of the
+  two former machines' words (the 61-character `getPendingForegroundAudioContextRestartClockHealthRequirement` is
+  `getPlayRequestClockRequirement`), three names are merged into their one caller, and the play-request attempt's
+  token keeps one name on the in-process `audio:output-recovery-needed` event outside the owner (four names, their
+  own commit). The report holds the old name to new name table for the dated Phase 7 reports, why the 61-character
+  function could not be merged and why the test seam keeps its seven members, and the evidence that only names
+  changed: the whole unit suite test by test (18,843, none added, removed or changed), the audio recovery specs and
+  the audio lab row for row, a bundle 149 B smaller, and a reverse map that leaves only the three merges. On main
+  `c4a3d6f0`, after 9.0.43.
 - [App 9.0.43 / v818 train: PWA safe-area layout consistency (2026-11-11)](design/safe-area-layout-consistency-2026-11-11.md):
   released on 2026-11-11 15:16 KST in Release 42971061565 (PR #583, squash `3b8ec6e3`) as App 9.0.43 / v818 (App build
   818, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

@@ -96,6 +96,23 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.42 / v815 train: the audio recovery's obvious defects fixed (2026-11-11)](design/app-9-0-42-train-2026-11-11.md):
+  prepared, not merged or released. A small App update after Phase 7 7C (9.0.41 / v814) by the owner's decisions of
+  2026-11-09, 2026-11-10 and 2026-11-11, on main `7c9e4c1f` (whose App runtime equals 9.0.41's `91f6bb0c`). Four
+  intended increments, each with its failing test first, a before/after table, its own section and a revert note,
+  all in the one recovery owner `src/audio/context-recovery.ts`: a local file's clock-stall attempt whose own tap
+  finds the clock still frozen is parked once more so the same dialog asks for one more tap (found item 1 of 7C); the
+  restore tap retires a waiting non-file attempt first so it always realigns (found items 2 and 3, the Known gap 6
+  edge 7C-K8 left); a stalled attempt parked already is not notified again, so the return's dialog no longer closes
+  and reopens in Chromium (Known gap 3); and the dialog's ordinary branch waits up to its 5 s limit for its own
+  resume still in flight after the 1 s wait, then realigns once with no new dialog (a guard for a case no device or
+  browser run has shown, by the owner's choice). The CI recovery spec `e2e/demo-output-recovery.test.ts:191`, which
+  failed in 9.0.41's post-merge Full E2E, is made robust: its triage found a guest room PLAY failing while the
+  return's dialog was open and replacing it with the failed PLAY's dialog of the same text (11 of 20 runs under full
+  CPU load; the tap's resume took 50 to 339 ms), which corrects the cause the 9.0.41 record had inferred. The
+  lock-screen pause-and-play case and Known gap 6 are recorded only, and two tooling test rows get more time. Eager
+  JavaScript grows by 45 B gzip (Phase 7 net 1,143 B of its 1,200 B limit); target `app`, one update dialog, floor
+  795 unchanged.
 - [Phase 7 train 7C: the AudioContext recovery behind one owner, and one restore tap that realigns the room (App 9.0.41 / v814, 2026-11-10)](design/phase7-7c-audio-recovery-owner-2026-11-10.md):
   released on 2026-11-11 01:14 KST in Release 42852117870 (PR #579, squash `91f6bb0c`) as App 9.0.41 / v814 (App
   build 814, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App

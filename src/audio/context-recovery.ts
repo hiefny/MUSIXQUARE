@@ -2409,9 +2409,10 @@ function recoverUnownedContextFromGesture(
       return { running: false, rejoinEmitted: false };
     });
   let flightSettled = false;
-  void flight.then(() => {
+  const markFlightSettled = (): void => {
     flightSettled = true;
-  });
+  };
+  flight.then(markFlightSettled, markFlightSettled);
   return {
     finish: async () => {
       let resumed = await waitForGestureFlight(flight);

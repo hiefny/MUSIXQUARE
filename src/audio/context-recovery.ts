@@ -2142,11 +2142,6 @@ interface AudioOutputGestureCaller {
   readonly unhealthy: (health: AudioContextHealth) => void;
 }
 
-/** The ordinary branch's caller: a failed PLAY's retry cancels a pending attempt first. */
-interface UnownedGestureCaller extends AudioOutputGestureCaller {
-  readonly cancelPendingInterruption: boolean;
-}
-
 /** A tap's resume, as the dialog's 1 s wait answers it. */
 interface GestureFlightResult {
   readonly running: boolean;
@@ -2366,32 +2361,35 @@ async function finishPendingInterruptionForDialog(
 }
 
 /**
- * A failed PLAY's retry cancels a pending attempt before its tap's resume,
- * so nothing can commit that attempt, publish its rejoin and also
- * retry.
+ * The ordinary branch's tap cancels a pending attempt that accepts the
+ * gesture before its resume, so nothing can commit that attempt, publish
+ * its rejoin, park the context again under the dialog's clock check or wait
+ * on for a later gesture, and the dialog's own retry or rejoin follows.
  */
-function cancelPendingInterruptionForRetry(): void {
+function cancelPendingInterruptionForTap(): void {
   const attemptToken = getPendingAudioContextInterruptionAttempt();
   if (attemptToken) retireAudioContextRecoveryAttempt(attemptToken);
 }
 
 /**
  * The ordinary branch: no owner attempt to resume, so the tap restarts the
- * shared context itself (created if absent), the dialog's own resume. A
- * failed PLAY's retry first cancels a pending playback-scope attempt, so the
- * exact failed PLAY owns the gesture, its clock check and its continuation.
- * The branch carries no attempt (Phase 7 7C-K8): a restore takes it only
- * while no file attempt is pending, and an attempt for other playback is
- * never current while the file's dialog is, so its owner retires it (a
- * restore carried it until then and stopped, Known gap C1-I6). After the
- * dialog closed: the 1 s wait, which only this resume can lose; then the
- * clock probe, and a frozen clock prepares a play-request restart for a new
- * tap.
+ * shared context itself (created if absent), the dialog's own resume. It
+ * first cancels a pending playback-scope attempt: for a failed PLAY's retry,
+ * so the exact failed PLAY owns the gesture, its clock check and its
+ * continuation; for a restore, which takes this branch only while no file
+ * attempt is pending, the attempt for other playback (a YouTube one after
+ * the room switched to a file), so it can neither park the context again
+ * under the clock check nor wait on, and the restore always realigns (App
+ * 9.0.42, the owner's decision of 2026-11-10; until then the owner's
+ * identity check retired it once it saw the context run, Phase 7 7C-K8).
+ * The branch carries no attempt. After the dialog closed: the 1 s wait,
+ * which only this resume can lose; then the clock probe, and a frozen clock
+ * prepares a play-request restart for a new tap.
  */
 function recoverUnownedContextFromGesture(
-  caller: UnownedGestureCaller,
+  caller: AudioOutputGestureCaller,
 ): AudioOutputGestureRecovery {
-  if (caller.cancelPendingInterruption) cancelPendingInterruptionForRetry();
+  cancelPendingInterruptionForTap();
   countAudioRecovery(RESUME_DIALOG);
   const flight = restartAudioContextFromGesture()
     .then((): GestureFlightResult => ({ running: true, rejoinEmitted: false }))
@@ -2443,10 +2441,7 @@ export function beginAudioOutputGestureRecovery(
     const attemptToken = getPendingAudioContextInterruptionAttempt();
     return attemptToken ? recoverPendingInterruptionFromGesture(attemptToken, caller) : null;
   }
-  return recoverUnownedContextFromGesture({
-    ...caller,
-    cancelPendingInterruption: selector.intent === 'retry-failed-play',
-  });
+  return recoverUnownedContextFromGesture(caller);
 }
 
 // ── A local-file PLAY's foreground clock check (transport; RO-01, Phase 7 7C-3) ──

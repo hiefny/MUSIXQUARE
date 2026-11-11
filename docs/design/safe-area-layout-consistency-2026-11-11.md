@@ -2,14 +2,14 @@
 
 | Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | 배포 전: 미병합·미배포. PR [#583](https://github.com/hiefny/MUSIXQUARE/pull/583)(갈래 `agent/safe-area-layout-consistency`)의 검토가 끝났고 최종 관문이 통과했다(§11.3). 배포 뒤의 상태는 기록 PR이 적는다                                                                                                                                                                                                                                                        |
+| Status             | 배포됨: App 9.0.43 / v818(업데이트 창 한 번, target `app`)로 2026-11-11 15:16 KST에 나갔다([Release 42971061565](https://github.com/hiefny/MUSIXQUARE/actions/runs/42971061565), PR [#583](https://github.com/hiefny/MUSIXQUARE/pull/583) squash `3b8ec6e3`, App `45dade96` → `ce3d671f`, §11.4). 오너가 2026-11-11에 배포를 모두 허가해 자동 관문이 통과하자 바로 dispatch했다. 이 열차는 혼자 나갔다(§1)                                                        |
 | Base               | main `2d95d49e`(#582, App 9.0.42 / v815의 배포 기록, 문서만). App 런타임은 운영 9.0.42의 머지 `808d0d9d`(#581)와 같다(`git diff 808d0d9d 2d95d49e`는 `docs/`뿐). 갈래는 `808d0d9d` 위에서 시작해 `2d95d49e`를 병합했다(`9b42be85`, 충돌은 `docs/release-record.md`뿐)                                                                                                                                                                                             |
 | Version            | 9.0.43 / v818(App 빌드 818), 운영 9.0.42 / v815 다음 App 패치. epoch v816과 v817은 이 갈래 안에서만 쓰였고 배포된 적이 없다(런타임 커밋마다 epoch를 올려야 해 갈래가 세 번 올림, §13). 마지막 런타임 커밋은 v818로 올린 `435babeb`이고 그 뒤는 시험과 문서뿐이다                                                                                                                                                                                                  |
 | Scope              | 의도한 변경 둘, 둘 다 [화면 바뀜]. (1) 안전 영역 일관화(§3): 헤더와 로딩 문구, 태블릿 사이드바와 본문, 데스크톱 확대와 오른쪽에서 왼쪽 언어, 시작 화면·설정·대화상자, 채팅과 영상 조작부. (2) 검토에서 찾은 결함 고침(§4): 사이드바 배치에서 재생 탭이 아닌 네 탭의 영역이 화면 밖으로 밀리던 것. 런타임 파일은 `css/style.css`, `css/desktop.css`, `css/rtl.css`, `index.html`, `src/ui/chat.ts`와 버전 거울이다                                                 |
 | Deploy target      | `app`. 운영 배포 SHA(App `808d0d9d`, PRO room `683074bc`, 다른 넷 `71f5b96c`)와 견준 런타임 경로 변경은 App 8(`css/style.css`, `css/desktop.css`, `css/rtl.css`, `index.html`, `src/ui/chat.ts`, 버전 거울 `browser/classic-runtime/admin.ts`, `cloudflare/app-worker.ts`, `scripts/service-worker-asset.ts`), 나머지 다섯 Worker 0, App 런타임 의존성 차이 없음이다(로컬 `changedRuntimePaths`, `runtimePathsForWorker`, `changedAppRuntimeDependencies`, §11.3) |
-| Operations         | 로컬 git, 로컬 단위 시험, 로컬 빌드, 로컬 Playwright(E2E 미리보기와 로컬 PeerJS, 운영 빌드 미리보기)뿐이다. 배포, 운영 요청, 운영 방 만들기, 운영 PRO 시험, 비밀값 입력은 이 보고서의 만들기와 관문에 없다                                                                                                                                                                                                                                                        |
+| Operations         | 로컬 git, 로컬 단위 시험, 로컬 빌드, 로컬 Playwright(E2E 미리보기와 로컬 PeerJS, 운영 빌드 미리보기)뿐이다. 배포, 운영 요청, 운영 방 만들기, 운영 PRO 시험, 비밀값 입력은 이 보고서의 만들기와 관문에 없다(릴리스 라운드의 배포와 공개 읽기는 §11.4)                                                                                                                                                                                                              |
 | Resource ownership | 새 레코드 없음. 복구, 재시도, 시간 한도, 감시, 수명 흐름을 더하거나 바꾸지 않는다. `src/ui/chat.ts`의 변경은 이미 있는 끌기 좌표 계산의 한 줄이고, 앱 높이·로딩·채팅 서랍의 주인은 그대로다                                                                                                                                                                                                                                                                       |
-| Release record     | §2 맨 위의 'PR 검토 대기' 절을 이 열차의 '배포 전' 절로 바꿨다. §1, `Last source review`, `release-history.md`, 다른 항목의 다음 되돌리기 번호는 배포 기록 PR의 몫이다                                                                                                                                                                                                                                                                                            |
+| Release record     | 열차 PR이 §2 맨 위에 '배포 전' 절을 뒀고, 배포 기록 PR이 §1과 `Last source review`를 덮어쓰고 그 절을 '배포 뒤 확인'으로 바꾸고 §4에 릴리스 항목을 더하고 `release-history.md`에 한 행을 더하고 다른 항목의 다음 되돌리기 번호를 9.0.44 / v819로 옮겼다                                                                                                                                                                                                           |
 | Owner question     | 없음. 검토에서 디자인 판단이 갈린다고 본 것(§3.5)은 게이트가 아니며 배포 보고와 함께 오너에게 알린다                                                                                                                                                                                                                                                                                                                                                              |
 
 이 문서는 App 9.0.43 열차의 범위, 사용자에게 바뀌는 것, 검토에서 찾아 고친 결함, 전후 비교, 첫 로딩 크기, 되돌리기, QA 라운드를 적는다.
@@ -25,8 +25,12 @@
 - **2026-11-11, 안전 영역 일관화:** iPad PWA의 가로 화면에서 로고와 영상이 상태 표시줄과 겹치는 것을 바탕으로, 앱 전체의 안전 영역을 일관되게
   고친다. 사이드바 배치의 로딩 문구는 위에서 내려오고 휴대폰 배치의 위 헤더에서는 아래에서 올라오는 지금의 방향과 1초 전환을 지킨다. 방향은 기기의
   회전이 아니라 이미 있는 반응형 배치를 따른다. 처음에는 검증과 PR까지만 맡겼다.
-- **2026-11-11, 검토와 병합:** 같은 날 오너가 이 PR을 검토해 빠진 것을 채우고 병합과 배포까지 하도록 맡겼다. 이 PR 혼자 한 열차로 내고, 뒤에 줄 선
-  정리 작업은 싣지 않는다.
+- **2026-11-11, 검토와 병합:** 같은 날 오너가 이 PR을 검토해 빠진 것을 채우고 병합하도록 맡겼다. 배포는 아래 배포 허가대로 자동 관문이 통과하자
+  냈다.
+- **2026-11-11, 다른 변경과 한 번에 내기(배포 뒤에 닿음):** 오너는 같은 날 이 변경을 뒤에 줄 선 이름 정리(소리 복구 주인 파일, 보이는 변화
+  없음)와 한 번의 업데이트로 내자고 했다(릴리스 담당이 전달받은 바). 그 말은 dispatch(15:14 KST) 뒤에 릴리스 담당에게 닿았다. 그래서 이 열차는
+  혼자 나갔고, 이름 정리는 이 열차에 들어 있지 않다. 오너는 배포 뒤 그것을 혼자 내지 않고 다음 App 업데이트에 얹기로 했다(릴리스 담당이
+  전달받은 바).
 - **2026-11-11, 배포 허가(9.0.42 열차 때의 결정):** 배포는 모두 허가했다. 자동 관문(PR 검사, 자동 코드 리뷰, 병합, exact-main CI, 최소 앱 빌드
   확인)이 통과하면 업데이트 창이 뜨는 열차도 따로 묻지 않고 dispatch한다. 기기 확인은 게이트가 아니다.
 
@@ -270,13 +274,38 @@ PR을 만든 쪽이 적은 라운드다. 이 검토는 그 결과를 다시 돌�
   14:44:14 KST) 11 jobs 모두 success. 문서 커밋을 더한 머리의 PR CI와 자동 코드 리뷰는 릴리스 라운드가 적는다.
 - 돌리지 않은 것: 전체 E2E(머지 뒤 Full E2E의 몫), 단위 전체 두 번째.
 
+### 11.4 머지 뒤 릴리스 라운드 (2026-11-11)
+
+- **PR과 머지:** 문서 커밋을 더한 머리 `ada83a97`을 14:52 KST에 올렸다. 그 head의 PR CI [42968619407](https://github.com/hiefny/MUSIXQUARE/actions/runs/42968619407)(14:52:56 KST 생성,
+  15:03:43 KST에 끝남)은 11 jobs 모두 success였고, 요청한 자동 코드 리뷰가 그 head에서 지적 없이 끝났다(14:55 KST). 15:03:59 KST에 열차 요약
+  본문으로 squash 머지했다(`3b8ec6e3`, 부모 `2d95d49e`, 머지 트리가 head의 트리와 같음).
+- **exact-main CI:** [42969823538](https://github.com/hiefny/MUSIXQUARE/actions/runs/42969823538)(push, attempt 1, 15:04:02 KST 생성, job 15:04:04 ~ 15:14:16 KST) 11 jobs 모두 success.
+  Production release candidate의 로그: 'MUSIXQUARE 9.0.43; service-worker cache epoch v818', 'PASS: v818 (3b8ec6e3) covers all committed PWA runtime
+  changes.', 첫 로딩 예산 통과(eager JS 456.8 KiB gzip, eager total 2011.2 KiB raw / 534.1 KiB gzip), 후보 artifact 13832412819. Critical browser
+  gate의 로그: 운영 후보 smoke 19 / 19, critical 경로 101 / 101.
+- **배포:** 공개 최소 빌드 상태(저장·유효 795, live App 815, 새 보고)를 읽은 뒤 [Release 42971061565](https://github.com/hiefny/MUSIXQUARE/actions/runs/42971061565)(workflow_dispatch, 15:14:43
+  KST 생성, target `app`, Developer API D1 false, `raise_app_build_floor` false, attempt 1)을 dispatch했다. Validate 15:14:47 ~ 15:14:59, Deploy
+  15:15:03 ~ 15:16:48 KST, success. 릴리스 파일 932개와 후보 digest 확인, checkpoint artifact 13833173702(9.0.42의 App `45dade96` 보존), App
+  `45dade96` → `ce3d671f`(15:16:30 KST, 올린 크기 987.34 / gzip 201.74 KiB, startup 3 ms), 커밋 표지 artifact 13832459249. smoke 넷이 첫 시도에
+  통과했다: App generation(`main-DhXVBCbl.js` 860,122 B, 22 assets, §11.3의 진입과 같음), 익명 경계와 최소 빌드 읽기(strict 795, SEO 페이지 7), PRO
+  공개 경계(R4 `e7657f88`), Standard HTTPS signaling(빌드 818, `bridgeOpenMs` 방장 613ms·게스트 324ms).
+- **공개 읽기(15:17 KST):** 최소 빌드 상태 `liveAppBuild`와 `reportedLiveAppBuild` 818, 저장·유효 795, state `valid`. `/`가
+  `bootstrap.js?cache=v818`, `/service-worker.js`가 `CACHE_VERSION = "v818"`.
+- **브라우저(15:29 KST쯤, 데스크톱 Chromium 800x600):** 운영 시작 화면이 `bootstrap.js?cache=v818`로 뜨고 콘솔 오류가 없으며 헤더의 안전 경계가
+  있고 다섯 탭 영역에 인라인 `position`이 없었다. 방은 만들지 않았고 업데이트 창은 보지 않았다. 기기 확인은 하지 않았다.
+- **Operations Drift Audit:** [42971415958](https://github.com/hiefny/MUSIXQUARE/actions/runs/42971415958)(15:17:42 ~ 15:18:16 KST) success, automated-checks-passed, 32 pass / 0 fail / 5
+  manual-only, 'Stored floor 795 (enforced 795) is within the live App build 818 reported 23 s ago.'
+- **머지 뒤 Full E2E:** [42971412278](https://github.com/hiefny/MUSIXQUARE/actions/runs/42971412278)(workflow_dispatch, main `3b8ec6e3`, 15:17:40 KST 생성) attempt 1 success(16:34:57 KST에 끝남): `e2e`(Linux Chromium, 15:17:43 ~ 16:34:56 KST) 1026 passed(1.3 h), 그 가운데 이 열차의 fixture 명세 `e2e/safe-area-layout.test.ts` 50행(756 ~ 805번째)과 실제 방 명세 `e2e/safe-area-runtime.test.ts` 6행(806 ~ 811번째) 통과. `webkit-mobile`(15:17:45 ~ 15:25:19 KST) 161 passed·5 skipped(fixture 명세 50행 포함, 실제 방 명세는 Chromium의 DevTools 안전 영역 흉내를 써서 이 레인에 없음)와 운영 빌드 SW 시험 1 passed, 운영 large-room R2 smoke(15:17:43 ~ 15:19:00 KST) 1 passed. 로그에 실패, 불안정, 재시도 줄이 없다. `e2e` 1026행은 9.0.42의 실행 970행에 이 열차의 두 명세 56행을 더한 수다. 이 실행은 exact-main 후보가 아니다(후보는 exact-main CI 42969823538).
+
 ## 12. 하지 않은 것과 확인하지 않은 것
 
 - 실기기(iPad, iPhone, Android)에서 보지 않았다. 안전 영역은 fixture의 주입값과 Chromium의 DevTools 흉내다. 실제 `env()` 값, 회전하는 동안의 배치,
   화면 키보드, 브라우저 자체 전체 화면(`:fullscreen`), iOS의 상태 표시줄 모양은 확인하지 못했다.
 - WebKit에서는 fixture 명세와 저장소의 WebKit 레인만 돌았다. 실제 방의 새 명세는 DevTools 명령을 써서 Chromium에서만 돈다.
 - 섞인 버전의 방은 따로 시험하지 않았다(§7).
-- 배포 뒤 브라우저와 기기 확인은 기록 PR이 적는다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
+- 배포 뒤 브라우저 확인은 데스크톱 Chromium의 운영 시작 화면뿐이다(§11.4). 업데이트 창과 기기는 보지 않았다(§9). 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
+- 사이드바 배치의 플레이리스트·연결·도움말·설정 탭이 이제 재생 탭처럼 고정 배치라, 실제 iPad에서 그 탭 안의 입력칸에 화면 키보드를 띄울 때의
+  동작도 보지 못했다.
 
 ## 13. SHA 대응
 

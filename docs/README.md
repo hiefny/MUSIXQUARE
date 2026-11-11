@@ -97,7 +97,14 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.43 / v818 train: PWA safe-area layout consistency (2026-11-11)](design/safe-area-layout-consistency-2026-11-11.md):
-  prepared, not merged or released. An App update after 9.0.42 / v815 by the owner's decisions of 2026-11-11, on main
+  released on 2026-11-11 15:16 KST in Release 42971061565 (PR #583, squash `3b8ec6e3`) as App 9.0.43 / v818 (App build
+  818, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker
+  changed (`45dade96` to `ce3d671f`); the four smokes passed at the first try and the Drift Audit passed (32 pass, 0
+  fail, 5 manual-only). Its post-merge Full E2E 42971412278 passed at the first attempt (`e2e` 1026 passed, this
+  train's two safe-area specs included; `webkit-mobile` 161 passed and 5 skipped plus the service worker test; the
+  large-room R2 smoke passed). It shipped alone: the owner's wish of the same day to ship it in one update with the
+  queued rename cleanup of the audio recovery owner reached the release after the deploy. An App update after 9.0.42 /
+  v815 by the owner's decisions of 2026-11-11, on main
   `2d95d49e` (whose App runtime equals 9.0.42's `808d0d9d`), from PR #583. Two intended changes, both visible only
   where the browser reports safe-area insets (an installed iPad or iPhone PWA, a landscape phone with a cutout). The
   safe-area unification gives the header's logo, loading text and account button one clipped safe boundary while its

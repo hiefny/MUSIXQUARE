@@ -110,9 +110,12 @@ own rejoin (Decision 4).
    the probe, the retirement and re-arm, the commit (the caller's confirm, RO-36, or the owner's)
    and the playback scope's second step, or prepares a play-request restart for a frozen clock. It
    reads the dialog's currency where the dialog did and none after a commit. Its ordinary branch
-   carries no playback-scope attempt: a failed PLAY's retry cancels a pending one before the
-   resume, and since 7C-K8 a restore leaves an attempt for other playback to the owner's
-   identity check (it was Known gap C1-I6). The dialog keeps its slot, its follow-up
+   carries no playback-scope attempt (since 7C-K8, it was Known gap C1-I6): a failed PLAY's
+   retry cancels a pending one before the resume, and since App 9.0.42 (the owner's decision of
+   2026-11-10) a restore cancels an attempt for other playback the same way instead of leaving
+   it to the owner's identity check. A local file's clock-stall attempt whose own tap found the
+   clock still frozen is parked once more for one more tap (App 9.0.42), then rejected as
+   before. The dialog keeps its slot, its follow-up
    queue (the re-queue included), its claim, the retry and its own rejoin.
 5. **Queries have no side effects.** A query answers from the owner's state and never changes it.
    Until 7C-1 `getPendingAudioContextClockHealthRequirement` in `context-recovery.ts` promoted a

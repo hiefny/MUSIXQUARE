@@ -115,6 +115,15 @@ test.describe('compact tab panes in a running room', () => {
         expect(Math.abs(box.x + box.width - sidebar.x), `${label} right`).toBeLessThanOrEqual(
           TOLERANCE_PX,
         );
+        // A pane that outgrows the page makes the document itself scrollable,
+        // and focus or scrollIntoView could then slide the app under the
+        // status bar even though the body does not scroll by touch.
+        const pageSize = await page.evaluate(() => ({
+          width: document.documentElement.scrollWidth,
+          height: document.documentElement.scrollHeight,
+        }));
+        expect(pageSize.width, `${label} page width`).toBeLessThanOrEqual(sample.width);
+        expect(pageSize.height, `${label} page height`).toBeLessThanOrEqual(sample.height);
       }
     });
   }

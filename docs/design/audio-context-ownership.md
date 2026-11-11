@@ -106,7 +106,9 @@ own rejoin (Decision 4).
    tap is one owner call, `beginAudioOutputGestureRecovery`, made inside the activation after the
    dialog's iOS primer: it picks the play-request, playback-scope or ordinary branch and issues
    that resume before it returns. Its `finish`, once the dialog has closed, runs the dialog's 1 s
-   wait, the wait for the play-request clock requirement (its AbortSignal and currency end it),
+   wait (for the ordinary branch's own resume still in flight, up to 5 s more since App 9.0.42, so
+   it checks the clock once that resume lands and the dialog realigns once with no new dialog), the
+   wait for the play-request clock requirement (its AbortSignal and currency end it),
    the probe, the retirement and re-arm, the commit (the caller's confirm, RO-36, or the owner's)
    and the playback scope's second step, or prepares a play-request restart for a frozen clock. It
    reads the dialog's currency where the dialog did and none after a commit. Its ordinary branch

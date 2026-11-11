@@ -291,7 +291,8 @@ RO-54 accepted-exception
   restart the dialog serves; for a restore, a pending file attempt of the playback scope, and
   none yet that accepts the gesture starts nothing; else the ordinary branch, which restarts the
   context itself) and issues that resume before it returns. Its `finish`, once the dialog has
-  closed, waits 1 s for that resume, waits for the play-request clock requirement (5 s at most;
+  closed, waits 1 s for that resume (the ordinary branch, while its own resume is still in flight,
+  up to 5 s more since App 9.0.42), waits for the play-request clock requirement (5 s at most;
   the dialog's AbortSignal and currency end it), probes the clock, retires the play-request
   attempt and arms the next PLAY's clock check, commits through the caller's confirm (RO-36) or
   the owner's own, runs the playback scope's second step, or prepares a play-request restart for

@@ -376,6 +376,59 @@ for (const sample of cases.filter((sample) =>
   });
 }
 
+// The media source and YouTube address screens open over the Play pane in the
+// sidebar layout. They cover it down to the bottom edge of the screen, so the
+// Play pane's last row does not show under the home indicator, and their end
+// padding takes the bottom inset: their content box is the safe box.
+for (const sample of cases.filter((sample) =>
+  [
+    'compact iPad landscape',
+    'compact iPad portrait',
+    'phone landscape',
+    'RTL phone landscape',
+    'RTL left-only cutout',
+    'compact zero-inset baseline',
+  ].includes(sample.name),
+)) {
+  test(`covers the sidebar-layout Play pane under the media screens (${sample.name})`, async ({
+    page,
+  }) => {
+    await mount(page, sample);
+    await activateTab(page, 'play');
+    const playBox = (await page.locator('#tab-play').boundingBox())!;
+    for (const id of ['media-source-overlay', 'youtube-url-overlay']) {
+      const overlay = page.locator(`#${id}`);
+      await overlay.evaluate((node) => node.classList.add('active'));
+      const box = (await overlay.boundingBox())!;
+      expect(box.y, `${id} top`).toBeCloseTo(sample.insets.top, 0);
+      expect(box.y + box.height, `${id} bottom`).toBeCloseTo(sample.height, 0);
+      expect(box.y + box.height, `${id} covers the Play pane`).toBeGreaterThanOrEqual(
+        playBox.y + playBox.height - 0.5,
+      );
+      expect(box.x, `${id} left`).toBeCloseTo(playBox.x, 0);
+      expect(box.width, `${id} width`).toBeCloseTo(playBox.width, 0);
+      const endPadding = await overlay.evaluate((node) =>
+        Number.parseFloat(getComputedStyle(node).paddingBottom),
+      );
+      expect(endPadding, `${id} end padding`).toBeCloseTo(sample.insets.bottom, 0);
+      const card = (await overlay.locator('.onboarding-card').boundingBox())!;
+      expect(card.y + card.height, `${id} content end`).toBeLessThanOrEqual(
+        sample.height - sample.insets.bottom + 1,
+      );
+      if (id === 'media-source-overlay') {
+        // The close button keeps the options' inset from the pane edge, on
+        // the side the writing direction puts it.
+        const close = (await overlay.locator('#btn-close-media-popup').boundingBox())!;
+        const option = (await overlay.locator('#btn-local-file').boundingBox())!;
+        const outerEdge = (edge: { x: number; width: number }): number =>
+          sample.direction === 'rtl' ? edge.x : edge.x + edge.width;
+        expect(outerEdge(close), `${id} close button inset`).toBeCloseTo(outerEdge(option), 0);
+      }
+      await overlay.evaluate((node) => node.classList.remove('active'));
+    }
+  });
+}
+
 const veryShortCases: ViewportCase[] = [
   {
     name: 'super-compact RTL with a right-only cutout',

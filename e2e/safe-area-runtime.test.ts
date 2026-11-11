@@ -170,3 +170,112 @@ test.describe('compact tab panes in a running room', () => {
     });
   }
 });
+
+// The media source and YouTube address screens take the place of the left
+// content pane while the Play pane stays underneath. The Play pane reaches the
+// bottom edge of the screen, so a screen that ends at the home indicator
+// leaves the Play pane's last row showing in the strip below it. These
+// screens cover the pane down to the bottom edge instead, and what they hold
+// still ends above the indicator.
+const SCREENS_OVER_THE_PLAY_PANE = [
+  { overlay: 'media-source-overlay', opener: 'btn-media-source' },
+  { overlay: 'youtube-url-overlay', opener: 'btn-youtube-source' },
+] as const;
+
+test.describe('screens over the Play pane in a running room', () => {
+  test.skip(
+    ({ browserName }) => browserName !== 'chromium',
+    'The safe-area emulation is a Chromium DevTools command.',
+  );
+
+  for (const sample of samples) {
+    test(`the media screens cover the Play pane down to the bottom edge (${sample.name})`, async ({
+      page,
+    }) => {
+      await startRoom(page, sample);
+      const sidebar = (await page.locator('#main-header').boundingBox())!;
+      const pane = (await page.locator('#tab-play').boundingBox())!;
+      expect(
+        Math.abs(pane.y + pane.height - sample.height),
+        'the Play pane bottom',
+      ).toBeLessThanOrEqual(TOLERANCE_PX);
+      // Two rows of points across the pane: the last pixel row of the screen
+      // and the first row below the safe bottom. Without a bottom inset both
+      // are the last row.
+      const probes: { x: number; y: number }[] = [];
+      for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+        const x = Math.round(pane.x + pane.width * fraction);
+        probes.push({ x, y: sample.height - 1 });
+        probes.push({ x, y: sample.height - Math.max(1, sample.insets.bottom - 1) });
+      }
+
+      for (const screen of SCREENS_OVER_THE_PLAY_PANE) {
+        await page.locator(`#${screen.opener}`).click();
+        const overlay = page.locator(`#${screen.overlay}`);
+        await expect(overlay).toHaveClass(/\bactive\b/);
+        const label = `${sample.name} ${screen.overlay}`;
+        const box = (await overlay.boundingBox())!;
+        expect(Math.abs(box.y - sample.insets.top), `${label} top`).toBeLessThanOrEqual(
+          TOLERANCE_PX,
+        );
+        expect(Math.abs(box.y + box.height - sample.height), `${label} bottom`).toBeLessThanOrEqual(
+          TOLERANCE_PX,
+        );
+        expect(Math.abs(box.x), `${label} left`).toBeLessThanOrEqual(TOLERANCE_PX);
+        expect(Math.abs(box.x + box.width - sidebar.x), `${label} right`).toBeLessThanOrEqual(
+          TOLERANCE_PX,
+        );
+        // Hit testing answers for the screen only once it has finished
+        // opening, so the points are polled.
+        await expect
+          .poll(
+            () =>
+              overlay.evaluate(
+                (node, points) =>
+                  points
+                    .filter(({ x, y }) => {
+                      const hit = document.elementFromPoint(x, y);
+                      return hit === null || !node.contains(hit);
+                    })
+                    .map(({ x, y }) => `${x},${y}`),
+                probes,
+              ),
+            { message: `${label} leaves the strip below it uncovered` },
+          )
+          .toEqual([]);
+        // The screen's own content keeps the safe box it had.
+        const card = (await overlay.locator('.onboarding-card').boundingBox())!;
+        expect(card.y + card.height, `${label} content end`).toBeLessThanOrEqual(
+          sample.height - sample.insets.bottom + TOLERANCE_PX,
+        );
+        if (screen.overlay === 'media-source-overlay') {
+          // The close button keeps the options' inset from the pane edge, on
+          // the side the writing direction puts it.
+          const close = (await overlay.locator('#btn-close-media-popup').boundingBox())!;
+          const option = (await overlay.locator('#btn-local-file').boundingBox())!;
+          const outerEdge = (edge: { x: number; width: number }): number =>
+            sample.locale ? edge.x : edge.x + edge.width;
+          expect(
+            Math.abs(outerEdge(close) - outerEdge(option)),
+            `${label} close button inset`,
+          ).toBeLessThanOrEqual(TOLERANCE_PX);
+        }
+      }
+    });
+
+    test(`the chat drawer opens over the content pane (${sample.name})`, async ({ page }) => {
+      await startRoom(page, sample);
+      const sidebar = (await page.locator('#main-header').boundingBox())!;
+      await page.locator('#chat-preview-btn').click();
+      const drawer = page.locator('#chat-drawer');
+      await expect(drawer).toHaveClass(/\bopen\b/);
+      // The drawer slides up; its horizontal place does not move with it.
+      const box = (await drawer.boundingBox())!;
+      expect(Math.abs(box.x), `${sample.name} drawer left`).toBeLessThanOrEqual(TOLERANCE_PX);
+      expect(
+        Math.abs(box.x + box.width - sidebar.x),
+        `${sample.name} drawer right`,
+      ).toBeLessThanOrEqual(TOLERANCE_PX);
+    });
+  }
+});

@@ -148,6 +148,12 @@ interface PlaybackScopeAttempt extends RecoveryAttemptBase<ContextResumeResult> 
   prepareTimedOut: boolean;
   notifyWhenPrepared: boolean;
   preparedNotificationSent: boolean;
+  /**
+   * A file attempt's own trusted gesture already met a clock still frozen
+   * once, and the owner parked it again for one more tap (owner decision
+   * 2026-11-10, App 9.0.42). The next frozen tap is rejected.
+   */
+  frozenTapReparked: boolean;
 }
 
 /** A parked attempt being parked again after an outside resume (Phase 7 7B-2). */
@@ -1537,6 +1543,7 @@ function createRecovery(
     prepareTimedOut: false,
     notifyWhenPrepared: false,
     preparedNotificationSent: false,
+    frozenTapReparked: false,
   };
   pendingRecovery = recovery;
   activeRecoveryAttempt = recovery;
@@ -2028,19 +2035,24 @@ function retireStalePendingAudioContextRecovery(attemptToken: object): boolean {
 }
 
 /**
- * Escalate the exact provisional state-interruption attempt whose trusted
- * gesture's probe proved the native clock is frozen. Its one caller, the
- * second step, reads this attempt's requirement current in the same
- * synchronous block (held, awaiting clock verification, running, with a
- * current identity), so only its cause is left to tell (Phase 7 7C-5): a
- * clock-stall attempt resumed by its own gesture is not escalated again.
+ * Escalate the exact provisional attempt whose trusted gesture's probe
+ * proved the native clock is frozen. Its one caller, the second step, reads
+ * this attempt's requirement current in the same synchronous block (held,
+ * awaiting clock verification, running, with a current identity), so only
+ * its cause is left to tell (Phase 7 7C-5). A state interruption becomes a
+ * clock stall. A file's clock stall resumed by its own gesture is parked
+ * once more, so its dialog asks for one more tap (owner decision 2026-11-10,
+ * App 9.0.42); after that, and for other playback, it is rejected.
  * Preparation retains the same token; the recovery event is emitted only
  * after suspend/interrupted is concrete.
  */
 async function escalatePendingAudioContextRecoveryToClockStalled(
   recovery: PlaybackScopeAttempt,
 ): Promise<AudioContextRecoveryEscalationResult> {
-  if (recovery.cause === 'background-clock-stalled') return 'rejected';
+  if (recovery.cause === 'background-clock-stalled') {
+    if (recovery.identity.mode !== 'file' || recovery.frozenTapReparked) return 'rejected';
+    recovery.frozenTapReparked = true;
+  }
   recovery.cause = 'background-clock-stalled';
   recovery.clockVerified = false;
   setAttemptPhase(recovery, 'preparing-suspend');

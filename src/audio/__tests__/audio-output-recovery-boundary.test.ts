@@ -663,17 +663,15 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
     {
       order: 'deferred-event',
       plan: { statechange: 'deferred-event', stateDelayMs: 5 } as FakeNativeCallPlan,
-      notices: 1,
     },
-    { order: 'before-settle', plan: {} as FakeNativeCallPlan, notices: 0 },
+    { order: 'before-settle', plan: {} as FakeNativeCallPlan },
     {
       order: 'after-settle',
       plan: { statechange: 'after-settle', stateDelayMs: 5 } as FakeNativeCallPlan,
-      notices: 0,
     },
   ])(
-    'one background stall, suspend $order: $notices owner notice(s) beside app.ts own request',
-    async ({ plan, notices }) => {
+    'one background stall, suspend $order: no owner notice beside app.ts own request (App 9.0.42; it was Known gap C1-I11, one prepared notice)',
+    async ({ plan }) => {
       const fake = new FakeNativeAudioContext();
       const o = await loadOwners(fake);
       const { inspectBackgroundFileOutput } = await import('../output-health.ts');
@@ -691,15 +689,14 @@ describe('RO-01 statechange dispatch order and owner listeners per context', () 
 
       // app.ts emits its own background-resume request for needs-gesture.
       expect((await inspected).status).toBe('needs-gesture');
-      // Known gap (C1-I11, one prepared notice): with the deferred event the
-      // binding hears suspended after the lease settled through its promise
-      // and notifies again, with an isCurrent that app.ts's own request lacks,
-      // so the dialog sees two identities for one stall (the Chromium lab row
-      // shows the dialog closing and reopening).
-      expect(bus.needed).toEqual(Array(notices).fill('background-resume:clock-stalled'));
-      expect(bus.neededEvents.map((event) => typeof event.isCurrent)).toEqual(
-        Array(notices).fill('function'),
-      );
+      // App 9.0.42 (it was Known gap C1-I11, one prepared notice): with the
+      // deferred event the binding hears suspended after the lease settled
+      // through its promise; the attempt is parked already, so it notifies no
+      // second time with an isCurrent that app.ts's own request lacks, and
+      // the dialog sees one identity for one stall (the Chromium lab row
+      // (ii) shows it open once).
+      expect(bus.needed).toEqual([]);
+      expect(playbackScope.view(o)).toEqual({ attempt: 'file', gesture: true });
       expect(nativeCalls(fake.ops)).toEqual(['suspend()']);
     },
   );

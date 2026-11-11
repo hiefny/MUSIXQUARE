@@ -66,7 +66,7 @@ async function loadContext(options: FakeContextOptions = {}) {
   // owner's exported ones and its sub-steps (its one test seam).
   const context = await import('../context.ts');
   const {
-    confirmForegroundAudioContextRestartHealth,
+    confirmPlayRequestAttemptHealth,
     consumeForegroundAudioContextClockHealthCheck,
     getPendingForegroundAudioContextClockHealthCheck,
     retireAudioContextRecoveryAttempt,
@@ -74,7 +74,7 @@ async function loadContext(options: FakeContextOptions = {}) {
   } = await import('../context-recovery.ts');
   const module = {
     ...context,
-    confirmForegroundAudioContextRestartHealth,
+    confirmPlayRequestAttemptHealth,
     consumeForegroundAudioContextClockHealthCheck,
     getPendingForegroundAudioContextClockHealthCheck,
     retireAudioContextRecoveryAttempt,
@@ -293,15 +293,15 @@ describe('AudioContext foreground health', () => {
       instance as unknown as AudioContext,
     );
 
-    const preparation = await module.prepareForegroundAudioContextRestart(checkToken!);
+    const preparation = await module.preparePlayRequestRestart(checkToken!);
     expect(preparation).toMatchObject({ status: 'prepared' });
     expect(instance.state).toBe('suspended');
     expect(preparation?.isCurrent()).toBe(true);
 
     await expect(
-      module.resumePreparedForegroundAudioContextRestartFromGesture(preparation!.attemptToken),
+      module.resumePreparedPlayRequestRestartFromGesture(preparation!.attemptToken),
     ).resolves.toEqual({ running: true, requiresClockVerification: true });
-    const requirement = module.getPendingForegroundAudioContextRestartClockHealthRequirement();
+    const requirement = module.getPlayRequestClockRequirement();
     expect(requirement?.attemptToken).toBe(preparation?.attemptToken);
     expect(requirement?.isCurrent()).toBe(true);
     const health = module.probeAudioContextHealth({
@@ -311,14 +311,14 @@ describe('AudioContext foreground health', () => {
     });
     await vi.advanceTimersByTimeAsync(180);
     await expect(health).resolves.toMatchObject({ healthy: true, reason: 'healthy' });
-    expect(module.confirmForegroundAudioContextRestartHealth(preparation!.attemptToken)).toBe(true);
+    expect(module.confirmPlayRequestAttemptHealth(preparation!.attemptToken)).toBe(true);
     expect(module.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
   });
 
   it('prepares a generic restart for a tokenless PLAY clock stall', async () => {
     const { instance, module } = await loadContext({ clock: 'stalled' });
 
-    const preparation = await module.prepareForegroundAudioContextRestartAfterClockStall(
+    const preparation = await module.preparePlayRequestRestartAfterClockStall(
       instance as unknown as AudioContext,
     );
 
@@ -333,7 +333,7 @@ describe('AudioContext foreground health', () => {
     const { instance, module } = await loadContext({ clock: 'stalled' });
     instance.suspend.mockImplementation(() => new Promise<void>(() => undefined));
 
-    const pending = module.prepareForegroundAudioContextRestartAfterClockStall(
+    const pending = module.preparePlayRequestRestartAfterClockStall(
       instance as unknown as AudioContext,
     );
     await vi.advanceTimersByTimeAsync(500);
@@ -356,7 +356,7 @@ describe('AudioContext foreground health', () => {
         instance.state = 'suspended';
       });
 
-    const pending = module.prepareForegroundAudioContextRestartAfterClockStall(
+    const pending = module.preparePlayRequestRestartAfterClockStall(
       instance as unknown as AudioContext,
     );
     await vi.advanceTimersByTimeAsync(1_000);
@@ -377,7 +377,7 @@ describe('AudioContext foreground health', () => {
         instance.state = 'suspended';
       });
 
-    const pending = module.prepareForegroundAudioContextRestartAfterClockStall(
+    const pending = module.preparePlayRequestRestartAfterClockStall(
       instance as unknown as AudioContext,
     );
     await vi.advanceTimersByTimeAsync(1_000);
@@ -393,7 +393,7 @@ describe('AudioContext foreground health', () => {
   it('never auto-retries a resolved-running generic lease after it is superseded', async () => {
     const { instance, module } = await loadContext({ clock: 'stalled' });
     instance.suspend.mockImplementation(() => new Promise<void>(() => undefined));
-    const pending = module.prepareForegroundAudioContextRestartAfterClockStall(
+    const pending = module.preparePlayRequestRestartAfterClockStall(
       instance as unknown as AudioContext,
     );
     await vi.advanceTimersByTimeAsync(500);
@@ -421,20 +421,20 @@ describe('AudioContext foreground health', () => {
     const checkToken = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const preparing = module.prepareForegroundAudioContextRestart(checkToken!);
+    const preparing = module.preparePlayRequestRestart(checkToken!);
     await vi.advanceTimersByTimeAsync(500);
     const preparation = await preparing;
 
     expect(preparation).toMatchObject({ status: 'preparing' });
     await expect(
-      module.resumePreparedForegroundAudioContextRestartFromGesture(preparation!.attemptToken),
+      module.resumePreparedPlayRequestRestartFromGesture(preparation!.attemptToken),
     ).resolves.toEqual({ running: false, requiresClockVerification: false });
     expect(instance.resume).not.toHaveBeenCalled();
 
     instance.dispatchState('suspended');
     await expect(preparation!.whenPrepared).resolves.toBe(true);
     await expect(
-      module.resumePreparedForegroundAudioContextRestartFromGesture(preparation!.attemptToken),
+      module.resumePreparedPlayRequestRestartFromGesture(preparation!.attemptToken),
     ).resolves.toEqual({ running: true, requiresClockVerification: true });
     finishSuspend?.();
     await Promise.resolve();
@@ -447,7 +447,7 @@ describe('AudioContext foreground health', () => {
     const checkToken = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const preparation = await module.prepareForegroundAudioContextRestart(checkToken!);
+    const preparation = await module.preparePlayRequestRestart(checkToken!);
     let finishResume: (() => void) | undefined;
     instance.resume.mockImplementation(
       () =>
@@ -456,20 +456,18 @@ describe('AudioContext foreground health', () => {
         }),
     );
 
-    const gesture = module.resumePreparedForegroundAudioContextRestartFromGesture(
-      preparation!.attemptToken,
-    );
+    const gesture = module.resumePreparedPlayRequestRestartFromGesture(preparation!.attemptToken);
     await vi.advanceTimersByTimeAsync(750);
     await expect(gesture).resolves.toEqual({
       running: false,
       requiresClockVerification: false,
     });
-    expect(module.getPendingForegroundAudioContextRestartClockHealthRequirement()).toBeNull();
+    expect(module.getPlayRequestClockRequirement()).toBeNull();
 
     instance.dispatchState('running');
     finishResume?.();
     await Promise.resolve();
-    const requirement = module.getPendingForegroundAudioContextRestartClockHealthRequirement();
+    const requirement = module.getPlayRequestClockRequirement();
     expect(requirement?.attemptToken).toBe(preparation?.attemptToken);
     expect(requirement?.isCurrent()).toBe(true);
   });
@@ -479,7 +477,7 @@ describe('AudioContext foreground health', () => {
     const firstCheck = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const first = await module.prepareForegroundAudioContextRestart(firstCheck!);
+    const first = await module.preparePlayRequestRestart(firstCheck!);
     let finishFirstResume: (() => void) | undefined;
     instance.resume.mockImplementationOnce(
       () =>
@@ -487,22 +485,20 @@ describe('AudioContext foreground health', () => {
           finishFirstResume = resolve;
         }),
     );
-    const firstGesture = module.resumePreparedForegroundAudioContextRestartFromGesture(
-      first!.attemptToken,
-    );
+    const firstGesture = module.resumePreparedPlayRequestRestartFromGesture(first!.attemptToken);
     await vi.advanceTimersByTimeAsync(750);
     await firstGesture;
 
     const secondCheck = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const second = await module.prepareForegroundAudioContextRestart(secondCheck!);
+    const second = await module.preparePlayRequestRestart(secondCheck!);
     instance.dispatchState('running');
     finishFirstResume?.();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(module.getPendingForegroundAudioContextRestartClockHealthRequirement()).toBeNull();
+    expect(module.getPlayRequestClockRequirement()).toBeNull();
     expect(first?.isCurrent()).toBe(false);
     expect(second?.isCurrent()).toBe(true);
     expect(instance.suspend).toHaveBeenCalledTimes(2);
@@ -521,14 +517,14 @@ describe('AudioContext foreground health', () => {
     const firstCheck = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const firstPreparing = module.prepareForegroundAudioContextRestart(firstCheck!);
+    const firstPreparing = module.preparePlayRequestRestart(firstCheck!);
     await vi.advanceTimersByTimeAsync(500);
     const first = await firstPreparing;
 
     const secondCheck = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const secondPreparing = module.prepareForegroundAudioContextRestart(secondCheck!);
+    const secondPreparing = module.preparePlayRequestRestart(secondCheck!);
     await vi.advanceTimersByTimeAsync(500);
     const second = await secondPreparing;
     expect(instance.suspend).toHaveBeenCalledTimes(2);
@@ -555,7 +551,7 @@ describe('AudioContext foreground health', () => {
     const firstCheck = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const firstPreparing = module.prepareForegroundAudioContextRestart(firstCheck!);
+    const firstPreparing = module.preparePlayRequestRestart(firstCheck!);
     await vi.advanceTimersByTimeAsync(500);
     const first = await firstPreparing;
     expect(first?.status).toBe('preparing');
@@ -564,7 +560,7 @@ describe('AudioContext foreground health', () => {
     const secondCheck = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const secondPreparing = module.prepareForegroundAudioContextRestart(secondCheck!);
+    const secondPreparing = module.preparePlayRequestRestart(secondCheck!);
     await vi.advanceTimersByTimeAsync(100);
     instance.dispatchState('suspended');
     await Promise.resolve();
@@ -573,7 +569,7 @@ describe('AudioContext foreground health', () => {
     expect(instance.resume).not.toHaveBeenCalled();
     expect(instance.suspend).toHaveBeenCalledOnce();
     await expect(first!.whenPrepared).resolves.toBe(false);
-    expect(module.getPendingForegroundAudioContextRestartClockHealthRequirement()).toBeNull();
+    expect(module.getPlayRequestClockRequirement()).toBeNull();
 
     const second = await secondPreparing;
     expect(second?.status).toBe('prepared');
@@ -593,12 +589,12 @@ describe('AudioContext foreground health', () => {
     const checkToken = module.armForegroundAudioContextClockHealthCheck(
       instance as unknown as AudioContext,
     );
-    const firstPreparing = module.prepareForegroundAudioContextRestart(checkToken!);
+    const firstPreparing = module.preparePlayRequestRestart(checkToken!);
     await vi.advanceTimersByTimeAsync(500);
     const first = await firstPreparing;
     expect(first?.status).toBe('preparing');
 
-    const retry = module.prepareForegroundAudioContextRestart(checkToken!);
+    const retry = module.preparePlayRequestRestart(checkToken!);
     await vi.advanceTimersByTimeAsync(250);
 
     await expect(retry).resolves.toMatchObject({
@@ -636,11 +632,11 @@ describe('AudioContext foreground health', () => {
   it('leaves nothing to retire once a restart is confirmed, even after a newer restart starts', async () => {
     const { instance, module } = await loadContext({ clock: 'running' });
     const context = instance as unknown as AudioContext;
-    const preparation = await module.prepareForegroundAudioContextRestart(
+    const preparation = await module.preparePlayRequestRestart(
       module.armForegroundAudioContextClockHealthCheck(context)!,
     );
-    await module.resumePreparedForegroundAudioContextRestartFromGesture(preparation!.attemptToken);
-    const requirement = module.getPendingForegroundAudioContextRestartClockHealthRequirement();
+    await module.resumePreparedPlayRequestRestartFromGesture(preparation!.attemptToken);
+    const requirement = module.getPlayRequestClockRequirement();
     const health = module.probeAudioContextHealth({
       attemptResume: false,
       context: requirement!.context,
@@ -648,7 +644,7 @@ describe('AudioContext foreground health', () => {
     });
     await vi.advanceTimersByTimeAsync(180);
     await expect(health).resolves.toMatchObject({ healthy: true });
-    expect(module.confirmForegroundAudioContextRestartHealth(preparation!.attemptToken)).toBe(true);
+    expect(module.confirmPlayRequestAttemptHealth(preparation!.attemptToken)).toBe(true);
     const nativeCalls = instance.resume.mock.calls.length + instance.suspend.mock.calls.length;
 
     // The recovery dialog retires this token when its failed-PLAY retry does
@@ -659,7 +655,7 @@ describe('AudioContext foreground health', () => {
 
     // A newer restart that starts while the retry runs has a token of its own.
     instance.state = 'running';
-    const newer = await module.prepareForegroundAudioContextRestart(
+    const newer = await module.preparePlayRequestRestart(
       module.armForegroundAudioContextClockHealthCheck(context)!,
     );
     expect(newer?.status).toBe('prepared');

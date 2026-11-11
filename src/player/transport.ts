@@ -504,7 +504,7 @@ import {
 import { ensureRunning, getAudioContext, getCurrentTime } from '../audio/context.ts';
 import {
   checkForegroundClockBeforeFileStart,
-  confirmForegroundAudioContextRestartHealth,
+  confirmPlayRequestAttemptHealth,
 } from '../audio/context-recovery.ts';
 import { showLoader, showToast } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
@@ -1354,7 +1354,7 @@ async function _internalPlay(
     ? Number(scheduleDeadlineMs)
     : performance.now() + Math.max(0, scheduleDelay) * 1_000;
   let recoveryClaimed = false;
-  let foregroundRestartConfirmed = false;
+  let playRequestAttemptConfirmed = false;
 
   const recoveryIntentIsCurrent = (): boolean =>
     shouldApply?.() !== false &&
@@ -1365,11 +1365,11 @@ async function _internalPlay(
 
   const emitFailedPlayRecovery = (
     reason: 'context-not-running' | 'clock-stalled',
-    foregroundRestartAttemptToken?: object,
+    playRequestAttemptToken?: object,
     restartIsCurrent?: () => boolean,
   ): void => {
     const restartRecoveryIsCurrent = (): boolean =>
-      foregroundRestartConfirmed || restartIsCurrent?.() !== false;
+      playRequestAttemptConfirmed || restartIsCurrent?.() !== false;
     if (
       recoveryOptions?.suppressPrompt ||
       !recoveryIdentity ||
@@ -1382,21 +1382,21 @@ async function _internalPlay(
       reason,
       source: 'play',
       queueItemId: recoveryIdentity.queueItemId,
-      foregroundRestartAttemptToken,
+      playRequestAttemptToken,
       isCurrent: () =>
         recoveryIntentIsCurrent() && restartRecoveryIsCurrent() && recoveryOutputIsCurrent(),
-      confirmForegroundRestart: foregroundRestartAttemptToken
+      confirmPlayRequestAttempt: playRequestAttemptToken
         ? (attemptToken: object): boolean => {
             if (
-              attemptToken !== foregroundRestartAttemptToken ||
-              foregroundRestartConfirmed ||
+              attemptToken !== playRequestAttemptToken ||
+              playRequestAttemptConfirmed ||
               !recoveryIntentIsCurrent() ||
               restartIsCurrent?.() === false ||
-              !confirmForegroundAudioContextRestartHealth(attemptToken)
+              !confirmPlayRequestAttemptHealth(attemptToken)
             ) {
               return false;
             }
-            foregroundRestartConfirmed = true;
+            playRequestAttemptConfirmed = true;
             return true;
           }
         : undefined,

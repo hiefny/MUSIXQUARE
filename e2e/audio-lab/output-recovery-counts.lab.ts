@@ -253,7 +253,7 @@ test.describe('/debug sync counts around the recovery dialog tap', () => {
     await page.locator(OK).click();
     // The dialog's own gesture recovery: its clock check finds the clock
     // frozen, so the context is parked for a foreground restart and the same
-    // request is queued again with it (enqueuePreparedForegroundRestart).
+    // request is queued again with it (enqueuePreparedPlayRequestRestart).
     await expect.poll(async () => (await readLab(page)).dialogShows).toBe(2);
     await expectRecoveryDialog(page);
     await unfreeze(page);

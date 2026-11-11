@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
         getHiddenContinuityGapSeconds: () => number | null;
       } | null,
   ),
-  isForegroundRestartOwned: vi.fn(() => false),
+  isPlayRequestRestartOwned: vi.fn(() => false),
   cancelPending: vi.fn(() => true),
   consumeForeground: vi.fn(() => true),
 }));
@@ -53,12 +53,12 @@ vi.mock('../context.ts', () => ({
   probeAudioContextHealth: mocks.probe,
 }));
 vi.mock('../context-recovery.ts', () => ({
-  armPendingAudioContextRecoveryFromBackground: mocks.arm,
-  getPendingAudioContextRecoveryAttemptForHealth: mocks.getPendingAttempt,
+  armPlaybackScopeAttemptFromBackground: mocks.arm,
+  getPendingPlaybackScopeAttemptForHealth: mocks.getPendingAttempt,
   retireAudioContextRecoveryAttempt: mocks.cancelPending,
   consumeForegroundAudioContextClockHealthCheck: mocks.consumeForeground,
   getPendingForegroundAudioContextClockHealthCheck: mocks.getForegroundRequirement,
-  isForegroundAudioContextRestartOwned: mocks.isForegroundRestartOwned,
+  isPlayRequestRestartOwned: mocks.isPlayRequestRestartOwned,
 }));
 
 import { inspectBackgroundFileOutput } from '../output-health.ts';
@@ -95,7 +95,7 @@ describe('background local-file output health', () => {
     mocks.getContext.mockReturnValue({ state: 'running' } as AudioContext);
     mocks.getPendingAttempt.mockReturnValue(null);
     mocks.getForegroundRequirement.mockReturnValue(null);
-    mocks.isForegroundRestartOwned.mockReturnValue(false);
+    mocks.isPlayRequestRestartOwned.mockReturnValue(false);
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'visible',
@@ -143,7 +143,7 @@ describe('background local-file output health', () => {
       resume: vi.fn(async () => undefined),
     } as unknown as AudioContext;
     mocks.getContext.mockReturnValue(context);
-    mocks.isForegroundRestartOwned.mockReturnValue(true);
+    mocks.isPlayRequestRestartOwned.mockReturnValue(true);
 
     await expect(inspectBackgroundFileOutput()).resolves.toEqual({
       status: 'stale',

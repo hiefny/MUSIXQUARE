@@ -99,7 +99,7 @@ describe('foreground restart and background output inspection ownership', () => 
     const checkToken = contextModule.armForegroundAudioContextClockHealthCheck(
       context as unknown as AudioContext,
     );
-    const preparation = await contextModule.prepareForegroundAudioContextRestart(checkToken!);
+    const preparation = await contextModule.preparePlayRequestRestart(checkToken!);
     expect(preparation).toMatchObject({ status: 'prepared' });
     expect(context.state).toBe('suspended');
 
@@ -116,15 +116,13 @@ describe('foreground restart and background output inspection ownership', () => 
     expect(context.state).toBe('suspended');
 
     await expect(
-      contextModule.resumePreparedForegroundAudioContextRestartFromGesture(
-        preparation!.attemptToken,
-      ),
+      contextModule.resumePreparedPlayRequestRestartFromGesture(preparation!.attemptToken),
     ).resolves.toEqual({ running: true, requiresClockVerification: true });
     expect(context.resume).toHaveBeenCalledOnce();
     expect(context.state).toBe('running');
-    expect(
-      contextModule.getPendingForegroundAudioContextRestartClockHealthRequirement()?.attemptToken,
-    ).toBe(preparation?.attemptToken);
+    expect(contextModule.getPlayRequestClockRequirement()?.attemptToken).toBe(
+      preparation?.attemptToken,
+    );
     expect(contextModule.retireAudioContextRecoveryAttempt(preparation!.attemptToken)).toBe(true);
   });
 });

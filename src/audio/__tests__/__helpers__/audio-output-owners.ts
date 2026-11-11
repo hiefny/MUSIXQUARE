@@ -35,13 +35,13 @@ async function importOwners() {
   // Phase 7 7C-4 moved it into context-recovery.ts: context.ts's own exports,
   // the owner's exported ones and its sub-steps (its one test seam).
   const {
-    claimForegroundAudioContextRestartForDialog,
-    confirmForegroundAudioContextRestartHealth,
+    claimPlayRequestAttemptForDialog,
+    confirmPlayRequestAttemptHealth,
     consumeForegroundAudioContextClockHealthCheck,
     getPendingForegroundAudioContextClockHealthCheck,
-    isForegroundAudioContextRestartOwned,
+    isPlayRequestRestartOwned,
     retireAudioContextRecoveryAttempt,
-    whenForegroundAudioContextRestartReprepared,
+    whenPlayRequestAttemptReprepared,
     ownerSubStepsForTests,
   } = recovery;
   return {
@@ -51,13 +51,13 @@ async function importOwners() {
     PLAYBACK_STATE: constants.PLAYBACK_STATE,
     context: {
       ...context,
-      claimForegroundAudioContextRestartForDialog,
-      confirmForegroundAudioContextRestartHealth,
+      claimPlayRequestAttemptForDialog,
+      confirmPlayRequestAttemptHealth,
       consumeForegroundAudioContextClockHealthCheck,
       getPendingForegroundAudioContextClockHealthCheck,
-      isForegroundAudioContextRestartOwned,
+      isPlayRequestRestartOwned,
       retireAudioContextRecoveryAttempt,
-      whenForegroundAudioContextRestartReprepared,
+      whenPlayRequestAttemptReprepared,
       ...ownerSubStepsForTests,
     },
     recovery,
@@ -414,7 +414,7 @@ export interface PlayRequest {
  * notice never became a dialog is left to the next PLAY's clock check.
  */
 export function dialogTakesPlayRequest(o: Owners, attemptToken: object): void {
-  o.context.claimForegroundAudioContextRestartForDialog(attemptToken);
+  o.context.claimPlayRequestAttemptForDialog(attemptToken);
 }
 
 export interface PlayRequestOptions {
@@ -433,7 +433,7 @@ function startPlayRequest(
   incident: object,
   { dialog = true }: PlayRequestOptions = {},
 ): PlayRequest {
-  const preparation = o.context.prepareForegroundAudioContextRestart(incident);
+  const preparation = o.context.preparePlayRequestRestart(incident);
   let attempt: Awaited<typeof preparation> = null;
   let settled = false;
   const first = preparation.then((value): FirstAnswer => {
@@ -463,18 +463,18 @@ function startPlayRequest(
       if (!settled) throw new Error('tap() before the first answer');
       if (!attempt) return Promise.resolve({ running: false });
       return o.context
-        .resumePreparedForegroundAudioContextRestartFromGesture(attempt.attemptToken)
+        .resumePreparedPlayRequestRestartFromGesture(attempt.attemptToken)
         .then((result) => ({ running: result.running }));
     },
     requirement: () => {
-      const requirement = o.context.getPendingForegroundAudioContextRestartClockHealthRequirement();
+      const requirement = o.context.getPlayRequestClockRequirement();
       if (!requirement) return 'none';
       if (!attempt || requirement.attemptToken !== attempt.attemptToken) return 'other';
       return requirement.isCurrent() ? 'same' : 'not-current';
     },
     clockWait: () =>
       attempt
-        ? o.context.whenForegroundAudioContextRestartClockRequirement(attempt.attemptToken)
+        ? o.context.whenPlayRequestClockRequirement(attempt.attemptToken)
         : Promise.resolve('retired'),
     isCurrent: () => attempt?.isCurrent() ?? false,
     retire: () =>
@@ -543,9 +543,9 @@ export const playbackScope = {
    * attempt still preparing, 'stale' when no attempt is left.
    */
   async armStalled(o: Owners, fake: FakeNativeAudioContext): Promise<FirstAnswer> {
-    const token = await o.recovery.armPendingAudioContextRecoveryFromBackground(fake.native);
+    const token = await o.recovery.armPlaybackScopeAttemptFromBackground(fake.native);
     if (token) return 'prepared';
-    return o.recovery.getPendingAudioContextRecoveryAttemptForHealth() ? 'preparing' : 'stale';
+    return o.recovery.getPendingPlaybackScopeAttemptForHealth() ? 'preparing' : 'stale';
   },
   /**
    * The dialog's or hardware PLAY's trusted gesture on the pending attempt:
@@ -553,24 +553,24 @@ export const playbackScope = {
    */
   tap(o: Owners): Promise<{ running: boolean }> {
     return o.recovery
-      .beginPendingInterruptionRecoveryFromGesture()
+      .beginPlaybackScopeRecoveryFromGesture()
       .then((result) => ({ running: result.running }));
   },
   view(o: Owners): ScopeView {
-    const attempt = o.recovery.getPendingAudioContextRecoveryAttemptForHealth();
-    const mode = o.recovery.hasPendingAudioContextInterruption('youtube') ? 'youtube' : 'file';
+    const attempt = o.recovery.getPendingPlaybackScopeAttemptForHealth();
+    const mode = o.recovery.hasPendingPlaybackScopeAttempt('youtube') ? 'youtube' : 'file';
     return {
       attempt: attempt ? mode : 'none',
-      gesture: o.recovery.getPendingAudioContextInterruptionAttempt() !== null,
+      gesture: o.recovery.getPendingPlaybackScopeAttemptForGesture() !== null,
     };
   },
   /** The pending attempt (opaque), for identity comparisons. */
   current(o: Owners): object | null {
-    return o.recovery.getPendingAudioContextRecoveryAttemptForHealth();
+    return o.recovery.getPendingPlaybackScopeAttemptForHealth();
   },
   /** Whether that exact attempt is still the live one. */
   isCurrent(o: Owners, attempt: object): boolean {
-    return o.recovery.isAudioContextInterruptionAttemptCurrent(attempt);
+    return o.recovery.isPlaybackScopeAttemptCurrent(attempt);
   },
   /**
    * A caller drops that exact attempt (the owner cancels a pending attempt
@@ -589,7 +589,7 @@ export const playbackScope = {
    * answer the dialog and Media Session read after the tap.
    */
   requirement(o: Owners): Requirement {
-    const attempt = o.recovery.getPendingAudioContextRecoveryAttemptForHealth();
+    const attempt = o.recovery.getPendingPlaybackScopeAttemptForHealth();
     if (
       !attempt ||
       String(o.context.getExistingAudioContext()?.state) !== 'running' ||
@@ -597,16 +597,14 @@ export const playbackScope = {
     ) {
       return 'none';
     }
-    return o.recovery.isAudioContextInterruptionAttemptCurrent(attempt) ? 'same' : 'not-current';
+    return o.recovery.isPlaybackScopeAttemptCurrent(attempt) ? 'same' : 'not-current';
   },
 };
 
 /** Which owner holds the context now. */
 export function ownerView(o: Owners): { request: 'owned' | 'none'; scope: ScopeView } {
   return {
-    request: o.context.isForegroundAudioContextRestartOwned(o.context.getAudioContext())
-      ? 'owned'
-      : 'none',
+    request: o.context.isPlayRequestRestartOwned(o.context.getAudioContext()) ? 'owned' : 'none',
     scope: playbackScope.view(o),
   };
 }
@@ -624,14 +622,12 @@ export async function ordinaryBranchOwnerSide(o: Owners): Promise<{
   gestureAttempt: object | null;
   afterResume: 'current' | 'retired' | 'no-attempt';
 }> {
-  const fileAttemptPending = o.recovery.hasPendingAudioContextInterruption('file');
-  const gestureAttempt = o.recovery.getPendingAudioContextInterruptionAttempt();
+  const fileAttemptPending = o.recovery.hasPendingPlaybackScopeAttempt('file');
+  const gestureAttempt = o.recovery.getPendingPlaybackScopeAttemptForGesture();
   await o.context.restartAudioContextFromGesture().catch(() => undefined);
   let afterResume: 'current' | 'retired' | 'no-attempt' = 'no-attempt';
   if (gestureAttempt) {
-    afterResume = o.recovery.isAudioContextInterruptionAttemptCurrent(gestureAttempt)
-      ? 'current'
-      : 'retired';
+    afterResume = o.recovery.isPlaybackScopeAttemptCurrent(gestureAttempt) ? 'current' : 'retired';
   }
   return { fileAttemptPending, gestureAttempt, afterResume };
 }
@@ -641,7 +637,7 @@ export async function ordinaryBranchOwnerSide(o: Owners): Promise<{
 /** The request app.ts's recovery dialog shows, as its tap passes it to the owner's entry. */
 export interface DialogSelector {
   readonly intent: 'retry-failed-play' | 'restore-playing-output';
-  readonly foregroundRestartAttemptToken?: object;
+  readonly playRequestAttemptToken?: object;
 }
 
 /**
@@ -655,5 +651,5 @@ export function dialogSelector(
   request?: PlayRequest,
 ): DialogSelector {
   const attemptToken = request ? playRequestAttempts.get(request)?.() : null;
-  return attemptToken ? { intent, foregroundRestartAttemptToken: attemptToken } : { intent };
+  return attemptToken ? { intent, playRequestAttemptToken: attemptToken } : { intent };
 }

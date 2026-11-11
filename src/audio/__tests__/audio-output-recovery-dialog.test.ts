@@ -261,7 +261,7 @@ describe('RO-01 the play-request branch after the dialog closed (Phase 7 7C-2)',
       const isCurrent = side.caller.isCurrent;
       const confirm = vi.fn((attemptToken: object): boolean => {
         reads.push('confirm');
-        expect(attemptToken).toBe(selector.foregroundRestartAttemptToken);
+        expect(attemptToken).toBe(selector.playRequestAttemptToken);
         return answer;
       });
       const finished = s.o.recovery
@@ -493,7 +493,7 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     const ops = s.fake.ops.length;
     const secondTap = tap(s, {
       intent: 'restore-playing-output',
-      foregroundRestartAttemptToken: attemptToken,
+      playRequestAttemptToken: attemptToken,
     })!;
     expect(s.fake.ops.slice(ops)).toEqual(['resume()']);
     const finished = secondTap.finish();

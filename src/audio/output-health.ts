@@ -11,11 +11,11 @@ import {
 import { isFilePipelineBusyForPlay, isFileSourceNodeUsable } from '../player/transport.ts';
 import { isPlaybackPlayingFile } from '../player/ownership.ts';
 import {
-  armPendingAudioContextRecoveryFromBackground,
+  armPlaybackScopeAttemptFromBackground,
   consumeForegroundAudioContextClockHealthCheck,
-  getPendingAudioContextRecoveryAttemptForHealth,
   getPendingForegroundAudioContextClockHealthCheck,
-  isForegroundAudioContextRestartOwned,
+  getPendingPlaybackScopeAttemptForHealth,
+  isPlayRequestRestartOwned,
   retireAudioContextRecoveryAttempt,
 } from './context-recovery.ts';
 import {
@@ -91,14 +91,14 @@ export async function inspectBackgroundFileOutput(): Promise<BackgroundFileOutpu
   // preparation through post-gesture verification. In particular, do not let
   // this background inspector auto-resume a context intentionally parked for
   // the next trusted PLAY gesture.
-  if (isForegroundAudioContextRestartOwned(context)) {
+  if (isPlayRequestRestartOwned(context)) {
     return { status: 'stale', reason: 'superseded', ...NO_REJOIN };
   }
   const contextWasRunning = String(context.state) === 'running';
   // Native state-interruption recovery owns its exact resume and clock proof.
   // The visibility guard must not run a competing 180 ms sample or publish a
   // second app-level rebuild for that semantic attempt.
-  if (getPendingAudioContextRecoveryAttemptForHealth()) {
+  if (getPendingPlaybackScopeAttemptForHealth()) {
     return { status: 'stale', reason: 'superseded', ...NO_REJOIN };
   }
   const foregroundRequirement = getPendingForegroundAudioContextClockHealthCheck();
@@ -121,7 +121,7 @@ export async function inspectBackgroundFileOutput(): Promise<BackgroundFileOutpu
     return { status: 'stale', reason: health.reason, ...NO_REJOIN };
   }
   if (health.healthy && identityStillCurrent(identity)) {
-    if (getPendingAudioContextRecoveryAttemptForHealth()) {
+    if (getPendingPlaybackScopeAttemptForHealth()) {
       // A statechange during the async sample created a successor owner. Its
       // automatic probe is the only operation allowed to commit that attempt.
       return { status: 'stale', reason: 'superseded', ...NO_REJOIN };
@@ -158,13 +158,13 @@ export async function inspectBackgroundFileOutput(): Promise<BackgroundFileOutpu
     return { status: 'stale', reason: 'superseded', ...NO_REJOIN };
   }
 
-  if (getPendingAudioContextRecoveryAttemptForHealth()) {
+  if (getPendingPlaybackScopeAttemptForHealth()) {
     return { status: 'stale', reason: 'superseded', ...NO_REJOIN };
   }
 
   const cause =
     health.reason === 'clock-stalled' ? 'background-clock-stalled' : 'state-interruption';
-  const attempt = await armPendingAudioContextRecoveryFromBackground(context, cause);
+  const attempt = await armPlaybackScopeAttemptFromBackground(context, cause);
   if (!attempt || !identityStillCurrent(identity)) {
     if (attempt) retireAudioContextRecoveryAttempt(attempt);
     return { status: 'stale', reason: 'superseded', ...NO_REJOIN };

@@ -12327,7 +12327,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       display: block;
       position: fixed;
       /* Inset the scrollport, not its scrolling contents: every scroll
-         position and floating playlist action shares the safe boundary. */
+         position and floating playlist action shares the safe boundary.
+         The Play pane below is the one exception, at its bottom edge. */
       top: var(--safe-top);
       left: 0;
       width: calc(100% - (200px + var(--safe-physical-right)));
@@ -12339,6 +12340,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       box-sizing: border-box;
       border-radius: 0;
       -webkit-overflow-scrolling: touch;
+    }
+
+    /* The Play pane is a composed screen, not a list. When the safe box is
+       too short for it, a scrollport that ends at the home indicator cuts its
+       last row of actions there. This one pane reaches the bottom edge of the
+       screen instead, and its end padding grows by the same inset: the
+       composition keeps its place, what fits on the screen is shown whole,
+       and the end of the scroll still lifts it clear of the indicator. */
+    #tab-play.active {
+      height: calc(var(--app-height, 100dvh) - var(--safe-top));
+      padding-bottom: calc(8px + var(--safe-bottom));
     }
 
     /* Prevent nested scroll conflict: parent .tab-content scrolls in landscape */

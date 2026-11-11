@@ -54,11 +54,11 @@ import { isPlaybackPlayingFile } from './player/ownership.ts';
 import { inspectBackgroundFileOutput } from './audio/output-health.ts';
 import {
   beginAudioOutputGestureRecovery,
-  claimForegroundAudioContextRestartForDialog,
-  getPendingAudioContextRecoveryAttemptForHealth,
+  claimPlayRequestAttemptForDialog,
+  getPendingPlaybackScopeAttemptForHealth,
   retireAudioContextRecoveryAttempt,
-  whenForegroundAudioContextRestartReprepared,
-  type ForegroundRestartPreparation,
+  whenPlayRequestAttemptReprepared,
+  type PlayRequestRestartPreparation,
 } from './audio/context-recovery.ts';
 import {
   DIALOG_REQUESTS_PLAY,
@@ -246,8 +246,8 @@ interface AudioRecoveryIdentity {
   readonly intent: 'restore-playing-output' | 'retry-failed-play';
   readonly playback: LocalFileOutputIdentity;
   readonly sourceIntentIsCurrent?: () => boolean;
-  readonly foregroundRestartAttemptToken?: object;
-  readonly confirmForegroundRestart?: (attemptToken: object) => boolean;
+  readonly playRequestAttemptToken?: object;
+  readonly confirmPlayRequestAttempt?: (attemptToken: object) => boolean;
   readonly retry?: () => Promise<boolean>;
 }
 
@@ -271,8 +271,8 @@ function captureAudioRecoveryIdentity(
   intent: AudioRecoveryIdentity['intent'],
   expectedQueueItemId: string | null,
   sourceIntentIsCurrent?: () => boolean,
-  foregroundRestartAttemptToken?: object,
-  confirmForegroundRestart?: (attemptToken: object) => boolean,
+  playRequestAttemptToken?: object,
+  confirmPlayRequestAttempt?: (attemptToken: object) => boolean,
   retry?: () => Promise<boolean>,
 ): AudioRecoveryIdentity | null {
   const playback = captureLocalFileOutputIdentity();
@@ -293,8 +293,8 @@ function captureAudioRecoveryIdentity(
     intent,
     playback,
     sourceIntentIsCurrent,
-    foregroundRestartAttemptToken,
-    confirmForegroundRestart,
+    playRequestAttemptToken,
+    confirmPlayRequestAttempt,
     retry,
   };
 }
@@ -343,8 +343,8 @@ function isSameAudioRecoveryIdentity(
     left.intent === right.intent &&
     localFileOutputIdentitiesEqual(left.playback, right.playback) &&
     left.sourceIntentIsCurrent === right.sourceIntentIsCurrent &&
-    left.foregroundRestartAttemptToken === right.foregroundRestartAttemptToken &&
-    left.confirmForegroundRestart === right.confirmForegroundRestart &&
+    left.playRequestAttemptToken === right.playRequestAttemptToken &&
+    left.confirmPlayRequestAttempt === right.confirmPlayRequestAttempt &&
     left.retry === right.retry
   );
 }
@@ -354,16 +354,16 @@ function requestAudioOutputRecovery(
   source: 'play' | 'background-resume',
   expectedQueueItemId: string | null,
   sourceIntentIsCurrent?: () => boolean,
-  foregroundRestartAttemptToken?: object,
-  confirmForegroundRestart?: (attemptToken: object) => boolean,
+  playRequestAttemptToken?: object,
+  confirmPlayRequestAttempt?: (attemptToken: object) => boolean,
   retry?: () => Promise<boolean>,
 ): Promise<boolean> {
   const identity = captureAudioRecoveryIdentity(
     source === 'play' ? 'retry-failed-play' : 'restore-playing-output',
     expectedQueueItemId,
     sourceIntentIsCurrent,
-    foregroundRestartAttemptToken,
-    confirmForegroundRestart,
+    playRequestAttemptToken,
+    confirmPlayRequestAttempt,
     retry,
   );
   if (!identity) return Promise.resolve(false);
@@ -401,7 +401,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     (operationHealthClaimed && identity.intent === 'restore-playing-output'
       ? audioRecoveryPlaybackIdentityStillCurrent(identity)
       : audioRecoveryIdentityStillCurrent(identity));
-  const enqueuePreparedForegroundRestart = (preparation: ForegroundRestartPreparation): void => {
+  const enqueuePreparedPlayRequestRestart = (preparation: PlayRequestRestartPreparation): void => {
     const enqueue = (): void => {
       if (
         abortController.signal.aborted ||
@@ -415,7 +415,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
         source,
         identity: {
           ...identity,
-          foregroundRestartAttemptToken: preparation.attemptToken,
+          playRequestAttemptToken: preparation.attemptToken,
         },
       };
       if (audioRecoveryPrompt) {
@@ -447,10 +447,8 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   // 7B-2). Transport's one notice and its closures stay as they are.
   let reprepared: Promise<boolean> | null = null;
   const noteReprepared = (): void => {
-    if (!reprepared && identity.foregroundRestartAttemptToken) {
-      reprepared = whenForegroundAudioContextRestartReprepared(
-        identity.foregroundRestartAttemptToken,
-      );
+    if (!reprepared && identity.playRequestAttemptToken) {
+      reprepared = whenPlayRequestAttemptReprepared(identity.playRequestAttemptToken);
     }
   };
   const showAgainWhenReprepared = (parked: Promise<boolean>, attemptToken: object): void => {
@@ -479,8 +477,8 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   // attempt is parked again after an outside resume and holds the context
   // for its tap (Phase 7 7B-2 and 7B-3). A notice declined or dropped before
   // this point leaves its attempt to the next PLAY's clock check.
-  if (identity.foregroundRestartAttemptToken) {
-    claimForegroundAudioContextRestartForDialog(identity.foregroundRestartAttemptToken);
+  if (identity.playRequestAttemptToken) {
+    claimPlayRequestAttemptForDialog(identity.playRequestAttemptToken);
   }
   const operation = showDialog({
     title: t('dialog.audio_recovery_title'),
@@ -502,13 +500,13 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
       // a restart, reading this dialog's currency (RO-01, Phase 7 7C-2).
       gesture = beginAudioOutputGestureRecovery(
         {
-          foregroundRestartAttemptToken: identity.foregroundRestartAttemptToken,
+          playRequestAttemptToken: identity.playRequestAttemptToken,
           intent: identity.intent,
         },
         {
           isCurrent: operationStillCurrent,
           signal: abortController.signal,
-          confirm: identity.confirmForegroundRestart,
+          confirm: identity.confirmPlayRequestAttempt,
           unhealthy: (health) => {
             log.warn('[Audio] Output remains unhealthy after gesture recovery', {
               reason,
@@ -538,7 +536,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
         return false;
       }
       if (recovery.kind === 'clock-stalled') {
-        enqueuePreparedForegroundRestart(recovery.preparation);
+        enqueuePreparedPlayRequestRestart(recovery.preparation);
         return false;
       }
       if (recovery.kind !== 'recovered') return false;
@@ -575,7 +573,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     })
     .finally(() => {
       if (audioRecoveryPrompt !== operation) return;
-      const attemptToken = identity.foregroundRestartAttemptToken;
+      const attemptToken = identity.playRequestAttemptToken;
       if (attemptToken && !reprepared) retireAudioContextRecoveryAttempt(attemptToken);
       audioRecoveryPrompt = null;
       activeAudioRecoveryIdentity = null;
@@ -614,7 +612,7 @@ async function resumeAudioForBackgroundRecovery(): Promise<boolean> {
     // A native state-interruption attempt is the sole owner of its async
     // proof and any recovery prompt. Suppress the generic long-background
     // dialog while that owner is pending so the two dialogs cannot race.
-    if (getPendingAudioContextRecoveryAttemptForHealth()) {
+    if (getPendingPlaybackScopeAttemptForHealth()) {
       longBackgroundWarning.yieldToAudioRecovery();
     }
     // A superseded sample belongs to that owner, a parked foreground restart,
@@ -726,8 +724,8 @@ function initAudioOutputRecovery(): void {
         event.source,
         event.queueItemId,
         event.isCurrent,
-        event.foregroundRestartAttemptToken,
-        event.confirmForegroundRestart,
+        event.playRequestAttemptToken,
+        event.confirmPlayRequestAttempt,
         event.retry,
       ),
       'event-triggered recovery',

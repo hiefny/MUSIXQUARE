@@ -1256,9 +1256,9 @@ interface BaseEventMap {
       queueItemId: QueueItemId | null;
       isCurrent?: () => boolean;
       /** Exact prepared restart for a running-but-frozen foreground context. */
-      foregroundRestartAttemptToken?: object;
+      playRequestAttemptToken?: object;
       /** Atomically hand a clock-verified restart to its exact failed PLAY. */
-      confirmForegroundRestart?: (attemptToken: object) => boolean;
+      confirmPlayRequestAttempt?: (attemptToken: object) => boolean;
       /** Retry the exact failed local PLAY after a trusted audio gesture. */
       retry?: () => Promise<boolean>;
     }>,

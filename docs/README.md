@@ -96,12 +96,25 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [PWA safe-area layout consistency (2026-11-11)](design/safe-area-layout-consistency-2026-11-11.md):
-  PR increment on main `808d0d9de` (#581), identified as App 9.0.43 / v817. Shared safe boundaries for
-  headers, scrolling content, panels and controls preserve the existing portrait/landscape loading motion.
-  Final local head `e8f4d84b6`: 100 synthetic-inset browser checks, 37 app E2E checks and 424 focused unit tests passed;
-  one existing WebKit desktop-only case was skipped. Physical iPad PWA verification remains open. PR only, no merge or
-  deployment; consolidate this evidence into the owner's later combined release train.
+- [App 9.0.43 / v818 train: PWA safe-area layout consistency (2026-11-11)](design/safe-area-layout-consistency-2026-11-11.md):
+  prepared, not merged or released. An App update after 9.0.42 / v815 by the owner's decisions of 2026-11-11, on main
+  `2d95d49e` (whose App runtime equals 9.0.42's `808d0d9d`), from PR #583. Two intended changes, both visible only
+  where the browser reports safe-area insets (an installed iPad or iPhone PWA, a landscape phone with a cutout). The
+  safe-area unification gives the header's logo, loading text and account button one clipped safe boundary while its
+  background and progress fill still reach the screen edge, insets the compact layout's content pane, sidebar,
+  media and YouTube overlays, the setup columns and the dialogs by the insets, converts the insets once in the scaled
+  wide dashboard, separates physical left and right from inline start and end for right-to-left languages, keeps the
+  chat header at the safe edge during an upward overshoot and moves the fullscreen video control inside the insets;
+  the loading text keeps its directions and 1 s transition. The review then found that in a running room the four
+  tab panes other than Play ignored the compact layout's fixed position, because the custom scrollbar pins an inline
+  `position: relative` on a static parent and adopts those panes while they are hidden: with the new top inset they
+  overflowed the page by 24 px on a tablet PWA and let the document scroll. A failing real-room spec first
+  (`e2e/safe-area-runtime.test.ts`, Chromium's safe-area emulation, five of six rows failing), then one base rule
+  positions every pane; the same fix ends an existing right-to-left defect where those panes sat under the sidebar.
+  Without insets the left-to-right geometry equals production at eight viewport sizes (every element with an id,
+  measured in a real room before and after). The epoch is v818 because the branch advanced it at each runtime
+  commit; v816 and v817 were never released. Not verified on a physical iPad or iPhone. Target `app`, one update
+  dialog, floor 795 unchanged.
 - [App 9.0.42 / v815 train: the audio recovery's obvious defects fixed (2026-11-11)](design/app-9-0-42-train-2026-11-11.md):
   released on 2026-11-11 11:55 KST in Release 42948976516 (PR #581, squash `808d0d9d`) as App 9.0.42 / v815 (App build
   815, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

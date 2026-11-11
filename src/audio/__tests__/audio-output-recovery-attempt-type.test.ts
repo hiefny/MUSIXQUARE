@@ -171,9 +171,9 @@ describe("RO-01 a stalled attempt's clock still frozen after its tap", () => {
 
     // The tap's resume brings the parked context running inside its
     // deadline, so the attempt goes on to clock verification for its caller.
-    const resumed = await s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
+    const resumed = await s.o.recovery.beginPlaybackScopeRecoveryFromGesture();
     expect(resumed).toEqual({ running: true, rejoinEmitted: false });
-    const finished = s.o.recovery.finishPendingInterruptionRecoveryFromGesture(
+    const finished = s.o.recovery.finishPlaybackScopeRecoveryFromGesture(
       attempt,
       caller(resumed.running),
     );
@@ -192,9 +192,9 @@ describe("RO-01 a stalled attempt's clock still frozen after its tap", () => {
 
     // One more at most: the next tap on a clock still frozen is rejected, as
     // every such tap was before, and nothing is prepared or asked again.
-    const again = await s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
+    const again = await s.o.recovery.beginPlaybackScopeRecoveryFromGesture();
     expect(again).toEqual({ running: true, rejoinEmitted: false });
-    const second = s.o.recovery.finishPendingInterruptionRecoveryFromGesture(
+    const second = s.o.recovery.finishPlaybackScopeRecoveryFromGesture(
       attempt,
       caller(again.running),
     );

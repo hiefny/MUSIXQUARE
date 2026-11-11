@@ -70,13 +70,13 @@ async function importOwners() {
   // Phase 7 7C-4 moved it into context-recovery.ts: context.ts's own exports,
   // the owner's exported ones and its sub-steps (its one test seam).
   const {
-    claimForegroundAudioContextRestartForDialog,
-    confirmForegroundAudioContextRestartHealth,
+    claimPlayRequestAttemptForDialog,
+    confirmPlayRequestAttemptHealth,
     consumeForegroundAudioContextClockHealthCheck,
     getPendingForegroundAudioContextClockHealthCheck,
-    isForegroundAudioContextRestartOwned,
+    isPlayRequestRestartOwned,
     retireAudioContextRecoveryAttempt,
-    whenForegroundAudioContextRestartReprepared,
+    whenPlayRequestAttemptReprepared,
     ownerSubStepsForTests,
   } = recovery;
   return {
@@ -85,13 +85,13 @@ async function importOwners() {
     PLAYBACK_STATE: constants.PLAYBACK_STATE,
     context: {
       ...context,
-      claimForegroundAudioContextRestartForDialog,
-      confirmForegroundAudioContextRestartHealth,
+      claimPlayRequestAttemptForDialog,
+      confirmPlayRequestAttemptHealth,
       consumeForegroundAudioContextClockHealthCheck,
       getPendingForegroundAudioContextClockHealthCheck,
-      isForegroundAudioContextRestartOwned,
+      isPlayRequestRestartOwned,
       retireAudioContextRecoveryAttempt,
-      whenForegroundAudioContextRestartReprepared,
+      whenPlayRequestAttemptReprepared,
       ...ownerSubStepsForTests,
     },
     recovery,
@@ -143,7 +143,7 @@ function stageFilePlayback(o: Owners, queueItemId: string = QUEUE_A): void {
 }
 
 function bind(o: Owners, fake: FakeNativeAudioContext): () => void {
-  const dispose = o.recovery.bindAudioContextInterruptionRecovery(fake.native);
+  const dispose = o.recovery.bindPlaybackScopeRecovery(fake.native);
   disposers.push(dispose);
   return dispose;
 }
@@ -162,10 +162,10 @@ function recordBus(o: Owners): BusRecord {
 
 /** Arm a background clock stall the way output-health does, prepared and parked. */
 async function parkStalledPlayback(o: Owners, fake: FakeNativeAudioContext): Promise<object> {
-  const token = await o.recovery.armPendingAudioContextRecoveryFromBackground(fake.native);
+  const token = await o.recovery.armPlaybackScopeAttemptFromBackground(fake.native);
   expect(token).toBeTypeOf('object');
   expect(fake.state).toBe('suspended');
-  expect(o.recovery.getPendingAudioContextInterruptionAttempt()).toBe(token);
+  expect(o.recovery.getPendingPlaybackScopeAttemptForGesture()).toBe(token);
   return token!;
 }
 
@@ -177,7 +177,7 @@ async function parkInterruptedPlayback(o: Owners, fake: FakeNativeAudioContext):
   fake.planResume({ outcome: 'reject' });
   fake.transition('interrupted');
   await vi.advanceTimersByTimeAsync(1_000);
-  const token = o.recovery.getPendingAudioContextInterruptionAttempt();
+  const token = o.recovery.getPendingPlaybackScopeAttemptForGesture();
   expect(token).toBeTypeOf('object');
   expect(fake.state).toBe('interrupted');
   expect(fake.calls('resume')).toBe(1);
@@ -208,7 +208,7 @@ async function loadMediaSession(): Promise<() => void> {
  * resume and holds the context for its tap (Phase 7 7B-2 and 7B-3).
  */
 function dialogTakes(o: Owners, attemptToken: object): void {
-  o.context.claimForegroundAudioContextRestartForDialog(attemptToken);
+  o.context.claimPlayRequestAttemptForDialog(attemptToken);
 }
 
 /**
@@ -222,7 +222,7 @@ async function parkPlayRequestRestart(
   { dialog = true }: { dialog?: boolean } = {},
 ) {
   const check = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
-  const preparation = await o.context.prepareForegroundAudioContextRestart(check!);
+  const preparation = await o.context.preparePlayRequestRestart(check!);
   expect(preparation).toMatchObject({ status: 'prepared' });
   expect(fake.state).toBe('suspended');
   if (dialog) dialogTakes(o, preparation!.attemptToken);
@@ -231,10 +231,10 @@ async function parkPlayRequestRestart(
 
 /** Public view of the playback-scope owner, from its exported queries only. */
 function playbackScope(o: Owners, token: object) {
-  const gesture = o.recovery.getPendingAudioContextInterruptionAttempt();
+  const gesture = o.recovery.getPendingPlaybackScopeAttemptForGesture();
   return {
-    pending: o.recovery.hasPendingAudioContextInterruption('file'),
-    current: o.recovery.isAudioContextInterruptionAttemptCurrent(token),
+    pending: o.recovery.hasPendingPlaybackScopeAttempt('file'),
+    current: o.recovery.isPlaybackScopeAttemptCurrent(token),
     gestureToken: gesture === null ? 'none' : gesture === token ? 'same' : 'other',
   };
 }
@@ -248,7 +248,7 @@ function playbackScope(o: Owners, token: object) {
  * promoted, or none.
  */
 function clockRequirement(o: Owners): { attemptToken: object; isCurrent(): boolean } | null {
-  const attemptToken = o.recovery.getPendingAudioContextRecoveryAttemptForHealth();
+  const attemptToken = o.recovery.getPendingPlaybackScopeAttemptForHealth();
   if (
     !attemptToken ||
     String(o.context.getExistingAudioContext()?.state) !== 'running' ||
@@ -258,7 +258,7 @@ function clockRequirement(o: Owners): { attemptToken: object; isCurrent(): boole
   }
   return {
     attemptToken,
-    isCurrent: () => o.recovery.isAudioContextInterruptionAttemptCurrent(attemptToken),
+    isCurrent: () => o.recovery.isPlaybackScopeAttemptCurrent(attemptToken),
   };
 }
 
@@ -376,9 +376,7 @@ describe('RO-01 gesture paths issue the native resume inside the activation (C1-
       async (o: Owners, fake: FakeNativeAudioContext) => {
         const { preparation } = await parkPlayRequestRestart(o, fake);
         return () =>
-          o.context.resumePreparedForegroundAudioContextRestartFromGesture(
-            preparation.attemptToken,
-          );
+          o.context.resumePreparedPlayRequestRestartFromGesture(preparation.attemptToken);
       },
     ],
     [
@@ -387,7 +385,7 @@ describe('RO-01 gesture paths issue the native resume inside the activation (C1-
         stageFilePlayback(o);
         bind(o, fake);
         await parkStalledPlayback(o, fake);
-        return () => o.recovery.beginPendingInterruptionRecoveryFromGesture();
+        return () => o.recovery.beginPlaybackScopeRecoveryFromGesture();
       },
     ],
     [
@@ -449,8 +447,8 @@ describe('RO-01 playback-scope interruption recovery', () => {
       expect(bus.rejoins).toEqual(rejoins);
       expect(bus.needed).toEqual(needed);
       // A frozen clock leaves one prepared attempt parked for the gesture.
-      expect(o.recovery.hasPendingAudioContextInterruption('file')).toBe(clock === 'frozen');
-      expect(o.recovery.getPendingAudioContextInterruptionAttempt() !== null).toBe(
+      expect(o.recovery.hasPendingPlaybackScopeAttempt('file')).toBe(clock === 'frozen');
+      expect(o.recovery.getPendingPlaybackScopeAttemptForGesture() !== null).toBe(
         clock === 'frozen',
       );
     },
@@ -481,15 +479,15 @@ describe('RO-01 play-request foreground restart', () => {
     });
     await vi.advanceTimersByTimeAsync(360);
     await expect(probe).resolves.toMatchObject({ reason: 'clock-stalled', state: 'running' });
-    const preparation = await o.context.prepareForegroundAudioContextRestart(check!.token);
+    const preparation = await o.context.preparePlayRequestRestart(check!.token);
     expect(preparation).toMatchObject({ status: 'prepared' });
 
     // The dialog gesture: a real restart brings the clock back.
     fake.runClock();
     await expect(
-      o.context.resumePreparedForegroundAudioContextRestartFromGesture(preparation!.attemptToken),
+      o.context.resumePreparedPlayRequestRestartFromGesture(preparation!.attemptToken),
     ).resolves.toEqual({ running: true, requiresClockVerification: true });
-    const requirement = o.context.getPendingForegroundAudioContextRestartClockHealthRequirement();
+    const requirement = o.context.getPlayRequestClockRequirement();
     expect(requirement?.attemptToken).toBe(preparation!.attemptToken);
     const health = o.context.probeAudioContextHealth({
       attemptResume: false,
@@ -498,9 +496,7 @@ describe('RO-01 play-request foreground restart', () => {
     });
     await vi.advanceTimersByTimeAsync(180);
     await expect(health).resolves.toMatchObject({ healthy: true });
-    expect(o.context.confirmForegroundAudioContextRestartHealth(preparation!.attemptToken)).toBe(
-      true,
-    );
+    expect(o.context.confirmPlayRequestAttemptHealth(preparation!.attemptToken)).toBe(true);
 
     expect(o.context.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
     expect(fake.ops.filter((op) => op.endsWith('()'))).toEqual(['suspend()', 'resume()']);
@@ -571,7 +567,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
     const token = await parkStalledPlayback(o, fake);
     fake.planResume({ latencyMs: 1_200, ...resume }).planSuspend(reSuspend);
 
-    const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
+    const gesture = o.recovery.beginPlaybackScopeRecoveryFromGesture();
     await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
 
     // What the dialog's flight (settled before the 1 s wait, the owner's since
@@ -632,7 +628,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       fake.planResume({ latencyMs: 1_200, statechange: order, stateDelayMs: 100 });
 
       // The user taps Restore and locks the screen before the route settles.
-      const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
+      const gesture = o.recovery.beginPlaybackScopeRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(300);
       setVisibility('hidden');
       await vi.advanceTimersByTimeAsync(5_000);
@@ -690,7 +686,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
 
       const before = fake.ops.length;
       let gesture: Promise<unknown> | null = null;
-      if (via === 'dialog') gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
+      if (via === 'dialog') gesture = o.recovery.beginPlaybackScopeRecoveryFromGesture();
       else play();
       expect(fake.ops.slice(before)).toEqual(['resume()']);
       await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
@@ -745,7 +741,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       fake.planResume({ latencyMs: 400, statechange: 'silent' });
 
       // The dialog's flight, with no caller-side probe after it.
-      const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
+      const gesture = o.recovery.beginPlaybackScopeRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(10_000);
 
       // The G7 handover applies only after the deadline returned the caller:
@@ -778,7 +774,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       const resumesBefore = fake.calls('resume');
       fake.planResume({ latencyMs: 1_200, statechange: 'silent' });
 
-      const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
+      const gesture = o.recovery.beginPlaybackScopeRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
       await expect(gesture).resolves.toMatchObject({ running: false });
       o.setState('playback.activity', 'paused');
@@ -811,7 +807,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       fake.freezeClock();
       fake.planResume({ latencyMs: 1_200, statechange: 'silent' });
 
-      const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
+      const gesture = o.recovery.beginPlaybackScopeRecoveryFromGesture();
       await vi.advanceTimersByTimeAsync(10_000);
       await expect(gesture).resolves.toMatchObject({ running: false });
 
@@ -901,21 +897,19 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       fake.planResume({ latencyMs: 1_200, statechange: order, stateDelayMs: 100 });
 
       const tapAt = Date.now();
-      const gesture = o.context.resumePreparedForegroundAudioContextRestartFromGesture(
+      const gesture = o.context.resumePreparedPlayRequestRestartFromGesture(
         preparation.attemptToken,
       );
       await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
       await expect(gesture).resolves.toEqual({ running: false, requiresClockVerification: false });
-      expect(o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()).toBeNull();
+      expect(o.context.getPlayRequestClockRequirement()).toBeNull();
       expect(preparation.isCurrent()).toBe(true);
       // app.ts's 1 s race has the tap's answer: its wait on the owner starts.
       const answers: string[] = [];
-      void o.context
-        .whenForegroundAudioContextRestartClockRequirement(preparation.attemptToken)
-        .then(
-          (outcome) => answers.push(`${outcome}@${Date.now() - tapAt}`),
-          () => undefined,
-        );
+      void o.context.whenPlayRequestClockRequirement(preparation.attemptToken).then(
+        (outcome) => answers.push(`${outcome}@${Date.now() - tapAt}`),
+        () => undefined,
+      );
 
       await vi.advanceTimersByTimeAsync(10_000);
 
@@ -925,7 +919,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7)', (
       // 50 ms poll). The owner has no deadline of its own, so the requirement
       // stays exposed until someone retires it.
       expect(answers).toEqual([`promoted@${promotedAtMs}`]);
-      const requirement = o.context.getPendingForegroundAudioContextRestartClockHealthRequirement();
+      const requirement = o.context.getPlayRequestClockRequirement();
       expect(requirement?.attemptToken).toBe(preparation.attemptToken);
       expect(requirement?.isCurrent()).toBe(true);
       expect(fake.state).toBe('running');
@@ -1003,12 +997,12 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
       expect(preparation.isCurrent()).toBe(true);
       const before = fake.ops.length;
       await expect(
-        o.context.resumePreparedForegroundAudioContextRestartFromGesture(preparation.attemptToken),
+        o.context.resumePreparedPlayRequestRestartFromGesture(preparation.attemptToken),
       ).resolves.toEqual({ running: true, requiresClockVerification: true });
       expect(fake.ops.slice(before).filter((op) => op.endsWith('()'))).toEqual(['resume()']);
-      expect(
-        o.context.getPendingForegroundAudioContextRestartClockHealthRequirement()?.attemptToken,
-      ).toBe(preparation.attemptToken);
+      expect(o.context.getPlayRequestClockRequirement()?.attemptToken).toBe(
+        preparation.attemptToken,
+      );
     },
   );
 
@@ -1037,9 +1031,7 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
       expect(fake.calls('suspend')).toBe(1);
       expect(heldWhileParked).toBe(false);
       expect(o.recovery.isAudioOutputRecoveryHolding()).toBe(false);
-      expect(o.context.whenForegroundAudioContextRestartReprepared(preparation.attemptToken)).toBe(
-        null,
-      );
+      expect(o.context.whenPlayRequestAttemptReprepared(preparation.attemptToken)).toBe(null);
       // That PLAY's clock check finds the clock running and retires it.
       const health = o.context.probeAudioContextHealth({
         attemptResume: false,
@@ -1049,7 +1041,7 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
       await expect(health).resolves.toMatchObject({ healthy: true });
       expect(o.context.consumeForegroundAudioContextClockHealthCheck(check)).toBe(true);
       expect(preparation.isCurrent()).toBe(false);
-      expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(false);
+      expect(o.context.isPlayRequestRestartOwned(fake.native)).toBe(false);
       expect(fake.calls('suspend')).toBe(1);
       expect(fake.state).toBe('running');
       expect(bus).toEqual(QUIET_BUS);
@@ -1138,7 +1130,7 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     fake.transition('running');
     await vi.advanceTimersByTimeAsync(0);
     const before = fake.ops.length;
-    await expect(o.recovery.beginPendingInterruptionRecoveryFromGesture()).resolves.toEqual({
+    await expect(o.recovery.beginPlaybackScopeRecoveryFromGesture()).resolves.toEqual({
       running: false,
       rejoinEmitted: false,
     });
@@ -1171,7 +1163,7 @@ describe('RO-01 the play-request attempt parked again (C1-I13 a)', () => {
     const { preparation } = await parkPlayRequestRestart(o, fake);
     const token = preparation.attemptToken;
     // Parked for its gesture: nothing is being prepared again.
-    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBeNull();
+    expect(o.context.whenPlayRequestAttemptReprepared(token)).toBeNull();
     fake.planSuspend({ latencyMs: 50 });
 
     fake.transition('running');
@@ -1179,11 +1171,11 @@ describe('RO-01 the play-request attempt parked again (C1-I13 a)', () => {
 
     expect(fake.ops.slice(-2)).toEqual(['statechange:running', 'suspend()']);
     expect(preparation.isCurrent()).toBe(false);
-    expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(true);
-    const reprepared = o.context.whenForegroundAudioContextRestartReprepared(token);
+    expect(o.context.isPlayRequestRestartOwned(fake.native)).toBe(true);
+    const reprepared = o.context.whenPlayRequestAttemptReprepared(token);
     expect(reprepared).toBeInstanceOf(Promise);
-    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBe(reprepared);
-    expect(o.context.whenForegroundAudioContextRestartReprepared({})).toBeNull();
+    expect(o.context.whenPlayRequestAttemptReprepared(token)).toBe(reprepared);
+    expect(o.context.whenPlayRequestAttemptReprepared({})).toBeNull();
     const settled: boolean[] = [];
     void reprepared!.then(
       (parked) => settled.push(parked),
@@ -1192,9 +1184,10 @@ describe('RO-01 the play-request attempt parked again (C1-I13 a)', () => {
     // A gesture that does reach the owner now is refused with no native call,
     // as the playback scope refuses one during its re-suspend (row above).
     const before = fake.ops.length;
-    await expect(
-      o.context.resumePreparedForegroundAudioContextRestartFromGesture(token),
-    ).resolves.toEqual({ running: false, requiresClockVerification: false });
+    await expect(o.context.resumePreparedPlayRequestRestartFromGesture(token)).resolves.toEqual({
+      running: false,
+      requiresClockVerification: false,
+    });
     expect(fake.ops.slice(before)).toEqual([]);
 
     await vi.advanceTimersByTimeAsync(50);
@@ -1202,18 +1195,19 @@ describe('RO-01 the play-request attempt parked again (C1-I13 a)', () => {
     expect(settled).toEqual([true]);
     expect(fake.state).toBe('suspended');
     expect(preparation.isCurrent()).toBe(true);
-    expect(o.context.whenForegroundAudioContextRestartReprepared(token)).toBeNull();
+    expect(o.context.whenPlayRequestAttemptReprepared(token)).toBeNull();
 
     // The same request's next tap: one native resume, and the exact token
     // commits once (transport's confirm closure asks this owner with it).
     const tap = fake.ops.length;
-    await expect(
-      o.context.resumePreparedForegroundAudioContextRestartFromGesture(token),
-    ).resolves.toEqual({ running: true, requiresClockVerification: true });
+    await expect(o.context.resumePreparedPlayRequestRestartFromGesture(token)).resolves.toEqual({
+      running: true,
+      requiresClockVerification: true,
+    });
     expect(fake.ops.slice(tap).filter((op) => op.endsWith('()'))).toEqual(['resume()']);
-    expect(o.context.confirmForegroundAudioContextRestartHealth({})).toBe(false);
-    expect(o.context.confirmForegroundAudioContextRestartHealth(token)).toBe(true);
-    expect(o.context.confirmForegroundAudioContextRestartHealth(token)).toBe(false);
+    expect(o.context.confirmPlayRequestAttemptHealth({})).toBe(false);
+    expect(o.context.confirmPlayRequestAttemptHealth(token)).toBe(true);
+    expect(o.context.confirmPlayRequestAttemptHealth(token)).toBe(false);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(settled).toEqual([true]);
     expect(fake.calls('suspend')).toBe(2);
@@ -1229,9 +1223,7 @@ describe('RO-01 the play-request attempt parked again (C1-I13 a)', () => {
 
     fake.transition('running');
     await vi.advanceTimersByTimeAsync(0);
-    const reprepared = o.context.whenForegroundAudioContextRestartReprepared(
-      preparation.attemptToken,
-    );
+    const reprepared = o.context.whenPlayRequestAttemptReprepared(preparation.attemptToken);
     const settled: boolean[] = [];
     void reprepared!.then(
       (parked) => settled.push(parked),
@@ -1247,10 +1239,8 @@ describe('RO-01 the play-request attempt parked again (C1-I13 a)', () => {
     // instead of trying again.
     expect(settled).toEqual([false]);
     expect(preparation.isCurrent()).toBe(false);
-    expect(o.context.isForegroundAudioContextRestartOwned(fake.native)).toBe(false);
-    expect(
-      o.context.whenForegroundAudioContextRestartReprepared(preparation.attemptToken),
-    ).toBeNull();
+    expect(o.context.isPlayRequestRestartOwned(fake.native)).toBe(false);
+    expect(o.context.whenPlayRequestAttemptReprepared(preparation.attemptToken)).toBeNull();
     await vi.advanceTimersByTimeAsync(2_000);
     expect(fake.calls('suspend')).toBe(2);
     expect(fake.calls('resume')).toBe(0);
@@ -1268,12 +1258,12 @@ describe('RO-01 both machines on one context (C1-I4 f)', () => {
 
     fake.transition('interrupted');
     await vi.advanceTimersByTimeAsync(10);
-    const semantic = o.recovery.getPendingAudioContextRecoveryAttemptForHealth();
+    const semantic = o.recovery.getPendingPlaybackScopeAttemptForHealth();
     expect(semantic).toBeTypeOf('object');
 
     // transport.ts PLAY with a foreground incident and a stalled sample.
     const check = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
-    const preparation = await o.context.prepareForegroundAudioContextRestart(check!);
+    const preparation = await o.context.preparePlayRequestRestart(check!);
     expect(preparation).toMatchObject({ status: 'prepared' });
     // One listener, the context's dispatcher (Phase 7 7B-4), for the
     // binding: the play-request lease has settled.
@@ -1301,7 +1291,7 @@ describe('RO-01 retire, cancel and escalate', () => {
     stageFilePlayback(o);
     const bus = recordBus(o);
     bind(o, fake);
-    const token = await o.recovery.armPendingAudioContextRecoveryFromBackground(
+    const token = await o.recovery.armPlaybackScopeAttemptFromBackground(
       fake.native,
       'state-interruption',
     );
@@ -1315,13 +1305,13 @@ describe('RO-01 retire, cancel and escalate', () => {
     // one: nothing escalates before that observation, and a foreign token
     // reaches nothing.
     const caller = { running: true, isCurrent: () => true };
-    await expect(
-      o.recovery.finishPendingInterruptionRecoveryFromGesture({}, caller),
-    ).resolves.toEqual({ kind: 'superseded' });
+    await expect(o.recovery.finishPlaybackScopeRecoveryFromGesture({}, caller)).resolves.toEqual({
+      kind: 'superseded',
+    });
 
     fake.freezeClock();
     fake.planSuspend({ latencyMs: 600 });
-    const escalation = o.recovery.finishPendingInterruptionRecoveryFromGesture(token!, caller);
+    const escalation = o.recovery.finishPlaybackScopeRecoveryFromGesture(token!, caller);
     // Its two frozen clock samples, then the 500 ms suspend preparation.
     await vi.advanceTimersByTimeAsync(360 + 500);
     await expect(escalation).resolves.toEqual({ kind: 'escalated', escalation: 'preparing' });
@@ -1370,7 +1360,7 @@ describe('RO-01 supersession and teardown', () => {
     const second = o.context.armForegroundAudioContextClockHealthCheck(fake.native);
     expect(first.preparation.isCurrent()).toBe(false);
     expect(fake.state).toBe('suspended');
-    const preparation = await o.context.prepareForegroundAudioContextRestart(second!);
+    const preparation = await o.context.preparePlayRequestRestart(second!);
 
     expect(preparation).toMatchObject({ status: 'prepared' });
     expect(preparation!.attemptToken).not.toBe(first.preparation.attemptToken);
@@ -1386,7 +1376,7 @@ describe('RO-01 supersession and teardown', () => {
     const token = await parkStalledPlayback(o, fake);
     fake.planResume({ latencyMs: 1_200 });
 
-    const gesture = o.recovery.beginPendingInterruptionRecoveryFromGesture();
+    const gesture = o.recovery.beginPlaybackScopeRecoveryFromGesture();
     await vi.advanceTimersByTimeAsync(300);
     dispose();
     await vi.advanceTimersByTimeAsync(2_000);
@@ -1474,7 +1464,7 @@ describe('RO-01 Media Session PLAY gesture path', () => {
     fake.planResume({ outcome: 'reject' });
     fake.transition('interrupted');
     await vi.advanceTimersByTimeAsync(0);
-    expect(o.recovery.hasPendingAudioContextInterruption('file')).toBe(true);
+    expect(o.recovery.hasPendingPlaybackScopeAttempt('file')).toBe(true);
 
     const before = fake.ops.length;
     play();
@@ -1482,7 +1472,7 @@ describe('RO-01 Media Session PLAY gesture path', () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(bus.rejoins).toEqual(['audio-context-recovered']);
-    expect(o.recovery.hasPendingAudioContextInterruption()).toBe(false);
+    expect(o.recovery.hasPendingPlaybackScopeAttempt()).toBe(false);
   });
 
   it('G7: a slow hardware PLAY resume is verified by the owner; a later PLAY is a no-op', async () => {

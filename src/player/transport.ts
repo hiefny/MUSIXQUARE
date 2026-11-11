@@ -504,7 +504,7 @@ import {
 import { ensureRunning, getAudioContext, getCurrentTime } from '../audio/context.ts';
 import {
   checkForegroundClockBeforeFileStart,
-  confirmForegroundAudioContextRestartHealth,
+  confirmPlayRequestAttemptHealth,
 } from '../audio/context-recovery.ts';
 import { showLoader, showToast } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
@@ -1392,7 +1392,7 @@ async function _internalPlay(
               foregroundRestartConfirmed ||
               !recoveryIntentIsCurrent() ||
               restartIsCurrent?.() === false ||
-              !confirmForegroundAudioContextRestartHealth(attemptToken)
+              !confirmPlayRequestAttemptHealth(attemptToken)
             ) {
               return false;
             }

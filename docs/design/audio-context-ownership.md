@@ -60,7 +60,7 @@ own rejoin (Decision 4).
       attempt waiting for its tap has the same rule as the playback scope's, so its tap resumes a
       parked context instead of being refused. The rule serves an attempt a recovery dialog has
       taken (`app.ts` takes it when it shows the request,
-      `claimForegroundAudioContextRestartForDialog`); an attempt whose notice never became a
+      `claimPlayRequestAttemptForDialog`); an attempt whose notice never became a
       dialog keeps no context, and the next PLAY's clock check retires it, as before 7B-2.
    2. `probeAudioContextHealth` with `attemptResume: true` has one caller,
       `src/audio/output-health.ts`, and runs only after both ownership checks in that file report
@@ -97,9 +97,9 @@ own rejoin (Decision 4).
    attempt that pause made stale, has the owner retire that attempt and arm the next PLAY's clock
    check in its place, and rejoins the room itself (owner answer Q12). Since 7C-1 the playback
    scope's gesture sequence is the owner's for both callers, in two steps, so the recovery
-   dialog's 1 s wait races the resume alone: `beginPendingInterruptionRecoveryFromGesture`
+   dialog's 1 s wait races the resume alone: `beginPlaybackScopeRecoveryFromGesture`
    issues the resume synchronously and answers whether the context runs;
-   `finishPendingInterruptionRecoveryFromGesture` lets go of a resume that did not reach running
+   `finishPlaybackScopeRecoveryFromGesture` lets go of a resume that did not reach running
    (the owner then verifies a late running state itself, G7), observes, probes the exact attempt's
    clock with the caller's currency, and escalates or commits, or retires the stale attempt above.
    Media Session keeps its coalescing and its rejoin decision. Since 7C-2 the recovery dialog's
@@ -139,8 +139,8 @@ own rejoin (Decision 4).
      suspend, so the phases cover them) and pinned phase by phase by the holding table; the
      `/debug sync` counts ask the same answers.
    - **Ownership** (broad, asked by `output-health.ts` before its background check): any attempt
-     exists, a play-request restart (`isForegroundAudioContextRestartOwned`) or a playback-scope
-     attempt (`getPendingAudioContextRecoveryAttemptForHealth`). The background check must not race
+     exists, a play-request restart (`isPlayRequestRestartOwned`) or a playback-scope
+     attempt (`getPendingPlaybackScopeAttemptForHealth`). The background check must not race
      an OS interruption that waits for no tap either, so it keeps the broad question.
 7. **`output-health.ts` stays a reader outside the owner.** It reads `src/player/transport.ts`
    (`isFilePipelineBusyForPlay`, `isFileSourceNodeUsable`), and transport imports the engine,
@@ -171,7 +171,7 @@ own rejoin (Decision 4).
   `src/player/__tests__/transport-ended-stop.test.ts`); they are the latch. Since 7B-3 every test
   file that loads UI sounds evaluates it too (22 more under a `context.ts` factory). Its holding
   query is answered inside the owner since 7C-4 (it read the play-request owner's
-  `isForegroundAudioContextRestartHolding` from `context.ts` before), only after the UI sound
+  `playRequestHolding` from `context.ts` before), only after the UI sound
   preference, which among those files only `src/audio/__tests__/ui-sounds.test.ts` turns on; that
   file sets the answer through a `context-recovery.ts` factory of `isAudioOutputRecoveryHolding`.
   Since 7B-4 the binding and the playback scope's suspend preparation call the ledger, and since

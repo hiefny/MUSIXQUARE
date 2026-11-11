@@ -220,11 +220,11 @@ RO-54 accepted-exception
 - **Resource:** the singleton AudioContext's native running or suspended state, its suspend
   leases, its `statechange` listeners and the one-shot foreground clock-health incident.
 - **Current owners/flows:** two flows in `src/audio/context-recovery.ts`: the play-request
-  foreground restart (`prepareForegroundAudioContextRestart*`,
-  `resumePreparedForegroundAudioContextRestartFromGesture`; in `src/audio/context.ts` until
-  Phase 7 7C-4) and playback-scope interruption recovery (`bindAudioContextInterruptionRecovery`,
-  since Phase 7 7C-1 the gesture recovery's two steps `beginPendingInterruptionRecoveryFromGesture`
-  and `finishPendingInterruptionRecoveryFromGesture`). Since 7C-5 their attempts are one type,
+  foreground restart (`preparePlayRequestRestart*`,
+  `resumePreparedPlayRequestRestartFromGesture`; in `src/audio/context.ts` until
+  Phase 7 7C-4) and playback-scope interruption recovery (`bindPlaybackScopeRecovery`,
+  since Phase 7 7C-1 the gesture recovery's two steps `beginPlaybackScopeRecoveryFromGesture`
+  and `finishPlaybackScopeRecoveryFromGesture`). Since 7C-5 their attempts are one type,
   `RecoveryAttempt`, told apart by its scope (play request or playback scope), each scope with its
   own slot and its own generation: one phase union (`RecoveryPhase`), one rule for whether the
   owner still holds an attempt (`ownsAttempt`) and one retire by token
@@ -233,9 +233,9 @@ RO-54 accepted-exception
   singleton (`getAudioContext`, `getExistingAudioContext`), `getCurrentTime`, `ensureRunning`, the
   health probe and the gesture restart; the owner exports six of the restart's entries for
   `app.ts`, `output-health.ts` and `transport.ts`: three queries
-  (`getPendingForegroundAudioContextClockHealthCheck`, `isForegroundAudioContextRestartOwned`,
-  `whenForegroundAudioContextRestartReprepared`) and three steps that change its state
-  (`claimForegroundAudioContextRestartForDialog`, `confirmForegroundAudioContextRestartHealth`,
+  (`getPendingForegroundAudioContextClockHealthCheck`, `isPlayRequestRestartOwned`,
+  `whenPlayRequestAttemptReprepared`) and three steps that change its state
+  (`claimPlayRequestAttemptForDialog`, `confirmPlayRequestAttemptHealth`,
   `consumeForegroundAudioContextClockHealthCheck`); since 7C-5 the retire by token above, which
   `app.ts` uses for a play-request attempt and `output-health.ts` for a playback-scope one; and it
   keeps its other steps module-private. Since Phase 7 7B-4 both park the context through one
@@ -253,11 +253,11 @@ RO-54 accepted-exception
   nothing playing, to the ledger, which undoes it (the binding made that same call before). Since
   Phase 7 7B-2 the binding also hands each
   `running` statechange to the play-request owner, which parks its attempt waiting for a tap again
-  with the same attempt (`reparkForegroundAudioContextRestartAfterResume`), as the playback scope
+  with the same attempt (`reparkPlayRequestAttemptAfterResume`), as the playback scope
   re-suspends its own; a dialog tap that meets that re-park keeps the attempt
-  (`whenForegroundAudioContextRestartReprepared`), and the dialog shows the same request again.
+  (`whenPlayRequestAttemptReprepared`), and the dialog shows the same request again.
   That re-park, and the holding below, serve only an attempt a recovery dialog has taken: `app.ts`
-  takes it when it shows the attempt's request (`claimForegroundAudioContextRestartForDialog`).
+  takes it when it shows the attempt's request (`claimPlayRequestAttemptForDialog`).
   An attempt whose one notice never became a dialog (a hidden page, a replaced PLAY, a pending
   forced update) is neither parked again nor holding, and the next PLAY's clock check retires it,
   as before 7B-2.
@@ -270,7 +270,7 @@ RO-54 accepted-exception
   suspended again before). Each owner keeps its step rules: after the deadline, on a late running
   state (only the playback scope checks the clock itself, fix lane G7) and for the attempt after a
   retired one. After its tap the recovery dialog waits on the play-request owner's answer
-  (`whenForegroundAudioContextRestartClockRequirement`: promoted, retired, cancelled or
+  (`whenPlayRequestClockRequirement`: promoted, retired, cancelled or
   superseded) raced with its AbortSignal, its currency on each visibility change and its 5 s
   limit, instead of polling every 50 ms (owner answer Q7).
   Since Phase 7 7C-1 the playback scope's gesture sequence is the owner's, in two steps: the first
@@ -318,7 +318,7 @@ RO-54 accepted-exception
   step), and the PLAY rejoins the room itself (owner answer Q12).
   `src/audio/ui-sounds.ts` asks first whether an owner holds the context for a tap
   (`isAudioOutputRecoveryHolding` in `context-recovery.ts`, which asks the play-request owner's
-  `isForegroundAudioContextRestartHolding` when called; Phase 7 7B-3) and, while one does, makes
+  `playRequestHolding` when called; Phase 7 7B-3) and, while one does, makes
   no sound and wakes nothing; otherwise it resumes the context, only while it is not running, on
   a trusted pointerdown or Enter or Space keydown and before it plays a UI sound. An owner holds
   it for an attempt it still holds, for a local file and a current identity, that is parking the
@@ -453,7 +453,7 @@ RO-54 accepted-exception
   `audio-output-recovery-boundary.test.ts`); the attempts have one type and one phase union
   (`RecoveryAttempt`, `RecoveryPhase`, written through `setAttemptPhase`), one gesture resume
   (the recovery resume, `requestAudioContextResume`), one clock-requirement query
-  (`getPendingForegroundAudioContextRestartClockHealthRequirement`; the playback scope's query
+  (`getPlayRequestClockRequirement`; the playback scope's query
   that promoted when read went in 7C-1) and one prepared-state predicate
   (`isAudioContextPrepared` in `context-protocol.ts`). The changes that removed the last
   independent machine, with their tests: 7C-5 gave both flows one attempt type (the seven rows
@@ -3826,10 +3826,10 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Revisit when:** a change makes a committed attempt queryable by token. Phase 7 7B-2's re-notify
   does not: after a re-park the dialog shows the same request again with the same closures, and the
   owner's re-park query answers only for an attempt still being parked, not a committed one. Nor
-  does 7B-5's answer for the dialog's wait (`whenForegroundAudioContextRestartClockRequirement`):
+  does 7B-5's answer for the dialog's wait (`whenPlayRequestClockRequirement`):
   it is keyed by the token but settles at the promotion or when the attempt ends, and it reads a
   committed attempt as gone. Nor does the dialog's claim of the attempt it shows
-  (`claimForegroundAudioContextRestartForDialog`, a 7B fix): keyed by the token, it marks only the
+  (`claimPlayRequestAttemptForDialog`, a 7B fix): keyed by the token, it marks only the
   current attempt and answers false for a committed one.
 - **Status:** `accepted-exception`.
 

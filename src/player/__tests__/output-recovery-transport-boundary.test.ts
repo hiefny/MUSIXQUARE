@@ -304,7 +304,7 @@ describe('the local-file PLAY clock check after a foreground return (real owners
     // has closed, waits for that resume, probes the clock and confirms once.
     const confirm = vi.fn((token: object) => request.confirmForegroundRestart!(token));
     const gesture = o.recovery.beginAudioOutputGestureRecovery(
-      { intent: 'retry-failed-play', foregroundRestartAttemptToken: attemptToken },
+      { intent: 'retry-failed-play', playRequestAttemptToken: attemptToken },
       {
         isCurrent: () => true,
         signal: new AbortController().signal,

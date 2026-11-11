@@ -89,7 +89,7 @@ const DEADLINE_NAMES = [
 /** A play-request restart prepared and parked, as transport leaves it for the dialog that takes it. */
 async function parkPlayRequest(s: Scene): Promise<object> {
   const check = s.o.context.armForegroundAudioContextClockHealthCheck(s.fake.native);
-  const preparation = await s.o.context.prepareForegroundAudioContextRestart(check!);
+  const preparation = await s.o.context.preparePlayRequestRestart(check!);
   expect(preparation).toMatchObject({ status: 'prepared' });
   dialogTakesPlayRequest(s.o, preparation!.attemptToken);
   return preparation!.attemptToken;
@@ -99,7 +99,7 @@ async function parkPlayRequest(s: Scene): Promise<object> {
 async function parkStalledFile(s: Scene): Promise<void> {
   stageFile(s.o);
   bind(s.o, s.fake);
-  const token = await s.o.recovery.armPendingAudioContextRecoveryFromBackground(s.fake.native);
+  const token = await s.o.recovery.armPlaybackScopeAttemptFromBackground(s.fake.native);
   expect(token).toBeTypeOf('object');
   expect(s.fake.state).toBe('suspended');
 }
@@ -114,7 +114,7 @@ describe('each native resume counts once, under its source', () => {
       ['RESUME_PLAY_REQUEST'],
       async (s) => {
         const attempt = await parkPlayRequest(s);
-        return () => s.o.context.resumePreparedForegroundAudioContextRestartFromGesture(attempt);
+        return () => s.o.context.resumePreparedPlayRequestRestartFromGesture(attempt);
       },
     ],
     [
@@ -122,7 +122,7 @@ describe('each native resume counts once, under its source', () => {
       ['RESUME_PLAY_GESTURE'],
       async (s) => {
         await parkStalledFile(s);
-        return () => s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
+        return () => s.o.recovery.beginPlaybackScopeRecoveryFromGesture();
       },
     ],
     [
@@ -217,11 +217,11 @@ describe('a deadline counts only when it fires', () => {
   };
   const playRequestTap: Arrange = async (s) => {
     const attempt = await parkPlayRequest(s);
-    return () => s.o.context.resumePreparedForegroundAudioContextRestartFromGesture(attempt);
+    return () => s.o.context.resumePreparedPlayRequestRestartFromGesture(attempt);
   };
   const scopeTap: Arrange = async (s) => {
     await parkStalledFile(s);
-    return () => s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
+    return () => s.o.recovery.beginPlaybackScopeRecoveryFromGesture();
   };
   const automatic: Arrange = async (s) => {
     stageFile(s.o);
@@ -296,11 +296,11 @@ describe('a deadline counts only when it fires', () => {
   const prepareScope = (s: Scene): Promise<unknown> => {
     stageFile(s.o);
     bind(s.o, s.fake);
-    return s.o.recovery.armPendingAudioContextRecoveryFromBackground(s.fake.native);
+    return s.o.recovery.armPlaybackScopeAttemptFromBackground(s.fake.native);
   };
   const preparePlayRequest = (s: Scene): Promise<unknown> => {
     const check = s.o.context.armForegroundAudioContextClockHealthCheck(s.fake.native);
-    return s.o.context.prepareForegroundAudioContextRestart(check!);
+    return s.o.context.preparePlayRequestRestart(check!);
   };
 
   it.each<[string, keyof Counters, (s: Scene) => Promise<unknown>, number, number]>([
@@ -337,9 +337,7 @@ describe('a deadline counts only when it fires', () => {
     bind(s.o, s.fake);
     const before = s.read();
 
-    void s.o.recovery
-      .armPendingAudioContextRecoveryFromBackground(s.fake.native)
-      .catch(() => undefined);
+    void s.o.recovery.armPlaybackScopeAttemptFromBackground(s.fake.native).catch(() => undefined);
     await vi.advanceTimersByTimeAsync(800);
 
     // Phase 7 7B-4 (owner answer Q6): the playback scope's second suspend
@@ -374,7 +372,7 @@ describe('a deadline counts only when it fires', () => {
     s.fake.planSuspend({ toState: 'unchanged' }, {});
     const before = s.read();
     const check = s.o.context.armForegroundAudioContextClockHealthCheck(s.fake.native);
-    void s.o.context.prepareForegroundAudioContextRestart(check!).catch(() => undefined);
+    void s.o.context.preparePlayRequestRestart(check!).catch(() => undefined);
     await vi.advanceTimersByTimeAsync(1_200);
 
     expect(s.fake.calls('suspend')).toBe(2);
@@ -399,9 +397,9 @@ describe('clock verification waits', () => {
     const s = await scene();
     const attempt = await parkPlayRequest(s);
     const before = s.read();
-    await s.o.context.resumePreparedForegroundAudioContextRestartFromGesture(attempt);
+    await s.o.context.resumePreparedPlayRequestRestartFromGesture(attempt);
     await vi.advanceTimersByTimeAsync(300);
-    expect(s.o.context.confirmForegroundAudioContextRestartHealth(attempt)).toBe(true);
+    expect(s.o.context.confirmPlayRequestAttemptHealth(attempt)).toBe(true);
 
     expect(
       delta(s, before, [
@@ -422,7 +420,7 @@ describe('clock verification waits', () => {
     const s = await scene();
     const attempt = await parkPlayRequest(s);
     const before = s.read();
-    await s.o.context.resumePreparedForegroundAudioContextRestartFromGesture(attempt);
+    await s.o.context.resumePreparedPlayRequestRestartFromGesture(attempt);
     await vi.advanceTimersByTimeAsync(120);
     expect(s.o.context.retireAudioContextRecoveryAttempt(attempt)).toBe(true);
     expect(delta(s, before, ['CLOCK_WAITS', 'CLOCK_CANCELLED', 'CLOCK_WAIT_TOTAL_MS'])).toEqual([
@@ -476,11 +474,9 @@ describe('suspends, refused taps and overlaps', () => {
     stageFile(s.o);
     bind(s.o, s.fake);
     const before = s.read();
-    void s.o.recovery
-      .armPendingAudioContextRecoveryFromBackground(s.fake.native)
-      .catch(() => undefined);
+    void s.o.recovery.armPlaybackScopeAttemptFromBackground(s.fake.native).catch(() => undefined);
     const check = s.o.context.armForegroundAudioContextClockHealthCheck(s.fake.native);
-    void s.o.context.prepareForegroundAudioContextRestart(check!).catch(() => undefined);
+    void s.o.context.preparePlayRequestRestart(check!).catch(() => undefined);
     await vi.advanceTimersByTimeAsync(2_000);
     // Phase 7 7B-4 (owner answer Q6): the later request takes the lease in
     // flight over (the earlier attempt retires), so "Leases at once (max)"
@@ -502,15 +498,13 @@ describe('suspends, refused taps and overlaps', () => {
     s.fake.planSuspend({ outcome: 'never' });
     stageFile(s.o);
     bind(s.o, s.fake);
-    void s.o.recovery
-      .armPendingAudioContextRecoveryFromBackground(s.fake.native)
-      .catch(() => undefined);
+    void s.o.recovery.armPlaybackScopeAttemptFromBackground(s.fake.native).catch(() => undefined);
     await vi.advanceTimersByTimeAsync(10);
     const before = s.read();
 
     // The playback scope is still preparing its suspend; a stale restart token.
-    await s.o.recovery.beginPendingInterruptionRecoveryFromGesture();
-    await s.o.context.resumePreparedForegroundAudioContextRestartFromGesture({});
+    await s.o.recovery.beginPlaybackScopeRecoveryFromGesture();
+    await s.o.context.resumePreparedPlayRequestRestartFromGesture({});
 
     expect(s.fake.calls('resume')).toBe(0);
     expect(delta(s, before, ['TAPS_REFUSED', ...RESUME_NAMES])).toEqual(['TAPS_REFUSED:2']);
@@ -581,7 +575,7 @@ describe('suspends, refused taps and overlaps', () => {
     s.fake.transition('interrupted');
     await vi.advanceTimersByTimeAsync(2_000);
     expect(s.fake.state).toBe('suspended');
-    expect(s.o.recovery.hasPendingAudioContextInterruption('youtube')).toBe(true);
+    expect(s.o.recovery.hasPendingPlaybackScopeAttempt('youtube')).toBe(true);
     const before = s.read();
     touch();
     await vi.advanceTimersByTimeAsync(0);

@@ -32,11 +32,11 @@ import {
 } from '../rooms/authority.ts';
 import { isLocalYouTubePaused } from '../youtube/_state.ts';
 import {
-  beginPendingInterruptionRecoveryFromGesture,
-  finishPendingInterruptionRecoveryFromGesture,
-  getPendingAudioContextInterruptionAttempt,
-  hasPendingAudioContextInterruption,
-  isAudioContextInterruptionAttemptCurrent,
+  beginPlaybackScopeRecoveryFromGesture,
+  finishPlaybackScopeRecoveryFromGesture,
+  getPendingPlaybackScopeAttemptForGesture,
+  hasPendingPlaybackScopeAttempt,
+  isPlaybackScopeAttemptCurrent,
 } from '../audio/context-recovery.ts';
 import {
   initYouTubeNativeControlAuthority,
@@ -184,8 +184,8 @@ export function initMediaSession(): void {
       });
     };
 
-    const hasPendingRecovery = hasPendingAudioContextInterruption(mode);
-    const attemptToken = getPendingAudioContextInterruptionAttempt();
+    const hasPendingRecovery = hasPendingPlaybackScopeAttempt(mode);
+    const attemptToken = getPendingPlaybackScopeAttemptForGesture();
     if (pendingLocalPlayRecovery) {
       // A running statechange can consume the pending slot just before the
       // gesture resume Promise settles. Keep coalescing that exact attempt so
@@ -193,7 +193,7 @@ export function initMediaSession(): void {
       // a disposed/superseded attempt must never block a new context binding.
       if (
         hasPendingRecovery &&
-        isAudioContextInterruptionAttemptCurrent(pendingLocalPlayRecovery.attemptToken)
+        isPlaybackScopeAttemptCurrent(pendingLocalPlayRecovery.attemptToken)
       ) {
         return;
       }
@@ -210,9 +210,9 @@ export function initMediaSession(): void {
     const flight = { attemptToken };
     // The owner resumes synchronously inside this action, then verifies the
     // clock, escalates a frozen one or commits (RO-01, Phase 7 7C-1).
-    void beginPendingInterruptionRecoveryFromGesture()
+    void beginPlaybackScopeRecoveryFromGesture()
       .then(async (result) => {
-        const recovery = await finishPendingInterruptionRecoveryFromGesture(attemptToken, {
+        const recovery = await finishPlaybackScopeRecoveryFromGesture(attemptToken, {
           running: result.running,
           isCurrent: () => pendingLocalPlayRecovery === flight,
           // A PLAY that clears a local pause has resumed the context for an
@@ -259,7 +259,7 @@ export function initMediaSession(): void {
       return true;
     }
     if (isPlaybackPlayingFile() && !isLocalFilePaused()) {
-      if (hasPendingAudioContextInterruption('file')) requestLocalPlay('file');
+      if (hasPendingPlaybackScopeAttempt('file')) requestLocalPlay('file');
       return true;
     }
     // Demo buffers have no playlist occurrence. Guest media keys rejoin only
@@ -273,7 +273,7 @@ export function initMediaSession(): void {
     if (handleDemoMediaAction('play')) return;
     if (isPlaybackModeYouTube()) {
       if (shouldIgnoreRecentNativeYouTubeMediaAction('play')) return;
-      if (hasPendingAudioContextInterruption() && isPlaybackPlayingYouTube()) {
+      if (hasPendingPlaybackScopeAttempt() && isPlaybackPlayingYouTube()) {
         requestLocalPlay('youtube');
         return;
       }
@@ -305,7 +305,7 @@ export function initMediaSession(): void {
     // the music after the user pressed play. Mirrors the 'pause' handler
     // below which guards the symmetric case.
     if (isPlaybackPlayingFile()) {
-      if (hasPendingAudioContextInterruption()) requestLocalPlay('file');
+      if (hasPendingPlaybackScopeAttempt()) requestLocalPlay('file');
       return;
     }
     if (currentQueueItemId) {

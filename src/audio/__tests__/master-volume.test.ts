@@ -49,7 +49,7 @@ const { context } = vi.hoisted(() => {
   return { context };
 });
 vi.mock('../context.ts', () => ({ getAudioContext: () => context, ensureRunning: async () => {} }));
-vi.mock('../context-recovery.ts', () => ({ bindAudioContextInterruptionRecovery: () => () => {} }));
+vi.mock('../context-recovery.ts', () => ({ bindPlaybackScopeRecovery: () => () => {} }));
 vi.mock('../../network/peer.ts', () => ({ broadcast: vi.fn() }));
 vi.mock('../../network/protocol.ts', () => ({
   registerHandlers: vi.fn(),

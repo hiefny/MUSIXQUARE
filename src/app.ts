@@ -54,11 +54,11 @@ import { isPlaybackPlayingFile } from './player/ownership.ts';
 import { inspectBackgroundFileOutput } from './audio/output-health.ts';
 import {
   beginAudioOutputGestureRecovery,
-  claimForegroundAudioContextRestartForDialog,
-  getPendingAudioContextRecoveryAttemptForHealth,
+  claimPlayRequestAttemptForDialog,
+  getPendingPlaybackScopeAttemptForHealth,
   retireAudioContextRecoveryAttempt,
-  whenForegroundAudioContextRestartReprepared,
-  type ForegroundRestartPreparation,
+  whenPlayRequestAttemptReprepared,
+  type PlayRequestRestartPreparation,
 } from './audio/context-recovery.ts';
 import {
   DIALOG_REQUESTS_PLAY,
@@ -401,7 +401,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     (operationHealthClaimed && identity.intent === 'restore-playing-output'
       ? audioRecoveryPlaybackIdentityStillCurrent(identity)
       : audioRecoveryIdentityStillCurrent(identity));
-  const enqueuePreparedForegroundRestart = (preparation: ForegroundRestartPreparation): void => {
+  const enqueuePreparedForegroundRestart = (preparation: PlayRequestRestartPreparation): void => {
     const enqueue = (): void => {
       if (
         abortController.signal.aborted ||
@@ -448,9 +448,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   let reprepared: Promise<boolean> | null = null;
   const noteReprepared = (): void => {
     if (!reprepared && identity.foregroundRestartAttemptToken) {
-      reprepared = whenForegroundAudioContextRestartReprepared(
-        identity.foregroundRestartAttemptToken,
-      );
+      reprepared = whenPlayRequestAttemptReprepared(identity.foregroundRestartAttemptToken);
     }
   };
   const showAgainWhenReprepared = (parked: Promise<boolean>, attemptToken: object): void => {
@@ -480,7 +478,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   // for its tap (Phase 7 7B-2 and 7B-3). A notice declined or dropped before
   // this point leaves its attempt to the next PLAY's clock check.
   if (identity.foregroundRestartAttemptToken) {
-    claimForegroundAudioContextRestartForDialog(identity.foregroundRestartAttemptToken);
+    claimPlayRequestAttemptForDialog(identity.foregroundRestartAttemptToken);
   }
   const operation = showDialog({
     title: t('dialog.audio_recovery_title'),
@@ -502,7 +500,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
       // a restart, reading this dialog's currency (RO-01, Phase 7 7C-2).
       gesture = beginAudioOutputGestureRecovery(
         {
-          foregroundRestartAttemptToken: identity.foregroundRestartAttemptToken,
+          playRequestAttemptToken: identity.foregroundRestartAttemptToken,
           intent: identity.intent,
         },
         {
@@ -614,7 +612,7 @@ async function resumeAudioForBackgroundRecovery(): Promise<boolean> {
     // A native state-interruption attempt is the sole owner of its async
     // proof and any recovery prompt. Suppress the generic long-background
     // dialog while that owner is pending so the two dialogs cannot race.
-    if (getPendingAudioContextRecoveryAttemptForHealth()) {
+    if (getPendingPlaybackScopeAttemptForHealth()) {
       longBackgroundWarning.yieldToAudioRecovery();
     }
     // A superseded sample belongs to that owner, a parked foreground restart,

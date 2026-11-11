@@ -2036,7 +2036,7 @@ RO-54 accepted-exception
 - **Resource:** the source node `_playerNode` (`src/player/_state.ts`), started only by `play()`
   in `src/player/transport.ts`.
 - **Current owners/flows:** failed-PLAY recovery (`failedPlayRecoveryGeneration` and the retry
-  closure with `recoveryClaimed` and `foregroundRestartConfirmed` in `transport.ts`, run by the
+  closure with `recoveryClaimed` and `playRequestAttemptConfirmed` in `transport.ts`, run by the
   recovery dialog in `app.ts`) and the rejoin router (`local-output-rejoin.ts`: host refresh then
   `play(outputOnly)`, guest `sync:force-resync`). The router also releases and restores the local
   pause flag that `media-session.ts` and `playback.ts` write. `app.ts` maps the source to an
@@ -3814,7 +3814,7 @@ entry needs the owner's acceptance and is not implied by this registry.
 ### RO-36 Failed-PLAY confirm closure stays on the bus
 
 - **Parent:** RO-01 and RO-10. Plan step C1-I8 dropped.
-- **Exception:** transport keeps passing `confirmForegroundRestart` to `app.ts` in the failed-PLAY
+- **Exception:** transport keeps passing `confirmPlayRequestAttempt` to `app.ts` in the failed-PLAY
   event.
 - **Evidence:** the commit happens in `app.ts`, and after it the attempt is no longer current; a
   replacement would need a defined channel back to transport before `app.ts` checks currency,

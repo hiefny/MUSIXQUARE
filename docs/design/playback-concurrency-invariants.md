@@ -240,7 +240,7 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
     that arrives while the retry holds the lock short of `start-source` yields
     to it.
   - The retry is single-shot. `recoveryClaimed` and
-    `foregroundRestartConfirmed` (`transport.ts:1356-1357`) are closure state
+    `playRequestAttemptConfirmed` (`transport.ts:1356-1357`) are closure state
     of the failed invocation, not module state, so a second `retry()` of the
     same prompt returns false.
   - The dialog adds its own order (`app.ts`): one dialog at a time, and a

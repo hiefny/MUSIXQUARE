@@ -1223,10 +1223,10 @@ describe('compact-landscape scrollbar ownership contract', () => {
     const compactStyles = compactRules.join('\n');
 
     expect(compactStyles).toMatch(
-      /body\s*>\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*;/s,
+      /body\s*>\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-physical-right\)\)\s*;/s,
     );
     expect(compactStyles).not.toMatch(
-      /(?:^|})\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*;/s,
+      /(?:^|})\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-(?:physical-)?right\)\)\s*;/s,
     );
   });
 

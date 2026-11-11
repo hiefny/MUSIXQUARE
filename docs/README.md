@@ -96,10 +96,22 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [Audio recovery owner names: an increment for the next App train (2026-11-11)](design/audio-recovery-names-2026-11-11.md):
-  prepared as a draft PR, not merged or released, and with no version bump on purpose: by the owner's decision of
-  2026-11-11 it is not shipped alone and rides the next App update, whose train puts these commits before its own
-  bump and takes this report as that increment's section. Names only, in the AudioContext recovery's one owner
+- [App 9.0.44 / v819 train: the sidebar-layout Play pane reaches the bottom edge, and the audio recovery owner's names (2026-11-11)](design/app-9-0-44-train-2026-11-11.md):
+  prepared, not merged or released. An App update after 9.0.43 / v818 by the owner's decisions of 2026-11-11, on main
+  `c4a3d6f0` (whose App runtime equals 9.0.43's `3b8ec6e3`). Two increments. The visible one: in the sidebar layout
+  the Play pane alone reaches the bottom edge of the screen instead of ending at the home indicator, and its end
+  padding grows by the same inset, so on a 1024x768 tablet PWA the last row of actions (Sync and Media) is no longer
+  cut at the indicator while the composition, the scroll range and the end of the scroll stay where they were. The
+  owner accepted that the row then overlaps the home indicator strip. The four list panes keep 9.0.43's contract. A
+  failing real-room spec came first (five of six rows, and three of four new fixture rows), then one CSS rule. The
+  other increment changes names only: the audio recovery owner's names say play request and playback scope (its own
+  report is the next entry). Without a bottom inset every screen equals 9.0.43 (seventeen viewport cases, every
+  element with an id, measured in a real room). Not verified on a physical iPad or iPhone. Target `app`, one update
+  dialog, floor 795 unchanged.
+- [Audio recovery owner names: the names increment of the App 9.0.44 train (2026-11-11)](design/audio-recovery-names-2026-11-11.md):
+  carried by the App 9.0.44 train above, whose version bump follows these commits and whose report takes this one as
+  that increment's section. It was prepared as draft PR #585 with no bump of its own: by the owner's decision of
+  2026-11-11 it is not shipped alone. Names only, in the AudioContext recovery's one owner
   `src/audio/context-recovery.ts`: 50 of its 139 top-level names say play request and playback scope instead of the
   two former machines' words (the 61-character `getPendingForegroundAudioContextRestartClockHealthRequirement` is
   `getPlayRequestClockRequirement`), three names are merged into their one caller, and the play-request attempt's

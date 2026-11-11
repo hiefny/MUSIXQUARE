@@ -96,6 +96,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PWA safe-area layout consistency (2026-11-11)](design/safe-area-layout-consistency-2026-11-11.md):
+  PR increment on main `808d0d9de` (#581), identified as App 9.0.43 / v817. Shared safe boundaries for
+  headers, scrolling content, panels and controls preserve the existing portrait/landscape loading motion.
+  Final local head `e8f4d84b6`: 100 synthetic-inset browser checks, 37 app E2E checks and 424 focused unit tests passed;
+  one existing WebKit desktop-only case was skipped. Physical iPad PWA verification remains open. PR only, no merge or
+  deployment; consolidate this evidence into the owner's later combined release train.
 - [App 9.0.42 / v815 train: the audio recovery's obvious defects fixed (2026-11-11)](design/app-9-0-42-train-2026-11-11.md):
   prepared, not merged or released. A small App update after Phase 7 7C (9.0.41 / v814) by the owner's decisions of
   2026-11-09, 2026-11-10 and 2026-11-11, on main `7c9e4c1f` (whose App runtime equals 9.0.41's `91f6bb0c`). Four

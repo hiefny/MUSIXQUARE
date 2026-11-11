@@ -684,9 +684,7 @@ describe('header loader layout contract', () => {
       compactStyles.match(/\.header-safe-content\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(baseLoaderRules).toMatch(/left:\s*24px;/);
-    expect(baseLoaderRules).toMatch(
-      /right:\s*calc\(24px \+ var\(--header-actions-inset, 0px\)\);/,
-    );
+    expect(baseLoaderRules).toMatch(/right:\s*calc\(24px \+ var\(--header-actions-inset, 0px\)\);/);
     expect(baseLoaderRules).toMatch(/width:\s*auto;/);
     expect(compactSafeContentRules).toMatch(
       /inset:\s*var\(--safe-top\) var\(--safe-physical-right\) var\(--safe-bottom\) 0;/,

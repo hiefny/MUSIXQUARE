@@ -2688,6 +2688,12 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
 
     if (recovery?.cause === 'background-clock-stalled') {
       recovery.clockVerified = false;
+      // Already parked for its gesture: this is the state its own parking
+      // reached, which Chromium reports after the suspend promise that
+      // parked it, and its dialog was asked for then. Asking again with
+      // another identity closed and reopened that dialog (it was Known gap
+      // C1-I11, one prepared notice; App 9.0.42).
+      if (recovery.phase === 'awaiting-gesture') return;
       setAttemptPhase(recovery, 'awaiting-gesture');
       emitPreparedRecovery(recovery);
       return;

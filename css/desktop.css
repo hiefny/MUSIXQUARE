@@ -173,6 +173,11 @@
        Keep that horizontal travel clipped without changing vertical scroll. */
     #tab-settings > .tab-body {
       overflow-x: hidden;
+      /* As in the Play panel: the body scrolls under the home indicator, its
+         end padding grows by the inset, and scroll padding keeps focus
+         scrolling clear of it. */
+      padding-bottom: calc(16px + var(--safe-bottom));
+      scroll-padding-bottom: var(--safe-bottom);
     }
 
     #tab-play .tab-body {
@@ -182,7 +187,12 @@
       padding-inline: 20px;
       box-sizing: border-box;
       padding-top: 0;
-      padding-bottom: 0;
+      /* The panel reaches the bottom edge of the screen. Its body scrolls
+         under the home indicator and takes the inset as end padding, so the
+         shares of free height stay what they were, and as scroll padding, so
+         focus scrolling keeps the actions clear of it. */
+      padding-bottom: var(--safe-bottom);
+      scroll-padding-bottom: var(--safe-bottom);
     }
 
     #tab-playlist .playlist-selection-bar {
@@ -259,7 +269,6 @@
       /* One panel inset owns the shared stage-and-controls rail. */
       padding: 0 44px;
       padding-inline-start: calc(44px + var(--safe-left));
-      padding-bottom: var(--safe-bottom);
       border-inline-end: 1px solid var(--divider);
       min-width: 0;
       min-height: 0;
@@ -298,7 +307,6 @@
            8px inner padding (total 12px inset from panel edge). */
       padding: 0 4px;
       padding-inline-end: calc(4px + var(--safe-right));
-      padding-bottom: var(--safe-bottom);
     }
 
     .play-header-desktop {

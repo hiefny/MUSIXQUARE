@@ -12326,31 +12326,25 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       overflow-y: auto;
       display: block;
       position: fixed;
-      /* Inset the scrollport, not its scrolling contents: every scroll
-         position and floating playlist action shares the safe boundary.
-         The Play pane below is the one exception, at its bottom edge. */
+      /* The scrollport keeps clear of the status bar and the side cutouts
+         and reaches the bottom edge of the screen, under the home indicator.
+         Its end padding grows by the bottom inset instead: the content keeps
+         its place, what fits on the screen is shown whole, a list is not cut
+         above a blank strip, and the end of the scroll still lifts the
+         content clear of the indicator. Scroll padding of the same inset keeps
+         focus and scroll-into-view from parking a control under it. */
       top: var(--safe-top);
       left: 0;
       width: calc(100% - (200px + var(--safe-physical-right)));
-      height: calc(var(--app-height, 100dvh) - var(--safe-top) - var(--safe-bottom));
+      height: calc(var(--app-height, 100dvh) - var(--safe-top));
       z-index: 90;
       background: var(--bg);
-      padding: 16px 24px 8px 24px;
+      padding: 16px 24px calc(8px + var(--safe-bottom)) 24px;
       padding-left: calc(24px + var(--safe-physical-left));
+      scroll-padding-bottom: var(--safe-bottom);
       box-sizing: border-box;
       border-radius: 0;
       -webkit-overflow-scrolling: touch;
-    }
-
-    /* The Play pane is a composed screen, not a list. When the safe box is
-       too short for it, a scrollport that ends at the home indicator cuts its
-       last row of actions there. This one pane reaches the bottom edge of the
-       screen instead, and its end padding grows by the same inset: the
-       composition keeps its place, what fits on the screen is shown whole,
-       and the end of the scroll still lifts it clear of the indicator. */
-    #tab-play.active {
-      height: calc(var(--app-height, 100dvh) - var(--safe-top));
-      padding-bottom: calc(8px + var(--safe-bottom));
     }
 
     /* Prevent nested scroll conflict: parent .tab-content scrolls in landscape */
@@ -12361,13 +12355,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     /* Playlist keeps its own scroll owner so the floating selection pill and
-       reorder auto-scroll stay anchored inside the left content pane. */
+       reorder auto-scroll stay anchored inside the left content pane. The
+       pane keeps its 8px under that body; the body takes the bottom inset. */
     #tab-playlist.active {
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      padding-bottom: 8px;
     }
 
+    /* Rows pass under the home indicator. The inset is end padding, which
+       keeps the end of the list and the sticky selection bar (its offset is
+       measured inside that padding) clear of the indicator, and scroll
+       padding, which the current-track follow and focus scrolling read as the
+       covered part of the scrollport. */
     #tab-playlist > .tab-body {
       --tab-fullscreen-height: auto;
       --tab-fullscreen-overflow-y: auto;
@@ -12375,11 +12376,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       min-height: 0;
       height: auto;
       overflow-y: auto;
-      scroll-padding-bottom: 0;
+      padding-bottom: calc(8px + var(--safe-bottom));
+      scroll-padding-bottom: var(--safe-bottom);
     }
 
     #tab-playlist .playlist-selection-bar {
       bottom: 0;
+    }
+
+    /* The locator rests on the pane, whose bottom edge is now the screen's. */
+    #tab-playlist .playlist-current-jump-btn:not(.is-above) {
+      bottom: calc(16px + var(--safe-bottom));
     }
 
     .playback-stage {

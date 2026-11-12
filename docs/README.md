@@ -96,6 +96,21 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.46 / v821 train: every landscape screen reaches the bottom edge, and five right-to-left layouts mirrored (2026-11-12)](design/app-9-0-46-train-2026-11-12.md):
+  prepared, not merged and not deployed. An App update after 9.0.45 / v820, on main `2aa5dbca` (whose App runtime
+  equals 9.0.45's `c4675c51`), by two owner decisions of 2026-11-12. Both changes are visible. The first: from 720px
+  wide, the sidebar layout and the wide layout, every scroll area paints down to the bottom edge of the screen, under
+  the home indicator, as the Play pane has since 9.0.44; end padding and scroll padding grow by the bottom inset, so
+  the end of every scroll and focus scrolling still clear the indicator, and the Playlist pane's body takes the inset
+  as end padding and scroll padding, so the selection bar, the current-track follow and its locator stay above it.
+  Controls resting at the bottom keep their inset. The second: five older right-to-left defects that 9.0.45's
+  independent review found and an Arabic run reproduced are mirrored: the welcome carousel's track and swipe direction
+  (slides 2 to 4 were blank), the setup brand column's text alignment, the Playlist title button's margins, the room
+  password knob's travel (and the administrator permission knob's, which would otherwise move the other way), and the
+  demo screen's panel bleed, step navigation and scrollbar. Failing rows came first for both, then CSS and one
+  function in `src/ui/setup-shared.ts`. Against 9.0.45 in a real room (seventeen viewport cases, 242 scenes, every
+  element with an id) only intended scenes differ. Not verified on a physical device. Target `app`, one update dialog,
+  floor 795 unchanged.
 - [App 9.0.45 / v820 train: the media screens cover the Play pane to the bottom edge, and right-to-left placement of those screens and the chat drawer (2026-11-12)](design/app-9-0-45-train-2026-11-12.md):
   released on 2026-11-12 09:38 KST in Release 43128370307 (PR #588, squash `c4675c51`) as App 9.0.45 / v820 (App build
   820, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

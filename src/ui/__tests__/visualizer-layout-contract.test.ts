@@ -69,7 +69,7 @@ describe('visualizer layout contract', () => {
       /#tab-play \.controls-area\s*\{[\s\S]*?margin-top:\s*0;[\s\S]*?margin-bottom:\s*auto;/u,
     );
     expect(desktopStylesheet).toMatch(
-      /#tab-play \.tab-body\s*\{[\s\S]*?padding-top:\s*0;[\s\S]*?padding-bottom:\s*0;/u,
+      /#tab-play \.tab-body\s*\{[^}]*?padding-top:\s*0;[^}]*?padding-bottom:\s*var\(--safe-bottom\);[^}]*?scroll-padding-bottom:\s*var\(--safe-bottom\);/u,
     );
     expect(desktopStylesheet).toMatch(
       /#tab-play\s*\{[\s\S]*?grid-area:\s*tab-play;[\s\S]*?padding:\s*0 44px;/u,

@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
+import { waitForPlaylistCount } from './helpers/wait.ts';
 
 // safe-area-layout.test.ts stages the app's markup and CSS without its runtime.
 // These rows enter a real room instead, because runtime inline styles take part
@@ -57,12 +60,36 @@ function none(): Insets {
   return { top: 0, right: 0, bottom: 0, left: 0 };
 }
 
-// The list panes end at the home indicator, so no scroll position paints into
-// it. The Play pane is a composed screen: cut there, its last row of actions
-// showed three quarters of a button on a 1024x768 tablet. Its scrollport
-// reaches the bottom edge of the screen instead.
-function paneBottom(tab: (typeof TABS)[number], sample: Sample): number {
-  return tab === 'play' ? sample.height : sample.height - sample.insets.bottom;
+// Every pane reaches the bottom edge of the screen, under the home indicator.
+// Cut at the indicator, the Play pane's last row of actions showed three
+// quarters of a button on a 1024x768 tablet, and a list ended above a blank
+// strip. The end padding grows by the same inset, so the end of every scroll
+// still clears the indicator.
+function paneBottom(sample: Sample): number {
+  return sample.height;
+}
+
+// The pane is the scroll owner, except in the Playlist pane, whose body is.
+async function expectEndOfScrollClearsTheInset(
+  page: Page,
+  tab: (typeof TABS)[number],
+  sample: Sample,
+  label: string,
+): Promise<void> {
+  const contentEnd = await page.locator(`#tab-${tab}`).evaluate((pane) => {
+    const body = pane.querySelector<HTMLElement>('.tab-body')!;
+    const style = getComputedStyle(body);
+    const scrollsItself = /auto|scroll/.test(style.overflowY);
+    const owner = scrollsItself ? body : (pane as HTMLElement);
+    owner.scrollTop = owner.scrollHeight;
+    const bottom = body.getBoundingClientRect().bottom;
+    owner.scrollTop = 0;
+    // A body that scrolls itself ends its content at its own end padding.
+    return scrollsItself ? bottom - Number.parseFloat(style.paddingBottom) : bottom;
+  });
+  expect(contentEnd, `${label} end of the scroll clears the bottom inset`).toBeLessThanOrEqual(
+    sample.height - sample.insets.bottom + TOLERANCE_PX,
+  );
 }
 
 async function expectPlayPaneShowsItsLastRow(
@@ -149,10 +176,11 @@ test.describe('compact tab panes in a running room', () => {
           TOLERANCE_PX,
         );
         expect(
-          Math.abs(box.y + box.height - paneBottom(tab, sample)),
+          Math.abs(box.y + box.height - paneBottom(sample)),
           `${label} bottom`,
         ).toBeLessThanOrEqual(TOLERANCE_PX);
         if (tab === 'play') await expectPlayPaneShowsItsLastRow(page, sample, label);
+        else await expectEndOfScrollClearsTheInset(page, tab, sample, label);
         expect(Math.abs(box.x), `${label} left`).toBeLessThanOrEqual(TOLERANCE_PX);
         expect(Math.abs(box.x + box.width - sidebar.x), `${label} right`).toBeLessThanOrEqual(
           TOLERANCE_PX,
@@ -276,6 +304,103 @@ test.describe('screens over the Play pane in a running room', () => {
         Math.abs(box.x + box.width - sidebar.x),
         `${sample.name} drawer right`,
       ).toBeLessThanOrEqual(TOLERANCE_PX);
+    });
+  }
+});
+
+// The Playlist pane's list scrolls in the pane's body, which reaches down to
+// the pane's own 8px above the screen edge. Rows pass under the home
+// indicator, while the end of the list, the selection bar and the
+// current-track locator stay above it.
+const LONG_LIST_SAMPLES = ['tablet landscape', 'phone landscape', 'right-to-left tablet landscape'];
+
+test.describe('the Playlist pane with a long list in a running room', () => {
+  test.skip(
+    ({ browserName }) => browserName !== 'chromium',
+    'The safe-area emulation is a Chromium DevTools command.',
+  );
+
+  for (const sample of samples.filter(({ name }) => LONG_LIST_SAMPLES.includes(name))) {
+    test(`rows pass under the home indicator and the floating controls stay above it (${sample.name})`, async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      await startRoom(page, sample);
+      const audio = await readFile(
+        fileURLToPath(new URL('./fixtures/test-01.mp3', import.meta.url)),
+      );
+      await page.locator('#file-input').setInputFiles(
+        Array.from({ length: 14 }, (_, index) => ({
+          name: `long-list-${String(index + 1).padStart(2, '0')}.mp3`,
+          mimeType: 'audio/mpeg',
+          buffer: audio,
+        })),
+      );
+      await waitForPlaylistCount(page, 14, 60_000);
+      await page.locator('#nav-playlist').click();
+      await expect(page.locator('#tab-playlist')).toHaveClass(/\bactive\b/);
+      // Let the list's entrance motion settle before measuring.
+      await page.waitForTimeout(1_500);
+
+      const safeBottom = sample.height - sample.insets.bottom;
+      const body = page.locator('#tab-playlist .tab-body');
+      const bodyBox = (await body.boundingBox())!;
+      expect(
+        Math.abs(bodyBox.y + bodyBox.height - (sample.height - 8)),
+        'the list body ends at the pane padding above the screen edge',
+      ).toBeLessThanOrEqual(TOLERANCE_PX);
+      const overflow = await body.evaluate((node) => node.scrollHeight - node.clientHeight);
+      expect(overflow, 'the list must really scroll').toBeGreaterThan(sample.insets.bottom + 40);
+
+      // At the top of the list, the list is what is painted under the indicator.
+      const listInStrip = await page.evaluate(
+        ({ x, y }) => {
+          const hit = document.elementFromPoint(x, y);
+          return hit !== null && hit.closest('#playlist-ui') !== null;
+        },
+        { x: bodyBox.x + bodyBox.width / 2, y: safeBottom + (sample.insets.bottom - 8) / 2 },
+      );
+      expect(listInStrip, 'the list is painted below the safe bottom').toBe(true);
+
+      // The end of the list still clears the indicator.
+      const lastRowBottom = await body.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+        const list = node.querySelector('#playlist-ui')!;
+        const bottom = list.lastElementChild!.getBoundingClientRect().bottom;
+        node.scrollTop = 0;
+        return bottom;
+      });
+      expect(lastRowBottom, 'the last row at the end of the scroll').toBeLessThanOrEqual(
+        safeBottom + TOLERANCE_PX,
+      );
+
+      // The current-track locator rests above the indicator even while hidden.
+      const locatorBottom = await page
+        .locator('#btn-playlist-current-track')
+        .evaluate((node) => node.getBoundingClientRect().bottom);
+      expect(locatorBottom, 'the current-track locator').toBeLessThanOrEqual(
+        safeBottom + TOLERANCE_PX,
+      );
+
+      // The selection bar sticks above the indicator at both ends of the list.
+      await page.locator('#playlist-ui .btn-playlist-select').nth(1).click();
+      const bar = page.locator('#tab-playlist .playlist-selection-bar');
+      await expect(bar).toBeVisible();
+      for (const end of [false, true]) {
+        await body.evaluate((node, toEnd) => {
+          node.scrollTop = toEnd ? node.scrollHeight : 0;
+        }, end);
+        await expect
+          .poll(
+            async () => {
+              const box = (await bar.boundingBox())!;
+              return box.y + box.height;
+            },
+            `the selection bar at the ${end ? 'end' : 'top'} of the list`,
+          )
+          .toBeLessThanOrEqual(safeBottom + TOLERANCE_PX);
+      }
+      await page.locator('[data-selection-action="cancel"]').click();
     });
   }
 });

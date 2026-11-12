@@ -1518,8 +1518,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-width: 0;
     max-width: 100%;
     min-height: 44px;
-    padding: 4px 10px 4px 12px;
-    margin: -4px auto -4px -12px;
+    /* The negative start margin lines the title up with the other tab titles,
+       and the auto end margin sends the actions to the far end, on whichever
+       side the writing direction puts them. */
+    padding-block: 4px;
+    padding-inline: 12px 10px;
+    margin-block: -4px;
+    margin-inline: -12px auto;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -3628,6 +3633,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .room-password-toggle {
+    /* The knob rests at the inline start; switched on, it travels toward the
+       inline end, which is the left in a right-to-left page. */
+    --room-password-knob-travel: 20px;
     position: relative;
     width: 48px;
     height: 28px;
@@ -3660,9 +3668,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: rgba(var(--primary-rgb), 0.18);
   }
 
+  html[dir='rtl'] .room-password-toggle {
+    --room-password-knob-travel: -20px;
+  }
+
   .room-password-toggle.active .room-password-toggle-knob {
     background: var(--primary);
-    transform: translateX(20px);
+    transform: translateX(var(--room-password-knob-travel));
   }
 
   /* No !important on the colors: an important declaration in this layer
@@ -3675,7 +3687,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .room-password-toggle[aria-checked='true'] .room-password-toggle-knob {
     background: var(--primary);
-    transform: translateX(20px) !important;
+    transform: translateX(var(--room-password-knob-travel)) !important;
   }
 
   .room-password-toggle:disabled,
@@ -5325,6 +5337,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .administrator-permission-row[aria-checked='true'] .administrator-permission-toggle-knob {
     transform: translateX(18px);
     background: var(--primary);
+  }
+
+  /* As on the room password switch, the knob rests at the inline start and
+     travels toward the inline end, which is the left in a right-to-left page. */
+  html[dir='rtl'] .administrator-permission-toggle-knob {
+    left: auto;
+    right: 3px;
+  }
+
+  html[dir='rtl']
+    .administrator-permission-row[aria-checked='true']
+    .administrator-permission-toggle-knob {
+    transform: translateX(-18px);
   }
 
   .administrator-permission-row:disabled .administrator-permission-toggle {
@@ -10291,10 +10316,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       align-items: stretch;
       column-gap: var(--demo-column-gap);
       row-gap: 0;
-      padding: calc(var(--demo-shell-pad-block) + var(--safe-top))
-        calc(var(--demo-shell-pad-inline) + var(--safe-right))
-        calc(var(--demo-shell-pad-block) + var(--safe-bottom))
-        calc(var(--demo-shell-pad-inline) + var(--safe-left));
+      /* --safe-left and --safe-right are the inline-start and inline-end
+         insets (css/rtl.css swaps them), so they go on the logical sides. */
+      padding-block: calc(var(--demo-shell-pad-block) + var(--safe-top))
+        calc(var(--demo-shell-pad-block) + var(--safe-bottom));
+      padding-inline: calc(var(--demo-shell-pad-inline) + var(--safe-left))
+        calc(var(--demo-shell-pad-inline) + var(--safe-right));
     }
 
     .demo-mobile-shell::before {
@@ -10312,15 +10339,25 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       grid-row: 1;
       justify-content: flex-start;
       max-height: none;
-      margin: calc(0px - var(--demo-shell-pad-block) - var(--safe-top))
-        calc(0px - var(--demo-shell-pad-inline) - var(--safe-right))
-        calc(0px - var(--demo-shell-pad-block) - var(--safe-bottom)) 0;
-      padding: calc(var(--demo-shell-pad-block) + var(--safe-top) + var(--demo-control-pad-block))
-        calc(var(--demo-control-pad-inline) + var(--safe-right))
-        calc(var(--demo-shell-pad-block) + var(--safe-bottom) + var(--demo-control-pad-block))
-        var(--demo-control-pad-inline);
+      /* The panel is the inline-end column and bleeds to that edge of the
+         screen, on whichever side the writing direction puts it. */
+      margin-block: calc(0px - var(--demo-shell-pad-block) - var(--safe-top))
+        calc(0px - var(--demo-shell-pad-block) - var(--safe-bottom));
+      margin-inline: 0 calc(0px - var(--demo-shell-pad-inline) - var(--safe-right));
+      padding-block: calc(
+          var(--demo-shell-pad-block) + var(--safe-top) + var(--demo-control-pad-block)
+        )
+        calc(var(--demo-shell-pad-block) + var(--safe-bottom) + var(--demo-control-pad-block));
+      padding-inline: var(--demo-control-pad-inline)
+        calc(var(--demo-control-pad-inline) + var(--safe-right));
       background: var(--surface-1);
       box-sizing: border-box;
+    }
+
+    /* The panel's scrollbar follows the panel to its outer edge. */
+    html[dir='rtl'] .demo-mobile-shell > .cscroll-track {
+      right: auto;
+      left: 0;
     }
 
     .demo-step-panels {
@@ -10440,8 +10477,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
       position: absolute;
       gap: var(--demo-nav-gap);
-      left: calc(var(--demo-step-nav-side) + var(--safe-left));
-      right: calc(var(--demo-step-nav-side) + var(--safe-right));
+      /* Physical sides take the physical insets, in both directions. Logical
+         inset properties would be lowered with :lang() for the legacy build. */
+      left: calc(var(--demo-step-nav-side) + var(--safe-physical-left));
+      right: calc(var(--demo-step-nav-side) + var(--safe-physical-right));
       top: auto;
       bottom: clamp(18px, 3vh, 32px);
       max-width: min(
@@ -12743,7 +12782,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       flex-direction: column;
       justify-content: flex-start;
       align-items: flex-start;
-      text-align: left;
+      text-align: start;
       padding-inline-start: var(--safe-left);
       padding-block: var(--safe-top) var(--safe-bottom);
       color: var(--text-main);

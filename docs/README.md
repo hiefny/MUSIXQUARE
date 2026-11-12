@@ -96,6 +96,22 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.45 / v820 train: the media screens cover the Play pane to the bottom edge, and right-to-left placement of those screens and the chat drawer (2026-11-12)](design/app-9-0-45-train-2026-11-12.md):
+  prepared, not merged and not deployed. An App update after 9.0.44 / v819, on main `4ef7d422` (whose App runtime
+  equals 9.0.44's `3dd9d05d`). Two fixes, both visible. The first repairs a defect that 9.0.44 introduced and the
+  owner reported on 2026-11-12: in the sidebar layout the media source and YouTube address screens open over the Play
+  pane but still ended at the home indicator, so once the Play pane reached the bottom edge its last row of actions
+  showed in the strip below them (20 px on a 1024x768 tablet PWA). Both screens now reach the bottom edge and take
+  the bottom inset as end padding; nothing inside them moves. The second is an older defect found while verifying
+  the first: in right-to-left languages those two screens and the chat drawer sat 200 px to the right of the content
+  pane, cut by the sidebar or covering it, because their base rules also set the right inset and a right-to-left
+  page then drops `left`; `right: auto` puts all three over the content pane, and the media source screen's close
+  button takes the options' inset on the side the direction puts it. Failing rows came first (12 of the 18 new rows
+  on the production CSS), then seven CSS declarations. Against 9.0.44 in a real room (seventeen viewport cases, 242
+  scenes, every element with an id) only the fourteen intended scenes differ. An independent read-only review found
+  no defect in the change and five further right-to-left candidates in other screens, which are not in this train.
+  The four list panes still end at the home indicator; whether they should reach the bottom edge too is an open
+  question to the owner. Not verified on a physical device. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.44 / v819 train: the sidebar-layout Play pane reaches the bottom edge, and the audio recovery owner's names (2026-11-11)](design/app-9-0-44-train-2026-11-11.md):
   released on 2026-11-11 19:55 KST in Release 43007375910 (PR #586, squash `3dd9d05d`) as App 9.0.44 / v819 (App build
   819, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

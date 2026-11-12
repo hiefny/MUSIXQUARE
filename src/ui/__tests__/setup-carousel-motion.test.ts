@@ -57,6 +57,7 @@ import {
   updateObSlider,
 } from '../setup-shared.ts';
 import { t } from '../../i18n/index.ts';
+import { bus } from '../../core/events.ts';
 
 const OB_CAROUSEL_AUTOPLAY_DELAY_MS = 6000;
 const OB_CAROUSEL_FIRST_DWELL_MS = 3000;
@@ -585,6 +586,42 @@ describe('onboarding carousel motion preference', () => {
     expect(document.getElementById('ob-slider-track')?.getAttribute('aria-live')).toBe('polite');
     controller.abort();
     expect(motion.reducedQuery.removeListener).toHaveBeenCalledOnce();
+  });
+
+  it('moves the other way in a right-to-left document, follows a language change and mirrors the swipe', async () => {
+    document.documentElement.setAttribute('dir', 'rtl');
+    onTestFinished(() => document.documentElement.removeAttribute('dir'));
+    renderCarouselFixture();
+    const controller = new AbortController();
+    onTestFinished(() => controller.abort());
+    initObCarousel(controller.signal);
+    const viewport = document.getElementById('ob-slider-viewport')!;
+    const track = document.getElementById('ob-slider-track')!;
+
+    // The slides run from right to left, so the next one comes in from the
+    // left: the track moves right, the way the mirrored arrows point.
+    document.getElementById('ob-next')?.click();
+    expect(track.style.transform).toBe('translateX(100%)');
+
+    // A finger moving right brings in the next slide; moving left, the
+    // previous one.
+    const owner = { identifier: 1, clientX: 100 };
+    dispatchTouches(viewport, 'touchstart', [owner], [owner]);
+    dispatchTouches(viewport, 'touchend', [], [{ ...owner, clientX: 200 }]);
+    expect(track.style.transform).toBe('translateX(200%)');
+    dispatchTouches(viewport, 'touchstart', [owner], [{ ...owner, clientX: 200 }]);
+    dispatchTouches(viewport, 'touchend', [], [owner]);
+    expect(track.style.transform).toBe('translateX(100%)');
+
+    // Switching to a left-to-right language keeps the slide in view, as soon
+    // as the direction changes and without a sweep across the slides.
+    document.documentElement.setAttribute('dir', 'ltr');
+    await Promise.resolve();
+    expect(track.style.transform).toBe('translateX(-100%)');
+    expect(track.style.transition).toBe('');
+    bus.emit('i18n:changed', 'en');
+    expect(track.style.transform).toBe('translateX(-100%)');
+    controller.abort();
   });
 });
 

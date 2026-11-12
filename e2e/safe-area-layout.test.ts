@@ -142,7 +142,10 @@ async function activateTab(page: Page, tab: string): Promise<void> {
   }, tab);
 }
 
-async function assertScrolledTextClipped(page: Page, tab: string, sample: ViewportCase) {
+// Scrolled text never enters the top or side insets. Below the safe bottom a
+// pane may paint text while it scrolls, because from 720px wide the panes
+// reach the bottom edge of the screen, but not at the end of the scroll.
+async function assertScrolledText(page: Page, tab: string, sample: ViewportCase) {
   await activateTab(page, tab);
   const observed = await page.locator(`#tab-${tab} .tab-body`).evaluate((content, insets) => {
     const fixture = document.createElement('section');
@@ -163,6 +166,7 @@ async function assertScrolledTextClipped(page: Page, tab: string, sample: Viewpo
       }
     }
     const crossings: string[] = [];
+    const passingUnderBottom: string[] = [];
     let visibleRows = 0;
     for (const owner of owners) {
       for (const fraction of [0, 0.37, 1]) {
@@ -208,7 +212,14 @@ async function assertScrolledTextClipped(page: Page, tab: string, sample: Viewpo
                 (top + bottom) / 2,
               ]);
             if (points.some(([x, y]) => row.contains(document.elementFromPoint(x, y)))) {
-              crossings.push(
+              // Below the safe bottom a pane may paint text while it scrolls;
+              // what counts there is the end of the scroll.
+              const onlyBottom =
+                top >= insets.top - 1 &&
+                left >= insets.left - 1 &&
+                right <= innerWidth - insets.right + 1;
+              const list = onlyBottom && fraction < 1 ? passingUnderBottom : crossings;
+              list.push(
                 `${owner.id || owner.className}@${fraction}: ${left},${top}..${right},${bottom}`,
               );
             }
@@ -217,14 +228,46 @@ async function assertScrolledTextClipped(page: Page, tab: string, sample: Viewpo
       }
       owner.scrollTop = 0;
     }
+    // The strip between the safe bottom and the screen edge, under the middle
+    // of the innermost scroll owner: is it that scroll owner that is painted
+    // there, or what lies under or around it?
+    let scrollOwnsBottomStrip = false;
+    const innermost = owners[0];
+    if (innermost && insets.bottom > 0) {
+      const box = innermost.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        (Math.max(0, box.left) + Math.min(innerWidth, box.right)) / 2,
+        innerHeight - insets.bottom / 2,
+      );
+      scrollOwnsBottomStrip = hit !== null && innermost.contains(hit);
+    }
     fixture.remove();
-    return { ownerCount: owners.length, visibleRows, crossings };
+    return {
+      ownerCount: owners.length,
+      visibleRows,
+      crossings,
+      passingUnderBottom,
+      scrollOwnsBottomStrip,
+    };
   }, sample.insets);
   expect(observed.ownerCount, `${tab} must really scroll`).toBeGreaterThan(0);
   expect(observed.visibleRows, `${tab} must paint content`).toBeGreaterThan(0);
   expect(observed.crossings, `${sample.name} ${tab} painted text enters a system inset`).toEqual(
     [],
   );
+  // From 720px wide the scroll areas reach the bottom edge of the screen,
+  // under the home indicator. The phone layout ends at its navigation bar.
+  if (sample.width >= 720 && sample.insets.bottom > 0) {
+    expect(
+      observed.scrollOwnsBottomStrip,
+      `${sample.name} ${tab} scrolls down to the bottom edge of the screen`,
+    ).toBe(true);
+  } else {
+    expect(
+      observed.passingUnderBottom,
+      `${sample.name} ${tab} paints text below the safe bottom`,
+    ).toEqual([]);
+  }
 }
 
 async function showSetup(page: Page): Promise<void> {
@@ -252,7 +295,7 @@ async function showSetup(page: Page): Promise<void> {
 }
 
 for (const sample of cases) {
-  test(`keeps main content and scrolled text outside system insets (${sample.name})`, async ({
+  test(`keeps main content safe and scrolled text out of the top and side insets (${sample.name})`, async ({
     page,
   }) => {
     await mount(page, sample);
@@ -272,7 +315,7 @@ for (const sample of cases) {
         ? ['settings']
         : ['settings', 'connect', 'guide'];
     for (const tab of tabs) {
-      await assertScrolledTextClipped(page, tab, sample);
+      await assertScrolledText(page, tab, sample);
     }
     await activateTab(page, 'playlist');
     await page.locator('#tab-playlist').evaluate((panel) => {
@@ -343,10 +386,13 @@ for (const sample of cases) {
   });
 }
 
-// In the sidebar layout the list panes end at the home indicator (rows above),
-// but the Play pane is a composed screen: its scrollport reaches the bottom
-// edge of the screen so the last row of actions is not cut there, and its end
-// padding grows by the same inset so the end of the scroll still clears it.
+// In the sidebar layout every pane reaches the bottom edge of the screen,
+// under the home indicator. Its end padding grows by the same inset, so the
+// end of the scroll still clears the indicator, and so does its scroll
+// padding, which focus scrolling reads. The Playlist pane scrolls in its body
+// instead: the body takes the inset as end padding, which keeps the sticky
+// selection bar above the indicator, and as scroll padding, which the
+// current-track follow reads; the pane keeps the 8px it has under the body.
 for (const sample of cases.filter((sample) =>
   [
     'compact iPad landscape',
@@ -355,24 +401,46 @@ for (const sample of cases.filter((sample) =>
     'compact zero-inset baseline',
   ].includes(sample.name),
 )) {
-  test(`lets the sidebar-layout Play pane reach the bottom edge (${sample.name})`, async ({
+  test(`lets every sidebar-layout pane reach the bottom edge (${sample.name})`, async ({
     page,
   }) => {
     await mount(page, sample);
-    await activateTab(page, 'play');
-    const play = page.locator('#tab-play');
-    const playBox = (await play.boundingBox())!;
-    expect(playBox.y).toBeCloseTo(sample.insets.top, 0);
-    expect(playBox.y + playBox.height).toBeCloseTo(sample.height, 0);
-    const endPadding = await play.evaluate((pane) =>
-      Number.parseFloat(getComputedStyle(pane).paddingBottom),
-    );
-    expect(endPadding).toBeCloseTo(8 + sample.insets.bottom, 0);
+    for (const tab of ['play', 'connect', 'settings', 'guide']) {
+      await activateTab(page, tab);
+      const pane = page.locator(`#tab-${tab}`);
+      const box = (await pane.boundingBox())!;
+      expect(box.y, `${tab} top`).toBeCloseTo(sample.insets.top, 0);
+      expect(box.y + box.height, `${tab} bottom`).toBeCloseTo(sample.height, 0);
+      const endPadding = await pane.evaluate((node) =>
+        Number.parseFloat(getComputedStyle(node).paddingBottom),
+      );
+      expect(endPadding, `${tab} end padding`).toBeCloseTo(8 + sample.insets.bottom, 0);
+      const scrollPadding = await pane.evaluate((node) =>
+        Number.parseFloat(getComputedStyle(node).scrollPaddingBottom),
+      );
+      expect(scrollPadding, `${tab} scroll padding`).toBeCloseTo(sample.insets.bottom, 0);
+    }
 
-    await activateTab(page, 'settings');
-    const listBox = (await page.locator('#tab-settings').boundingBox())!;
-    expect(listBox.y).toBeCloseTo(sample.insets.top, 0);
-    expect(listBox.y + listBox.height).toBeCloseTo(sample.height - sample.insets.bottom, 0);
+    await activateTab(page, 'playlist');
+    const playlist = page.locator('#tab-playlist');
+    const paneBox = (await playlist.boundingBox())!;
+    expect(paneBox.y, 'playlist top').toBeCloseTo(sample.insets.top, 0);
+    expect(paneBox.y + paneBox.height, 'playlist bottom').toBeCloseTo(sample.height, 0);
+    const body = playlist.locator('.tab-body');
+    const bodyBox = (await body.boundingBox())!;
+    expect(bodyBox.y + bodyBox.height, 'playlist body bottom').toBeCloseTo(sample.height - 8, 0);
+    const bodyEnds = await body.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        padding: Number.parseFloat(style.paddingBottom),
+        scrollPadding: Number.parseFloat(style.scrollPaddingBottom),
+      };
+    });
+    expect(bodyEnds.padding, 'playlist body end padding').toBeCloseTo(8 + sample.insets.bottom, 0);
+    expect(bodyEnds.scrollPadding, 'playlist body scroll padding').toBeCloseTo(
+      sample.insets.bottom,
+      0,
+    );
   });
 }
 
@@ -425,6 +493,46 @@ for (const sample of cases.filter((sample) =>
         expect(outerEdge(close), `${id} close button inset`).toBeCloseTo(outerEdge(option), 0);
       }
       await overlay.evaluate((node) => node.classList.remove('active'));
+    }
+  });
+}
+
+// In the wide layout the Play and Settings panels reach the bottom edge of the
+// screen as well. Their bodies scroll under the home indicator and take its
+// inset as end padding, so the end of the scroll still clears it.
+for (const sample of cases.filter((sample) =>
+  [
+    'wide iPad',
+    'short wide iPad',
+    'scaled desktop with asymmetric insets',
+    'wide zero-inset baseline',
+  ].includes(sample.name),
+)) {
+  test(`lets the wide-layout Play and Settings bodies reach the bottom edge (${sample.name})`, async ({
+    page,
+  }) => {
+    await mount(page, sample);
+    for (const selector of ['#tab-play .tab-body', '#tab-settings > .tab-body']) {
+      const body = page.locator(selector);
+      await expect(body).toBeVisible();
+      const ends = await body.evaluate((node) => {
+        const element = node as HTMLElement;
+        const rect = element.getBoundingClientRect();
+        // The dashboard may be scaled: turn the CSS padding into screen pixels.
+        const scale = element.offsetHeight > 0 ? rect.height / element.offsetHeight : 1;
+        const style = getComputedStyle(element);
+        const padding = Number.parseFloat(style.paddingBottom) * scale;
+        return {
+          bottom: rect.bottom,
+          contentEnd: rect.bottom - padding,
+          scrollPadding: Number.parseFloat(style.scrollPaddingBottom) * scale,
+        };
+      });
+      expect(ends.bottom, `${selector} bottom`).toBeCloseTo(sample.height, 0);
+      expect(ends.contentEnd, `${selector} end of the content`).toBeLessThanOrEqual(
+        sample.height - sample.insets.bottom + 1,
+      );
+      expect(ends.scrollPadding, `${selector} scroll padding`).toBeCloseTo(sample.insets.bottom, 0);
     }
   });
 }
@@ -491,7 +599,13 @@ for (const sample of veryShortCases) {
     const track = (await page.locator('#safe-area-test-scrollbar').boundingBox())!;
     expect(track.width).toBeCloseTo(8, 0);
     expect(track.x + track.width).toBeCloseTo(panel.x + panel.width, 0);
-    await assertSafe(page.locator('#safe-area-test-scrollbar'), sample);
+    // The track takes the pane's box (set above as the runtime would): clear
+    // of the top and side insets, with the pane down to the bottom edge.
+    expect(track.y).toBeGreaterThanOrEqual(sample.insets.top - 1);
+    expect(track.x).toBeGreaterThanOrEqual(sample.insets.left - 1);
+    expect(track.x + track.width).toBeLessThanOrEqual(sample.width - sample.insets.right + 1);
+    expect(track.y + track.height).toBeCloseTo(panel.y + panel.height, 0);
+    expect(panel.y + panel.height).toBeCloseTo(sample.height, 0);
 
     // Insets move the center of the available vertical rail by half their
     // difference, including each of the <=300px and <=180px media branches.

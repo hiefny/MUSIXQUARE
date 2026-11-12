@@ -310,14 +310,19 @@ const DEMO_PANEL_SOURCES = [
     '--demo-column-gap': 'clamp(18px, 3vw, 44px)',
     'grid-template-columns': 'minmax(0, 1fr) minmax(0, 1fr)',
     'column-gap': 'var(--demo-column-gap)',
-    padding:
-      'calc(var(--demo-shell-pad-block) + var(--safe-top)) calc(var(--demo-shell-pad-inline) + var(--safe-right)) calc(var(--demo-shell-pad-block) + var(--safe-bottom)) calc(var(--demo-shell-pad-inline) + var(--safe-left))',
+    'padding-block':
+      'calc(var(--demo-shell-pad-block) + var(--safe-top)) calc(var(--demo-shell-pad-block) + var(--safe-bottom))',
+    'padding-inline':
+      'calc(var(--demo-shell-pad-inline) + var(--safe-left)) calc(var(--demo-shell-pad-inline) + var(--safe-right))',
   }),
   source('css/style.css', '.demo-control-stage', TWO_COLUMNS, {
-    margin:
-      'calc(0px - var(--demo-shell-pad-block) - var(--safe-top)) calc(0px - var(--demo-shell-pad-inline) - var(--safe-right)) calc(0px - var(--demo-shell-pad-block) - var(--safe-bottom)) 0',
-    padding:
-      'calc(var(--demo-shell-pad-block) + var(--safe-top) + var(--demo-control-pad-block)) calc(var(--demo-control-pad-inline) + var(--safe-right)) calc(var(--demo-shell-pad-block) + var(--safe-bottom) + var(--demo-control-pad-block)) var(--demo-control-pad-inline)',
+    'margin-block':
+      'calc(0px - var(--demo-shell-pad-block) - var(--safe-top)) calc(0px - var(--demo-shell-pad-block) - var(--safe-bottom))',
+    'margin-inline': '0 calc(0px - var(--demo-shell-pad-inline) - var(--safe-right))',
+    'padding-block':
+      'calc(var(--demo-shell-pad-block) + var(--safe-top) + var(--demo-control-pad-block)) calc(var(--demo-shell-pad-block) + var(--safe-bottom) + var(--demo-control-pad-block))',
+    'padding-inline':
+      'var(--demo-control-pad-inline) calc(var(--demo-control-pad-inline) + var(--safe-right))',
   }),
 ];
 

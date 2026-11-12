@@ -1301,9 +1301,12 @@ describe('compact-landscape scrollbar ownership contract', () => {
       compactRules.join('\n').match(/\n\s*\.tab-content\.active\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(compactPane).toMatch(/position:\s*fixed;/);
     expect(compactPane).toMatch(/top:\s*var\(--safe-top\);/);
+    // The pane reaches the bottom edge of the screen; the bottom inset is end
+    // padding and scroll padding instead.
     expect(compactPane).toMatch(
-      /height:\s*calc\(var\(--app-height, 100dvh\) - var\(--safe-top\) - var\(--safe-bottom\)\);/,
+      /height:\s*calc\(var\(--app-height, 100dvh\) - var\(--safe-top\)\);/,
     );
+    expect(compactPane).toMatch(/scroll-padding-bottom:\s*var\(--safe-bottom\);/);
   });
 
   it('does not style the setup scrollbar as an onboarding content section', async () => {

@@ -686,7 +686,11 @@ export function initObCarousel(signal: AbortSignal): void {
         const diff = activeTouch.clientX - ended.clientX;
         activeTouch = undefined;
         if (Math.abs(diff) > OB_CAROUSEL_SWIPE_THRESHOLD_PX) {
-          if (diff > 0) nextObSlide(false);
+          // The next slide waits on the reading-end side: a swipe toward the
+          // reading start brings it in (leftward, or rightward in a
+          // right-to-left page).
+          const towardNext = isObCarouselRtl() ? diff < 0 : diff > 0;
+          if (towardNext) nextObSlide(false);
           else prevObSlide(false);
         }
       },
@@ -726,9 +730,27 @@ export function initObCarousel(signal: AbortSignal): void {
     { signal },
   );
 
-  const unsubscribeLanguageChange = bus.on('i18n:changed', updateObCarouselA11y);
+  // The document's direction changes before the new language's strings
+  // arrive. Re-place the track at once and without motion, so the slide in
+  // view stays and the track does not sweep across the others.
+  const directionObserver =
+    typeof MutationObserver === 'function'
+      ? new MutationObserver(() => placeObSliderWithoutMotion())
+      : null;
+  directionObserver?.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['dir'],
+  });
+
+  const unsubscribeLanguageChange = bus.on('i18n:changed', () => {
+    // A language in the other writing direction moves the track the other
+    // way; the current slide stays in view.
+    updateObSlider();
+    updateObCarouselA11y();
+  });
 
   const dispose = () => {
+    directionObserver?.disconnect();
     unsubscribeLanguageChange();
     removeReducedMotionListener();
     clearObCarouselAutoplayTimer();
@@ -746,12 +768,30 @@ export function initObCarousel(signal: AbortSignal): void {
   scheduleObCarouselAutoplay();
 }
 
+// The slides follow the document's direction: in a right-to-left page they
+// run from right to left, so the track moves right to bring the next one in.
+function isObCarouselRtl(): boolean {
+  return document.documentElement.dir === 'rtl';
+}
+
+function placeObSliderWithoutMotion(): void {
+  const track = setupEl('ob-slider-track') as HTMLElement | null;
+  if (!track) return;
+  const transition = track.style.transition;
+  track.style.transition = 'none';
+  updateObSlider();
+  // Apply the jump before the transition comes back.
+  void track.offsetWidth;
+  track.style.transition = transition;
+}
+
 export function updateObSlider(): void {
   const track = setupEl('ob-slider-track');
   const dots = document.querySelectorAll('.ob-dot');
   if (!track) return;
 
-  (track as HTMLElement).style.transform = `translateX(-${_currentObSlide * 100}%)`;
+  const sign = isObCarouselRtl() ? '' : '-';
+  (track as HTMLElement).style.transform = `translateX(${sign}${_currentObSlide * 100}%)`;
   dots.forEach((dot, idx) => {
     setCurrentState(dot, idx === _currentObSlide);
   });

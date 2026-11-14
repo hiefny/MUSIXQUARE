@@ -3707,10 +3707,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-bottom: 1px solid var(--divider);
   }
 
-  [data-theme='light'] .section-group {
-    border-bottom: 1px solid var(--divider);
-  }
-
   .section-group:last-of-type,
   #last-setting-section {
     border-bottom: none;
@@ -5072,24 +5068,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Dark mode adaptive colors */
-  [data-theme='dark'] .nav-item {
-    color: #6b7684;
-  }
-
   [data-theme='dark'] .nav-item span {
     color: #8b95a1;
   }
 
-  [data-theme='dark'] .nav-item.active {
-    color: var(--primary);
-  }
-
   [data-theme='dark'] .nav-item.active span {
     color: var(--primary);
-  }
-
-  [data-theme='dark'] .nav-item.active svg {
-    fill: var(--primary);
   }
 
   .toast {
@@ -6891,7 +6875,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Dark theme toast */
   [data-theme='dark'] .toast > span {
-    background: var(--surface-1);
     color: #fff;
   }
 

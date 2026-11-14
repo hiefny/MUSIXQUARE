@@ -6,19 +6,21 @@
  *
  * Loaded async right after the splash, so it runs as soon as it arrives. It
  * draws once at the centre, from the moment the splash shows its mark (0.3 s
- * after the page's first byte), while the splash is still up; once drawn it
+ * on the splash's own CSS clock), while the splash is still up; once drawn it
  * sets the splash's data-phase="loader", and the wordmark rises while the
  * loader fades in below. It leaves the wordmark drawn instead when the CSS
  * fallback has already shown the static wordmark (1.8 s, the rise then
  * follows at the fallback's 3.2 s, or at once when that has passed:
- * data-phase="settled"), with reduced motion, and after an app reset, whose
- * refresh screen showed the wordmark and loader in their final place: the new
- * page then shows them there at once (settled). When the app takes the screen
- * mid-draw, the drawing stops where it is and fades out with the splash; a
- * runtime that arrives after that leaves the splash as it is. The splash's
- * loader runs on the wall clock's phase, as the refresh screen's does, so it
- * does not jump across that reload. With no runtime (or invalid geometry), the
- * CSS fallback shows the authored silhouette and rises at 3.2 s.
+ * data-phase="settled"), with reduced motion (the loader joins as the mark
+ * shows), and after an app reset, whose refresh screen showed the wordmark and
+ * loader in their final place: the new page then shows them there at once
+ * (settled). When the app takes the screen mid-draw, the drawing stops where
+ * it is and fades out with the splash; a runtime that arrives after that
+ * leaves the splash as it is. The splash's loader runs on the wall clock's
+ * phase, as the refresh screen's does, so it does not jump across that
+ * reload. With no runtime (or invalid geometry) the CSS fallback shows the
+ * authored silhouette and rises at 3.2 s; it stays on until this runtime sets
+ * data-boot-splash-runtime, so an older release's cached runtime keeps it.
  */
 (function installWordmarkReveal() {
   type Point = [number, number];
@@ -44,8 +46,12 @@
   }
 
   const root = document.documentElement;
-  if (root.hasAttribute('data-wordmark-runtime-ready')) return;
-  root.setAttribute('data-wordmark-runtime-ready', 'true');
+  // The splash's sheet keeps its no-runtime fallbacks (the timed rise and
+  // loader, the freeze at release) until this attribute appears. A runtime an
+  // older release's service worker still serves on the update's first load
+  // sets only its own data-wordmark-runtime-ready, so that page keeps them.
+  if (root.hasAttribute('data-boot-splash-runtime')) return;
+  root.setAttribute('data-boot-splash-runtime', 'true');
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   // The splash shows its mark 0.3 s after it first styles, its CSS fallback
@@ -57,7 +63,8 @@
   const SPLASH_FADE = 300;
   // A drawing that never reports its end still lets the loader join this late.
   const SPLASH_RISE_GRACE = 300;
-  // Written by src/core/session-reset.ts just before an app reset navigates.
+  // BOOT_SPLASH_CONTINUITY_KEY in src/core/navigation-contract.ts, written by
+  // src/core/session-reset.ts just before an app reset navigates.
   const CONTINUITY_KEY = 'mxqr-boot-continuity';
   const CONTINUITY_WINDOW = 15_000;
   const DRAW_BASE_DELAY = 500;
@@ -335,9 +342,16 @@
       return;
     }
     startTime = performance.now();
+    // The drawing reports its end (render); a frame loop that never gets there
+    // (a hidden tab) still lets the loader join just after, timed from this
+    // real start, so a start a long task delayed never rises mid-draw.
+    const drawEnd = Math.max(0, ...[...instances.values()].map((instance) => instance.drawEnd));
+    window.setTimeout(() => enterSplashPhase('loader'), drawEnd + SPLASH_RISE_GRACE);
     settled = Boolean(motion?.matches);
-    if (settled) settle();
-    else refresh();
+    if (settled) {
+      settle();
+      enterSplashPhase('loader');
+    } else refresh();
   }
 
   /**
@@ -360,6 +374,30 @@
     );
   }
 
+  /**
+   * How long ago the splash's own CSS clock started: its mark's fade-in
+   * animation starts when the splash first styles, and the sheet's fallbacks
+   * count from there, so the late-arrival rules meet them exactly. Both ends
+   * are read on the document timeline, the clock that animation runs on.
+   * Before it has a start time it starts with the next frame (0 ms ago);
+   * without the Web Animations API the document's first byte stands in.
+   */
+  function sinceSplashClock(mark: Element | null): number {
+    try {
+      const fadeIn = mark
+        ?.getAnimations?.()
+        .find((animation) => (animation as CSSAnimation).animationName === 'boot-splash-mark-in');
+      if (fadeIn) {
+        const start = fadeIn.startTime;
+        const now = document.timeline.currentTime;
+        return typeof start === 'number' && typeof now === 'number' ? Math.max(0, now - start) : 0;
+      }
+    } catch {
+      // Fall back to navigation timing.
+    }
+    return performance.now() - documentArrival();
+  }
+
   /** When the page's document began to arrive, on this page's clock. */
   function documentArrival(): number {
     try {
@@ -367,7 +405,16 @@
         PerformanceNavigationTiming | undefined;
       if (entry && entry.responseStart > 0) return entry.responseStart;
     } catch {
-      // Older engines without navigation timing fall back to the runtime's start.
+      // Older engines without navigation timing entries.
+    }
+    try {
+      // Navigation Timing 1 (older embedded engines), on the same origin.
+      const { navigationStart, responseStart } = performance.timing;
+      if (navigationStart > 0 && responseStart >= navigationStart) {
+        return responseStart - navigationStart;
+      }
+    } catch {
+      // No navigation timing at all: count from the runtime's start.
     }
     return performance.now();
   }
@@ -377,17 +424,31 @@
     try {
       const value = Number(sessionStorage.getItem(CONTINUITY_KEY));
       sessionStorage.removeItem(CONTINUITY_KEY);
-      return Number.isFinite(value) && value > 0 && Date.now() - value < CONTINUITY_WINDOW;
+      const age = Date.now() - value;
+      return value > 0 && Number.isFinite(age) && age >= 0 && age < CONTINUITY_WINDOW;
     } catch {
       return false;
     }
   }
 
-  /** Run a loader's animations on the wall clock's phase, as the refresh screen's loader does. */
+  /**
+   * Run a loader on the wall clock's phase, as the refresh screen's loader
+   * does (src/core/session-reset.ts): each running animation is set to the wall
+   * clock's place in its own period; without the Web Animations API an
+   * equivalent negative delay does it, exact for an animation that just started.
+   */
   function alignToWallClock(spinner: Element | null): void {
     if (!spinner) return;
     const now = Date.now();
     for (const element of spinner.querySelectorAll<SVGElement>(':scope > svg, circle')) {
+      const animations = typeof element.getAnimations === 'function' ? element.getAnimations() : [];
+      if (animations.length > 0) {
+        for (const animation of animations) {
+          const period = Number(animation.effect?.getTiming().duration);
+          if (Number.isFinite(period) && period > 0) animation.currentTime = now % period;
+        }
+        continue;
+      }
       const period = Number.parseFloat(getComputedStyle(element).animationDuration) * 1000;
       if (Number.isFinite(period) && period > 0) {
         element.style.animationDelay = `${-(now % period)}ms`;
@@ -419,10 +480,11 @@
   }
 
   function boot(): void {
-    retireSplashAfterFade(document.querySelector<HTMLElement>('.boot-splash'));
-    const svg = document.querySelector<SVGSVGElement>('.boot-splash-logo');
-    if (!svg) return;
-    alignToWallClock(document.querySelector('.boot-splash .boot-splash-spinner'));
+    const splash = document.querySelector<HTMLElement>('.boot-splash');
+    retireSplashAfterFade(splash);
+    const svg = splash?.querySelector<SVGSVGElement>('.boot-splash-logo');
+    if (!splash || !svg) return;
+    alignToWallClock(splash.querySelector('.boot-splash-spinner'));
     // Read (and clear) the reset's stamp first, so it never outlives this page.
     const continued = takeContinuity();
     // The app already took the screen: the splash fades out as it stands.
@@ -432,26 +494,29 @@
       complete(svg);
       return;
     }
-    const arrival = documentArrival();
-    const sinceArrival = performance.now() - arrival;
-    const riseAt = (ms: number) =>
-      window.setTimeout(() => enterSplashPhase('loader'), Math.max(0, ms - sinceArrival));
-    if (sinceArrival >= SPLASH_RISE_FALLBACK) {
+    const sinceSplash = sinceSplashClock(splash.querySelector('.boot-splash-mark'));
+    /** Run `action` at `ms` on the splash's CSS clock (at once when that has passed). */
+    const at = (ms: number, action: () => void) =>
+      window.setTimeout(action, Math.max(0, ms - sinceSplash));
+    const rise = () => enterSplashPhase('loader');
+    if (sinceSplash >= SPLASH_RISE_FALLBACK) {
       // The CSS fallback already showed the wordmark and raised it.
       enterSplashPhase('settled');
       complete(svg);
       return;
     }
-    if (sinceArrival >= SPLASH_INK_FALLBACK) {
+    if (sinceSplash >= SPLASH_INK_FALLBACK) {
       // The static wordmark already showed; keep the fallback's rise time.
       complete(svg);
-      riseAt(SPLASH_RISE_FALLBACK);
+      at(SPLASH_RISE_FALLBACK, rise);
       return;
     }
     initialize(svg);
     if (!instances.has(svg)) {
-      // Reduced motion or invalid geometry: the wordmark stands drawn.
-      enterSplashPhase('loader');
+      // Reduced motion: the wordmark stands drawn and the loader joins as the
+      // mark shows (no loader before it). Invalid geometry: the sheet's
+      // fallback rise.
+      at(motion?.matches ? SPLASH_MARK_DELAY : SPLASH_RISE_FALLBACK, rise);
       return;
     }
     // Stop where it is when the app takes the screen or boot fails mid-draw.
@@ -461,11 +526,7 @@
       freeze();
     });
     observer.observe(root, { attributes: true, attributeFilter: ['class'] });
-    const startIn = Math.max(0, SPLASH_MARK_DELAY - sinceArrival);
-    window.setTimeout(start, startIn);
-    // The drawing reports its end (render); a frame loop that never gets
-    // there (a suspended tab) still lets the loader join just after.
-    riseAt(sinceArrival + startIn + (instances.get(svg)?.drawEnd ?? 0) + SPLASH_RISE_GRACE);
+    at(SPLASH_MARK_DELAY, start);
   }
 
   document.addEventListener('visibilitychange', () => {

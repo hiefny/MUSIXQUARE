@@ -74,14 +74,18 @@
          ends every animation inside it (the loader's two infinite ones, and the
          mark's fade-in when the app opens within 0.5 s) so the hidden splash
          costs no frame for the rest of the session. Without that runtime the
-         splash freezes them at release instead. */
+         splash freezes them at release instead. Every no-runtime rule keys on
+         data-boot-splash-runtime, which only this release's runtime sets: on
+         the update's first load an older release's service worker can still
+         serve its own cached wordmark-anim.js, and that page keeps the
+         fallbacks. */
       .boot-splash[hidden] {
         display: none;
       }
 
-      html:not([data-wordmark-runtime-ready]):not(.setup-boot-block) .boot-splash *,
-      html:not([data-wordmark-runtime-ready]).boot-splash-released .boot-splash *,
-      html:not([data-wordmark-runtime-ready]).setup-boot-failed .boot-splash * {
+      html:not([data-boot-splash-runtime]):not(.setup-boot-block) .boot-splash *,
+      html:not([data-boot-splash-runtime]).boot-splash-released .boot-splash *,
+      html:not([data-boot-splash-runtime]).setup-boot-failed .boot-splash * {
         animation-play-state: paused;
       }
 
@@ -140,13 +144,13 @@
         animation: boot-splash-spinner-in 0.3s ease-out 0.15s forwards;
       }
 
-      html:not([data-wordmark-runtime-ready]) .boot-splash-mark {
+      html:not([data-boot-splash-runtime]) .boot-splash-mark {
         animation:
           boot-splash-mark-in 0.2s ease-out 0.3s forwards,
           boot-splash-mark-rise 0.45s ease-in-out 3.2s forwards;
       }
 
-      html:not([data-wordmark-runtime-ready]) .boot-splash .boot-splash-spinner {
+      html:not([data-boot-splash-runtime]) .boot-splash .boot-splash-spinner {
         animation: boot-splash-spinner-in 0.3s ease-out 3.35s forwards;
       }
 
@@ -267,10 +271,10 @@
         html.setup-boot-failed .boot-splash,
         .boot-splash-mark,
         .boot-splash[data-phase='loader'] .boot-splash-mark,
-        html:not([data-wordmark-runtime-ready]) .boot-splash-mark,
+        html:not([data-boot-splash-runtime]) .boot-splash-mark,
         .boot-splash .boot-splash-spinner,
         .boot-splash[data-phase='loader'] .boot-splash-spinner,
-        html:not([data-wordmark-runtime-ready]) .boot-splash .boot-splash-spinner {
+        html:not([data-boot-splash-runtime]) .boot-splash .boot-splash-spinner {
           animation-duration: 0s;
         }
 

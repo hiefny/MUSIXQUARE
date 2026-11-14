@@ -5103,6 +5103,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       visibility 0s linear 0s;
   }
 
+  /* Once its fade-out has ended (session-reset.ts), so its loader stops. */
+  .session-reset-overlay.is-retired {
+    display: none;
+  }
+
   .session-reset-message {
     margin: 0;
     color: var(--text-main);

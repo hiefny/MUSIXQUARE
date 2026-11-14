@@ -62,6 +62,7 @@ import {
 } from './document-reload.ts';
 import { setElementInertForOwner } from './inert-ownership.ts';
 import {
+  BOOT_SPLASH_CONTINUITY_KEY,
   NAVIGATION_COMMIT_TIMEOUT_MS,
   NAVIGATION_PREPARE_TIMEOUT_MS,
   RESET_PAINT_FALLBACK_MS,
@@ -69,8 +70,8 @@ import {
 
 const OVERLAY_ID = 'session-reset-overlay';
 const MESSAGE_ID = 'session-reset-message';
-/** Read and cleared by browser/classic-runtime/wordmark-anim.ts on the next page (parity test). */
-const BOOT_SPLASH_CONTINUITY_KEY = 'mxqr-boot-continuity';
+/** Out of rendering once the hidden overlay's fade-out has ended (style.css). */
+const OVERLAY_RETIRED_CLASS = 'is-retired';
 const INERT_OWNER = 'session-reset';
 const INTERACTION_EVENTS = [
   'keydown',
@@ -464,17 +465,55 @@ function splashWordmarkCopy(): SVGSVGElement | null {
 /**
  * Run a loader on the wall clock's phase, as the boot splash's does
  * (browser/classic-runtime/wordmark-anim.ts), so it does not jump when the
- * reload replaces this page with the splash.
+ * reload replaces this page with the splash. Each running animation is set to
+ * the wall clock's place in its own period; without the Web Animations API an
+ * equivalent negative delay does it, exact for an animation that just started.
  */
 function alignLoaderToWallClock(loader: Element | null): void {
   if (!loader) return;
   const now = Date.now();
   for (const element of loader.querySelectorAll<SVGElement>(':scope > svg, circle')) {
+    const animations = typeof element.getAnimations === 'function' ? element.getAnimations() : [];
+    if (animations.length > 0) {
+      for (const animation of animations) {
+        const period = Number(animation.effect?.getTiming().duration);
+        if (Number.isFinite(period) && period > 0) animation.currentTime = now % period;
+      }
+      continue;
+    }
     const period = Number.parseFloat(getComputedStyle(element).animationDuration) * 1000;
     if (Number.isFinite(period) && period > 0) {
       element.style.animationDelay = `${-(now % period)}ms`;
     }
   }
+}
+
+/**
+ * Take the hidden overlay out of rendering once its fade-out has ended, so its
+ * loader stops animating; it keeps turning through the fade, as the boot
+ * splash's does. Its sheet keeps it rendered while hidden (display: grid
+ * outranks [hidden]) so the fade can run. With no fade running (transitions
+ * off, or a move that restarted its style) it leaves at once. No timer: the
+ * fade's own end or cancellation does it, and a later show cancels it.
+ */
+function retireOverlayAfterFade(overlay: HTMLElement): void {
+  const fading =
+    typeof overlay.getAnimations === 'function' &&
+    overlay
+      .getAnimations()
+      .some((animation) => (animation as CSSTransition).transitionProperty === 'opacity');
+  if (!fading) {
+    overlay.classList.add(OVERLAY_RETIRED_CLASS);
+    return;
+  }
+  const retire = (event: Event): void => {
+    if (event.target !== overlay || (event as TransitionEvent).propertyName !== 'opacity') return;
+    overlay.removeEventListener('transitionend', retire);
+    overlay.removeEventListener('transitioncancel', retire);
+    if (!overlay.classList.contains('show')) overlay.classList.add(OVERLAY_RETIRED_CLASS);
+  };
+  overlay.addEventListener('transitionend', retire);
+  overlay.addEventListener('transitioncancel', retire);
 }
 
 /**
@@ -541,6 +580,8 @@ function followSurfaceHost(): void {
   releasePageClaims(attempt);
   placeOverlay(overlay);
   claimPageAround(overlay, attempt);
+  // A move restarts the loader's animations.
+  alignLoaderToWallClock(overlay.querySelector('.boot-splash-spinner'));
   // Moving the focused overlay drops its focus; the page holds no other.
   focusOverlay(overlay);
 }
@@ -549,7 +590,6 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
   const overlay = ensureOverlay();
   const messageEl = overlay.querySelector<HTMLElement>(`#${MESSAGE_ID}`);
   if (messageEl) messageEl.textContent = message;
-  alignLoaderToWallClock(overlay.querySelector('.boot-splash-spinner'));
   // The page this reset opens continues this wordmark and loader instead of
   // drawing the wordmark again (wordmark-anim.ts reads and clears the stamp).
   try {
@@ -571,6 +611,7 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
   _stopSurfaceHostWatch = _windowLayer?.onSurfaceHostChange(followSurfaceHost) ?? null;
 
   document.documentElement.classList.add('session-reset-pending');
+  overlay.classList.remove(OVERLAY_RETIRED_CLASS);
   overlay.hidden = false;
   overlay.setAttribute('aria-hidden', 'false');
   overlay.setAttribute('aria-busy', 'true');
@@ -578,6 +619,8 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
   // input from this call on, before the fade completes).
   void overlay.getBoundingClientRect();
   overlay.classList.add('show');
+  // Its loader's animations exist now (a retired overlay restarts them).
+  alignLoaderToWallClock(overlay.querySelector('.boot-splash-spinner'));
   focusOverlay(overlay);
 }
 
@@ -626,6 +669,7 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
     overlay.removeAttribute('aria-busy');
     // Hidden first, so the move out of a fullscreen host shows nothing.
     placeOverlay(overlay, null);
+    retireOverlayAfterFade(overlay);
   }
   // This document stays, so no later page continues the screen it took down.
   forgetBootSplashContinuity();

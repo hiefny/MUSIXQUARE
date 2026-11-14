@@ -39,14 +39,29 @@ test.describe('boot splash', () => {
     expect(await runningInsideSplash(page)).toEqual([]);
   });
 
-  test('hands over without the drawing runtime too, frozen where it was', async ({ page }) => {
-    await page.route('**/wordmark-anim.js', (route) => route.abort('failed'));
-    await openApp(page);
-    await expect(page.locator('.boot-splash')).toBeHidden();
-    // Nothing can hide it without the runtime, so it freezes at release.
-    await expect(page.locator('.boot-splash')).not.toHaveAttribute('hidden', /.*/u);
-    await expect.poll(() => runningInsideSplash(page)).toEqual([]);
-  });
+  for (const [label, runtime] of [
+    ['without the drawing runtime', null],
+    // What an older release's runtime does to this page: its service worker
+    // still serves that one on the update's first load. It marks the root with
+    // its own attribute and waits for a start event nothing sends now.
+    [
+      "under an older release's cached runtime",
+      "document.documentElement.setAttribute('data-wordmark-runtime-ready', 'true');",
+    ],
+  ] as const) {
+    test(`hands over ${label} too, frozen where it was`, async ({ page }) => {
+      await page.route('**/wordmark-anim.js', (route) =>
+        runtime === null
+          ? route.abort('failed')
+          : route.fulfill({ contentType: 'text/javascript', body: runtime }),
+      );
+      await openApp(page);
+      await expect(page.locator('.boot-splash')).toBeHidden();
+      // Nothing hides it without this release's runtime, so it freezes at release.
+      await expect(page.locator('.boot-splash')).not.toHaveAttribute('hidden', /.*/u);
+      await expect.poll(() => runningInsideSplash(page)).toEqual([]);
+    });
+  }
 
   test('greets with a working language button from the first frame', async ({ page }) => {
     // The phone layout shows the welcome header itself (wide screens copy it).

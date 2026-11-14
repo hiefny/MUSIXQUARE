@@ -79,6 +79,16 @@ export const FORCED_UPDATE_APPLY_KEY = 'mxqr-forced-apply';
 export const PREVIOUS_LINK_CLOSE_KEY = 'mxqr-prev-close';
 
 /**
+ * When this tab's reset screen took the page down to navigate (epoch ms): the
+ * next document's boot splash shows the same wordmark and loader in their
+ * final place instead of drawing the wordmark again, while the stamp is under
+ * 15 s old (core/session-reset.ts writes it and removes it when its document
+ * stays; browser/classic-runtime/wordmark-anim.ts reads and removes it, and
+ * cannot import this, so boot-splash.test.ts pins its copy; RO-55).
+ */
+export const BOOT_SPLASH_CONTINUITY_KEY = 'mxqr-boot-continuity';
+
+/**
  * This page's audio output recovery counts with its build and label set,
  * "<label set> <build> <every slot>", kept at each pagehide; the next
  * document in the tab reads and removes it once and shows it in

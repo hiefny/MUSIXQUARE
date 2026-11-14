@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
 import { APP_RENDER_ASSETS_SLOT, prioritizeActiveStylesheetsInHtml } from '../../../vite.config.ts';
+import { BOOT_SPLASH_CONTINUITY_KEY } from '../navigation-contract.ts';
 
 // The boot splash (index.html) is the only thing a slow first visit can paint
 // before the start-up scripts, the app stylesheet and the module graph arrive.
@@ -332,9 +333,16 @@ describe('boot splash', () => {
     // Without the runtime nothing hides it, so everything inside freezes at
     // release instead (WebKit also keeps an unfinished fade-in running).
     expect(SPLASH_CSS).toMatch(
-      /html:not\(\[data-wordmark-runtime-ready\]\):not\(\.setup-boot-block\) \.boot-splash \*,\s*html:not\(\[data-wordmark-runtime-ready\]\)\.boot-splash-released \.boot-splash \*,\s*html:not\(\[data-wordmark-runtime-ready\]\)\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
+      /html:not\(\[data-boot-splash-runtime\]\):not\(\.setup-boot-block\) \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.boot-splash-released \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
     );
     expect(SPLASH_CSS).not.toMatch(/html:not\(\.setup-boot-block\) \.boot-splash \*/u);
+    // Only this release's runtime turns the no-runtime rules off: the one an
+    // older release's service worker still serves on the update's first load
+    // sets data-wordmark-runtime-ready, and that page keeps them.
+    expect(SPLASH_CSS).not.toContain('data-wordmark-runtime-ready');
+    const runtimeSource = readFileSync('browser/classic-runtime/wordmark-anim.ts', 'utf8');
+    expect(runtimeSource).toMatch(/root\.setAttribute\('data-boot-splash-runtime', 'true'\);/u);
+    expect(runtimeSource).not.toMatch(/setAttribute\('data-wordmark-runtime-ready'/u);
     // Last resort when nothing after the page file arrives: step aside 5 s
     // after the 15 s boot-failure fallbacks, on the same variable.
     expect(declaration(SPLASH_CSS, '      .boot-splash {', 'animation').replace(/\s+/gu, ' ')).toBe(
@@ -396,13 +404,11 @@ describe('boot splash', () => {
       'boot-splash-spinner-in 0.3s ease-out 0.15s forwards',
     );
     // Without the runtime the same motion runs on fixed times.
-    expect(animation('      html:not([data-wordmark-runtime-ready]) .boot-splash-mark {')).toBe(
+    expect(animation('      html:not([data-boot-splash-runtime]) .boot-splash-mark {')).toBe(
       'boot-splash-mark-in 0.2s ease-out 0.3s forwards, boot-splash-mark-rise 0.45s ease-in-out 3.2s forwards',
     );
     expect(
-      animation(
-        '      html:not([data-wordmark-runtime-ready]) .boot-splash .boot-splash-spinner {',
-      ),
+      animation('      html:not([data-boot-splash-runtime]) .boot-splash .boot-splash-spinner {'),
     ).toBe('boot-splash-spinner-in 0.3s ease-out 3.35s forwards');
     // After an app reset, or behind a fallback that already rose: the final
     // place at once.
@@ -444,7 +450,7 @@ describe('boot splash', () => {
     );
     const fallbackRise = declaration(
       SPLASH_CSS,
-      '      html:not([data-wordmark-runtime-ready]) .boot-splash-mark {',
+      '      html:not([data-boot-splash-runtime]) .boot-splash-mark {',
       'animation',
     ).replace(/\s+/gu, ' ');
     expect(constant('SPLASH_RISE_FALLBACK')).toBe(
@@ -462,12 +468,14 @@ describe('boot splash', () => {
       expect(runtime).toContain(`'${name}'`);
       expect(SPLASH_CSS).toContain(`@keyframes ${name} {`);
     }
-    // The reset writes the stamp the next page's runtime reads and clears.
-    const reset = readFileSync('src/core/session-reset.ts', 'utf8');
-    const key = (source: string, name: string) =>
-      source.match(new RegExp(`const ${name} = '([^']+)';`, 'u'))?.[1];
-    expect(key(runtime, 'CONTINUITY_KEY')).toBe('mxqr-boot-continuity');
-    expect(key(reset, 'BOOT_SPLASH_CONTINUITY_KEY')).toBe(key(runtime, 'CONTINUITY_KEY'));
+    // The reset writes the stamp the next page's runtime reads and clears; its
+    // key lives with the other next-document keys (RO-23).
+    expect(runtime.match(/const CONTINUITY_KEY = '([^']+)';/u)?.[1]).toBe(
+      BOOT_SPLASH_CONTINUITY_KEY,
+    );
+    expect(readFileSync('src/core/session-reset.ts', 'utf8')).toMatch(
+      /sessionStorage\.setItem\(BOOT_SPLASH_CONTINUITY_KEY,/u,
+    );
   });
 
   it('stays safe for the legacy TV engines and off without scripting', () => {

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  BOOT_SPLASH_CONTINUITY_KEY,
   LEAVE_FALLBACK_MS,
   NAVIGATION_COMMIT_TIMEOUT_MS,
   NAVIGATION_PREPARE_TIMEOUT_MS,
@@ -51,6 +52,7 @@ describe('next-document sessionStorage markers', () => {
       UPDATE_COMPLETION_KEY,
       PREVIOUS_LINK_CLOSE_KEY,
       PREVIOUS_AUDIO_RECOVERY_KEY,
+      BOOT_SPLASH_CONTINUITY_KEY,
     }).toEqual({
       RECONNECT_TARGET_KEY: 'mxqr_reconnect_target',
       SW_UPDATE_KEY: 'sw-updated-at',
@@ -58,6 +60,7 @@ describe('next-document sessionStorage markers', () => {
       UPDATE_COMPLETION_KEY: 'mxqr-swu',
       PREVIOUS_LINK_CLOSE_KEY: 'mxqr-prev-close',
       PREVIOUS_AUDIO_RECOVERY_KEY: 'mxqr-prev-audio-recovery',
+      BOOT_SPLASH_CONTINUITY_KEY: 'mxqr-boot-continuity',
     });
   });
 });

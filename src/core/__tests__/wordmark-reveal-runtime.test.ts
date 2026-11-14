@@ -46,6 +46,13 @@ interface FixtureOptions {
   wall?: number;
   /** A value already in sessionStorage under the reset's continuity key. */
   stamp?: string;
+  /**
+   * With the Web Animations API: when the mark's CSS fade-in started (null:
+   * not yet, it starts with the next frame). Omitted: no API, as in jsdom.
+   */
+  markStart?: number | null;
+  /** Give the loader's two animations the Web Animations API. */
+  waapi?: boolean;
 }
 
 function fixture({
@@ -56,6 +63,8 @@ function fixture({
   boot = 150,
   wall = 1_000_000,
   stamp,
+  markStart,
+  waapi = false,
 }: FixtureOptions = {}) {
   const dom = new JSDOM(
     `<!doctype html><html class="${rootClass}"><body>${SPLASH(logo)}</body></html>`,
@@ -106,6 +115,36 @@ function fixture({
     if (index > -1) timers.splice(index, 1);
   }) as typeof window.clearTimeout;
   if (stamp !== undefined) window.sessionStorage.setItem(CONTINUITY_KEY, stamp);
+  if (markStart !== undefined) {
+    Object.defineProperty(document.querySelector('.boot-splash-mark')!, 'getAnimations', {
+      value: () => [{ animationName: 'boot-splash-mark-in', startTime: markStart }],
+    });
+    // The document timeline that fade-in runs on (same origin as performance.now()).
+    Object.defineProperty(document, 'timeline', {
+      value: {
+        get currentTime() {
+          return now;
+        },
+      },
+    });
+  }
+  const loaderAnimations: Array<{ currentTime: number | null; period: number }> = [];
+  if (waapi) {
+    for (const [selector, period] of [
+      ['.boot-splash-spinner > svg', 1850],
+      ['.boot-splash-spinner circle', 1450],
+    ] as const) {
+      const animation = {
+        currentTime: null,
+        period,
+        effect: { getTiming: () => ({ duration: period }) },
+      };
+      loaderAnimations.push(animation);
+      Object.defineProperty(document.querySelector(selector)!, 'getAnimations', {
+        value: () => [animation],
+      });
+    }
+  }
 
   const run = () => window.eval(code);
   run();
@@ -117,6 +156,7 @@ function fixture({
     timers,
     run,
     splash,
+    loaderAnimations,
     logo: document.querySelector<SVGSVGElement>('.boot-splash-logo')!,
     phase: () => splash.dataset.phase,
     /** Run every timer due by `target` in order, then one frame at `target`. */
@@ -134,6 +174,18 @@ function fixture({
       const pending = [...frames.values()];
       frames.clear();
       pending.forEach((callback) => callback(target));
+    },
+    /** A long task held the page until `target`: every timer due by then runs only now. */
+    runLate(target: number) {
+      now = target;
+      for (;;) {
+        const due = timers
+          .filter((timer) => timer.due <= target)
+          .sort((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (!due) break;
+        timers.splice(timers.indexOf(due), 1);
+        due.callback();
+      }
     },
     visibility(value: boolean) {
       hidden = value;
@@ -293,7 +345,8 @@ describe('boot splash wordmark reveal', () => {
   it.each([
     ['older than 15 s', String(1_000_000 - 15_000)],
     ['unreadable', 'soon'],
-    ['from the future', String(-1)],
+    ['that is negative', String(-1)],
+    ['from the future', String(1_000_000 + 5_000)],
   ])('draws as usual after a reset stamp %s, and clears it', (_label, stamp) => {
     const app = fixture({ stamp });
     expect(app.phase()).toBeUndefined();
@@ -327,8 +380,14 @@ describe('boot splash wordmark reveal', () => {
     'settles safely on %s motion interruption',
     (mode) => {
       const app = fixture({ reduced: mode === 'initial' });
-      if (mode === 'initial') expect(app.phase()).toBe('loader');
+      if (mode === 'initial') {
+        // No loader before the mark: it joins as the mark shows, at 0.3 s.
+        expect(app.phase()).toBeUndefined();
+        app.advance(399);
+        expect(app.phase()).toBeUndefined();
+      }
       app.advance(400);
+      if (mode === 'initial') expect(app.phase()).toBe('loader');
       app.advance(1050);
       if (mode === 'changed') app.reduce();
       if (mode === 'pagehide') app.window.dispatchEvent(new app.window.Event('pagehide'));
@@ -344,8 +403,52 @@ describe('boot splash wordmark reveal', () => {
     expect(app.logo.querySelector('mask')).toBeNull();
     expect(app.logo.querySelector('.wg')?.hasAttribute('mask')).toBe(false);
     expect(app.logo.dataset.wordmarkDrawComplete).toBe('true');
-    expect(app.phase()).toBe('loader');
     expect(app.frames.size).toBe(0);
+    // It rises at the sheet's own fallback time, 3.2 s.
+    expect(app.phase()).toBeUndefined();
+    app.advance(3299);
+    expect(app.phase()).toBeUndefined();
+    app.advance(3300);
+    expect(app.phase()).toBe('loader');
+  });
+
+  it("times the loader's late join from the real start, so a delayed start never rises mid-draw", () => {
+    const app = fixture();
+    // A long task holds the page from the planned start (400) until 1000.
+    app.runLate(1000);
+    expect(app.frames.size).toBe(1);
+    // No frame reports the drawing's end (a hidden tab).
+    app.visibility(true);
+    app.advance(1000 + DRAW_END + 299);
+    expect(app.phase()).toBeUndefined();
+    app.advance(1000 + DRAW_END + 300);
+    expect(app.phase()).toBe('loader');
+  });
+
+  it("counts from the splash's own CSS clock when it can read it", () => {
+    // The first byte came at 100 but the splash first styled at 900: the
+    // runtime at 1000 starts drawing at 1200, as the sheet's mark shows.
+    const app = fixture({ arrival: 100, boot: 1000, markStart: 900 });
+    expect(app.logo.querySelector('mask')).not.toBeNull();
+    app.advance(1199);
+    expect(app.frames.size).toBe(0);
+    app.advance(1200);
+    expect(app.frames.size).toBe(1);
+
+    // Its fade-in has no start time yet: the sheet's clock starts with the
+    // next frame, so this is not the 1.8 s fallback the first byte implies.
+    const pending = fixture({ arrival: 100, boot: 2000, markStart: null });
+    expect(pending.logo.querySelector('mask')).not.toBeNull();
+    pending.advance(2299);
+    expect(pending.frames.size).toBe(0);
+    pending.advance(2300);
+    expect(pending.frames.size).toBe(1);
+  });
+
+  it('marks itself apart from an older release runtime, so the sheet keeps its fallbacks for that one', () => {
+    const root = fixture().document.documentElement;
+    expect(root.getAttribute('data-boot-splash-runtime')).toBe('true');
+    expect(root.hasAttribute('data-wordmark-runtime-ready')).toBe(false);
   });
 
   it('installs once', () => {
@@ -360,12 +463,21 @@ describe('boot splash wordmark reveal', () => {
 
   it("runs the loader on the wall clock's phase, as the refresh screen's does", () => {
     // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
-    const app = fixture({ wall: 1_000_000 });
+    const app = fixture({ wall: 1_000_000, waapi: true });
+    expect(app.loaderAnimations.map((animation) => animation.currentTime)).toEqual([
+      1_000_000 % 1850,
+      1_000_000 % 1450,
+    ]);
     const loader = app.splash.querySelector('.boot-splash-spinner')!;
-    expect(loader.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe(
+    expect(loader.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe('');
+
+    // Without the Web Animations API: the same phase as a negative delay.
+    const old = fixture({ wall: 1_000_000 });
+    const oldLoader = old.splash.querySelector('.boot-splash-spinner')!;
+    expect(oldLoader.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe(
       `${-(1_000_000 % 1850)}ms`,
     );
-    expect(loader.querySelector<SVGCircleElement>('circle')?.style.animationDelay).toBe(
+    expect(oldLoader.querySelector<SVGCircleElement>('circle')?.style.animationDelay).toBe(
       `${-(1_000_000 % 1450)}ms`,
     );
   });

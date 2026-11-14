@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BOOT_SPLASH_CONTINUITY_KEY } from '../navigation-contract.ts';
 import { stubNavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 const originalRequestAnimationFrame = window.requestAnimationFrame;
@@ -377,7 +378,7 @@ describe('session reset coordinator', () => {
   // and loader in their final place, with no visible text, and the page the
   // reset opens continues them (browser/classic-runtime/wordmark-anim.ts).
   describe('the reset screen continues the boot splash', () => {
-    const CONTINUITY_KEY = 'mxqr-boot-continuity';
+    const CONTINUITY_KEY = BOOT_SPLASH_CONTINUITY_KEY;
     // The splash as the reset finds it after boot: drawn, faded out, hidden.
     const SPLASH = `<div class="boot-splash" aria-hidden="true" hidden>
       <div class="boot-splash-mark">
@@ -460,6 +461,7 @@ describe('session reset coordinator', () => {
       const { scheduleSessionReset } = await loadCoordinator();
       scheduleSessionReset('Refreshing session...', vi.fn());
       const loader = document.querySelector('#session-reset-overlay .boot-splash-spinner');
+      // Without the Web Animations API (jsdom): an equivalent negative delay.
       // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
       expect(loader?.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe(
         '-1000ms',
@@ -467,6 +469,86 @@ describe('session reset coordinator', () => {
       expect(loader?.querySelector<SVGCircleElement>('circle')?.style.animationDelay).toBe(
         '-950ms',
       );
+    });
+
+    it("sets the loader's running animations to the wall clock once shown, and again after a move", async () => {
+      // Each element's CSS animation, as the Web Animations API reports it.
+      const animations = new Map<Element, { currentTime: number | null }>();
+      Object.defineProperty(window.SVGElement.prototype, 'getAnimations', {
+        configurable: true,
+        value(this: SVGElement) {
+          if (!this.closest('#session-reset-overlay')) return [];
+          const duration = this.localName === 'svg' ? 1850 : 1450;
+          let animation = animations.get(this);
+          if (!animation) {
+            animation = Object.assign(
+              { currentTime: null },
+              { effect: { getTiming: () => ({ duration }) } },
+            );
+            animations.set(this, animation);
+          }
+          return [animation];
+        },
+      });
+      try {
+        const { scheduleSessionReset } = await loadCoordinator();
+        scheduleSessionReset('Refreshing session...', vi.fn());
+        expect([...animations.values()].map((animation) => animation.currentTime)).toEqual([
+          1_000_000 % 1850,
+          1_000_000 % 1450,
+        ]);
+        const svg = document.querySelector<SVGSVGElement>(
+          '#session-reset-overlay .boot-splash-spinner > svg',
+        );
+        expect(svg?.style.animationDelay).toBe('');
+      } finally {
+        Reflect.deleteProperty(window.SVGElement.prototype, 'getAnimations');
+      }
+    });
+
+    it('takes the screen out of rendering once its fade-out has ended, and back for the next show', async () => {
+      const { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } =
+        await import('../navigation-contract.ts');
+      const { scheduleSessionReset } = await loadCoordinator();
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
+      // Its fade-out, as the browser runs it.
+      let fading = true;
+      Object.defineProperty(overlay, 'getAnimations', {
+        configurable: true,
+        value: () => (fading ? [{ transitionProperty: 'opacity' }] : []),
+      });
+      const transitionEnd = (type: string, propertyName: string, target: Element = overlay) => {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, 'propertyName', { value: propertyName });
+        target.dispatchEvent(event);
+      };
+
+      // The navigation never commits: this page stays and the screen fades out.
+      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      expect(overlay.hidden).toBe(true);
+      expect(overlay.classList.contains('is-retired')).toBe(false);
+      // Its loader keeps turning through the fade; other ends do not count.
+      transitionEnd('transitionend', 'visibility');
+      transitionEnd('transitionend', 'opacity', overlay.querySelector('.session-reset-mark')!);
+      expect(overlay.classList.contains('is-retired')).toBe(false);
+      transitionEnd('transitionend', 'opacity');
+      expect(overlay.classList.contains('is-retired')).toBe(true);
+
+      // The next reset shows it again.
+      scheduleSessionReset('Leaving session...', vi.fn());
+      expect(overlay.classList.contains('is-retired')).toBe(false);
+      expect(overlay.classList.contains('show')).toBe(true);
+      // A show that cancels a fade-out in flight is never retired by it.
+      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      transitionEnd('transitioncancel', 'opacity');
+      expect(overlay.classList.contains('is-retired')).toBe(false);
+
+      // With no fade running (transitions off), it leaves rendering at once.
+      fading = false;
+      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      expect(overlay.classList.contains('is-retired')).toBe(true);
     });
 
     it('stamps the next page as a continuation and clears the stamp when this page stays', async () => {
@@ -509,6 +591,10 @@ describe('session reset coordinator', () => {
       expect(rule('  .session-reset-overlay.show {')).toContain(
         'transition: opacity 0.2s ease-out, visibility 0s linear 0s;',
       );
+      // Its sheet keeps it rendered while hidden, so the fade can run; the
+      // owner takes it out once the fade has ended.
+      expect(rule('  .session-reset-overlay {')).toContain('display: grid;');
+      expect(rule('  .session-reset-overlay.is-retired {')).toContain('display: none;');
       // The hidden starting style is settled before .show, so the fade runs.
       const source = readFileSync('src/core/session-reset.ts', 'utf8');
       expect(source).toMatch(

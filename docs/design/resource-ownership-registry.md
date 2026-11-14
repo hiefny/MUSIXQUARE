@@ -3353,7 +3353,11 @@ RO-55 accepted-exception
   attempt settles, and `isCurrent()` false at navigate settles the attempt as recovered. The logo
   reset's update hand-off is its prepare step; `runtime.ts` passes `isCurrent` instead of
   restoring the reset inside its action, and its last raw `location.replace` became
-  `navigateToAppHome`. `restoreSessionReset` is no longer exported.
+  `navigateToAppHome`. `restoreSessionReset` is no longer exported. Since App 9.0.48 the overlay
+  is the boot splash's wordmark and loader with its message for screen readers only (RO-55): it
+  writes the next document's `BOOT_SPLASH_CONTINUITY_KEY` when it shows and removes it when its
+  document stays, and it leaves rendering once its fade-out ends, on that transition's own end or
+  cancellation (`retireOverlayAfterFade`, no timer).
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
@@ -4480,55 +4484,70 @@ entry needs the owner's acceptance and is not implied by this registry.
   ([App 9.0.48 train report](app-9-0-48-train-2026-11-15.md)).
 - **Current owners/flows:** two machines, kept on purpose:
   - the sheet `<style data-boot-splash>` in `index.html`: the mark's fade-in 0.3 s after the
-    splash first styles, and without the runtime the whole wordmark at 1.8 s, the rise at 3.2 s
-    and the loader's fade-in at 3.35 s; the 0.3 s fade over the app once `setup-boot-block`
-    leaves the root or `boot-splash-released` or `setup-boot-failed` arrives; the freeze of
-    everything inside at that release when the runtime never ran; and the last-resort fade 5 s
-    after `--setup-boot-failure-delay`;
+    splash first styles, and without this release's runtime the whole wordmark at 1.8 s, the rise
+    at 3.2 s and the loader's fade-in at 3.35 s; the 0.3 s fade over the app once
+    `setup-boot-block` leaves the root or `boot-splash-released` or `setup-boot-failed` arrives;
+    the freeze of everything inside at that release when this release's runtime never ran; and the
+    last-resort fade 5 s after `--setup-boot-failure-delay`. Every no-runtime rule keys on
+    `data-boot-splash-runtime`, which only this release's runtime sets: on an update's first load
+    an older release's service worker can still serve its own cached `wordmark-anim.js` (it sets
+    `data-wordmark-runtime-ready` and waits for a start event nothing sends now), and that page
+    keeps the fallbacks;
   - the runtime `browser/classic-runtime/wordmark-anim.ts` (`wordmark-anim.js`, async right after
-    the splash): it draws the wordmark from 0.3 s after the document's first byte, sets
-    `data-phase` once (`loader` when the drawing ends, at the fallback's own times when it arrives
-    late, `settled` after an app reset or behind a fallback that already rose), stops the drawing
-    where it is when the splash is released, and sets `hidden` once the splash's
-    `boot-splash-out` or `boot-splash-fail-open` animation ends.
+    the splash): it reads the sheet's own clock (the mark's fade-in start, on the document
+    timeline; navigation timing without the Web Animations API), draws the wordmark from 0.3 s on
+    it, sets `data-phase` once (`loader` when the drawing ends, at the fallback's own times when it
+    arrives late, as the mark shows under reduced motion, `settled` after an app reset or behind a
+    fallback that already rose), stops the drawing where it is when the splash is released, sets
+    `hidden` once the splash's `boot-splash-out` or `boot-splash-fail-open` animation ends, and runs
+    the splash's loader on the wall clock's phase.
   - The reset screen of RO-23 (`src/core/session-reset.ts`) copies the splash's wordmark and
-    loader, writes the stamp in `showResetOverlay` and clears it in `releaseResetSurface` when its
-    document stays; the next page's runtime reads and clears it once (`takeContinuity`, a 15 s
-    window).
+    loader, runs that loader on the wall clock's phase, writes the stamp in `showResetOverlay`,
+    removes it in `releaseResetSurface` when its document stays, and leaves rendering once its own
+    fade-out ends (`retireOverlayAfterFade`, on that transition's end or cancellation, no timer).
+    The next page's runtime reads and removes the stamp once (`takeContinuity`, a stamp 0 to 15 s
+    old).
 - **Target single owner:** none, by design. The sheet has to show, raise and release the splash
-  without the runtime, which loads async and may never arrive; the runtime has to time the drawing
-  from the document's first byte, which the sheet cannot see, and is the only flow that can take
-  the hidden splash out of rendering.
+  without the runtime, which loads async and may never arrive or arrive from an older release; the
+  runtime has to time the drawing, which the sheet cannot, and is the only flow that can take the
+  hidden splash out of rendering.
 - **Allowed requesters:** setup's boot guard classes on the root (`setup-boot-block`,
   `boot-splash-released`, `setup-boot-failed`) release the splash; the reset screen writes and
-  clears the stamp.
+  removes the stamp.
 - **Lifecycle operations:** set the phase (runtime, once); stop or finish the drawing (runtime);
-  fade (sheet); `hidden` after the fade (runtime); write and clear the stamp (reset screen); read
-  and clear it (runtime).
+  fade (sheet); `hidden` after the fade (runtime); write and remove the stamp (reset screen); read
+  and remove it (runtime).
 - **Deadline owner:** the sheet for its fallback times and the last-resort fade; the runtime for
-  the drawing's start and for the loader's rise 0.3 s after the drawing's scheduled end when no
-  frame reports it (a hidden tab).
+  the drawing's start on the sheet's clock, for the loader's rise 0.3 s after the drawing's end
+  from its real start when no frame reports that end (a hidden tab), and for `hidden`
+  `SPLASH_FADE + 100` ms after a runtime that arrives once the splash was already released.
 - **Timing-constant home:** the sheet's animation times. The runtime's `SPLASH_MARK_DELAY` (300),
   `SPLASH_INK_FALLBACK` (1800), `SPLASH_RISE_FALLBACK` (3200) and `SPLASH_FADE` (300) copy them,
   because a classic runtime cannot import the page's sheet, and its `CONTINUITY_KEY` copies
-  `BOOT_SPLASH_CONTINUITY_KEY` in `session-reset.ts`. `src/core/__tests__/boot-splash.test.ts`
-  "keeps the timings the runtime copies equal to the splash sheet" pins all five.
+  `BOOT_SPLASH_CONTINUITY_KEY` in `src/core/navigation-contract.ts`, the home of the next-document
+  keys (RO-23). `src/core/__tests__/boot-splash.test.ts` "keeps the timings the runtime copies
+  equal to the splash sheet" pins all five; `navigation-contract.test.ts` pins the key string.
 - **Anchor tests:**
-  - Supersession (the first release wins; a stamp counts once):
+  - Supersession (the first release wins; a stamp counts once; this release's runtime only):
     `src/core/__tests__/wordmark-reveal-runtime.test.ts` "stops the drawing where it is when %s
     mid-draw, then leaves rendering after the fade", "leaves a splash the app already took as it
     stands, and still retires it", "shows an app reset's wordmark and loader in their final place
-    at once, once" and "draws as usual after a reset stamp %s, and clears it";
+    at once, once", "draws as usual after a reset stamp %s, and clears it" and "marks itself apart
+    from an older release runtime, so the sheet keeps its fallbacks for that one";
     `src/core/__tests__/session-reset.test.ts` "stamps the next page as a continuation and clears
     the stamp when this page stays" and "keeps the stamp for the page a committed navigation
     opens, until this page returns".
   - User pause/stop: n/a (the splash has no control); reduced motion: "settles safely on %s
     motion interruption".
-  - Teardown: "retires the splash after its last-resort fade"; `e2e/boot-splash.test.ts` "hands
-    over to setup and leaves no animation running in the hidden splash" and "hands over without
-    the drawing runtime too, frozen where it was".
-  - Visibility: "catches up after background suspension instead of stretching the animation" and
-    "lets the loader join just after the drawing when no frame reports its end".
+  - Teardown: "retires the splash after its last-resort fade"; `session-reset.test.ts` "takes the
+    screen out of rendering once its fade-out has ended, and back for the next show";
+    `e2e/boot-splash.test.ts` "hands over to setup and leaves no animation running in the hidden
+    splash" and "hands over %s too, frozen where it was" (no runtime, and an older release's
+    runtime).
+  - Visibility: "catches up after background suspension instead of stretching the animation",
+    "lets the loader join just after the drawing when no frame reports its end" and "times the
+    loader's late join from the real start, so a delayed start never rises mid-draw".
+  - Clock: "counts from the splash's own CSS clock when it can read it".
   - With the real page: `e2e/wordmark-reveal.test.ts` (default suite and WebKit lane).
 - **Status:** `accepted-exception`. Added with the App 9.0.48 train, when the drawing runtime
   became a second machine on the splash beside its sheet.

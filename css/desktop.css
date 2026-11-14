@@ -467,7 +467,6 @@
         color 0.2s,
         border-color 0.2s;
       text-align: center;
-      border-radius: 0;
     }
 
     :where(html[data-hover-pointer]) .subtab-pill:hover {
@@ -730,11 +729,8 @@
 
     /* Desktop section groups use a divider-only treatment. */
     .section-group {
-      background: transparent;
       margin: 0 12px;
-      box-shadow: none;
       border: none;
-      border-radius: 0;
       border-bottom: 1px solid var(--divider);
     }
 
@@ -748,7 +744,6 @@
     }
 
     .section-header-row {
-      border-bottom: none;
       padding: 44px 20px 16px;
     }
 
@@ -791,8 +786,6 @@
     .section-title {
       font-size: 17px;
       font-weight: var(--font-weight-title);
-      color: var(--text-main);
-      text-transform: none;
     }
 
     /* Keep supporting copy on the same desktop inset as its title and
@@ -810,12 +803,6 @@
     }
 
     /* Subdue control labels so section titles retain hierarchy. */
-    .slider-header {
-      font-weight: var(--font-weight-label);
-      color: var(--text-sub);
-      margin-bottom: 8px;
-    }
-
     .slider-header > span {
       color: var(--text-sub);
     }
@@ -825,15 +812,11 @@
     }
 
     .help-block {
-      background: transparent;
       margin: 0 16px 16px;
       padding: 16px;
-      border: none;
-      box-shadow: none;
     }
 
     .help-block.legal-block {
-      border-top: 1px solid var(--divider);
       margin-top: 16px;
       padding-top: 28px;
     }

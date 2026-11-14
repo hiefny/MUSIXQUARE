@@ -240,6 +240,10 @@
       }, 20);
     }
 
+    // Reveal a section once any part of it passes the 80px bottom margin, the
+    // same test as isInViewport. A share-of-the-section threshold never fires
+    // for a section taller than the margin-trimmed viewport times ten: the
+    // Design System's Components section on a 375 x 812 phone peaks at 6.9%.
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -249,7 +253,7 @@
           }
         });
       },
-      { threshold: 0.1, rootMargin: '0px 0px -80px 0px' },
+      { threshold: 0, rootMargin: '0px 0px -80px 0px' },
     );
 
     targets.forEach((element) => {

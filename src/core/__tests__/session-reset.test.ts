@@ -698,6 +698,10 @@ describe('session reset coordinator', () => {
       expect(rule('  .session-reset-overlay.show {')).toContain(
         'transition: opacity 0.2s ease-out, visibility 0s linear 0s;',
       );
+      // Hidden until shown; the shown screen is the only thing the page shows
+      // while its input is blocked and the rest is inert.
+      expect(rule('  .session-reset-overlay {')).toContain('visibility: hidden;');
+      expect(rule('  .session-reset-overlay.show {')).toContain('visibility: visible;');
       // Its sheet keeps it rendered while hidden, so the fade can run; the
       // owner takes it out once the fade has ended.
       expect(rule('  .session-reset-overlay {')).toContain('display: grid;');

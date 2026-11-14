@@ -199,13 +199,17 @@ test.describe('session reset screen', () => {
       };
       const message = document.getElementById('session-reset-message')!;
       const loader = document.querySelector('#session-reset-overlay .boot-splash-spinner > svg')!;
+      const wordmark = document.querySelector('#session-reset-overlay .session-reset-wordmark')!;
       return {
+        // Drawn: the screen is what the page shows while its input is blocked
+        // and the rest is inert (boxes and animations ignore visibility).
+        visible: [document.getElementById('session-reset-overlay')!, wordmark, loader].every(
+          (element) => getComputedStyle(element).visibility === 'visible',
+        ),
         // The boot splash's final place: wordmark 24px above the centre, loader 24px below.
         wordmark: centre('#session-reset-overlay .session-reset-wordmark'),
         loader: centre('#session-reset-overlay .boot-splash-spinner > svg'),
-        wordmarkHeight: document
-          .querySelector('#session-reset-overlay .session-reset-wordmark')!
-          .getBoundingClientRect().height,
+        wordmarkHeight: wordmark.getBoundingClientRect().height,
         loaderTurning: loader
           .getAnimations()
           .some((animation) => animation.playState === 'running'),
@@ -219,6 +223,7 @@ test.describe('session reset screen', () => {
     });
     releaseNavigation();
     expect(screen).toEqual({
+      visible: true,
       wordmark: -24,
       loader: 24,
       wordmarkHeight: 24,

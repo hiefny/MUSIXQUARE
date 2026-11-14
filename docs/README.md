@@ -96,6 +96,22 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.48 / v823 train: a loading screen paints from the page file, draws the wordmark and raises it as the loader joins, setup greets at once, and the session reset screen continues it (2026-11-15)](design/app-9-0-48-train-2026-11-15.md):
+  pre-deploy. An App update after 9.0.47 / v822 (App build 823, target `app`, one update dialog;
+  `raise_app_build_floor` false, Developer API D1 false), on main `867988e8` (whose App runtime equals 9.0.47's
+  `4abbf312`), for a loading screen the owner proposed on 2026-11-15 and shaped through frame sheets the same day.
+  The page file carries a boot splash that paints from its first 3.3 KB (brotli) before any script or stylesheet; the
+  start-up scripts and the app stylesheet move to the top of `<body>`, after it. There the wordmark draws once at
+  the centre and, while the app still loads, rises 24px as the loader fades in below (one 24px unit for the
+  wordmark, the gap and the loader); the splash fades over the app for 0.3 s with the loader still turning, and the
+  drawing stops where it is if the app arrives first. The start screen shows no wordmark: its greeting and language
+  button are there from the first frame. The session reset screen (refresh, leave, a PRO room opened in another tab)
+  shows the same wordmark and loader in their final place with no visible text, fades in and out, and the reloaded
+  page continues them at the same place and loader phase. Over an imitated slow path the splash painted at about
+  1.1 s where the base showed a blank page until 15.4 s; the app opened at the same time in both builds. The
+  wordmark's Q tail is no longer clipped anywhere, guarded on every copy. The registry adds RO-55 for the splash's
+  sheet and runtime. Not verified on a physical device.
+
 - [App 9.0.47 / v822 train: a slow public page no longer opens the app's first screen, and the Design System's tall sections appear on phones (2026-11-14)](design/app-9-0-47-train-2026-11-14.md):
   released on 2026-11-14 13:00 KST in Release 43554252266 (PR #592, squash `4abbf312`) as App 9.0.47 / v822 (App build
   822, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

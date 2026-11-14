@@ -291,6 +291,23 @@ describe('boot splash', () => {
       /html\.is-booting :not\(\.app-entrance\),[\s\S]{0,160}?transition: none !important;/u,
     );
     expect(SPLASH_CSS).not.toMatch(/(?:^|[\s;{])transition(?:-[a-z]+)?\s*:/u);
+    // Once released, the hidden loader freezes: an infinite main-thread
+    // animation would otherwise cost a style pass every frame all session.
+    expect(SPLASH_CSS).toMatch(
+      /html:not\(\.setup-boot-block\) \.boot-splash-spinner > svg,\s*html:not\(\.setup-boot-block\) \.boot-splash-spinner circle,\s*html\.boot-splash-released \.boot-splash-spinner > svg,\s*html\.boot-splash-released \.boot-splash-spinner circle,\s*html\.setup-boot-failed \.boot-splash-spinner > svg,\s*html\.setup-boot-failed \.boot-splash-spinner circle \{\s*animation-play-state: paused;\s*\}/u,
+    );
+    // Last resort when nothing after the page file arrives: step aside 5 s
+    // after the 15 s boot-failure fallbacks, on the same variable.
+    expect(declaration(SPLASH_CSS, '      .boot-splash {', 'animation').replace(/\s+/gu, ' ')).toBe(
+      'boot-splash-fail-open 0s linear calc(var(--setup-boot-failure-delay, 15s) + 5s) forwards',
+    );
+    expect(keyframes(SPLASH_CSS, 'boot-splash-fail-open')).toBe(
+      'to { opacity: 0; visibility: hidden; }',
+    );
+    expect(STYLE).toMatch(/var\(--setup-boot-failure-delay, 15s\)/u);
+    expect(readFileSync('browser/classic-runtime/fouc-cleanup.ts', 'utf8')).toMatch(
+      /setTimeout\(failOpenSetupBootGuard, 15_000\)/u,
+    );
     // The mark only shows when the load outlasts 0.3 s.
     expect(declaration(SPLASH_CSS, '      .boot-splash-mark {', 'animation')).toBe(
       'boot-splash-mark-in 0.2s ease-out 0.3s forwards',

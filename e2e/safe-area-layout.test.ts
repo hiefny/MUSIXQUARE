@@ -11,8 +11,15 @@ import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
 // runtime state is staged: no account, room, camera or external server is used.
 const ASSET_ORIGIN = 'https://safe-area-layout.test';
 const source = readFileSync('index.html', 'utf8');
-const body = source
-  .match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)![1]!
+// The start-up block (the boot splash, whose own styles live in the document
+// head, and the start-up scripts and stylesheet) ends at the render-assets
+// slot; the authored app markup follows it.
+const RENDER_ASSETS_SLOT = '<!-- mxqr:app-render-assets -->';
+const fullBody = source.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)![1]!;
+if (!fullBody.includes(RENDER_ASSETS_SLOT))
+  throw new Error('index.html lost its render-assets slot');
+const body = fullBody
+  .slice(fullBody.indexOf(RENDER_ASSETS_SLOT) + RENDER_ASSETS_SLOT.length)
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
   .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '');
 const compiledCss = postcss([cascadeLayers(), isPseudoClass({ preserve: false })])

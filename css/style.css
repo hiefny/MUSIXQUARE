@@ -809,7 +809,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: background-color 0.3s ease;
     /* Isolate the fixed header from Safari video compositing. */
     transform: translateZ(0);
-    -webkit-transform: translateZ(0);
     will-change: transform;
   }
 
@@ -5021,7 +5020,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
     /* iOS Safari: Force hardware acceleration to isolate from background video layers */
     transform: translateZ(0);
-    -webkit-transform: translateZ(0);
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 
     /* Prevent transparency flicker during View Transition tab switches */

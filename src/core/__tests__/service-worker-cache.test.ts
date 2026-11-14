@@ -1663,41 +1663,44 @@ describe('service worker cache policy', () => {
     '/KO/',
     '/ja/index.html',
     ...LANGUAGE_OPTIONS.map(({ code }) => `/${code}/`),
-  ])('still opens the installed shell after the deadline for the app address %s', async (pathname) => {
-    vi.useFakeTimers();
-    fetchMock.mockImplementation(
-      (_request: Request, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            'abort',
-            () => reject(new DOMException('navigation timed out', 'AbortError')),
-            { once: true },
-          );
-        }),
-    );
-    cacheMatch.mockImplementation(
-      async (request: RequestInfo, options?: { cacheName?: string }) => {
-        const url = typeof request === 'string' ? request : request.url;
-        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
-          url.endsWith('index.html')
-          ? new Response('installed shell', { status: 200 })
-          : undefined;
-      },
-    );
-
-    try {
-      const responsePromise = dispatch(
-        new Request(`https://musixquare.com${pathname}`, { headers: { accept: 'text/html' } }),
+  ])(
+    'still opens the installed shell after the deadline for the app address %s',
+    async (pathname) => {
+      vi.useFakeTimers();
+      fetchMock.mockImplementation(
+        (_request: Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('navigation timed out', 'AbortError')),
+              { once: true },
+            );
+          }),
       );
-      await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS);
-      const response = await responsePromise;
+      cacheMatch.mockImplementation(
+        async (request: RequestInfo, options?: { cacheName?: string }) => {
+          const url = typeof request === 'string' ? request : request.url;
+          return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+            url.endsWith('index.html')
+            ? new Response('installed shell', { status: 200 })
+            : undefined;
+        },
+      );
 
-      expect(await response.text()).toBe('installed shell');
-      expect(response.headers.get('X-Musixquare-Navigation-Source')).toBe('cache-fallback');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+      try {
+        const responsePromise = dispatch(
+          new Request(`https://musixquare.com${pathname}`, { headers: { accept: 'text/html' } }),
+        );
+        await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS);
+        const response = await responsePromise;
+
+        expect(await response.text()).toBe('installed shell');
+        expect(response.headers.get('X-Musixquare-Navigation-Source')).toBe('cache-fallback');
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('leaves translation reference refresh requests outside the service-worker cache', () => {
     for (const pathname of [
@@ -1773,13 +1776,13 @@ describe('service worker cache policy', () => {
         return undefined;
       },
     );
-    const navigationRequest = new Request('https://musixquare.com/start', {
+    const navigationRequest = new Request('https://musixquare.com/en', {
       headers: { accept: 'text/html' },
     });
     fetchMock.mockResolvedValueOnce(
       new Response(null, {
         status: 302,
-        headers: { location: 'https://musixquare.com/final' },
+        headers: { location: 'https://musixquare.com/en/' },
       }),
     );
 
@@ -1790,7 +1793,7 @@ describe('service worker cache policy', () => {
 
     fetchMock.mockRejectedValueOnce(new Error('final redirect hop interrupted'));
     const response = await dispatch(
-      new Request('https://musixquare.com/final', { headers: { accept: 'text/html' } }),
+      new Request('https://musixquare.com/en/', { headers: { accept: 'text/html' } }),
       { resultingClientId: 'redirect-client' },
     );
     expect(await response.text()).toBe('cached shell');

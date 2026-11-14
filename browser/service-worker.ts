@@ -147,6 +147,16 @@ const APP_SHELL = [
   ...BUILD_ENTRY_ASSETS,
 ];
 
+// Every app language has one installed manifest above and one app entry
+// (`/<code>/`) on the App Worker, so the precache list is the language list.
+// A unit row pins it to LANGUAGE_OPTIONS.
+const APP_LANGUAGE_ENTRY_CODES: ReadonlySet<string> = new Set(
+  APP_SHELL.flatMap((asset) => {
+    const code = /^\.\/manifests\/([a-z]+(?:-[a-z]+)*)\.webmanifest$/u.exec(asset)?.[1];
+    return code ? [code] : [];
+  }),
+);
+
 serviceWorker.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
@@ -648,16 +658,23 @@ function hasSensitiveNavigationQuery(request: Request): boolean {
   return false;
 }
 
+// The installed shells run only the app's own documents: the root, a six-digit
+// room, a language's app entry (`/<code>/`, the App Worker's localized app
+// route) and the account completion page. Every other same-origin document
+// (About, Design System, Admin, History, the blog, legal pages, events,
+// translate, sitemap, the screensaver) is its own page, so a slow or failed
+// load must never answer with the room App UI.
+function isInstalledShellNavigation(request: Request): boolean {
+  const url = new URL(request.url);
+  if (url.origin !== serviceWorker.location.origin) return false;
+  if (url.pathname === '/' || url.pathname === '/index.html') return true;
+  if (url.pathname === ACCOUNT_COMPLETION_PATH || isRoomNavigation(request)) return true;
+  const languageEntry = /^\/([^/]+)(?:\/index\.html)?\/*$/u.exec(url.pathname.toLowerCase())?.[1];
+  return languageEntry !== undefined && APP_LANGUAGE_ENTRY_CODES.has(languageEntry);
+}
+
 function canonicalNavigationShell(request: Request): string {
   const url = new URL(request.url);
-  if (
-    url.origin === serviceWorker.location.origin &&
-    /^\/(?:translate|sitemap|screensaver)(?:\.html)?\/*$/iu.test(url.pathname)
-  ) {
-    // Reuse the visited document, or fail offline; never substitute the room App UI.
-    if (/^\/screensaver/iu.test(url.pathname)) return './screensaver.html';
-    return /^\/sitemap/iu.test(url.pathname) ? './sitemap.html' : './translate.html';
-  }
   return url.origin === serviceWorker.location.origin && url.pathname === ACCOUNT_COMPLETION_PATH
     ? ACCOUNT_COMPLETION_SHELL
     : './index.html';
@@ -1038,6 +1055,54 @@ async function matchActiveNavigationShell(request: Request): Promise<Response | 
   }
 }
 
+async function matchVisitedPublicDocument(request: Request): Promise<Response | null> {
+  // Only this page's own copy from the active generation, never another document.
+  if (hasSensitiveNavigationQuery(request)) return null;
+  try {
+    return (await caches.match(request, { cacheName: RUNTIME_CACHE })) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// A public document loads like an uncontrolled page: no navigation deadline and
+// no shell substitution. Only a failed network falls back to the page's own
+// visited copy; without one the load fails offline.
+function respondWithPublicDocument(event: FetchEvent, request: Request): void {
+  const networkResponse = fetch(request);
+  const visitedCopy = matchVisitedPublicDocument(request);
+  const cacheUpdate = hasSensitiveNavigationQuery(request)
+    ? networkResponse.then(
+        () => undefined,
+        () => undefined,
+      )
+    : scheduleNetworkCacheUpdate(RUNTIME_CACHE, request, networkResponse);
+  // Registered while the fetch event is still dispatching, as for app documents.
+  const navigationStateUpdate = networkResponse.then(
+    () => undefined,
+    async () => {
+      const fallback = await visitedCopy;
+      const resultingClientId = event.resultingClientId;
+      if (fallback && resultingClientId) {
+        await recordCachedNavigationState(resultingClientId);
+      }
+    },
+  );
+  event.waitUntil(Promise.all([cacheUpdate, navigationStateUpdate]));
+  event.respondWith(
+    (async () => {
+      try {
+        return await networkResponse;
+      } catch (_) {
+        const fallback = await visitedCopy;
+        return fallback
+          ? markCachedNavigationResponse(fallback)
+          : new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
+      }
+    })(),
+  );
+}
+
 function markCachedNavigationResponse(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set('X-Musixquare-Navigation-Source', 'cache-fallback');
@@ -1072,8 +1137,14 @@ serviceWorker.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation (HTML): network-first, fallback to cached index
+  // Navigation (HTML). The app's own documents are network-first with a bounded
+  // deadline and the installed shell; every other page loads like an
+  // uncontrolled page and never turns into the room App UI.
   if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {
+    if (!isInstalledShellNavigation(request)) {
+      respondWithPublicDocument(event, request);
+      return;
+    }
     const networkResponse = fetchCompleteResponseWithTimeout(
       request,
       NAVIGATION_NETWORK_TIMEOUT_MS,

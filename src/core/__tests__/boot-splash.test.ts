@@ -2,7 +2,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { JSDOM } from 'jsdom';
-import { describe, expect, it } from 'vitest';
+import { transformWithEsbuild } from 'vite';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import { APP_RENDER_ASSETS_SLOT, prioritizeActiveStylesheetsInHtml } from '../../../vite.config.ts';
 import { BOOT_SPLASH_CONTINUITY_KEY } from '../navigation-contract.ts';
@@ -81,10 +82,19 @@ describe('boot splash', () => {
     for (const svg of splash?.querySelectorAll('svg') ?? []) {
       expect(svg.getAttribute('focusable')).toBe('false');
     }
-    // The drawing runtime loads right after the splash and never blocks the parser.
-    const runtime = splash?.nextElementSibling;
-    expect(runtime?.getAttribute('src')).toBe('/wordmark-anim.js');
-    expect(runtime?.hasAttribute('async')).toBe(true);
+    // The start-up scripts come right after the splash, then the drawing
+    // runtime, which never blocks the parser: the parser reaches it only once
+    // bootstrap.js has settled the splash after an app reset.
+    const startUp = [...dom.window.document.querySelectorAll('body > script')]
+      .slice(0, 3)
+      .map((script) => [script.getAttribute('src'), script.hasAttribute('async')]);
+    expect(splash?.nextElementSibling?.getAttribute('src')).toMatch(
+      /^\/bootstrap\.js\?cache=v\d+$/u,
+    );
+    expect(startUp.slice(1)).toEqual([
+      ['/fouc-cleanup.js', false],
+      ['/wordmark-anim.js', true],
+    ]);
     expect(dom.window.document.querySelectorAll('script[src="/wordmark-anim.js"]')).toHaveLength(1);
     dom.window.close();
   });
@@ -93,9 +103,9 @@ describe('boot splash', () => {
     const order = [
       INDEX.indexOf('<body>'),
       INDEX.indexOf('<div class="boot-splash"'),
-      INDEX.indexOf('<script src="/wordmark-anim.js" async></script>'),
       INDEX.indexOf('<script src="/bootstrap.js?cache='),
       INDEX.indexOf('<script src="/fouc-cleanup.js"></script>'),
+      INDEX.indexOf('<script src="/wordmark-anim.js" async></script>'),
       INDEX.indexOf('<link rel="stylesheet" href="css/app.css" />'),
       INDEX.indexOf(APP_RENDER_ASSETS_SLOT),
       INDEX.indexOf('class="skip-link"'),
@@ -115,9 +125,9 @@ describe('boot splash', () => {
       <link rel="stylesheet" crossorigin href="/assets/main-d.css">
     </head><body>
       <div class="boot-splash"></div>
-      <script src="/wordmark-anim.js" async></script>
       <script src="/bootstrap.js?cache=v1"></script>
       <script src="/fouc-cleanup.js"></script>
+      <script src="/wordmark-anim.js" async></script>
       ${APP_RENDER_ASSETS_SLOT}
       <a class="skip-link" href="#tab-play">Skip</a>
     </body></html>`);
@@ -143,9 +153,9 @@ describe('boot splash', () => {
       ),
     ).toEqual([
       'div boot-splash',
-      'script /wordmark-anim.js',
       'script /bootstrap.js?cache=v1',
       'script /fouc-cleanup.js',
+      'script /wordmark-anim.js',
       'link stylesheet /assets/main-d.css',
       'script /assets/main-a.js',
       'link modulepreload /assets/log-b.js',
@@ -235,6 +245,22 @@ describe('boot splash', () => {
     dom.window.close();
     expect(declaration(SPLASH_CSS, '      .boot-splash-logo {', 'height')).toBe('24px');
     expect(SPLASH_CSS).not.toMatch(/@media \((?:min|max)-width/u);
+    // WebKit paints nothing until the page holds over 32x32 px of fixed-size
+    // SVG (or 200 text characters). The splash has no text, so its two SVGs
+    // carry fixed sizes whose area passes that; with an auto width the logo
+    // did not count and a slow first visit stayed blank in WebKit (WebKit
+    // bugs 208482 and 208663).
+    const fixedSize = (opener: string) =>
+      ['width', 'height'].map((property) => {
+        const value = declaration(SPLASH_CSS, opener, property);
+        expect(value, `${opener} ${property}`).toMatch(/^\d+px$/u);
+        return Number.parseFloat(value);
+      });
+    const [logoWidth = 0, logoHeight = 0] = fixedSize('      .boot-splash-logo {');
+    const [loaderWidth = 0, loaderHeight = 0] = fixedSize('      .boot-splash-spinner > svg {');
+    expect(logoWidth * logoHeight + loaderWidth * loaderHeight).toBeGreaterThan(32 * 32);
+    // Exactly what the 214-unit viewBox gives at 24px (one unit, one pixel).
+    expect(logoWidth).toBe(214);
     // The mark stands half the loader's 48px box lower until it rises.
     expect(declaration(SPLASH_CSS, '      .boot-splash-mark {', 'transform')).toBe(
       'translateY(24px)',
@@ -426,6 +452,10 @@ describe('boot splash', () => {
         'transform',
       ),
     ).toBe('none');
+    // The whole wordmark, whether or not the drawing runtime has run yet.
+    const settledInk = "      .boot-splash[data-phase='settled'] .boot-splash-logo > .wg {";
+    expect(declaration(SPLASH_CSS, settledInk, 'opacity')).toBe('1');
+    expect(declaration(SPLASH_CSS, settledInk, 'animation')).toBe('none');
   });
 
   it('keeps the timings the runtime copies equal to the splash sheet', () => {
@@ -468,11 +498,14 @@ describe('boot splash', () => {
       expect(runtime).toContain(`'${name}'`);
       expect(SPLASH_CSS).toContain(`@keyframes ${name} {`);
     }
-    // The reset writes the stamp the next page's runtime reads and clears; its
-    // key lives with the other next-document keys (RO-23).
-    expect(runtime.match(/const CONTINUITY_KEY = '([^']+)';/u)?.[1]).toBe(
+    // The reset writes the stamp the next page's bootstrap.js reads and
+    // removes, in order before the app module; its key lives with the other
+    // next-document keys (RO-23). The async runtime never touches it.
+    const bootstrap = readFileSync('browser/classic-runtime/bootstrap.ts', 'utf8');
+    expect(bootstrap.match(/const continuityKey = '([^']+)';/u)?.[1]).toBe(
       BOOT_SPLASH_CONTINUITY_KEY,
     );
+    expect(runtime).not.toContain(BOOT_SPLASH_CONTINUITY_KEY);
     expect(readFileSync('src/core/session-reset.ts', 'utf8')).toMatch(
       /sessionStorage\.setItem\(BOOT_SPLASH_CONTINUITY_KEY,/u,
     );
@@ -486,5 +519,95 @@ describe('boot splash', () => {
     expect(readFileSync('public/noscript.css', 'utf8')).toMatch(
       /\.boot-splash \{\s*display: none !important;\s*\}/u,
     );
+  });
+});
+
+// bootstrap.js's fifth preflight, run against the shipped splash markup: after
+// an app reset it settles the splash, in order before the app module.
+describe('boot splash continuity preflight (bootstrap.js)', () => {
+  const NOW = 1_000_000;
+  let preflight = '';
+
+  beforeAll(async () => {
+    const source = readFileSync('browser/classic-runtime/bootstrap.ts', 'utf8');
+    const start = source.indexOf('(function () {\n  // 5. Boot splash continuity');
+    expect(start).toBeGreaterThan(-1);
+    preflight = (
+      await transformWithEsbuild(source.slice(start), 'continuity-preflight.ts', {
+        format: 'iife',
+        loader: 'ts',
+        target: 'es2018',
+      })
+    ).code;
+  });
+
+  function page({ stamp, phase }: { stamp?: string; phase?: string } = {}) {
+    const shipped = new JSDOM(INDEX).window.document.querySelector('.boot-splash')!.outerHTML;
+    const dom = new JSDOM(
+      `<!doctype html><html class="setup-boot-block"><body>${shipped}</body></html>`,
+      { runScripts: 'outside-only', url: 'https://musixquare.com/' },
+    );
+    const { window } = dom;
+    Object.defineProperty(window.Date, 'now', { value: () => NOW });
+    Object.defineProperty(window, 'getComputedStyle', {
+      value: (element: Element) => ({
+        animationDuration:
+          element.localName === 'svg' ? '1.85s' : element.localName === 'circle' ? '1.45s' : '0s',
+      }),
+    });
+    if (stamp !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_KEY, stamp);
+    const splash = window.document.querySelector<HTMLElement>('.boot-splash')!;
+    if (phase !== undefined) splash.dataset.phase = phase;
+    const delay = (selector: string) =>
+      splash.querySelector<SVGElement>(selector)?.style.animationDelay ?? null;
+    return {
+      run: () => window.eval(preflight),
+      phase: () => splash.dataset.phase,
+      stamp: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_KEY),
+      delays: () => [delay('.boot-splash-spinner > svg'), delay('.boot-splash-spinner circle')],
+      window,
+    };
+  }
+
+  it("settles the splash after a reset under 15 s ago, once, its loader on the wall clock's phase", () => {
+    const app = page({ stamp: String(NOW - 14_999) });
+    app.run();
+    expect(app.phase()).toBe('settled');
+    expect(app.stamp()).toBeNull();
+    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
+    expect(app.delays()).toEqual(['-1000ms', '-950ms']);
+  });
+
+  it.each([
+    ['older than 15 s', String(NOW - 15_000)],
+    ['unreadable', 'soon'],
+    ['negative', String(-1)],
+    ['from the future', String(NOW + 1)],
+  ])('lets the splash draw after a stamp %s, and removes it', (_label, stamp) => {
+    const app = page({ stamp });
+    app.run();
+    expect(app.phase()).toBeUndefined();
+    expect(app.stamp()).toBeNull();
+    expect(app.delays()).toEqual(['', '']);
+  });
+
+  it('changes nothing without a stamp, with a phase already set, or without storage', () => {
+    const none = page();
+    none.run();
+    expect(none.phase()).toBeUndefined();
+
+    const set = page({ stamp: String(NOW - 1000), phase: 'loader' });
+    set.run();
+    expect(set.phase()).toBe('loader');
+
+    const blocked = page();
+    Object.defineProperty(blocked.window, 'sessionStorage', {
+      configurable: true,
+      get() {
+        throw new Error('denied');
+      },
+    });
+    expect(() => blocked.run()).not.toThrow();
+    expect(blocked.phase()).toBeUndefined();
   });
 });

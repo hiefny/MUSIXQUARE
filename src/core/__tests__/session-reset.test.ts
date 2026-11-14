@@ -405,6 +405,39 @@ describe('session reset coordinator', () => {
       sessionStorage.clear();
     });
 
+    it("furnishes the page's own overlay with the splash's wordmark and loader, once", async () => {
+      // index.html as shipped: its splash and its static reset overlay.
+      const page = new DOMParser().parseFromString(readFileSync('index.html', 'utf8'), 'text/html');
+      const splash = page.querySelector('.boot-splash');
+      const shipped = page.getElementById('session-reset-overlay');
+      expect(splash).not.toBeNull();
+      expect(shipped).not.toBeNull();
+      document.body.innerHTML = '<main id="app"><button id="control">Control</button></main>';
+      document.body.prepend(document.importNode(splash!, true));
+      document.body.append(document.importNode(shipped!, true));
+      const { scheduleSessionReset, __resetPageNavigationForTests } = await loadCoordinator();
+
+      for (const message of ['Refreshing session...', 'Leaving session...']) {
+        scheduleSessionReset(message, vi.fn());
+        const overlays = document.querySelectorAll('.session-reset-overlay');
+        expect(overlays).toHaveLength(1);
+        const mark = overlays[0]!.querySelector('.session-reset-mark') as HTMLElement;
+        expect([...overlays[0]!.children]).toEqual([mark]);
+        expect([...mark.children].map((child) => child.getAttribute('class'))).toEqual([
+          'session-reset-wordmark',
+          'boot-splash-spinner',
+          'session-reset-message sr-only',
+        ]);
+        expect(document.getElementById('session-reset-message')?.textContent).toBe(message);
+        const wordmark = mark.querySelector('svg.session-reset-wordmark') as SVGSVGElement;
+        expect(wordmark.querySelector('defs, mask')).toBeNull();
+        expect(wordmark.querySelectorAll('.wg > *')).toHaveLength(12);
+        expect(wordmark.getAttribute('aria-hidden')).toBe('true');
+        expect(wordmark.getAttribute('overflow')).toBe('visible');
+        __resetPageNavigationForTests();
+      }
+    });
+
     it("shows the splash's wordmark and loader, with its message for screen readers only", async () => {
       const { scheduleSessionReset } = await loadCoordinator();
       scheduleSessionReset('Refreshing session...', vi.fn());
@@ -482,72 +515,120 @@ describe('session reset coordinator', () => {
           let animation = animations.get(this);
           if (!animation) {
             animation = Object.assign(
-              { currentTime: null },
-              { effect: { getTiming: () => ({ duration }) } },
+              { animationName: duration === 1850 ? 'boot-splash-spin' : 'boot-splash-dash' },
+              { currentTime: null, effect: { getTiming: () => ({ duration }) } },
             );
             animations.set(this, animation);
           }
-          return [animation];
+          // A transition on the same element is not a loop to align.
+          return [animation, { transitionProperty: 'opacity', currentTime: null }];
         },
       });
       try {
-        const { scheduleSessionReset } = await loadCoordinator();
+        const { scheduleSessionReset, setSessionResetWindowLayer } = await loadCoordinator();
+        // A fullscreen host that appears while the reset holds the page.
+        let host: HTMLElement | null = null;
+        let hostChanged = (): void => undefined;
+        setSessionResetWindowLayer({
+          release: () => undefined,
+          surfaceHost: () => host,
+          onSurfaceHostChange: (listener) => {
+            hostChanged = listener;
+            return () => {
+              hostChanged = () => undefined;
+            };
+          },
+        });
+        const phases = () => [...animations.values()].map((animation) => animation.currentTime);
+
         scheduleSessionReset('Refreshing session...', vi.fn());
-        expect([...animations.values()].map((animation) => animation.currentTime)).toEqual([
-          1_000_000 % 1850,
-          1_000_000 % 1450,
-        ]);
+        expect(phases()).toEqual([1_000_000 % 1850, 1_000_000 % 1450]);
         const svg = document.querySelector<SVGSVGElement>(
           '#session-reset-overlay .boot-splash-spinner > svg',
         );
         expect(svg?.style.animationDelay).toBe('');
+
+        // The move into the host restarts them: the wall clock's phase again.
+        vi.setSystemTime(1_000_700);
+        host = document.createElement('div');
+        document.body.append(host);
+        hostChanged();
+        expect(document.getElementById('session-reset-overlay')?.parentElement).toBe(host);
+        expect(phases()).toEqual([1_000_700 % 1850, 1_000_700 % 1450]);
       } finally {
         Reflect.deleteProperty(window.SVGElement.prototype, 'getAnimations');
       }
     });
 
-    it('takes the screen out of rendering once its fade-out has ended, and back for the next show', async () => {
+    it('takes the screen out of rendering once its own fade-out has ended, and back for the next show', async () => {
       const { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } =
         await import('../navigation-contract.ts');
+      const recover = () =>
+        vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      const microtasks = async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      };
       const { scheduleSessionReset } = await loadCoordinator();
       scheduleSessionReset('Refreshing session...', vi.fn());
       const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
-      // Its fade-out, as the browser runs it.
-      let fading = true;
+      // The fade-out each release starts, as the browser runs it; the test ends
+      // or cancels it.
+      const fades: Array<{ end(): void; cancel(): void }> = [];
+      let transitions = true;
       Object.defineProperty(overlay, 'getAnimations', {
         configurable: true,
-        value: () => (fading ? [{ transitionProperty: 'opacity' }] : []),
+        value: () => {
+          if (!transitions) return [];
+          const fade: { end(): void; cancel(): void } = {
+            end: () => undefined,
+            cancel: () => undefined,
+          };
+          const finished = new Promise<void>((resolve, reject) => {
+            fade.end = () => resolve();
+            fade.cancel = () => reject(new DOMException('Cancelled', 'AbortError'));
+          });
+          fades.push(fade);
+          return [
+            { transitionProperty: 'visibility', finished: new Promise(() => undefined) },
+            { transitionProperty: 'opacity', finished },
+          ];
+        },
       });
-      const transitionEnd = (type: string, propertyName: string, target: Element = overlay) => {
+      const opacityEvent = (type: string) => {
         const event = new Event(type, { bubbles: true });
-        Object.defineProperty(event, 'propertyName', { value: propertyName });
-        target.dispatchEvent(event);
+        Object.defineProperty(event, 'propertyName', { value: 'opacity' });
+        overlay.dispatchEvent(event);
       };
 
       // The navigation never commits: this page stays and the screen fades out.
-      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      recover();
       expect(overlay.hidden).toBe(true);
+      expect(fades).toHaveLength(1);
+      // Its loader keeps turning through the fade; another opacity transition's
+      // end or cancellation (a fade-in the release cut short) does not count.
+      opacityEvent('transitioncancel');
+      opacityEvent('transitionend');
+      await microtasks();
       expect(overlay.classList.contains('is-retired')).toBe(false);
-      // Its loader keeps turning through the fade; other ends do not count.
-      transitionEnd('transitionend', 'visibility');
-      transitionEnd('transitionend', 'opacity', overlay.querySelector('.session-reset-mark')!);
-      expect(overlay.classList.contains('is-retired')).toBe(false);
-      transitionEnd('transitionend', 'opacity');
+      fades[0]!.end();
+      await microtasks();
       expect(overlay.classList.contains('is-retired')).toBe(true);
 
       // The next reset shows it again.
       scheduleSessionReset('Leaving session...', vi.fn());
       expect(overlay.classList.contains('is-retired')).toBe(false);
       expect(overlay.classList.contains('show')).toBe(true);
-      // A show that cancels a fade-out in flight is never retired by it.
-      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      // A show during a fade-out cancels that fade and keeps the screen.
+      recover();
       scheduleSessionReset('Refreshing session...', vi.fn());
-      transitionEnd('transitioncancel', 'opacity');
+      fades[1]!.cancel();
+      await microtasks();
       expect(overlay.classList.contains('is-retired')).toBe(false);
 
       // With no fade running (transitions off), it leaves rendering at once.
-      fading = false;
-      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      transitions = false;
+      recover();
       expect(overlay.classList.contains('is-retired')).toBe(true);
     });
 

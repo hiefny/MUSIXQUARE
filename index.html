@@ -109,10 +109,15 @@
          every stroke is exactly 4.5px; the loader is the app's default 24px;
          the gap between them is 24px. The Q's tail and the R's leg reach below
          the wordmark's viewBox, as they do for every app wordmark; the svg also
-         says so itself (overflow="visible"). */
+         says so itself (overflow="visible"). Both sizes are fixed (214px is
+         the viewBox's 214 units, what auto would give): WebKit paints nothing
+         until the page holds over 32x32 px of fixed-size SVG (or 200 text
+         characters), and the splash's only other SVG, the 24px loader, is 576
+         px; with an auto width a slow first visit stayed blank in WebKit until
+         the app stylesheet arrived (WebKit bugs 208482 and 208663). */
       .boot-splash-logo {
         display: block;
-        width: auto;
+        width: 214px;
         height: 24px;
         overflow: visible;
       }
@@ -155,10 +160,11 @@
       }
 
       /* The final place at once, with no motion: after an app reset (the
-         refresh screen showed the wordmark and loader there) and when a late
-         runtime finds the fallback rise already done. The loader keeps the
-         wall-clock phase the refresh screen used, so it does not jump across
-         the reload. */
+         refresh screen showed the wordmark and loader there; bootstrap.js
+         settles the splash before the app module runs and starts the loader
+         on the wall-clock phase the refresh screen used, so it does not jump
+         across the reload) and when a late runtime finds the fallback rise
+         already done. */
       .boot-splash[data-phase='settled'] .boot-splash-mark {
         opacity: 1;
         transform: none;
@@ -166,6 +172,13 @@
       }
 
       .boot-splash[data-phase='settled'] .boot-splash-spinner {
+        opacity: 1;
+        animation: none;
+      }
+
+      /* The whole wordmark, as the reset screen showed it, whether or not the
+         drawing runtime has run yet (bootstrap.js settles the splash first). */
+      .boot-splash[data-phase='settled'] .boot-splash-logo > .wg {
         opacity: 1;
         animation: none;
       }
@@ -784,11 +797,6 @@
       </div>
     </div>
 
-    <!-- Draw the splash wordmark through one exact union reveal mask as soon
-         as this runtime arrives (async, never blocks the parser). Source:
-         browser/classic-runtime/wordmark-anim.ts -->
-    <script src="/wordmark-anim.js" async></script>
-
     <!-- Sync bootstrap: scrub one-time PRO credentials before app code, then
          apply Android viewport, language, and theme preflight before the app
          stylesheet. It runs after the boot splash so the splash never waits
@@ -799,6 +807,14 @@
     <!-- Reveal body (toggles body.fouc-loaded) once style.css has parsed.
          Source: browser/classic-runtime/fouc-cleanup.ts -->
     <script src="/fouc-cleanup.js"></script>
+
+    <!-- Draw the splash wordmark through one exact union reveal mask as soon
+         as this runtime arrives (async, never blocks the parser). It comes
+         after the two start-up scripts: the parser only reaches it once they
+         have run, so after an app reset bootstrap.js has settled the splash
+         before this can start a drawing (ahead of them, Chromium could run it
+         first). Source: browser/classic-runtime/wordmark-anim.ts -->
+    <script src="/wordmark-anim.js" async></script>
 
     <!-- FOUC guard lives inside style.css (`body { opacity: 0 }` unlayered)
          and gets revealed by adding body.fouc-loaded once the stylesheet
@@ -3314,7 +3330,10 @@
       </div>
     </div>
 
-    <!-- Blocks every interaction as soon as an app-owned hard reset is scheduled. -->
+    <!-- Blocks every interaction as soon as an app-owned hard reset is scheduled.
+         It shows the boot splash's wordmark and loader, which
+         src/core/session-reset.ts copies in before the first show; its
+         message is for screen readers only. -->
     <div
       id="session-reset-overlay"
       class="session-reset-overlay"
@@ -3325,7 +3344,9 @@
       tabindex="-1"
       hidden
     >
-      <p id="session-reset-message" class="session-reset-message"></p>
+      <div class="session-reset-mark">
+        <p id="session-reset-message" class="session-reset-message sr-only"></p>
+      </div>
     </div>
 
     <!-- App-owned dialog keeps session flows non-blocking. -->

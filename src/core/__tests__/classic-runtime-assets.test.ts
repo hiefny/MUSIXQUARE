@@ -36,7 +36,10 @@ async function compiledContrastPreflight(): Promise<string> {
   const marker = '(function () {\n  // 4. Per-device contrast preflight';
   const start = source.indexOf(marker);
   if (start < 0) throw new Error('Missing classic contrast preflight marker');
-  const result = await transformWithEsbuild(source.slice(start), 'contrast-preflight.ts', {
+  // Up to the next preflight (the boot splash continuity), or the end.
+  const next = source.indexOf('\n(function () {\n  // 5.', start);
+  const block = source.slice(start, next < 0 ? undefined : next);
+  const result = await transformWithEsbuild(block, 'contrast-preflight.ts', {
     format: 'iife',
     loader: 'ts',
     target: 'es2018',

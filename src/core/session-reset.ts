@@ -409,10 +409,15 @@ export function initPageNavigation(deps: PageNavigationDeps): { dispose(): void 
   };
 }
 
+/** The page's own overlay (index.html), or one built the same way, furnished once. */
 function ensureOverlay(): HTMLElement {
   const existing = document.getElementById(OVERLAY_ID);
-  if (existing instanceof HTMLElement) return existing;
+  const overlay = existing instanceof HTMLElement ? existing : createOverlay();
+  furnishOverlay(overlay);
+  return overlay;
+}
 
+function createOverlay(): HTMLElement {
   const overlay = document.createElement('div');
   overlay.id = OVERLAY_ID;
   overlay.className = 'session-reset-overlay';
@@ -422,28 +427,38 @@ function ensureOverlay(): HTMLElement {
   overlay.setAttribute('aria-live', 'assertive');
   overlay.setAttribute('aria-atomic', 'true');
   overlay.setAttribute('aria-hidden', 'true');
+  document.body.append(overlay);
+  return overlay;
+}
 
-  // The message is for screen readers only (the overlay is a live status):
-  // the user asked for the refresh, and the screen is the wordmark and loader
-  // alone (owner decision 2026-11-15).
-  const message = document.createElement('p');
-  message.id = MESSAGE_ID;
-  message.className = 'session-reset-message sr-only';
-
-  // The refresh screen shows the boot splash's wordmark and loader at the
-  // splash's own place, so the reload that follows continues them
-  // (index.html, browser/classic-runtime/wordmark-anim.ts).
-  const mark = document.createElement('div');
-  mark.className = 'session-reset-mark';
+/**
+ * The refresh screen shows the boot splash's wordmark and loader at the
+ * splash's own place, so the reload that follows continues them (index.html,
+ * browser/classic-runtime/wordmark-anim.ts). Their copies go into the
+ * overlay's mark ahead of its message, once; the message is for screen readers
+ * only (the overlay is a live status): the user asked for the refresh, and the
+ * screen is the wordmark and loader alone (owner decision 2026-11-15).
+ */
+function furnishOverlay(overlay: HTMLElement): void {
+  if (overlay.querySelector('.session-reset-wordmark')) return;
+  let message = overlay.querySelector<HTMLElement>(`#${MESSAGE_ID}`);
+  if (!message) {
+    message = document.createElement('p');
+    message.id = MESSAGE_ID;
+  }
+  message.classList.add('session-reset-message', 'sr-only');
+  let mark = overlay.querySelector<HTMLElement>('.session-reset-mark');
+  if (!mark) {
+    mark = document.createElement('div');
+    mark.className = 'session-reset-mark';
+    overlay.append(mark);
+  }
   const wordmark = splashWordmarkCopy();
   if (wordmark) mark.append(wordmark);
   const loader = document.querySelector('.boot-splash .boot-splash-spinner')?.cloneNode(true);
   if (loader instanceof Element) mark.append(loader);
+  // The message last, after the copies.
   mark.append(message);
-
-  overlay.append(mark);
-  document.body.append(overlay);
-  return overlay;
 }
 
 /**
@@ -473,7 +488,11 @@ function alignLoaderToWallClock(loader: Element | null): void {
   if (!loader) return;
   const now = Date.now();
   for (const element of loader.querySelectorAll<SVGElement>(':scope > svg, circle')) {
-    const animations = typeof element.getAnimations === 'function' ? element.getAnimations() : [];
+    // Its CSS animations only (a transition is not a loop to align).
+    const animations =
+      typeof element.getAnimations === 'function'
+        ? element.getAnimations().filter((animation) => 'animationName' in animation)
+        : [];
     if (animations.length > 0) {
       for (const animation of animations) {
         const period = Number(animation.effect?.getTiming().duration);
@@ -493,27 +512,25 @@ function alignLoaderToWallClock(loader: Element | null): void {
  * loader stops animating; it keeps turning through the fade, as the boot
  * splash's does. Its sheet keeps it rendered while hidden (display: grid
  * outranks [hidden]) so the fade can run. With no fade running (transitions
- * off, or a move that restarted its style) it leaves at once. No timer: the
- * fade's own end or cancellation does it, and a later show cancels it.
+ * off, or a move that restarted its style) it leaves at once. No timer and no
+ * listener: that fade's own end does it; a later show cancels the fade and
+ * keeps the overlay.
  */
 function retireOverlayAfterFade(overlay: HTMLElement): void {
-  const fading =
-    typeof overlay.getAnimations === 'function' &&
-    overlay
-      .getAnimations()
-      .some((animation) => (animation as CSSTransition).transitionProperty === 'opacity');
-  if (!fading) {
-    overlay.classList.add(OVERLAY_RETIRED_CLASS);
-    return;
-  }
-  const retire = (event: Event): void => {
-    if (event.target !== overlay || (event as TransitionEvent).propertyName !== 'opacity') return;
-    overlay.removeEventListener('transitionend', retire);
-    overlay.removeEventListener('transitioncancel', retire);
+  const retireIfHidden = (): void => {
     if (!overlay.classList.contains('show')) overlay.classList.add(OVERLAY_RETIRED_CLASS);
   };
-  overlay.addEventListener('transitionend', retire);
-  overlay.addEventListener('transitioncancel', retire);
+  const fade =
+    typeof overlay.getAnimations === 'function'
+      ? overlay
+          .getAnimations()
+          .find((animation) => (animation as CSSTransition).transitionProperty === 'opacity')
+      : undefined;
+  if (!fade) {
+    retireIfHidden();
+    return;
+  }
+  fade.finished.then(retireIfHidden, retireIfHidden);
 }
 
 /**

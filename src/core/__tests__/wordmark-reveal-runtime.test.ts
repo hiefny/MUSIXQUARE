@@ -16,7 +16,6 @@ const LOGO = `<svg class="boot-splash-logo" viewBox="43 12 214 24" xmlns="http:/
 const SPLASH = (logo = LOGO) => `<div class="boot-splash" aria-hidden="true">
   <div class="boot-splash-mark">${logo}<span class="boot-splash-spinner" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"/></svg></span></div>
 </div>`;
-const CONTINUITY_KEY = 'mxqr-boot-continuity';
 // Strokes start 500 ms into the drawing; the last ends at 500 + 200 + 1840.
 const DRAW_END = 2540;
 // The ghost finishes rising at 2.9 s.
@@ -44,15 +43,13 @@ interface FixtureOptions {
   boot?: number;
   /** The wall clock (Date.now) when the runtime runs. */
   wall?: number;
-  /** A value already in sessionStorage under the reset's continuity key. */
-  stamp?: string;
+  /** The splash's phase before the runtime runs (bootstrap.js settles it after a reset). */
+  phase?: string;
   /**
    * With the Web Animations API: when the mark's CSS fade-in started (null:
    * not yet, it starts with the next frame). Omitted: no API, as in jsdom.
    */
   markStart?: number | null;
-  /** Give the loader's two animations the Web Animations API. */
-  waapi?: boolean;
 }
 
 function fixture({
@@ -62,9 +59,8 @@ function fixture({
   arrival = 100,
   boot = 150,
   wall = 1_000_000,
-  stamp,
+  phase,
   markStart,
-  waapi = false,
 }: FixtureOptions = {}) {
   const dom = new JSDOM(
     `<!doctype html><html class="${rootClass}"><body>${SPLASH(logo)}</body></html>`,
@@ -114,7 +110,8 @@ function fixture({
     const index = timers.findIndex((timer) => timer.id === id);
     if (index > -1) timers.splice(index, 1);
   }) as typeof window.clearTimeout;
-  if (stamp !== undefined) window.sessionStorage.setItem(CONTINUITY_KEY, stamp);
+  if (phase !== undefined)
+    document.querySelector<HTMLElement>('.boot-splash')!.dataset.phase = phase;
   if (markStart !== undefined) {
     Object.defineProperty(document.querySelector('.boot-splash-mark')!, 'getAnimations', {
       value: () => [{ animationName: 'boot-splash-mark-in', startTime: markStart }],
@@ -128,23 +125,6 @@ function fixture({
       },
     });
   }
-  const loaderAnimations: Array<{ currentTime: number | null; period: number }> = [];
-  if (waapi) {
-    for (const [selector, period] of [
-      ['.boot-splash-spinner > svg', 1850],
-      ['.boot-splash-spinner circle', 1450],
-    ] as const) {
-      const animation = {
-        currentTime: null,
-        period,
-        effect: { getTiming: () => ({ duration: period }) },
-      };
-      loaderAnimations.push(animation);
-      Object.defineProperty(document.querySelector(selector)!, 'getAnimations', {
-        value: () => [animation],
-      });
-    }
-  }
 
   const run = () => window.eval(code);
   run();
@@ -156,7 +136,6 @@ function fixture({
     timers,
     run,
     splash,
-    loaderAnimations,
     logo: document.querySelector<SVGSVGElement>('.boot-splash-logo')!,
     phase: () => splash.dataset.phase,
     /** Run every timer due by `target` in order, then one frame at `target`. */
@@ -316,12 +295,11 @@ describe('boot splash wordmark reveal', () => {
   });
 
   it('leaves a splash the app already took as it stands, and still retires it', () => {
-    const app = fixture({ rootClass: '', stamp: String(1_000_000 - 1000) });
+    const app = fixture({ rootClass: '' });
     expect(app.logo.dataset.wordmarkReady).toBeUndefined();
     expect(app.logo.dataset.wordmarkDrawComplete).toBeUndefined();
     expect(app.logo.querySelector('mask')).toBeNull();
     expect(app.phase()).toBeUndefined();
-    expect(app.window.sessionStorage.getItem(CONTINUITY_KEY)).toBeNull();
     // Its fade may already be over: hidden once a fade's length has surely passed.
     app.advance(150 + 399);
     expect(app.splash.hidden).toBe(false);
@@ -330,28 +308,16 @@ describe('boot splash wordmark reveal', () => {
     expect(app.frames.size).toBe(0);
   });
 
-  it("shows an app reset's wordmark and loader in their final place at once, once", () => {
-    const app = fixture({ stamp: String(1_000_000 - 1000) });
+  it('leaves the final place bootstrap.js settled after an app reset, and never draws', () => {
+    const app = fixture({ phase: 'settled' });
     expect(app.phase()).toBe('settled');
     expect(app.logo.dataset.wordmarkReady).toBe('true');
     expect(app.logo.dataset.wordmarkDrawComplete).toBe('true');
     expect(app.logo.querySelector('mask')).toBeNull();
-    expect(app.window.sessionStorage.getItem(CONTINUITY_KEY)).toBeNull();
     app.advance(10_000);
     expect(app.phase()).toBe('settled');
     expect(app.frames.size).toBe(0);
-  });
-
-  it.each([
-    ['older than 15 s', String(1_000_000 - 15_000)],
-    ['unreadable', 'soon'],
-    ['that is negative', String(-1)],
-    ['from the future', String(1_000_000 + 5_000)],
-  ])('draws as usual after a reset stamp %s, and clears it', (_label, stamp) => {
-    const app = fixture({ stamp });
-    expect(app.phase()).toBeUndefined();
-    expect(app.logo.querySelector('mask')).not.toBeNull();
-    expect(app.window.sessionStorage.getItem(CONTINUITY_KEY)).toBeNull();
+    expect(app.timers).toHaveLength(0);
   });
 
   it('keeps the CSS fallback when it arrives after the static wordmark showed', () => {
@@ -412,6 +378,21 @@ describe('boot splash wordmark reveal', () => {
     expect(app.phase()).toBe('loader');
   });
 
+  it.each(['reduced motion turns on', 'the page is hidden and restored'] as const)(
+    'lets the loader join when %s before the drawing starts',
+    (event) => {
+      const app = fixture();
+      app.advance(200);
+      if (event === 'reduced motion turns on') app.reduce();
+      else app.window.dispatchEvent(new app.window.Event('pagehide'));
+      // The wordmark stands drawn; the sheet's own rise is off for this runtime.
+      expect(app.logo.querySelector('mask')).toBeNull();
+      expect(app.phase()).toBeUndefined();
+      app.advance(400);
+      expect(app.phase()).toBe('loader');
+    },
+  );
+
   it("times the loader's late join from the real start, so a delayed start never rises mid-draw", () => {
     const app = fixture();
     // A long task holds the page from the planned start (400) until 1000.
@@ -461,24 +442,12 @@ describe('boot splash wordmark reveal', () => {
     expect(app.frames.size).toBe(1);
   });
 
-  it("runs the loader on the wall clock's phase, as the refresh screen's does", () => {
-    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
-    const app = fixture({ wall: 1_000_000, waapi: true });
-    expect(app.loaderAnimations.map((animation) => animation.currentTime)).toEqual([
-      1_000_000 % 1850,
-      1_000_000 % 1450,
-    ]);
+  it('leaves the stamp and the loader to bootstrap.js', () => {
+    const app = fixture();
+    app.window.sessionStorage.setItem('mxqr-boot-continuity', String(1_000_000 - 1000));
+    app.advance(400);
+    expect(app.window.sessionStorage.getItem('mxqr-boot-continuity')).not.toBeNull();
     const loader = app.splash.querySelector('.boot-splash-spinner')!;
     expect(loader.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe('');
-
-    // Without the Web Animations API: the same phase as a negative delay.
-    const old = fixture({ wall: 1_000_000 });
-    const oldLoader = old.splash.querySelector('.boot-splash-spinner')!;
-    expect(oldLoader.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe(
-      `${-(1_000_000 % 1850)}ms`,
-    );
-    expect(oldLoader.querySelector<SVGCircleElement>('circle')?.style.animationDelay).toBe(
-      `${-(1_000_000 % 1450)}ms`,
-    );
   });
 });

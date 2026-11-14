@@ -16,6 +16,8 @@
  *   4. Contrast preflight: restore the local authored-contrast override.
  *      Automatic mode intentionally leaves no attribute so CSS can follow
  *      the live OS `prefers-contrast` query from the first paint.
+ *   5. Boot splash continuity: after an app reset, show the splash's
+ *      wordmark and loader where the reset screen showed them.
  *
  * Loaded as the first script, at the top of <body> right after the boot
  * splash (which paints from the document alone) and before the app
@@ -660,5 +662,42 @@
     }
   } catch {
     /* Keep the HTML/CSS automatic default when the DOM is unavailable. */
+  }
+})();
+
+(function () {
+  // 5. Boot splash continuity (index.html, registry RO-55). An app reset
+  // stamped this tab just before it navigated here (src/core/session-reset.ts;
+  // the key is BOOT_SPLASH_CONTINUITY_KEY in src/core/navigation-contract.ts,
+  // and boot-splash.test.ts pins this copy). Its screen showed the splash's
+  // wordmark and loader in their final place, so the splash shows them there
+  // from its first frame, the loader on the same wall-clock phase, instead of
+  // drawing the wordmark again. This runs in order before the app module,
+  // which the async wordmark-anim.js cannot promise (WebKit ran it after the
+  // app had taken the screen); that runtime only reads the phase set here.
+  // A stamp counts once, and only while 0 to 15 s old.
+  const continuityKey = 'mxqr-boot-continuity';
+  const continuityWindowMs = 15_000;
+  try {
+    const stamp = Number(sessionStorage.getItem(continuityKey));
+    sessionStorage.removeItem(continuityKey);
+    const age = Date.now() - stamp;
+    if (!(stamp > 0 && Number.isFinite(age) && age >= 0 && age < continuityWindowMs)) return;
+    const splash = document.querySelector<HTMLElement>('.boot-splash');
+    if (!splash || splash.dataset.phase) return;
+    splash.dataset.phase = 'settled';
+    // The loader's animations start with the splash's first frame: a negative
+    // delay starts them on the wall clock's phase, as the reset screen's were.
+    const now = Date.now();
+    splash
+      .querySelectorAll<SVGElement>('.boot-splash-spinner > svg, .boot-splash-spinner circle')
+      .forEach(function (element) {
+        const period = Number.parseFloat(getComputedStyle(element).animationDuration) * 1000;
+        if (Number.isFinite(period) && period > 0) {
+          element.style.animationDelay = `${-(now % period)}ms`;
+        }
+      });
+  } catch {
+    /* Storage-blocked contexts: the splash draws its wordmark as usual. */
   }
 })();

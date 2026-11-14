@@ -12,15 +12,15 @@
  * fallback has already shown the static wordmark (1.8 s, the rise then
  * follows at the fallback's 3.2 s, or at once when that has passed:
  * data-phase="settled"), with reduced motion (the loader joins as the mark
- * shows), and after an app reset, whose refresh screen showed the wordmark and
- * loader in their final place: the new page then shows them there at once
- * (settled). When the app takes the screen mid-draw, the drawing stops where
- * it is and fades out with the splash; a runtime that arrives after that
- * leaves the splash as it is. The splash's loader runs on the wall clock's
- * phase, as the refresh screen's does, so it does not jump across that
- * reload. With no runtime (or invalid geometry) the CSS fallback shows the
- * authored silhouette and rises at 3.2 s; it stays on until this runtime sets
- * data-boot-splash-runtime, so an older release's cached runtime keeps it.
+ * shows), and after an app reset: bootstrap.js has then already settled the
+ * splash, with its loader on the reset screen's wall-clock phase, before the
+ * app module runs, which this async runtime cannot promise. When the app takes
+ * the screen mid-draw, the drawing stops where it is and fades out with the
+ * splash; a runtime that arrives after that leaves the splash as it is. With
+ * no runtime the CSS fallback shows the authored silhouette and
+ * rises at 3.2 s; it stays on until this runtime sets data-boot-splash-runtime,
+ * so an older release's cached runtime keeps it. With invalid geometry the
+ * whole wordmark shows with the mark and rises at the fallback's 3.2 s.
  */
 (function installWordmarkReveal() {
   type Point = [number, number];
@@ -63,10 +63,6 @@
   const SPLASH_FADE = 300;
   // A drawing that never reports its end still lets the loader join this late.
   const SPLASH_RISE_GRACE = 300;
-  // BOOT_SPLASH_CONTINUITY_KEY in src/core/navigation-contract.ts, written by
-  // src/core/session-reset.ts just before an app reset navigates.
-  const CONTINUITY_KEY = 'mxqr-boot-continuity';
-  const CONTINUITY_WINDOW = 15_000;
   const DRAW_BASE_DELAY = 500;
   const GHOST_START = 2500;
   const GHOST_DURATION = 400;
@@ -336,7 +332,13 @@
   }
 
   function start(): void {
-    if (startTime !== null || settled) return;
+    if (startTime !== null) return;
+    if (settled) {
+      // Reduced motion (or a pagehide before a restore) finished the wordmark
+      // before its start: it stands drawn, and the loader joins now.
+      enterSplashPhase('loader');
+      return;
+    }
     if (!splashUp()) {
       freeze();
       return;
@@ -419,43 +421,6 @@
     return performance.now();
   }
 
-  /** Whether an app reset just navigated here (it showed the same wordmark and loader). */
-  function takeContinuity(): boolean {
-    try {
-      const value = Number(sessionStorage.getItem(CONTINUITY_KEY));
-      sessionStorage.removeItem(CONTINUITY_KEY);
-      const age = Date.now() - value;
-      return value > 0 && Number.isFinite(age) && age >= 0 && age < CONTINUITY_WINDOW;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Run a loader on the wall clock's phase, as the refresh screen's loader
-   * does (src/core/session-reset.ts): each running animation is set to the wall
-   * clock's place in its own period; without the Web Animations API an
-   * equivalent negative delay does it, exact for an animation that just started.
-   */
-  function alignToWallClock(spinner: Element | null): void {
-    if (!spinner) return;
-    const now = Date.now();
-    for (const element of spinner.querySelectorAll<SVGElement>(':scope > svg, circle')) {
-      const animations = typeof element.getAnimations === 'function' ? element.getAnimations() : [];
-      if (animations.length > 0) {
-        for (const animation of animations) {
-          const period = Number(animation.effect?.getTiming().duration);
-          if (Number.isFinite(period) && period > 0) animation.currentTime = now % period;
-        }
-        continue;
-      }
-      const period = Number.parseFloat(getComputedStyle(element).animationDuration) * 1000;
-      if (Number.isFinite(period) && period > 0) {
-        element.style.animationDelay = `${-(now % period)}ms`;
-      }
-    }
-  }
-
   /**
    * Take the splash out of rendering once its fade over the app has ended (or
    * its last-resort fade-out), so nothing inside it keeps animating hidden.
@@ -484,13 +449,11 @@
     retireSplashAfterFade(splash);
     const svg = splash?.querySelector<SVGSVGElement>('.boot-splash-logo');
     if (!splash || !svg) return;
-    alignToWallClock(splash.querySelector('.boot-splash-spinner'));
-    // Read (and clear) the reset's stamp first, so it never outlives this page.
-    const continued = takeContinuity();
     // The app already took the screen: the splash fades out as it stands.
     if (!splashUp()) return;
-    if (continued) {
-      enterSplashPhase('settled');
+    if (splash.dataset.phase === 'settled') {
+      // An app reset's page: bootstrap.js already put the wordmark and loader
+      // in their final place, as the reset screen showed them.
       complete(svg);
       return;
     }

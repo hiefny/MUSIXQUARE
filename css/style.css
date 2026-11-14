@@ -7345,14 +7345,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Unified Guide Layout (Combined WiFi + Hotspot) */
-  .setup-guide-unified {
-    display: flex;
-    flex-direction: column;
-    gap: 40px;
-    margin-bottom: 24px;
-    width: 100%;
-  }
-
   .setup-host-invite-stage {
     display: grid;
     place-items: center;
@@ -7591,19 +7583,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     cursor: pointer;
   }
 
-  .setup-unified-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    text-align: center;
-    box-shadow: none;
-  }
-
   .setup-code-area-bottom {
     margin-top: 40px;
     padding: 16px 0 32px;
@@ -7663,18 +7642,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     width: 100%;
     height: 100%;
     max-width: 280px;
-  }
-
-  .graphic-device {
-    fill: #000000;
-    stroke: var(--surface-3);
-    stroke-width: 1;
-  }
-
-  .graphic-text {
-    font-size: 10px;
-    font-weight: var(--font-weight-label);
-    fill: var(--text-sub);
   }
 
   .setup-join-input {
@@ -10948,10 +10915,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --setup-p-lh: 1.4;
       --setup-diagram-pad: clamp(12px, 4vh, 32px) 24px;
       --setup-svg-max: clamp(280px, 65vh, 480px);
-      --setup-guide-gap: clamp(12px, 3vh, 24px);
-      --setup-guide-svg-max: clamp(240px, 45vh, 400px);
-      --setup-guide-svg-h: clamp(80px, 15vh, 140px);
-      --setup-guide-mt: -10px;
       --setup-icon: clamp(56px, 12vh, 84px);
       --setup-icon-svg: clamp(28px, 6vh, 40px);
       --setup-slider-w: clamp(260px, 62vh, 500px);
@@ -11230,11 +11193,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* SVG color utilities used by inline icons */
-  .svg-stroke-primary {
-    stroke: var(--primary);
-    stroke-width: 2;
-  }
-
   .svg-fill-sub-08 {
     fill: var(--text-sub);
     stroke: none;
@@ -11287,14 +11245,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .flex-1 {
     flex: 1;
-  }
-
-  .h-70 {
-    height: 70px;
-  }
-
-  .text-10 {
-    font-size: 10px;
   }
 
   /* Hidden file input for file picker (kept tabbable but visually offscreen) */
@@ -12894,16 +12844,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       height: auto;
     }
 
-    .desktop-diagram-area .setup-guide-unified {
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: var(--setup-guide-gap);
-      margin: 0;
-      margin-top: var(--setup-guide-mt);
-    }
-
     .desktop-diagram-area .setup-host-invite-stage {
       width: 100%;
       margin: 0;
@@ -12923,11 +12863,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .desktop-diagram-area .setup-qr-scan-button,
     .desktop-diagram-area .setup-qr-camera {
       width: 84%;
-    }
-
-    .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
-      max-width: var(--setup-guide-svg-max);
-      height: var(--setup-guide-svg-h);
     }
 
     /* ── Onboarding slider in left panel ── */

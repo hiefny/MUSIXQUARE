@@ -99,7 +99,6 @@
       position: relative;
       width: 100%;
       padding: 0;
-      box-sizing: border-box;
       box-shadow: none;
       background: var(--surface-1);
       border-bottom: none;
@@ -185,7 +184,6 @@
          buttons' outer hit area and keyboard focus ring. */
       width: calc(100% + 40px);
       padding-inline: 20px;
-      box-sizing: border-box;
       padding-top: 0;
       /* The panel reaches the bottom edge of the screen. Its body scrolls
          under the home indicator and takes the inset as end padding, so the
@@ -390,7 +388,6 @@
     .play-secondary-area {
       width: calc(var(--playback-rail-width) - 8px);
       max-width: none;
-      box-sizing: border-box;
       padding: 20px 0 0;
       margin-top: 0;
       margin-inline-start: auto;
@@ -645,7 +642,6 @@
       min-width: 0;
       width: 100%;
       max-width: 100%;
-      box-sizing: border-box;
       inset: auto;
     }
 

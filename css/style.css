@@ -473,7 +473,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-muted);
     cursor: pointer;
     opacity: 1;
-    -webkit-tap-highlight-color: transparent;
     transition:
       color 0.15s ease,
       opacity 0.15s ease;
@@ -1873,7 +1872,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   #tab-play {
     justify-content: flex-start;
     padding-top: calc(var(--header-height) + 10px);
-    box-sizing: border-box;
   }
 
   #tab-play .tab-body {
@@ -1924,7 +1922,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: transparent;
     cursor: pointer;
     touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
   }
 
   #visualizerCanvas:focus-visible {
@@ -1944,7 +1941,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     aspect-ratio: auto;
     border-radius: 0;
     padding: 0 24px;
-    box-sizing: border-box;
   }
 
   body.viz-spectrum #visualizerCanvas {
@@ -2003,7 +1999,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-content: center;
     gap: 12px;
     padding: 24px;
-    box-sizing: border-box;
     background: rgba(0, 0, 0, 0.62);
     color: #fff;
     pointer-events: auto;
@@ -2091,7 +2086,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-width: 100%;
     text-align: start;
     padding: 0 24px 0 var(--track-title-bleed);
-    box-sizing: border-box;
   }
 
   .track-title.marquee {
@@ -2152,7 +2146,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     flex-shrink: 0;
     width: 100%;
     padding: 20px 24px 0;
-    box-sizing: border-box;
     margin-top: 0;
   }
 
@@ -2544,7 +2537,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: transparent;
     padding: 14px 16px;
     min-height: var(--list-row-height);
-    box-sizing: border-box;
     border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
@@ -2694,7 +2686,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-muted);
     cursor: grab;
     touch-action: none;
-    -webkit-tap-highlight-color: transparent;
     transition: color 0.15s ease;
   }
 
@@ -3259,7 +3250,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       color 0.15s;
     color: var(--text-muted);
     padding: 0;
-    -webkit-tap-highlight-color: transparent;
   }
 
   .btn-playlist-remove svg {
@@ -3299,7 +3289,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-muted);
     cursor: pointer;
     touch-action: none;
-    -webkit-tap-highlight-color: transparent;
     transition: color 0.15s ease;
   }
 
@@ -3556,7 +3545,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     letter-spacing: var(--button-label-letter-spacing);
     white-space: nowrap;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
     transition: opacity 0.15s ease;
   }
 
@@ -3586,7 +3574,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .tab-header .playlist-header-fade > * {
     position: absolute;
     margin: 0;
-    box-sizing: border-box;
   }
 
   /* Move, Delete (trash) and Cancel (close) are 54px circular icon buttons
@@ -3607,7 +3594,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-self: center;
     width: max-content;
     max-width: calc(100% - var(--safe-left) - var(--safe-right) - 32px);
-    box-sizing: border-box;
     margin: 16px auto 0;
     padding: 6px;
     display: flex;
@@ -3649,14 +3635,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     width: 54px;
     height: 54px;
     flex: 0 0 54px;
-    box-sizing: border-box;
     padding: 0;
     display: inline-grid;
     place-items: center;
     border: 1px solid transparent;
     border-radius: var(--radius-pill);
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
     transition:
       background-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
       border-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -3757,7 +3741,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition:
       background 0.18s ease,
       opacity 0.18s ease;
-    -webkit-tap-highlight-color: transparent;
     appearance: none;
     -webkit-appearance: none;
   }
@@ -3848,7 +3831,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       background 0.15s ease,
       color 0.15s ease,
       transform 0.15s ease;
-    -webkit-tap-highlight-color: transparent;
     appearance: none;
     -webkit-appearance: none;
   }
@@ -3956,7 +3938,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
-    -webkit-tap-highlight-color: transparent;
     transition:
       color 0.2s ease,
       background-color 0.2s ease;
@@ -4215,7 +4196,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
            get the OS-consistent focus ring. */
     appearance: none;
     -webkit-appearance: none;
-    -webkit-tap-highlight-color: transparent;
   }
 
   .ch-opt svg {
@@ -4282,7 +4262,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* Keep administrator and connected-device rows on the same 56px rail as
        playlist rows while preserving the 32px disclosure/action controls. */
     min-height: var(--list-row-height);
-    box-sizing: border-box;
     border-radius: var(--radius-pill);
     background: transparent;
     transition: background 0.2s;
@@ -4369,7 +4348,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .device-subrow {
     padding: 8px 12px;
     min-height: 44px;
-    box-sizing: border-box;
     border-radius: var(--radius-pill);
     font-size: 13px;
     color: var(--text-sub);
@@ -4773,7 +4751,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-height: 56px;
     height: auto;
     padding: 10px 16px;
-    box-sizing: border-box;
     margin: 0;
     border: none;
     border-radius: var(--radius-pill);
@@ -4788,7 +4765,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       background 0.2s ease,
       color 0.2s ease,
       transform 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
   }
 
   .btn-copy-invite-link > svg {
@@ -5693,7 +5669,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 14px;
     font-weight: 500;
     text-decoration: none;
-    box-sizing: border-box;
     transition:
       background-color 0.18s ease,
       transform 0.18s ease;
@@ -6088,7 +6063,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-family: inherit;
     outline: none;
     transition: border-bottom-color 0.2s ease;
-    box-sizing: border-box;
   }
 
   .dialog-input:focus {
@@ -6125,7 +6099,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     text-align: center;
     outline: none;
     transition: border-bottom-color 0.2s ease;
-    box-sizing: border-box;
     appearance: none;
     -webkit-appearance: none;
     box-shadow: none;
@@ -6247,7 +6220,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: block;
     flex-shrink: 0;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
   }
 
   /* Focusable and announced, but drawn by the surface that follows it. The
@@ -6281,7 +6253,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: var(--radius-m);
     background: transparent;
     color: var(--text-main);
-    box-sizing: border-box;
     transition:
       background-color 0.18s ease,
       color 0.18s ease;
@@ -7759,7 +7730,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .setup-join-input {
     width: 100%;
-    box-sizing: border-box;
     text-align: center;
     background: none;
     border: none;
@@ -8572,7 +8542,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     z-index: 999;
     background: transparent;
     visibility: hidden;
-    -webkit-tap-highlight-color: transparent;
   }
 
   .chat-backdrop.open {
@@ -8595,7 +8564,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     height: var(--chat-live-height, var(--chat-snap-height));
     min-height: 0;
     max-height: calc(var(--app-height, 100dvh) + 22px);
-    box-sizing: border-box;
     background: var(--surface-1);
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
@@ -9061,7 +9029,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     outline: none;
     text-align: start;
     font-family: inherit;
-    box-sizing: border-box;
   }
 
   /* Match the tail of the bubble depending on who sent it */
@@ -9514,7 +9481,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     position: relative;
     height: var(--app-height, 100dvh);
     min-height: var(--app-height, 100dvh);
-    box-sizing: border-box;
     padding: var(--demo-shell-pad-top) 14px var(--demo-shell-pad-bottom);
     display: grid;
     grid-template-rows: var(--demo-visual-height) minmax(0, 1fr) var(--demo-step-nav-reserve);
@@ -9953,7 +9919,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     width: 100%;
     max-width: var(--demo-panel-max);
     margin-inline: auto;
-    box-sizing: border-box;
   }
 
   .demo-step-copy p {
@@ -10468,7 +10433,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding-inline: var(--demo-control-pad-inline)
         calc(var(--demo-control-pad-inline) + var(--safe-right));
       background: var(--surface-1);
-      box-sizing: border-box;
     }
 
     /* The panel's scrollbar follows the panel to its outer edge. */
@@ -11311,7 +11275,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    -webkit-tap-highlight-color: transparent;
     border-radius: var(--radius-pill);
   }
 
@@ -11918,10 +11881,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
        don't render under it. */
     padding: max(env(safe-area-inset-top, 20px), 20px) 12px
       calc(max(env(safe-area-inset-bottom, 20px), 20px) + 22px) 12px;
-    box-sizing: border-box;
     overflow: hidden;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
     user-select: text;
     -webkit-user-select: text;
   }
@@ -12486,7 +12447,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding: 16px 24px calc(8px + var(--safe-bottom)) 24px;
       padding-left: calc(24px + var(--safe-physical-left));
       scroll-padding-bottom: var(--safe-bottom);
-      box-sizing: border-box;
       border-radius: 0;
       -webkit-overflow-scrolling: touch;
     }

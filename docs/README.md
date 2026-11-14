@@ -598,7 +598,7 @@ runbooks. Neither belongs in a general setup document.
   scrollbar in a short window in production. The release record's §2 carries the train as post-deploy items, its
   §4 the 9.0.38 entry and current boundary line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.38's merge
   SHA, Release ID and App version. This train's merge ended 9.0.37's standalone revert window, and the 9.0.39
-  train's merge (2026-11-05 21:08 KST) ended this train's; the default rollback is a forward revert at 9.0.42 / v815
+  train's merge (2026-11-05 21:08 KST) ended this train's; the default rollback is a forward revert at 9.0.48 / v823
   or the next free number now that 9.0.39 to 9.0.47 shipped.
   Not verified: real devices (the iPhone COPY with the keyboard up, touch scrolling from the side
   margins), and WebKit beyond the Playwright lanes (local, and Linux in the post-merge Full E2E, where the
@@ -903,8 +903,8 @@ runbooks. Neither belongs in a general setup document.
   answered Q29 to ship as is, keeping the fallback and the rare late-snapshot timeout), 6C-3's
   before/after table and timing check against the approved table, the Phase 6 end-condition
   check (condition 6's 14 days count from this release), mixed versions, rollback (checkpoint App
-  9.0.34 / v807, a forward fix at 9.0.36 / v809 or the next free number, now 9.0.42 / v815 since
-  the public-page font train shipped as 9.0.36, the 9.0.37 train as 9.0.37, the 9.0.38 train as 9.0.38, the 9.0.39 train as 9.0.39, the 9.0.40 train as 9.0.40 and the 9.0.41 train as 9.0.41), the blind device
+  9.0.34 / v807, a forward fix at 9.0.48 / v823 or the next free number now that
+  the public-page font train shipped as 9.0.36 and the App trains from 9.0.37 to 9.0.47 shipped), the blind device
   candidates, the three open items, now linked from the release record, and the Phase 7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
   onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
   and reran the tests-first pairs, types, lint, format, `check:workers`, three unit directories

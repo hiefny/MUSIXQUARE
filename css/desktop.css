@@ -624,13 +624,6 @@
       height: 22px;
     }
 
-    /* Reset narrow-layout offsets on the role diagram. */
-    #setup-role-area .setup-graphic-container {
-      margin-inline-start: 0;
-      margin-inline-end: 0;
-      width: 100%;
-    }
-
     /* Map media/youtube overlays into the main Play grid area instead of full-screen popups */
     #media-source-overlay,
     #youtube-url-overlay {
@@ -697,6 +690,7 @@
       flex-direction: column;
     }
 
+    /* Reset narrow-layout offsets on the role diagram. */
     /* Keep the role diagram within the desktop panel. */
     #setup-role-area .setup-graphic-container {
       margin-inline-start: 0;

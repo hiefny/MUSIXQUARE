@@ -1756,10 +1756,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     cursor: not-allowed;
   }
 
-  .system-audio-playlist-note {
-    display: none;
-  }
-
   .invite-code-value {
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.1em;
@@ -6938,12 +6934,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     inset: 0;
     /* inset: 0 establishes height without a 100vh override that could extend
        behind Android system navigation. */
-    /* Cap to the actually visible viewport height.
-       On some Android tablets / WebViews, 100vh (or viewport-fit=cover contexts)
-       can include the area behind the system navigation bar, causing the
-       bottom of the setup UI to be clipped.
-       --app-height is maintained by JS using visualViewport/innerHeight. */
-    max-height: var(--app-height, 100dvh);
     background: var(--bg);
     z-index: 2000;
     display: none;
@@ -10751,10 +10741,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 0.5;
   }
 
-  .system-audio-loading-spinner {
-    display: none;
-  }
-
   .file-select-btn span {
     flex: 1;
     min-width: 0;
@@ -13151,6 +13137,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   html:not(.ios-standalone) body {
     max-height: var(--app-height, 100dvh);
   }
+  /* Cap to the actually visible viewport height.
+     On some Android tablets / WebViews, 100vh (or viewport-fit=cover contexts)
+     can include the area behind the system navigation bar, causing the
+     bottom of the setup UI to be clipped.
+     --app-height is maintained by JS using visualViewport/innerHeight. */
   .onboarding-overlay {
     max-height: var(--app-height, 100dvh);
   }

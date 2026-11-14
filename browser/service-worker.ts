@@ -147,6 +147,16 @@ const APP_SHELL = [
   ...BUILD_ENTRY_ASSETS,
 ];
 
+// Every app language has one installed manifest above and one app entry
+// (`/<code>/`) on the App Worker, so the precache list is the language list.
+// A unit row pins it to LANGUAGE_OPTIONS.
+const APP_LANGUAGE_ENTRY_CODES: ReadonlySet<string> = new Set(
+  APP_SHELL.flatMap((asset) => {
+    const code = /^\.\/manifests\/([a-z]+(?:-[a-z]+)*)\.webmanifest$/u.exec(asset)?.[1];
+    return code ? [code] : [];
+  }),
+);
+
 serviceWorker.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
@@ -648,16 +658,23 @@ function hasSensitiveNavigationQuery(request: Request): boolean {
   return false;
 }
 
+// The installed shells run only the app's own documents: the root, a six-digit
+// room, a language's app entry (`/<code>/`, the App Worker's localized app
+// route) and the account completion page. Every other same-origin document
+// (About, Design System, Admin, History, the blog, legal pages, events,
+// translate, sitemap, the screensaver) is its own page, so a slow or failed
+// load must never answer with the room App UI.
+function isInstalledShellNavigation(request: Request): boolean {
+  const url = new URL(request.url);
+  if (url.origin !== serviceWorker.location.origin) return false;
+  if (url.pathname === '/' || url.pathname === '/index.html') return true;
+  if (url.pathname === ACCOUNT_COMPLETION_PATH || isRoomNavigation(request)) return true;
+  const languageEntry = /^\/([^/]+)(?:\/index\.html)?\/*$/u.exec(url.pathname.toLowerCase())?.[1];
+  return languageEntry !== undefined && APP_LANGUAGE_ENTRY_CODES.has(languageEntry);
+}
+
 function canonicalNavigationShell(request: Request): string {
   const url = new URL(request.url);
-  if (
-    url.origin === serviceWorker.location.origin &&
-    /^\/(?:translate|sitemap|screensaver)(?:\.html)?\/*$/iu.test(url.pathname)
-  ) {
-    // Reuse the visited document, or fail offline; never substitute the room App UI.
-    if (/^\/screensaver/iu.test(url.pathname)) return './screensaver.html';
-    return /^\/sitemap/iu.test(url.pathname) ? './sitemap.html' : './translate.html';
-  }
   return url.origin === serviceWorker.location.origin && url.pathname === ACCOUNT_COMPLETION_PATH
     ? ACCOUNT_COMPLETION_SHELL
     : './index.html';
@@ -1038,6 +1055,111 @@ async function matchActiveNavigationShell(request: Request): Promise<Response | 
   }
 }
 
+// The worker's own copy of a response for CacheStorage, read under a deadline.
+// The page keeps the original response with no limit; only this copy is
+// cancelled, so a stalled body cannot hold the fetch event (and with it an
+// approved update) open. A response whose cache step reads only its headers
+// (partial, not OK, or a no-store revocation) passes through unchanged. Call
+// it from a reaction registered before the page's, so the clone comes first.
+async function readCacheCopyWithin(
+  response: Response,
+  timeoutMs: number,
+): Promise<Response | null> {
+  if (response.status === 206 || !response.ok || !responseAllowsCacheStorage(response)) {
+    return response;
+  }
+  const copy = response.clone();
+  const reader = copy.body?.getReader();
+  if (!reader) return copy;
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  let timeoutId: number | undefined;
+  const deadline = new Promise<false>((resolve) => {
+    timeoutId = setTimeout(() => resolve(false), timeoutMs);
+  });
+  const drained = (async () => {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return true;
+      chunks.push(value);
+      length += value.byteLength;
+    }
+  })().catch(() => false);
+  const complete = await Promise.race([drained, deadline]);
+  clearTimeout(timeoutId);
+  if (!complete) {
+    // Cancelling this tee branch leaves the page's branch reading.
+    reader.cancel().catch(() => undefined);
+    return null;
+  }
+  const body = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+async function matchVisitedPublicDocument(request: Request): Promise<Response | null> {
+  // Only this page's own copy from the active generation, never another document.
+  if (hasSensitiveNavigationQuery(request)) return null;
+  try {
+    return (await caches.match(request, { cacheName: RUNTIME_CACHE })) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// A public document loads like an uncontrolled page: no navigation deadline and
+// no shell substitution. Only a failed network falls back to the page's own
+// visited copy; without one the load fails offline. The worker's own copy for
+// the cache keeps the navigation deadline, so its work still ends in time.
+function respondWithPublicDocument(event: FetchEvent, request: Request): void {
+  const networkResponse = fetch(request);
+  const visitedCopy = matchVisitedPublicDocument(request);
+  const cacheUpdate = hasSensitiveNavigationQuery(request)
+    ? networkResponse.then(
+        () => undefined,
+        () => undefined,
+      )
+    : scheduleNetworkCacheUpdate(
+        RUNTIME_CACHE,
+        request,
+        networkResponse.then((response) =>
+          readCacheCopyWithin(response, NAVIGATION_NETWORK_TIMEOUT_MS),
+        ),
+      );
+  // Registered while the fetch event is still dispatching, as for app documents.
+  const navigationStateUpdate = networkResponse.then(
+    () => undefined,
+    async () => {
+      const fallback = await visitedCopy;
+      const resultingClientId = event.resultingClientId;
+      if (fallback && resultingClientId) {
+        await recordCachedNavigationState(resultingClientId);
+      }
+    },
+  );
+  event.waitUntil(Promise.all([cacheUpdate, navigationStateUpdate]));
+  event.respondWith(
+    (async () => {
+      try {
+        return await networkResponse;
+      } catch (_) {
+        const fallback = await visitedCopy;
+        return fallback
+          ? markCachedNavigationResponse(fallback)
+          : new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
+      }
+    })(),
+  );
+}
+
 function markCachedNavigationResponse(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set('X-Musixquare-Navigation-Source', 'cache-fallback');
@@ -1072,8 +1194,14 @@ serviceWorker.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation (HTML): network-first, fallback to cached index
+  // Navigation (HTML). The app's own documents are network-first with a bounded
+  // deadline and the installed shell; every other page loads like an
+  // uncontrolled page and never turns into the room App UI.
   if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {
+    if (!isInstalledShellNavigation(request)) {
+      respondWithPublicDocument(event, request);
+      return;
+    }
     const networkResponse = fetchCompleteResponseWithTimeout(
       request,
       NAVIGATION_NETWORK_TIMEOUT_MS,
@@ -1153,29 +1281,46 @@ serviceWorker.addEventListener('fetch', (event) => {
   // revalidating. A retired cache is a last-resort offline fallback, never a
   // normal cache miss response: otherwise the first request after an update
   // can combine the new HTML/JS generation with an old stable CSS or icon.
-  let resolveCacheResponse!: (response: Response | null) => void;
+  // A cached copy answers at once and is revalidated in the background within
+  // STATIC_REVALIDATION_TIMEOUT_MS. A miss is the page's own load (a public
+  // page's CSS or JS right after an update): it reaches the page whenever the
+  // network delivers it, and only the worker's copy for the cache keeps that
+  // bound.
+  const activeCached = matchActiveStaticAsset(request);
+  let resolveCacheResponse!: (response: Response | null | PromiseLike<Response | null>) => void;
   const cacheResponse = new Promise<Response | null>((resolve) => {
     resolveCacheResponse = resolve;
   });
-  const networkResponse = fetchCompleteResponseWithTimeout(
-    request,
-    STATIC_REVALIDATION_TIMEOUT_MS,
-    (response) => {
-      // Revocation is authoritative at headers, even if its body stalls.
-      // Keep the normal request-order fence without caching partial bodies.
-      if (response.status !== 206 && !responseAllowsCacheStorage(response)) {
-        resolveCacheResponse(response);
-      }
-    },
-  ).catch(() => null);
-  networkResponse.then(resolveCacheResponse, () => resolveCacheResponse(null));
+  const networkResponse = activeCached.then((cached) => {
+    if (!cached) {
+      const fresh = fetch(request).catch(() => null);
+      resolveCacheResponse(
+        fresh.then((response) =>
+          response ? readCacheCopyWithin(response, STATIC_REVALIDATION_TIMEOUT_MS) : null,
+        ),
+      );
+      return fresh;
+    }
+    const revalidated = fetchCompleteResponseWithTimeout(
+      request,
+      STATIC_REVALIDATION_TIMEOUT_MS,
+      (response) => {
+        // Revocation is authoritative at headers, even if its body stalls.
+        // Keep the normal request-order fence without caching partial bodies.
+        if (response.status !== 206 && !responseAllowsCacheStorage(response)) {
+          resolveCacheResponse(response);
+        }
+      },
+    ).catch(() => null);
+    revalidated.then(resolveCacheResponse, () => resolveCacheResponse(null));
+    return revalidated;
+  });
   const cacheUpdate = scheduleNetworkCacheUpdate(STATIC_CACHE, request, cacheResponse);
   event.waitUntil(cacheUpdate);
   event.respondWith(
     (async () => {
-      const activeCached = await matchActiveStaticAsset(request);
-
-      if (activeCached) return activeCached;
+      const cached = await activeCached;
+      if (cached) return cached;
 
       const fresh = await networkResponse;
       if (fresh) return fresh;

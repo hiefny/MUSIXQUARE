@@ -96,6 +96,20 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.47 / v822 train: a slow public page no longer opens the app's first screen, and the Design System's tall sections appear on phones (2026-11-14)](design/app-9-0-47-train-2026-11-14.md):
+  prepared, not merged and not deployed. An App update after 9.0.46 / v821, on main `171f8a42` (whose App runtime
+  equals 9.0.46's `74d46d9e`), for two defects the owner reported on 2026-11-14. The service worker gave every
+  same-origin page three seconds and then answered with the installed room shell, so About, Admin, Design System
+  and the other public pages opened the app's first screen on a slow load. Now only the app's own documents (the
+  root, rooms, each language's app entry and the account completion page) keep that deadline and shell; every
+  other page loads like an ordinary page and falls back only to its own visited copy when the network fails. The
+  editorial pages revealed a section only when a tenth of it was on screen, which a phone never shows of the
+  Design System's 10,600px Components section; a section now appears as soon as any part of it scrolls in. The
+  train's independent review added two service worker fixes: the worker reads its own cache copy under the existing
+  deadlines, so a stalled body cannot hold the fetch event and an approved update, and a stable asset that misses
+  the cache (a public page's CSS or JS right after an update) reaches the page instead of a 503 after five seconds.
+  Failing rows came first for each. Not verified on a physical device. Target `app`, one update dialog, floor 795
+  unchanged.
 - [App 9.0.46 / v821 train: every landscape screen reaches the bottom edge, and five right-to-left layouts mirrored (2026-11-12)](design/app-9-0-46-train-2026-11-12.md):
   released on 2026-11-12 14:40 KST in Release 43162776905 (PR #590, squash `74d46d9e`) as App 9.0.46 / v821 (App build
   821, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

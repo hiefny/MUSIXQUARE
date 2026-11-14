@@ -9,6 +9,7 @@ import {
   SERVICE_WORKER_CACHE_VERSION,
   compileServiceWorkerAsset,
 } from '../../../scripts/service-worker-asset.ts';
+import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 
 const BOOTSTRAP_ASSET = CLASSIC_RUNTIME_ASSETS.find(
   (candidate) => candidate.outputPath === 'bootstrap.js',
@@ -42,6 +43,27 @@ if (!APP_SHELL_SOURCE) {
   throw new Error('Unable to resolve the service worker app shell');
 }
 const RETIRED_CACHE_VERSION = 'v194';
+// Same-origin documents that are not the installed app: the App Worker serves
+// each as its own page, so the service worker must never answer with the room
+// App UI for them. `/faq` and `/zz/` look like a language entry but are not one.
+const PUBLIC_DOCUMENT_PATHS = [
+  '/about',
+  '/ko/about',
+  '/designsystem',
+  '/designsystem/',
+  '/admin',
+  '/history',
+  '/blog',
+  '/privacy',
+  '/terms',
+  '/faq',
+  '/developers',
+  '/events/asamo/0/',
+  '/404.html',
+  '/zz/',
+  // A legacy language alias: the App Worker redirects it to /nb/, so it is not an app entry.
+  '/no/',
+] as const;
 
 type FetchListener = (event: {
   request: Request;
@@ -488,7 +510,8 @@ describe('service worker cache policy', () => {
     expect(response.status).toBe(200);
     expect(waitUntilWasSynchronous).toBe(true);
     expect(work).toHaveLength(1);
-    expect(cachePut).toHaveBeenCalledOnce();
+    // The worker writes its own bounded copy, which it reads after the headers.
+    await vi.waitFor(() => expect(cachePut).toHaveBeenCalledOnce());
 
     let completed = false;
     const completion = Promise.all(work).then(() => {
@@ -536,13 +559,8 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('online asset');
-    if (url.includes('/assets/')) {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
-    } else {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, {
-        signal: expect.any(AbortSignal),
-      });
-    }
+    // A miss is the page's own load on both asset paths, with no deadline signal.
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
   });
 
   it.each([
@@ -561,13 +579,8 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(503);
     expect(await response.text()).toBe('Offline');
-    if (url.includes('/assets/')) {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
-    } else {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, {
-        signal: expect.any(AbortSignal),
-      });
-    }
+    // A miss is the page's own load on both asset paths, with no deadline signal.
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
   });
 
   it('uses the static cache for same-origin assets', async () => {
@@ -654,7 +667,7 @@ describe('service worker cache policy', () => {
 
     const older = await dispatchWithWork(request);
     expect(await older.response.text()).toBe('older cacheable configuration');
-    expect(cachePut).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(cachePut).toHaveBeenCalledOnce());
     expect(finishOlderPut).toBeTypeOf('function');
 
     const newer = await dispatchWithWork(request);
@@ -697,7 +710,8 @@ describe('service worker cache policy', () => {
       waitUntil: (work) => olderWork.push(work),
     });
     expect(olderResponse).toBeDefined();
-    expect(fetchMock).toHaveBeenCalledOnce();
+    // The network starts once the active-cache lookup has missed.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
 
     const newer = await dispatchWithWork(request);
     expect(await newer.response.text()).toBe('newer private configuration');
@@ -797,7 +811,8 @@ describe('service worker cache policy', () => {
       waitUntil: (work) => olderWork.push(work),
     });
     expect(olderResponse).toBeDefined();
-    expect(fetchMock).toHaveBeenCalledOnce();
+    // The network starts once the active-cache lookup has missed.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
 
     const newer = await dispatchWithWork(request);
     expect(await newer.response.text()).toBe('newer cacheable configuration');
@@ -1156,7 +1171,7 @@ describe('service worker cache policy', () => {
   });
 
   it.each(['first', 'rest', 'stacks'])(
-    "takes the ordinary revalidating static path for a public page's %s.css",
+    "takes the ordinary static path for a public page's %s.css on a cache miss",
     async (sheet) => {
       const url = `https://musixquare.com/web-fonts/${sheet}.css`;
       fetchMock.mockResolvedValue(new Response('public page font sheet', { status: 200 }));
@@ -1164,9 +1179,7 @@ describe('service worker cache policy', () => {
       const online = await dispatch(new Request(url));
 
       expect(await online.text()).toBe('public page font sheet');
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.any(Request), {
-        signal: expect.any(AbortSignal),
-      });
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.any(Request));
       expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
       expect(cachePut).toHaveBeenCalledOnce();
     },
@@ -1539,6 +1552,7 @@ describe('service worker cache policy', () => {
     '/screensaver',
     '/screensaver.html',
     '/screensaver.html?v=1',
+    ...PUBLIC_DOCUMENT_PATHS,
   ])(
     'does not replace the public document %s with the room shell when offline',
     async (pathname) => {
@@ -1562,7 +1576,7 @@ describe('service worker cache policy', () => {
     },
   );
 
-  it.each(['translate', 'sitemap', 'screensaver.html'])(
+  it.each(['translate', 'sitemap', 'screensaver.html', 'about', 'designsystem', 'ko/about'])(
     'reopens the previously visited %s document offline without using the room shell',
     async (page) => {
       fetchMock.mockRejectedValue(new Error('offline'));
@@ -1583,6 +1597,205 @@ describe('service worker cache policy', () => {
       expect(cacheMatch).not.toHaveBeenCalledWith('./index.html', expect.anything());
     },
   );
+
+  it.each(PUBLIC_DOCUMENT_PATHS)(
+    'waits for the slow public page %s instead of showing the room shell after the deadline',
+    async (pathname) => {
+      vi.useFakeTimers();
+      const arrival = NAVIGATION_NETWORK_TIMEOUT_MS + 2_000;
+      fetchMock.mockImplementation(
+        (_request: Request, init?: RequestInit) =>
+          new Promise<Response>((resolve, reject) => {
+            const timer = setTimeout(
+              () => resolve(new Response(`${pathname} page`, { status: 200 })),
+              arrival,
+            );
+            init?.signal?.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                reject(new DOMException('navigation timed out', 'AbortError'));
+              },
+              { once: true },
+            );
+          }),
+      );
+      cacheMatch.mockImplementation(
+        async (request: RequestInfo, options?: { cacheName?: string }) => {
+          const url = typeof request === 'string' ? request : request.url;
+          return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+            url.endsWith('index.html')
+            ? new Response('room shell', { status: 200 })
+            : undefined;
+        },
+      );
+
+      try {
+        const responsePromise = dispatch(
+          new Request(`https://musixquare.com${pathname}`, { headers: { accept: 'text/html' } }),
+        );
+        await vi.advanceTimersByTimeAsync(arrival);
+        const response = await responsePromise;
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe(`${pathname} page`);
+        expect(response.headers.get('X-Musixquare-Navigation-Source')).toBeNull();
+        expect(cacheMatch).not.toHaveBeenCalledWith('./index.html', expect.anything());
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([
+    '/',
+    '/index.html',
+    '/123456',
+    '/123456/',
+    '/ko',
+    '/KO/',
+    '/ja/index.html',
+    ...LANGUAGE_OPTIONS.map(({ code }) => `/${code}/`),
+  ])(
+    'still opens the installed shell after the deadline for the app address %s',
+    async (pathname) => {
+      vi.useFakeTimers();
+      fetchMock.mockImplementation(
+        (_request: Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('navigation timed out', 'AbortError')),
+              { once: true },
+            );
+          }),
+      );
+      cacheMatch.mockImplementation(
+        async (request: RequestInfo, options?: { cacheName?: string }) => {
+          const url = typeof request === 'string' ? request : request.url;
+          return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+            url.endsWith('index.html')
+            ? new Response('installed shell', { status: 200 })
+            : undefined;
+        },
+      );
+
+      try {
+        const responsePromise = dispatch(
+          new Request(`https://musixquare.com${pathname}`, { headers: { accept: 'text/html' } }),
+        );
+        await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS);
+        const response = await responsePromise;
+
+        expect(await response.text()).toBe('installed shell');
+        expect(response.headers.get('X-Musixquare-Navigation-Source')).toBe('cache-fallback');
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  function stalledBody(text: string): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(text));
+      },
+    });
+  }
+
+  it('ends its own work on a stalled public page body within the navigation deadline and stores nothing', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(
+      new Response(stalledBody('<!doctype html><title>About</title>'), { status: 200 }),
+    );
+    // A real Cache.put reads the whole body before it settles.
+    cachePut.mockImplementation(async (_request: Request, response: Response) => {
+      await response.arrayBuffer();
+    });
+
+    try {
+      const { response, work } = await dispatchWithWork(
+        new Request('https://musixquare.com/about', { headers: { accept: 'text/html' } }),
+      );
+      expect(response.status).toBe(200);
+      let settled = false;
+      const workSettled = Promise.all(work).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS);
+
+      expect(settled).toBe(true);
+      expect(cachePut).not.toHaveBeenCalled();
+      await workSettled;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns a stable asset that misses the cache when it arrives after the revalidation bound', async () => {
+    vi.useFakeTimers();
+    const arrival = STATIC_REVALIDATION_TIMEOUT_MS + 1_000;
+    fetchMock.mockImplementation(
+      (_request: Request, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve(new Response('.lp-hero{}', { status: 200 })),
+            arrival,
+          );
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer);
+              reject(new DOMException('revalidation timed out', 'AbortError'));
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    try {
+      const responsePromise = dispatch(new Request('https://musixquare.com/editorial-design.css'));
+      await vi.advanceTimersByTimeAsync(arrival);
+      const response = await responsePromise;
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('.lp-hero{}');
+      expect(cachePut).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hands a stalled stable asset miss to the page and ends its own work within the revalidation bound', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(new Response(stalledBody('.lp-hero{'), { status: 200 }));
+    cachePut.mockImplementation(async (_request: Request, response: Response) => {
+      await response.arrayBuffer();
+    });
+
+    try {
+      let answered: Awaited<ReturnType<typeof dispatchWithWork>> | undefined;
+      const dispatched = dispatchWithWork(
+        new Request('https://musixquare.com/editorial-design.css'),
+      ).then((result) => {
+        answered = result;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      // The page receives the network response at its headers, as without a worker.
+      expect(answered?.response.status).toBe(200);
+      let settled = false;
+      const workSettled = Promise.all(answered?.work ?? []).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(STATIC_REVALIDATION_TIMEOUT_MS);
+
+      expect(settled).toBe(true);
+      expect(cachePut).not.toHaveBeenCalled();
+      await Promise.all([dispatched, workSettled]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('leaves translation reference refresh requests outside the service-worker cache', () => {
     for (const pathname of [
@@ -1658,13 +1871,13 @@ describe('service worker cache policy', () => {
         return undefined;
       },
     );
-    const navigationRequest = new Request('https://musixquare.com/start', {
+    const navigationRequest = new Request('https://musixquare.com/en', {
       headers: { accept: 'text/html' },
     });
     fetchMock.mockResolvedValueOnce(
       new Response(null, {
         status: 302,
-        headers: { location: 'https://musixquare.com/final' },
+        headers: { location: 'https://musixquare.com/en/' },
       }),
     );
 
@@ -1675,7 +1888,7 @@ describe('service worker cache policy', () => {
 
     fetchMock.mockRejectedValueOnce(new Error('final redirect hop interrupted'));
     const response = await dispatch(
-      new Request('https://musixquare.com/final', { headers: { accept: 'text/html' } }),
+      new Request('https://musixquare.com/en/', { headers: { accept: 'text/html' } }),
       { resultingClientId: 'redirect-client' },
     );
     expect(await response.text()).toBe('cached shell');

@@ -729,18 +729,8 @@
       margin-inline-end: 0;
     }
 
-    body.mode-demo .demo-finish-content .demo-large-actions {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      width: 100%;
-      max-width: 100%;
-      align-self: stretch;
-      gap: 8px;
-    }
-
     body.mode-demo .demo-finish-content .demo-large-actions .accent-action-btn,
     body.mode-demo .demo-finish-content .demo-large-actions .leave-session-btn {
-      flex: none;
       width: 100%;
       margin-inline-start: 0;
       margin-inline-end: 0;

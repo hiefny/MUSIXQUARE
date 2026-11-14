@@ -9,6 +9,7 @@ import {
   SERVICE_WORKER_CACHE_VERSION,
   compileServiceWorkerAsset,
 } from '../../../scripts/service-worker-asset.ts';
+import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 
 const BOOTSTRAP_ASSET = CLASSIC_RUNTIME_ASSETS.find(
   (candidate) => candidate.outputPath === 'bootstrap.js',
@@ -42,6 +43,25 @@ if (!APP_SHELL_SOURCE) {
   throw new Error('Unable to resolve the service worker app shell');
 }
 const RETIRED_CACHE_VERSION = 'v194';
+// Same-origin documents that are not the installed app: the App Worker serves
+// each as its own page, so the service worker must never answer with the room
+// App UI for them. `/faq` and `/zz/` look like a language entry but are not one.
+const PUBLIC_DOCUMENT_PATHS = [
+  '/about',
+  '/ko/about',
+  '/designsystem',
+  '/designsystem/',
+  '/admin',
+  '/history',
+  '/blog',
+  '/privacy',
+  '/terms',
+  '/faq',
+  '/developers',
+  '/events/asamo/0/',
+  '/404.html',
+  '/zz/',
+] as const;
 
 type FetchListener = (event: {
   request: Request;
@@ -1539,6 +1559,7 @@ describe('service worker cache policy', () => {
     '/screensaver',
     '/screensaver.html',
     '/screensaver.html?v=1',
+    ...PUBLIC_DOCUMENT_PATHS,
   ])(
     'does not replace the public document %s with the room shell when offline',
     async (pathname) => {
@@ -1562,7 +1583,7 @@ describe('service worker cache policy', () => {
     },
   );
 
-  it.each(['translate', 'sitemap', 'screensaver.html'])(
+  it.each(['translate', 'sitemap', 'screensaver.html', 'about', 'designsystem', 'ko/about'])(
     'reopens the previously visited %s document offline without using the room shell',
     async (page) => {
       fetchMock.mockRejectedValue(new Error('offline'));
@@ -1583,6 +1604,100 @@ describe('service worker cache policy', () => {
       expect(cacheMatch).not.toHaveBeenCalledWith('./index.html', expect.anything());
     },
   );
+
+  it.each(PUBLIC_DOCUMENT_PATHS)(
+    'waits for the slow public page %s instead of showing the room shell after the deadline',
+    async (pathname) => {
+      vi.useFakeTimers();
+      const arrival = NAVIGATION_NETWORK_TIMEOUT_MS + 2_000;
+      fetchMock.mockImplementation(
+        (_request: Request, init?: RequestInit) =>
+          new Promise<Response>((resolve, reject) => {
+            const timer = setTimeout(
+              () => resolve(new Response(`${pathname} page`, { status: 200 })),
+              arrival,
+            );
+            init?.signal?.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                reject(new DOMException('navigation timed out', 'AbortError'));
+              },
+              { once: true },
+            );
+          }),
+      );
+      cacheMatch.mockImplementation(
+        async (request: RequestInfo, options?: { cacheName?: string }) => {
+          const url = typeof request === 'string' ? request : request.url;
+          return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+            url.endsWith('index.html')
+            ? new Response('room shell', { status: 200 })
+            : undefined;
+        },
+      );
+
+      try {
+        const responsePromise = dispatch(
+          new Request(`https://musixquare.com${pathname}`, { headers: { accept: 'text/html' } }),
+        );
+        await vi.advanceTimersByTimeAsync(arrival);
+        const response = await responsePromise;
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe(`${pathname} page`);
+        expect(response.headers.get('X-Musixquare-Navigation-Source')).toBeNull();
+        expect(cacheMatch).not.toHaveBeenCalledWith('./index.html', expect.anything());
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([
+    '/',
+    '/index.html',
+    '/123456',
+    '/123456/',
+    '/ko',
+    '/KO/',
+    '/ja/index.html',
+    ...LANGUAGE_OPTIONS.map(({ code }) => `/${code}/`),
+  ])('still opens the installed shell after the deadline for the app address %s', async (pathname) => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(
+      (_request: Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('navigation timed out', 'AbortError')),
+            { once: true },
+          );
+        }),
+    );
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof request === 'string' ? request : request.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          url.endsWith('index.html')
+          ? new Response('installed shell', { status: 200 })
+          : undefined;
+      },
+    );
+
+    try {
+      const responsePromise = dispatch(
+        new Request(`https://musixquare.com${pathname}`, { headers: { accept: 'text/html' } }),
+      );
+      await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS);
+      const response = await responsePromise;
+
+      expect(await response.text()).toBe('installed shell');
+      expect(response.headers.get('X-Musixquare-Navigation-Source')).toBe('cache-fallback');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('leaves translation reference refresh requests outside the service-worker cache', () => {
     for (const pathname of [

@@ -1719,13 +1719,14 @@ describe('service worker cache policy', () => {
       );
       expect(response.status).toBe(200);
       let settled = false;
-      void Promise.all(work).then(() => {
+      const workSettled = Promise.all(work).then(() => {
         settled = true;
       });
       await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS);
 
       expect(settled).toBe(true);
       expect(cachePut).not.toHaveBeenCalled();
+      await workSettled;
     } finally {
       vi.useRealTimers();
     }
@@ -1774,22 +1775,23 @@ describe('service worker cache policy', () => {
 
     try {
       let answered: Awaited<ReturnType<typeof dispatchWithWork>> | undefined;
-      void dispatchWithWork(new Request('https://musixquare.com/editorial-design.css')).then(
-        (result) => {
-          answered = result;
-        },
-      );
+      const dispatched = dispatchWithWork(
+        new Request('https://musixquare.com/editorial-design.css'),
+      ).then((result) => {
+        answered = result;
+      });
       await vi.advanceTimersByTimeAsync(0);
       // The page receives the network response at its headers, as without a worker.
       expect(answered?.response.status).toBe(200);
       let settled = false;
-      void Promise.all(answered?.work ?? []).then(() => {
+      const workSettled = Promise.all(answered?.work ?? []).then(() => {
         settled = true;
       });
       await vi.advanceTimersByTimeAsync(STATIC_REVALIDATION_TIMEOUT_MS);
 
       expect(settled).toBe(true);
       expect(cachePut).not.toHaveBeenCalled();
+      await Promise.all([dispatched, workSettled]);
     } finally {
       vi.useRealTimers();
     }

@@ -140,8 +140,11 @@ describe('localized PWA install metadata', () => {
     const bootstrapIndex = INDEX_SOURCE.indexOf('<script src="/bootstrap.js?cache=');
     expect(manifestIndex).toBeGreaterThan(-1);
     expect(manifestIndex).toBeLessThan(bootstrapIndex);
-    expect(INDEX_SOURCE.match(/<link\b[^>]*\brel="manifest"[^>]*>/gu)).toHaveLength(1);
-    expect(INDEX_SOURCE.slice(manifestIndex, bootstrapIndex)).not.toMatch(/\bhref=/u);
+    const manifestLinks = INDEX_SOURCE.match(/<link\b[^>]*\brel="manifest"[^>]*>/gu);
+    expect(manifestLinks).toHaveLength(1);
+    // bootstrap now runs from the top of <body>, after the boot splash; the
+    // link itself must stay href-less until it does.
+    expect(manifestLinks?.[0]).not.toMatch(/\bhref=/u);
   });
 
   it('selects saved or system install metadata and follows later UI-language changes', async () => {

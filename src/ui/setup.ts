@@ -385,7 +385,12 @@ function initSetupOverlay(): void {
 
   if (!getSetupOverlayEverShown()) {
     try {
-      document.documentElement.classList.add('setup-boot-block');
+      const root = document.documentElement;
+      // The boot splash (index.html) follows setup-boot-block for the first
+      // boot only. If the app surface already lifted the guard (a room opened
+      // before setup was ever shown), latch the splash off before restoring it.
+      if (!root.classList.contains('setup-boot-block')) root.classList.add('boot-splash-released');
+      root.classList.add('setup-boot-block');
     } catch {
       /* ignore */
     }

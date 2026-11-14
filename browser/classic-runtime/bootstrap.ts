@@ -1,7 +1,8 @@
 /**
- * MUSIXQUARE — early HTML bootstrap (index.html, head)
+ * MUSIXQUARE — early HTML bootstrap (index.html, top of body)
  *
- * Synchronous setup that must run before first paint:
+ * Synchronous setup that must run before the app stylesheet applies and the
+ * app surface first paints (only the boot splash paints earlier):
  *   0. PRO owner claims: scrub fragment credentials and reject/scrub query
  *      lookalikes before any third-party script, then hand valid fragment
  *      claims to the app through one in-memory closure.
@@ -16,9 +17,10 @@
  *      Automatic mode intentionally leaves no attribute so CSS can follow
  *      the live OS `prefers-contrast` query from the first paint.
  *
- * Loaded as the first script in <head>, before stylesheet links. The FOUC
- * guard lives in style.css and fouc-cleanup.js reveals the body after that
- * stylesheet has parsed. Keeping this bootstrap external lets the production
+ * Loaded as the first script, at the top of <body> right after the boot
+ * splash (which paints from the document alone) and before the app
+ * stylesheet and module graph. The FOUC guard lives in style.css and
+ * fouc-cleanup.js reveals the body after that stylesheet has parsed. Keeping this bootstrap external lets the production
  * CSP omit `script-src 'unsafe-inline'`.
  */
 

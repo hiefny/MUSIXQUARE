@@ -7,3 +7,8 @@ body {
   display: none !important;
   animation: none !important;
 }
+
+/* Without scripting nothing ever lifts the boot splash (index.html). */
+.boot-splash {
+  display: none !important;
+}

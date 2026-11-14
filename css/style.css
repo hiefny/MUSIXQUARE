@@ -1463,7 +1463,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      and file names stay on one line and use the base ellipsis treatment. */
   @media (max-width: 719px) {
     .header-loading-text {
-      white-space: nowrap;
       overflow-wrap: normal;
       line-height: 18px;
     }
@@ -1835,11 +1834,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Playlist Controls Active States */
-  .tab-action-btn.active {
-    background: transparent;
-    color: white;
-  }
-
+  .tab-action-btn.active,
   .tab-action-btn.active-one {
     background: transparent;
     color: white;
@@ -3858,7 +3853,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   @media (max-width: 420px) {
     .room-password-code {
-      font-size: 22px;
       min-width: 132px;
     }
   }
@@ -7138,7 +7132,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .ob-dot.active {
     background: var(--primary);
     width: 24px;
-    border-radius: var(--radius-pill);
   }
 
   /* --- Onboarding nav row: dots + mini arrows --- */
@@ -8626,7 +8619,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer-header {
       justify-content: center;
-      padding: 16px;
       background: transparent;
       cursor: grab;
       touch-action: none;
@@ -10381,8 +10373,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
     .demo-visual-stage {
       grid-column: 1;
-      grid-row: 1;
-      min-height: 0;
     }
 
     .demo-control-stage {
@@ -10559,8 +10549,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding-inline-end: 10px;
       --demo-control-inset: 18px;
       --demo-shell-gap: 22px;
-      --demo-panel-start-offset: 0px;
-      gap: var(--demo-shell-gap);
     }
 
     .demo-step-copy h2 {

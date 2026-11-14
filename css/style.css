@@ -8662,10 +8662,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       user-select: none;
       -webkit-user-select: none;
     }
-  }
 
   /* Drag handle bar — mobile bottom sheet affordance */
-  @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer-header::before {
       content: '';
       width: 36px;
@@ -12222,7 +12220,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     html[data-theme='light']:not(.standalone) .bottom-nav {
       background: #ffffff;
     }
-  }
   /* Phone setup: the step areas (the elements that scroll) and the actions
      bar span the screen, so a contained area's scrollbar, drawn at the right
      edge of .setup-mobile-view (src/ui/custom-scrollbar.ts), sits at the
@@ -12231,7 +12228,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      so no text or button moves. The scrollbar takes no layout width, so both
      sides stay equal. A width-only query, so phones held sideways under
      720px get it too; the two-column panel from 720px keeps its own. */
-  @media (max-width: 719px) {
     #setup-overlay .setup-card.full-screen,
     #setup-overlay .setup-mobile-view {
       padding-inline: 0;
@@ -13065,16 +13061,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .desktop-diagram-area .ob-dot.active {
       width: 24px;
     }
-  }
 
-  @media (min-width: 720px) {
     body.demo-mobile.viz-spectrum .demo-visualizer-slot .vinyl-wrapper {
       height: clamp(170px, min(62%, 48vh), 440px);
       max-height: 100%;
       margin: 0;
       align-self: center;
     }
-  }
 
   /* The /debug text overlays' one COPY (src/chat/debug-console.ts) keeps the
      350px a 390px phone gives it, in the middle, instead of a pill across
@@ -13082,7 +13075,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      8px padding, and a tap beside the row lands on the overlay itself.
      Below 720px wide the row is as before. The onboarding diagnostics share
      the row's classes and keep theirs. */
-  @media (min-width: 720px) {
     .debug-memory-overlay:not(.onboarding-diagnostics-overlay) .onboarding-diagnostics-actions {
       width: 100%;
       max-width: 366px;

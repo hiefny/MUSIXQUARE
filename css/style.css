@@ -5087,12 +5087,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
+    /* Fades out over the page when a reset recovers in place; the reload a
+       reset starts continues on the boot splash, which fades over the app. */
+    transition:
+      opacity 0.3s ease-out,
+      visibility 0s linear 0.3s;
   }
 
   .session-reset-overlay.show {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
+    transition:
+      opacity 0.2s ease-out,
+      visibility 0s linear 0s;
   }
 
   .session-reset-message {
@@ -5102,6 +5110,22 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-weight: var(--font-weight-label);
     line-height: 1.5;
     text-align: center;
+  }
+
+  /* The refresh screen is the boot splash's wordmark and loader at the same
+     centred place, on the splash's one 24px unit (index.html: a 24px
+     wordmark over the 24px loader in its 48px box), so the reload that
+     follows continues them. Its message is for screen readers only. */
+  .session-reset-mark {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .session-reset-wordmark {
+    display: block;
+    width: auto;
+    height: 24px;
   }
 
   html.session-reset-pending,

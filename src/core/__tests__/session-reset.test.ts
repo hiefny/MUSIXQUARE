@@ -1,5 +1,7 @@
 /** @vitest-environment jsdom */
 
+import { readFileSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubNavigationSinks } from './__helpers__/navigation-sinks.ts';
 
@@ -369,6 +371,150 @@ describe('session reset coordinator', () => {
     expect(keyEvent.defaultPrevented).toBe(false);
     expect(shortcutHandler).toHaveBeenCalledOnce();
     window.removeEventListener('keydown', shortcutHandler);
+  });
+
+  // Owner decision 2026-11-15: the reset screen is the boot splash's wordmark
+  // and loader in their final place, with no visible text, and the page the
+  // reset opens continues them (browser/classic-runtime/wordmark-anim.ts).
+  describe('the reset screen continues the boot splash', () => {
+    const CONTINUITY_KEY = 'mxqr-boot-continuity';
+    // The splash as the reset finds it after boot: drawn, faded out, hidden.
+    const SPLASH = `<div class="boot-splash" aria-hidden="true" hidden>
+      <div class="boot-splash-mark">
+        <svg class="boot-splash-logo" viewBox="43 12 214 24" aria-hidden="true" focusable="false"
+          data-wordmark-ready="true" data-wordmark-draw-complete="true">
+          <g class="wg" mask="url(#reveal)"><rect x="43" y="12" width="4" height="10"></rect><rect x="47" y="12" width="6" height="4"></rect></g>
+          <defs><mask id="reveal"></mask><g data-wordmark-strokes></g></defs>
+        </svg>
+        <span class="boot-splash-spinner" aria-hidden="true"><svg viewBox="0 0 44 44" focusable="false"><circle cx="22" cy="22" r="18"></circle></svg></span>
+      </div>
+    </div>`;
+
+    beforeEach(() => {
+      sessionStorage.clear();
+      vi.setSystemTime(1_000_000);
+      document.body.insertAdjacentHTML('afterbegin', SPLASH);
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: undefined,
+      });
+    });
+
+    afterEach(() => {
+      sessionStorage.clear();
+    });
+
+    it("shows the splash's wordmark and loader, with its message for screen readers only", async () => {
+      const { scheduleSessionReset } = await loadCoordinator();
+      scheduleSessionReset('Refreshing session...', vi.fn());
+
+      const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
+      const mark = overlay.querySelector('.session-reset-mark') as HTMLElement;
+      expect([...overlay.children]).toEqual([mark]);
+      expect([...mark.children].map((child) => child.getAttribute('class'))).toEqual([
+        'session-reset-wordmark',
+        'boot-splash-spinner',
+        'session-reset-message sr-only',
+      ]);
+      expect(document.getElementById('session-reset-message')?.textContent).toBe(
+        'Refreshing session...',
+      );
+      const wordmark = mark.querySelector('svg.session-reset-wordmark') as SVGSVGElement;
+      // Drawn whole: no reveal geometry, mask or runtime state.
+      expect(wordmark.querySelector('defs, mask')).toBeNull();
+      expect(wordmark.querySelector('.wg')?.hasAttribute('mask')).toBe(false);
+      expect(wordmark.hasAttribute('data-wordmark-ready')).toBe(false);
+      expect(wordmark.hasAttribute('data-wordmark-draw-complete')).toBe(false);
+      expect(wordmark.querySelectorAll('.wg > rect')).toHaveLength(2);
+      expect(wordmark.getAttribute('viewBox')).toBe('43 12 214 24');
+      // The live status region announces the message, not the pictures.
+      expect(wordmark.getAttribute('aria-hidden')).toBe('true');
+      expect(mark.querySelector('.boot-splash-spinner')?.getAttribute('aria-hidden')).toBe('true');
+      // The splash itself is left as it was.
+      const splashLogo = document.querySelector('.boot-splash .boot-splash-logo') as SVGSVGElement;
+      expect(splashLogo.querySelector('defs')).not.toBeNull();
+      expect(splashLogo.querySelector('.wg')?.getAttribute('mask')).toBe('url(#reveal)');
+    });
+
+    it('builds the screen once and keeps only its message when the splash is missing', async () => {
+      document.querySelector('.boot-splash')?.remove();
+      const { scheduleSessionReset } = await loadCoordinator();
+      scheduleSessionReset('Leaving session...', vi.fn());
+      const mark = document.querySelector('#session-reset-overlay .session-reset-mark');
+      expect([...(mark?.children ?? [])].map((child) => child.id)).toEqual([
+        'session-reset-message',
+      ]);
+    });
+
+    it("runs the loader on the wall clock's phase, as the next page's splash does", async () => {
+      const original = window.getComputedStyle.bind(window);
+      vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
+        if (element.closest('#session-reset-overlay') && element.localName === 'svg') {
+          return { animationDuration: '1.85s' } as CSSStyleDeclaration;
+        }
+        if (element.closest('#session-reset-overlay') && element.localName === 'circle') {
+          return { animationDuration: '1.45s' } as CSSStyleDeclaration;
+        }
+        return original(element, pseudo);
+      });
+      const { scheduleSessionReset } = await loadCoordinator();
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      const loader = document.querySelector('#session-reset-overlay .boot-splash-spinner');
+      // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
+      expect(loader?.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe(
+        '-1000ms',
+      );
+      expect(loader?.querySelector<SVGCircleElement>('circle')?.style.animationDelay).toBe(
+        '-950ms',
+      );
+    });
+
+    it('stamps the next page as a continuation and clears the stamp when this page stays', async () => {
+      const { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } =
+        await import('../navigation-contract.ts');
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+
+      // A navigation that never commits (a rejected traversal) recovers here.
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
+      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      expect(isSessionResetPending()).toBe(false);
+      expect(sessionStorage.getItem(CONTINUITY_KEY)).toBeNull();
+    });
+
+    it('keeps the stamp for the page a committed navigation opens, until this page returns', async () => {
+      const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+      const { scheduleSessionReset } = await loadCoordinator();
+
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+      window.dispatchEvent(new Event('pagehide'));
+      expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
+
+      // Safari returned this document instead: no later page continues it.
+      window.dispatchEvent(new Event('pageshow'));
+      expect(sessionStorage.getItem(CONTINUITY_KEY)).toBeNull();
+    });
+
+    it('fades in over the page and out when the page stays', () => {
+      const stylesheet = readFileSync('css/style.css', 'utf8');
+      const rule = (opener: string) => {
+        const start = stylesheet.indexOf(opener);
+        expect(start, opener).toBeGreaterThan(-1);
+        return stylesheet.slice(start, stylesheet.indexOf('}', start)).replace(/\s+/gu, ' ');
+      };
+      expect(rule('  .session-reset-overlay {')).toContain(
+        'transition: opacity 0.3s ease-out, visibility 0s linear 0.3s;',
+      );
+      expect(rule('  .session-reset-overlay.show {')).toContain(
+        'transition: opacity 0.2s ease-out, visibility 0s linear 0s;',
+      );
+      // The hidden starting style is settled before .show, so the fade runs.
+      const source = readFileSync('src/core/session-reset.ts', 'utf8');
+      expect(source).toMatch(
+        /void overlay\.getBoundingClientRect\(\);\s*overlay\.classList\.add\('show'\);/u,
+      );
+    });
   });
 
   describe('exactly-once typed settlement (C6-4)', () => {

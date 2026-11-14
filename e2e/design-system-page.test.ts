@@ -973,3 +973,36 @@ test('centres the pinned notice X on its header time, as the app does', async ({
     expect(width - closeInk.right).toBeLessThanOrEqual(17.5);
   }
 });
+
+test('reveals every section, however tall, as a phone reader scrolls through the page', async ({
+  page,
+}) => {
+  // Motion stays on: reduced motion shows the sections without the reveal.
+  // On a 375 x 812 phone the Components section is about 10,600px tall, so no
+  // scroll position ever shows a tenth of it at once.
+  for (const viewport of [
+    { height: 812, width: 375 },
+    { height: 844, width: 390 },
+    { height: 900, width: 1440 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/designsystem');
+    await expect(page.locator('h1')).toHaveText(/Design\s*language\./u);
+    const hidden = await page.evaluate(async () => {
+      const nextFrame = () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+      const step = Math.max(1, Math.floor(window.innerHeight / 2));
+      for (let top = 0; top <= document.documentElement.scrollHeight; top += step) {
+        window.scrollTo({ behavior: 'instant', top });
+        await nextFrame();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return [...document.querySelectorAll<HTMLElement>('[data-animate]')]
+        .filter((section) => !section.classList.contains('is-visible'))
+        .map((section) => section.id || section.className);
+    });
+    expect(hidden, `${viewport.width}x${viewport.height}`).toEqual([]);
+  }
+});

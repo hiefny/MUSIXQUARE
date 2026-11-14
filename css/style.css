@@ -669,18 +669,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
   }
 
-  @keyframes fadeInScale {
-    from {
-      opacity: 0;
-      transform: scale(0.98);
-    }
-
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-
   /* Dialog dimming must stay fixed; the shared fadeIn keyframe also moves 10px. */
   @keyframes dialogBackdropIn {
     from {
@@ -1504,15 +1492,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .role-badge.connected {
-    background: var(--primary-filled);
-    color: white;
-  }
-
-  .role-badge.connected.remote {
-    background: var(--warning-filled);
   }
 
   /* PRO has no browser host/coordinator rank. Keep every endpoint equally blue. */
@@ -4489,12 +4468,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-muted);
     cursor: pointer;
     transition: all 0.15s;
-  }
-
-  .d-op-btn.active {
-    background: var(--primary-filled);
-    color: white;
-    border-color: rgba(var(--primary-rgb), 0.75);
   }
 
   /* Administrator grant is a compact, intact crown state action. */

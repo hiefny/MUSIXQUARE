@@ -75,6 +75,7 @@ interface UiKitSvgProps extends UiKitDomProps {
   readonly d?: string;
   readonly fill?: string;
   readonly height?: string | number;
+  readonly overflow?: string;
   readonly points?: string;
   readonly r?: string | number;
   readonly rx?: string | number;

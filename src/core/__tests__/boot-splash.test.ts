@@ -185,6 +185,31 @@ describe('boot splash', () => {
     );
   });
 
+  it('draws the welcome wordmark whole, glyph for glyph', () => {
+    const dom = new JSDOM(INDEX);
+    const { document } = dom.window;
+    const shapes = (svg: Element | null) =>
+      [...(svg?.querySelectorAll('polygon, path, rect') ?? [])]
+        .filter((shape) => !shape.closest('defs'))
+        .map((shape) =>
+          ['points', 'd', 'x', 'y', 'width', 'height']
+            .map((name) => shape.getAttribute(name))
+            .filter((value) => value !== null)
+            .join(' '),
+        );
+    const splashLogo = document.querySelector('.boot-splash-logo');
+    const welcomeLogo = document.querySelector('.logo-welcome');
+    expect(splashLogo?.getAttribute('viewBox')).toBe(welcomeLogo?.getAttribute('viewBox'));
+    expect(shapes(splashLogo)).toEqual(shapes(welcomeLogo));
+    // M U S I X Q U A R and the three bars of E.
+    expect(shapes(splashLogo)).toHaveLength(12);
+    dom.window.close();
+    // The Q's tail (to y 38) and the R's leg (to y 36.4) reach below the
+    // viewBox (y 12 to 36); every app wordmark draws them (.logo-svg).
+    expect(declaration(STYLE, '  .logo-svg {', 'overflow')).toBe('visible');
+    expect(declaration(SPLASH_CSS, '      .boot-splash-logo {', 'overflow')).toBe('visible');
+  });
+
   it('draws the shared loader exactly as the setup screen does', () => {
     expect(declaration(STYLE, '  .setup-qr-join-spinner {', '--material-elastic-size')).toBe(
       '42px',

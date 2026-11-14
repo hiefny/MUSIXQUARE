@@ -73,10 +73,13 @@
         animation: boot-splash-mark-in 0.2s ease-out 0.3s forwards;
       }
 
+      /* The Q's tail and the R's leg reach below the wordmark's viewBox, as
+         they do for every app wordmark (.logo-svg). */
       .boot-splash-logo {
         display: block;
         width: auto;
         height: 22px;
+        overflow: visible;
       }
 
       @media (min-width: 720px) {

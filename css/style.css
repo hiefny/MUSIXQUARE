@@ -10277,8 +10277,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --demo-panel-max: clamp(340px, 40vw, 640px);
       --demo-step-gap: clamp(14px, 2.6vh, 26px);
       --demo-column-gap: clamp(18px, 3vw, 44px);
-      --demo-row-gap: clamp(12px, 2vh, 24px);
-      --demo-nav-size: clamp(54px, min(7vw, 8vh), 70px);
       --demo-nav-gap: clamp(10px, 1.5vw, 18px);
       --demo-visual-min: 0px;
       --demo-visual-height: auto;

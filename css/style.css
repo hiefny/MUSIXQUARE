@@ -1099,11 +1099,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: var(--radius-pill);
   }
 
-  /* The app wordmarks are sized by their letters' box (viewBox 43 12 214 24 or
-     the PRO 43 12 170 24). The Q's tail (to y 38) and the R's leg (to y 36.4)
-     hang below it, so overflow must stay visible; an svg clips by default.
-     Copies elsewhere either keep it visible or use the brand asset's
-     43 12 214 26 (wordmark-q-tail test). */
+  /* The app wordmarks are sized and aligned by their letters' box (viewBox
+     43 12 214 24 or the PRO 43 12 170 24); the header heights and the setup
+     screen's optical offsets read that box. The Q's tail (to y 38) and the R's
+     leg (to y 36.4) hang below it, and an svg clips by default, so each
+     wordmark carries overflow="visible" in its own markup (a copy keeps it)
+     and this rule repeats it. Copies elsewhere carry the same attribute or
+     use the brand asset's 43 12 214 26 (wordmark-q-tail test). */
   .logo-svg {
     display: block;
     overflow: visible;

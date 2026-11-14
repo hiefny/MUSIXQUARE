@@ -300,8 +300,8 @@ Prefer an existing path from `index.html` before introducing a new icon.
   `assets/favicon.svg` for compact brand placement.
 - The wordmark's Q tail and R leg hang below its letters. Keep the asset's
   `viewBox="43 12 214 26"`, or, when a copy is sized by the letters'
-  `43 12 214 24` box as the app header is, keep the svg's overflow visible;
-  otherwise the tail is clipped.
+  `43 12 214 24` box as the app header is, put `overflow="visible"` on the
+  svg itself; an svg clips at its viewBox by default, so the tail is cut.
 - PNGs under `public/icons/` are PWA and platform icon assets, not general UI art.
 
 ## Change checklist

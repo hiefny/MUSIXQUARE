@@ -510,7 +510,8 @@ describe('service worker cache policy', () => {
     expect(response.status).toBe(200);
     expect(waitUntilWasSynchronous).toBe(true);
     expect(work).toHaveLength(1);
-    expect(cachePut).toHaveBeenCalledOnce();
+    // The worker writes its own bounded copy, which it reads after the headers.
+    await vi.waitFor(() => expect(cachePut).toHaveBeenCalledOnce());
 
     let completed = false;
     const completion = Promise.all(work).then(() => {
@@ -558,13 +559,8 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('online asset');
-    if (url.includes('/assets/')) {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
-    } else {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, {
-        signal: expect.any(AbortSignal),
-      });
-    }
+    // A miss is the page's own load on both asset paths, with no deadline signal.
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
   });
 
   it.each([
@@ -583,13 +579,8 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(503);
     expect(await response.text()).toBe('Offline');
-    if (url.includes('/assets/')) {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
-    } else {
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, {
-        signal: expect.any(AbortSignal),
-      });
-    }
+    // A miss is the page's own load on both asset paths, with no deadline signal.
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
   });
 
   it('uses the static cache for same-origin assets', async () => {
@@ -676,7 +667,7 @@ describe('service worker cache policy', () => {
 
     const older = await dispatchWithWork(request);
     expect(await older.response.text()).toBe('older cacheable configuration');
-    expect(cachePut).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(cachePut).toHaveBeenCalledOnce());
     expect(finishOlderPut).toBeTypeOf('function');
 
     const newer = await dispatchWithWork(request);
@@ -719,7 +710,8 @@ describe('service worker cache policy', () => {
       waitUntil: (work) => olderWork.push(work),
     });
     expect(olderResponse).toBeDefined();
-    expect(fetchMock).toHaveBeenCalledOnce();
+    // The network starts once the active-cache lookup has missed.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
 
     const newer = await dispatchWithWork(request);
     expect(await newer.response.text()).toBe('newer private configuration');
@@ -819,7 +811,8 @@ describe('service worker cache policy', () => {
       waitUntil: (work) => olderWork.push(work),
     });
     expect(olderResponse).toBeDefined();
-    expect(fetchMock).toHaveBeenCalledOnce();
+    // The network starts once the active-cache lookup has missed.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
 
     const newer = await dispatchWithWork(request);
     expect(await newer.response.text()).toBe('newer cacheable configuration');
@@ -1178,7 +1171,7 @@ describe('service worker cache policy', () => {
   });
 
   it.each(['first', 'rest', 'stacks'])(
-    "takes the ordinary revalidating static path for a public page's %s.css",
+    "takes the ordinary static path for a public page's %s.css on a cache miss",
     async (sheet) => {
       const url = `https://musixquare.com/web-fonts/${sheet}.css`;
       fetchMock.mockResolvedValue(new Response('public page font sheet', { status: 200 }));
@@ -1186,9 +1179,7 @@ describe('service worker cache policy', () => {
       const online = await dispatch(new Request(url));
 
       expect(await online.text()).toBe('public page font sheet');
-      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.any(Request), {
-        signal: expect.any(AbortSignal),
-      });
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.any(Request));
       expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
       expect(cachePut).toHaveBeenCalledOnce();
     },

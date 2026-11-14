@@ -291,10 +291,12 @@ describe('boot splash', () => {
       /html\.is-booting :not\(\.app-entrance\),[\s\S]{0,160}?transition: none !important;/u,
     );
     expect(SPLASH_CSS).not.toMatch(/(?:^|[\s;{])transition(?:-[a-z]+)?\s*:/u);
-    // Once released, the hidden loader freezes: an infinite main-thread
-    // animation would otherwise cost a style pass every frame all session.
+    // Once released, everything inside the hidden splash freezes: the
+    // loader's infinite main-thread animation would otherwise cost a style
+    // pass every frame all session, and WebKit keeps an unfinished fade-in
+    // running under the hidden splash.
     expect(SPLASH_CSS).toMatch(
-      /html:not\(\.setup-boot-block\) \.boot-splash-spinner > svg,\s*html:not\(\.setup-boot-block\) \.boot-splash-spinner circle,\s*html\.boot-splash-released \.boot-splash-spinner > svg,\s*html\.boot-splash-released \.boot-splash-spinner circle,\s*html\.setup-boot-failed \.boot-splash-spinner > svg,\s*html\.setup-boot-failed \.boot-splash-spinner circle \{\s*animation-play-state: paused;\s*\}/u,
+      /html:not\(\.setup-boot-block\) \.boot-splash \*,\s*html\.boot-splash-released \.boot-splash \*,\s*html\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
     );
     // Last resort when nothing after the page file arrives: step aside 5 s
     // after the 15 s boot-failure fallbacks, on the same variable.

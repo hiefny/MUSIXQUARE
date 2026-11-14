@@ -69,14 +69,13 @@
         animation: boot-splash-out 0.3s ease-out forwards;
       }
 
-      /* The hidden splash stays in the document; freeze its loader where it
-         is so it costs no frame for the rest of the session. */
-      html:not(.setup-boot-block) .boot-splash-spinner > svg,
-      html:not(.setup-boot-block) .boot-splash-spinner circle,
-      html.boot-splash-released .boot-splash-spinner > svg,
-      html.boot-splash-released .boot-splash-spinner circle,
-      html.setup-boot-failed .boot-splash-spinner > svg,
-      html.setup-boot-failed .boot-splash-spinner circle {
+      /* The hidden splash stays in the document; freeze everything inside it
+         where it is (the loader's two infinite animations, and the mark's
+         fade-in when the app opens within 0.5 s) so it costs no frame for the
+         rest of the session. */
+      html:not(.setup-boot-block) .boot-splash *,
+      html.boot-splash-released .boot-splash *,
+      html.setup-boot-failed .boot-splash * {
         animation-play-state: paused;
       }
 

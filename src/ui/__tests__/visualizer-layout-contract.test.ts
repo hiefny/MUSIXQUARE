@@ -78,7 +78,8 @@ describe('visualizer layout contract', () => {
       /\.track-box,\s*\.controls-area,\s*\.play-secondary-area\s*\{[\s\S]*?width:\s*calc\(var\(--playback-rail-width\) - 8px\);[\s\S]*?padding:\s*20px 0 0;[\s\S]*?margin-inline-start:\s*auto;[\s\S]*?margin-inline-end:\s*auto;/u,
     );
     expect(desktopStylesheet).toMatch(/\.controls-area\s*\{\s*padding-top:\s*12px;/u);
-    expect(desktopStylesheet).toMatch(/\.video-wrapper\s*\{[\s\S]*?border-radius:\s*16px;/u);
+    // Desktop keeps the base wrapper's 16px corners: it never restates the wrapper.
+    expect(desktopStylesheet).not.toContain('.video-wrapper');
     expect(stylesheet).toMatch(
       /\.video-wrapper:fullscreen,[\s\S]*?\.video-wrapper:-webkit-full-screen\s*\{[\s\S]*?border-radius:\s*0;/u,
     );

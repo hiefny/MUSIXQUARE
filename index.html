@@ -122,11 +122,11 @@
         overflow: visible;
       }
 
-      /* The wordmark draws itself once (wordmark-anim.js, loaded async right
-         after the splash). Until that runtime takes the wordmark, its ink shows
-         as the same faint 15% outline the reveal starts from; if the runtime
-         never arrives, the whole wordmark fades in at 1.8 s instead (the
-         runtime then leaves it drawn). */
+      /* The wordmark draws itself once (wordmark-anim.js, loaded async after
+         the start-up scripts). Until that runtime takes the wordmark, its ink
+         shows as the same faint 15% outline the reveal starts from; if the
+         runtime never arrives, the whole wordmark fades in at 1.8 s instead
+         (the runtime then leaves it drawn). */
       .boot-splash-logo:not([data-wordmark-ready]) > .wg {
         opacity: 0.15;
         animation: boot-splash-ink-fallback 0.2s ease-out 1.8s forwards;

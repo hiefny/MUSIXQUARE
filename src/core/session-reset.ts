@@ -433,8 +433,9 @@ function createOverlay(): HTMLElement {
 
 /**
  * The refresh screen shows the boot splash's wordmark and loader at the
- * splash's own place, so the reload that follows continues them (index.html,
- * browser/classic-runtime/wordmark-anim.ts). Their copies go into the
+ * splash's own place, so the reload that follows continues them (index.html;
+ * the next page's browser/classic-runtime/bootstrap.ts settles its splash).
+ * Their copies go into the
  * overlay's mark ahead of its message, once; the message is for screen readers
  * only (the overlay is a live status): the user asked for the refresh, and the
  * screen is the wordmark and loader alone (owner decision 2026-11-15).
@@ -478,8 +479,8 @@ function splashWordmarkCopy(): SVGSVGElement | null {
 }
 
 /**
- * Run a loader on the wall clock's phase, as the boot splash's does
- * (browser/classic-runtime/wordmark-anim.ts), so it does not jump when the
+ * Run a loader on the wall clock's phase, as the next page's splash does
+ * (browser/classic-runtime/bootstrap.ts), so it does not jump when the
  * reload replaces this page with the splash. Each running animation is set to
  * the wall clock's place in its own period; without the Web Animations API an
  * equivalent negative delay does it, exact for an animation that just started.
@@ -488,6 +489,9 @@ function alignLoaderToWallClock(loader: Element | null): void {
   if (!loader) return;
   const now = Date.now();
   for (const element of loader.querySelectorAll<SVGElement>(':scope > svg, circle')) {
+    // A copy of a splash bootstrap.js aligned carries that page's negative
+    // delay, which would shift every currentTime set below: drop it first.
+    element.style.removeProperty('animation-delay');
     // Its CSS animations only (a transition is not a loop to align).
     const animations =
       typeof element.getAnimations === 'function'
@@ -608,7 +612,7 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
   const messageEl = overlay.querySelector<HTMLElement>(`#${MESSAGE_ID}`);
   if (messageEl) messageEl.textContent = message;
   // The page this reset opens continues this wordmark and loader instead of
-  // drawing the wordmark again (wordmark-anim.ts reads and clears the stamp).
+  // drawing the wordmark again (its bootstrap.js reads and clears the stamp).
   try {
     sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_KEY, String(Date.now()));
   } catch {

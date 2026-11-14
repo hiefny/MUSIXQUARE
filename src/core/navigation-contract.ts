@@ -83,8 +83,9 @@ export const PREVIOUS_LINK_CLOSE_KEY = 'mxqr-prev-close';
  * next document's boot splash shows the same wordmark and loader in their
  * final place instead of drawing the wordmark again, while the stamp is under
  * 15 s old (core/session-reset.ts writes it and removes it when its document
- * stays; browser/classic-runtime/wordmark-anim.ts reads and removes it, and
- * cannot import this, so boot-splash.test.ts pins its copy; RO-55).
+ * stays; the next document's browser/classic-runtime/bootstrap.ts reads and
+ * removes it before the app runs, and cannot import this, so
+ * boot-splash.test.ts pins its copy; RO-55).
  */
 export const BOOT_SPLASH_CONTINUITY_KEY = 'mxqr-boot-continuity';
 

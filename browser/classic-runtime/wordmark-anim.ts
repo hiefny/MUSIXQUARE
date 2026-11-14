@@ -4,7 +4,8 @@
  * edges are rasterized together without widening a reveal into a stroke that
  * has not started yet.
  *
- * Loaded async right after the splash, so it runs as soon as it arrives. It
+ * Loaded async after the start-up scripts, so it runs as soon as it arrives
+ * and never before bootstrap.js. It
  * draws once at the centre, from the moment the splash shows its mark (0.3 s
  * on the splash's own CSS clock), while the splash is still up; once drawn it
  * sets the splash's data-phase="loader", and the wordmark rises while the

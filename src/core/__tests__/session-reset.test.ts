@@ -505,8 +505,10 @@ describe('session reset coordinator', () => {
     });
 
     it("sets the loader's running animations to the wall clock once shown, and again after a move", async () => {
-      // Each element's CSS animation, as the Web Animations API reports it.
+      // Each element's CSS animation, as the Web Animations API reports it,
+      // and a transition beside it that is not a loop to align.
       const animations = new Map<Element, { currentTime: number | null }>();
+      const transitions = new Map<Element, { currentTime: number | null }>();
       Object.defineProperty(window.SVGElement.prototype, 'getAnimations', {
         configurable: true,
         value(this: SVGElement) {
@@ -520,10 +522,26 @@ describe('session reset coordinator', () => {
             );
             animations.set(this, animation);
           }
-          // A transition on the same element is not a loop to align.
-          return [animation, { transitionProperty: 'opacity', currentTime: null }];
+          let transition = transitions.get(this);
+          if (!transition) {
+            transition = Object.assign(
+              { transitionProperty: 'opacity' },
+              { currentTime: null, effect: { getTiming: () => ({ duration: 200 }) } },
+            );
+            transitions.set(this, transition);
+          }
+          return [animation, transition];
         },
       });
+      // The splash of a page a reset opened: bootstrap.js left its loader on
+      // the wall clock with a negative delay, which the copy must not keep.
+      document
+        .querySelectorAll<SVGElement>(
+          '.boot-splash .boot-splash-spinner > svg, .boot-splash .boot-splash-spinner circle',
+        )
+        .forEach((element) => {
+          element.style.animationDelay = '-700ms';
+        });
       try {
         const { scheduleSessionReset, setSessionResetWindowLayer } = await loadCoordinator();
         // A fullscreen host that appears while the reset holds the page.
@@ -543,10 +561,18 @@ describe('session reset coordinator', () => {
 
         scheduleSessionReset('Refreshing session...', vi.fn());
         expect(phases()).toEqual([1_000_000 % 1850, 1_000_000 % 1450]);
-        const svg = document.querySelector<SVGSVGElement>(
-          '#session-reset-overlay .boot-splash-spinner > svg',
-        );
-        expect(svg?.style.animationDelay).toBe('');
+        // The copy dropped the splash's delay, and the transition kept its time.
+        expect(
+          [
+            ...document.querySelectorAll<SVGElement>(
+              '#session-reset-overlay .boot-splash-spinner > svg, #session-reset-overlay .boot-splash-spinner circle',
+            ),
+          ].map((element) => element.style.animationDelay),
+        ).toEqual(['', '']);
+        expect([...transitions.values()].map((transition) => transition.currentTime)).toEqual([
+          null,
+          null,
+        ]);
 
         // The move into the host restarts them: the wall clock's phase again.
         vi.setSystemTime(1_000_700);

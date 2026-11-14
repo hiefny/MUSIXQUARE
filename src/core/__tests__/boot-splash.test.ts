@@ -259,8 +259,15 @@ describe('boot splash', () => {
     const [logoWidth = 0, logoHeight = 0] = fixedSize('      .boot-splash-logo {');
     const [loaderWidth = 0, loaderHeight = 0] = fixedSize('      .boot-splash-spinner > svg {');
     expect(logoWidth * logoHeight + loaderWidth * loaderHeight).toBeGreaterThan(32 * 32);
-    // Exactly what the 214-unit viewBox gives at 24px (one unit, one pixel).
-    expect(logoWidth).toBe(214);
+    // Exactly what the viewBox gives at that height, as auto would.
+    const [, , boxWidth = 0, boxHeight = 0] = (
+      new JSDOM(INDEX).window.document
+        .querySelector('.boot-splash-logo')
+        ?.getAttribute('viewBox') ?? ''
+    )
+      .split(/\s+/u)
+      .map(Number);
+    expect(logoWidth).toBe((boxWidth * logoHeight) / boxHeight);
     // The mark stands half the loader's 48px box lower until it rises.
     expect(declaration(SPLASH_CSS, '      .boot-splash-mark {', 'transform')).toBe(
       'translateY(24px)',

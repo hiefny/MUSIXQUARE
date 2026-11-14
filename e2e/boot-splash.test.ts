@@ -184,10 +184,13 @@ test.describe('session reset screen', () => {
     await expect(page.locator('#dialog-overlay.show')).toBeVisible();
     await page.locator('#btn-dialog-ok').click();
 
-    const overlay = page.locator('#session-reset-overlay');
-    await expect(overlay).toHaveClass(/\bshow\b/u);
-    await expect(overlay.locator('.session-reset-wordmark')).toBeVisible();
-    await expect(overlay.locator('.boot-splash-spinner > svg')).toBeVisible();
+    // Read the screen as soon as it shows and release the next page at once,
+    // well inside the reset's 2 s commit window (past it the page recovers).
+    await page.waitForFunction(
+      () => document.getElementById('session-reset-overlay')?.classList.contains('show'),
+      null,
+      { timeout: 10_000, polling: 20 },
+    );
     const screen = await page.evaluate(() => {
       const middle = innerHeight / 2;
       const centre = (selector: string) => {
@@ -210,6 +213,8 @@ test.describe('session reset screen', () => {
         message: message.textContent,
         messageClipped: message.getBoundingClientRect().width <= 1,
         stamped: sessionStorage.getItem('mxqr-boot-continuity') !== null,
+        // Still the reset's page: the next one has not been let in yet.
+        pending: document.documentElement.classList.contains('session-reset-pending'),
       };
     });
     releaseNavigation();
@@ -221,6 +226,7 @@ test.describe('session reset screen', () => {
       message: 'Leaving session...',
       messageClipped: true,
       stamped: true,
+      pending: true,
     });
 
     // The page the reset opened shows them in their final place at once.

@@ -18,7 +18,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { cancelCapabilityChallenge } from '../core/capability.ts';
 import { requestProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { onCompactLandscapeChange } from '../core/platform.ts';
 import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { showToast, showLoader } from './toast.ts';
@@ -230,100 +230,6 @@ function triggerAppEntrance(): void {
 
 // ─── Init Setup Overlay ──────────────────────────────────────────
 
-const SETUP_GREETING_DELAY_MS = 0;
-const SETUP_LOGO_DRAW_BASE_DELAY_MS = 500;
-const SETUP_GREETING_FALLBACK_BUFFER_MS = 300;
-const SETUP_GREETING_REVEAL_TIMER = 'setup-greeting-reveal';
-const SETUP_GREETING_FALLBACK_TIMER = 'setup-greeting-fallback';
-
-function revealSetupGreeting(): void {
-  document.querySelectorAll<HTMLElement>('.setup-brand-greeting-stage').forEach((stage) => {
-    stage.classList.add('is-greeting-visible');
-    stage.querySelector<SVGElement>('.logo-welcome')?.setAttribute('aria-hidden', 'true');
-  });
-  document.querySelectorAll<HTMLElement>('.setup-greeting-row').forEach((row) => {
-    row.classList.add('is-visible');
-    row.setAttribute('aria-hidden', 'false');
-  });
-}
-
-function armSetupGreeting(signal: AbortSignal): void {
-  clearManagedTimer(SETUP_GREETING_REVEAL_TIMER);
-  clearManagedTimer(SETUP_GREETING_FALLBACK_TIMER);
-
-  const greetingRows = document.querySelectorAll<HTMLElement>('.setup-greeting-row');
-  if (greetingRows.length === 0) return;
-  if (Array.from(greetingRows).some((row) => row.classList.contains('is-visible'))) {
-    revealSetupGreeting();
-    return;
-  }
-
-  const clearGreetingTimers = () => {
-    clearManagedTimer(SETUP_GREETING_REVEAL_TIMER);
-    clearManagedTimer(SETUP_GREETING_FALLBACK_TIMER);
-  };
-  signal.addEventListener('abort', clearGreetingTimers, { once: true });
-
-  const revealAfterDelay = () => {
-    setManagedTimer(SETUP_GREETING_REVEAL_TIMER, revealSetupGreeting, SETUP_GREETING_DELAY_MS);
-  };
-
-  let reducedMotion = false;
-  try {
-    reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  } catch {
-    /* Fall through to the animation-driven path. */
-  }
-  if (reducedMotion) {
-    revealAfterDelay();
-    return;
-  }
-
-  let longestDrawMs = 0;
-  document.querySelectorAll<SVGSVGElement>('.logo-welcome').forEach((logo) => {
-    logo.querySelectorAll<SVGElement>('[data-wordmark-strokes] > .wl').forEach((stroke) => {
-      const startMs = Number(stroke.dataset.wt) || 0;
-      const durationMs = Number(stroke.dataset.wd) || 0;
-      const endMs = startMs + durationMs;
-      longestDrawMs = Math.max(longestDrawMs, endMs);
-    });
-  });
-
-  let drawCompleted = false;
-  const completeDraw = () => {
-    if (drawCompleted || signal.aborted) return;
-    drawCompleted = true;
-    clearManagedTimer(SETUP_GREETING_FALLBACK_TIMER);
-    revealAfterDelay();
-  };
-  const handleFinalDraw = (event: Event) => {
-    const logo = event.target;
-    if (
-      logo instanceof SVGElement &&
-      logo.matches('.logo-welcome[data-wordmark-draw-complete="true"]')
-    ) {
-      completeDraw();
-    }
-  };
-  document.addEventListener('mxqr:wordmark-draw-complete', handleFinalDraw, { signal });
-
-  const fallbackMs =
-    SETUP_LOGO_DRAW_BASE_DELAY_MS +
-    longestDrawMs +
-    SETUP_GREETING_DELAY_MS +
-    SETUP_GREETING_FALLBACK_BUFFER_MS;
-  setManagedTimer(SETUP_GREETING_FALLBACK_TIMER, revealSetupGreeting, fallbackMs);
-
-  // Begin only once onboarding is ready to paint. A slow locale/bootstrap
-  // must not spend the reveal behind the startup guard. Retain the request
-  // for a delayed classic runtime; the bounded fallback also works without it.
-  document.documentElement.setAttribute('data-wordmark-start-requested', '');
-  document.dispatchEvent(new Event('mxqr:wordmark-start'));
-  if (document.querySelector('.logo-welcome[data-wordmark-draw-complete="true"]')) {
-    completeDraw();
-  }
-}
-
 /** First-paint preparation and reveal must finish together, including invite entry. */
 function runSetupEntry(callback: () => void): void {
   if (getSetupOverlayEverShown()) callback();
@@ -399,8 +305,9 @@ function initSetupOverlay(): void {
   // Apply entrance animation classes to main UI elements
   _applyEntranceClasses();
 
+  // The greeting and its language button are authored visible (index.html):
+  // the wordmark draws on the boot splash instead (owner decision 2026-11-15).
   showSetupOverlay();
-  armSetupGreeting(signal);
   scheduleStandardRoomPrerequisiteWarmup();
   initObCarousel(signal);
   bindOnboardingDebugGesture({

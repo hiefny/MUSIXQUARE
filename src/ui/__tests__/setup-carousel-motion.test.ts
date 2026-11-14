@@ -353,7 +353,7 @@ describe('onboarding carousel motion preference', () => {
     expect(mocks.clearManagedTimer).toHaveBeenCalledWith('setup-ob-carousel-autoplay');
   });
 
-  it('starts the first visible dwell while the separate greeting animation is still pending', () => {
+  it('starts the first visible dwell on its own, whatever the greeting row shows', () => {
     renderCarouselFixture();
     document
       .getElementById('setup-welcome-area')
@@ -632,8 +632,9 @@ describe('setup greeting reveal', () => {
     const headerEnd = markup.indexOf('<div id="ob-slider-area"', headerStart);
     const header = markup.slice(headerStart, headerEnd);
 
-    expect(header).toContain('class="setup-brand-greeting-stage"');
-    expect(header).toContain('class="setup-greeting-row" aria-hidden="true"');
+    // Authored greeting-first: the language button works from the first frame.
+    expect(header).toContain('class="setup-brand-greeting-stage is-greeting-visible"');
+    expect(header).toContain('<div class="setup-greeting-row is-visible">');
     expect(header).toContain('<h2 class="setup-greeting-heading">');
     expect(header).toContain(
       '<span class="setup-greeting-text" data-i18n="setup.greeting">Hello!</span>',
@@ -648,24 +649,29 @@ describe('setup greeting reveal', () => {
     );
   });
 
-  it('crossfades the completed logo into the greeting without an extra hold', async () => {
+  it('greets from the first frame: the wordmark draws on the boot splash instead', async () => {
     const source = await readFile('src/ui/setup.ts', 'utf8');
+    const shared = await readFile('src/ui/setup-shared.ts', 'utf8');
+    const runtime = await readFile('browser/classic-runtime/wordmark-anim.ts', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');
 
-    expect(source).toContain('const SETUP_GREETING_DELAY_MS = 0;');
-    expect(source).toContain(
-      "document.addEventListener('mxqr:wordmark-draw-complete', handleFinalDraw, { signal })",
+    // No wait for a drawing (owner decision 2026-11-15: the language could
+    // only change once the welcome wordmark had drawn). The markup is authored
+    // greeting-first, so setup changes nothing about it.
+    expect(source).not.toMatch(
+      /SETUP_GREETING_|SETUP_LOGO_DRAW_|armSetupGreeting|revealSetupGreeting|is-greeting-visible/u,
     );
-    expect(source).toContain('SETUP_GREETING_FALLBACK_BUFFER_MS');
-    expect(source).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches");
-    expect(source).toContain("stage.classList.add('is-greeting-visible')");
-    expect(stylesheet).toContain('.setup-brand-greeting-stage.is-greeting-visible > .logo-welcome');
-    expect(stylesheet).toContain('opacity: 0;');
+    for (const file of [source, shared, runtime]) {
+      expect(file).not.toMatch(
+        /mxqr:wordmark-(?:start|refresh|draw-complete)|data-wordmark-start-requested/u,
+      );
+    }
+    // The welcome wordmark stays out of sight under the greeting.
+    const hidden = stylesheet.slice(
+      stylesheet.indexOf('.setup-brand-greeting-stage.is-greeting-visible > .logo-welcome {'),
+    );
+    expect(hidden).toMatch(/^[^}]*opacity: 0;[^}]*visibility: hidden;/u);
     expect(stylesheet).toContain('.setup-greeting-row.is-visible');
-    expect(stylesheet).toContain('opacity 0.48s ease-out 0.36s');
-    expect(stylesheet).toContain('mask: none !important;');
-    expect(source).toContain("document.dispatchEvent(new Event('mxqr:wordmark-start'))");
-    expect(stylesheet).toContain('animation: none !important;');
   });
 
   it('lowers the wordmark in every layout so its top meets the greeting', async () => {
@@ -731,14 +737,17 @@ describe('setup greeting reveal', () => {
   it('keeps exact reveal geometry in nonpainting definitions', async () => {
     const markup = await readFile('index.html', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    // Only the boot splash draws; every other wordmark is the static silhouette.
     const strokes = Array.from(
-      parsed.querySelectorAll<SVGElement>('.logo-welcome defs [data-wordmark-strokes] > .wl'),
+      parsed.querySelectorAll<SVGElement>('.boot-splash-logo defs [data-wordmark-strokes] > .wl'),
     );
+    expect(parsed.querySelectorAll('[data-wordmark-strokes]')).toHaveLength(1);
+    expect(parsed.querySelectorAll('.logo-welcome defs')).toHaveLength(0);
 
     expect(strokes).toHaveLength(36);
     expect(strokes[0]).toMatchObject({ dataset: { wt: '0', wd: '1080' } });
-    expect(parsed.querySelectorAll('.logo-welcome > .wl')).toHaveLength(0);
-    expect(parsed.querySelectorAll('.logo-welcome > .wg')).toHaveLength(1);
+    expect(parsed.querySelectorAll('.boot-splash-logo > .wl')).toHaveLength(0);
+    expect(parsed.querySelectorAll('.boot-splash-logo > .wg')).toHaveLength(1);
     expect(strokes[0]?.getAttribute('height')).toBe('4.5');
     expect(strokes[5]?.getAttribute('y')).toBe('30.8');
     expect(strokes[9]?.getAttribute('height')).toBe('4.5');

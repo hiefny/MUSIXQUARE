@@ -1504,7 +1504,7 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(eventHtml).toContain('<script src="/clearable-editors.js" defer></script>');
     expect(eventHtml).toContain('<script src="/events/event.js" defer></script>');
     expect(appHtml).toContain('<script src="/fouc-cleanup.js"></script>');
-    expect(appHtml).toContain('<script src="/wordmark-anim.js" defer></script>');
+    expect(appHtml).toContain('<script src="/wordmark-anim.js" async></script>');
     expect(appHtml).toMatch(/<script src="\/bootstrap\.js\?cache=v\d+"><\/script>/u);
     expect(landingHtml).toContain('<script src="/static-language.js"></script>');
     expect(landingHtml).toContain('<script src="/landing-bootstrap.js"></script>');

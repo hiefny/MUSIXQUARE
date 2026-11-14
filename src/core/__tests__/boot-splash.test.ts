@@ -72,7 +72,19 @@ describe('boot splash', () => {
     expect(splash?.className).toBe('boot-splash');
     expect(splash?.getAttribute('aria-hidden')).toBe('true');
     expect(splash?.querySelector('script, link, img, [tabindex]')).toBeNull();
-    expect(splash?.querySelector('svg.boot-splash-logo')?.getAttribute('focusable')).toBe('false');
+    // The refresh screen copies the wordmark and the loader into a live
+    // status region, so each carries its own aria-hidden.
+    for (const selector of ['svg.boot-splash-logo', '.boot-splash-spinner']) {
+      expect(splash?.querySelector(selector)?.getAttribute('aria-hidden'), selector).toBe('true');
+    }
+    for (const svg of splash?.querySelectorAll('svg') ?? []) {
+      expect(svg.getAttribute('focusable')).toBe('false');
+    }
+    // The drawing runtime loads right after the splash and never blocks the parser.
+    const runtime = splash?.nextElementSibling;
+    expect(runtime?.getAttribute('src')).toBe('/wordmark-anim.js');
+    expect(runtime?.hasAttribute('async')).toBe(true);
+    expect(dom.window.document.querySelectorAll('script[src="/wordmark-anim.js"]')).toHaveLength(1);
     dom.window.close();
   });
 
@@ -80,6 +92,7 @@ describe('boot splash', () => {
     const order = [
       INDEX.indexOf('<body>'),
       INDEX.indexOf('<div class="boot-splash"'),
+      INDEX.indexOf('<script src="/wordmark-anim.js" async></script>'),
       INDEX.indexOf('<script src="/bootstrap.js?cache='),
       INDEX.indexOf('<script src="/fouc-cleanup.js"></script>'),
       INDEX.indexOf('<link rel="stylesheet" href="css/app.css" />'),
@@ -95,13 +108,13 @@ describe('boot splash', () => {
     const transformed = prioritizeActiveStylesheetsInHtml(`<!doctype html><html><head>
       <style data-boot-splash>.boot-splash{display:flex}</style>
       <noscript><link rel="stylesheet" href="/noscript.css"></noscript>
-      <script src="/wordmark-anim.js" defer></script>
       <script type="module" crossorigin src="/assets/main-a.js"></script>
       <link rel="modulepreload" crossorigin href="/assets/log-b.js">
       <link rel="modulepreload" crossorigin href="/assets/peer-c.js">
       <link rel="stylesheet" crossorigin href="/assets/main-d.css">
     </head><body>
       <div class="boot-splash"></div>
+      <script src="/wordmark-anim.js" async></script>
       <script src="/bootstrap.js?cache=v1"></script>
       <script src="/fouc-cleanup.js"></script>
       ${APP_RENDER_ASSETS_SLOT}
@@ -129,6 +142,7 @@ describe('boot splash', () => {
       ),
     ).toEqual([
       'div boot-splash',
+      'script /wordmark-anim.js',
       'script /bootstrap.js?cache=v1',
       'script /fouc-cleanup.js',
       'link stylesheet /assets/main-d.css',
@@ -210,15 +224,34 @@ describe('boot splash', () => {
     expect(declaration(SPLASH_CSS, '      .boot-splash-logo {', 'overflow')).toBe('visible');
   });
 
-  it('draws the shared loader exactly as the setup screen does', () => {
-    expect(declaration(STYLE, '  .setup-qr-join-spinner {', '--material-elastic-size')).toBe(
-      '42px',
+  it('puts the wordmark, the gap and the loader on one 24px unit on every screen', () => {
+    // The wordmark is drawn 24 units tall (viewBox 43 12 214 24): at 24px one
+    // unit is one pixel (owner decision 2026-11-15).
+    const dom = new JSDOM(INDEX);
+    expect(dom.window.document.querySelector('.boot-splash-logo')?.getAttribute('viewBox')).toBe(
+      '43 12 214 24',
     );
-    expect(declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'width')).toBe('42px');
-    expect(declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'height')).toBe('42px');
-    // The 40px gap above the loader is part of its box (82 = 40 + 42), never a
+    dom.window.close();
+    expect(declaration(SPLASH_CSS, '      .boot-splash-logo {', 'height')).toBe('24px');
+    expect(SPLASH_CSS).not.toMatch(/@media \((?:min|max)-width/u);
+    // The mark stands half the loader's 48px box lower until it rises.
+    expect(declaration(SPLASH_CSS, '      .boot-splash-mark {', 'transform')).toBe(
+      'translateY(24px)',
+    );
+    expect(keyframes(SPLASH_CSS, 'boot-splash-mark-rise')).toBe('to { transform: translateY(0); }');
+    // The refresh screen draws the same wordmark at the same size.
+    expect(declaration(STYLE, '  .session-reset-wordmark {', 'height')).toBe('24px');
+  });
+
+  it('draws the shared loader exactly as the app does, at its default 24px', () => {
+    expect(declaration(STYLE, '  .material-elastic-spinner {', '--material-elastic-size')).toBe(
+      '24px',
+    );
+    expect(declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'width')).toBe('24px');
+    expect(declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'height')).toBe('24px');
+    // The 24px gap above the loader is part of its box (48 = 24 + 24), never a
     // margin or padding: style.css zeroes both on every element.
-    expect(declaration(SPLASH_CSS, '      .boot-splash-spinner {', 'height')).toBe('82px');
+    expect(declaration(SPLASH_CSS, '      .boot-splash-spinner {', 'height')).toBe('48px');
     expect(declaration(SPLASH_CSS, '      .boot-splash-spinner {', 'align-items')).toBe('flex-end');
     expect(declaration(STYLE, '  * {', 'margin')).toBe('0');
     expect(declaration(STYLE, '  * {', 'padding')).toBe('0');
@@ -291,13 +324,17 @@ describe('boot splash', () => {
       /html\.is-booting :not\(\.app-entrance\),[\s\S]{0,160}?transition: none !important;/u,
     );
     expect(SPLASH_CSS).not.toMatch(/(?:^|[\s;{])transition(?:-[a-z]+)?\s*:/u);
-    // Once released, everything inside the hidden splash freezes: the
-    // loader's infinite main-thread animation would otherwise cost a style
-    // pass every frame all session, and WebKit keeps an unfinished fade-in
-    // running under the hidden splash.
+    // The loader keeps turning through the fade (owner decision 2026-11-15);
+    // then the runtime takes the splash out of rendering, which ends every
+    // animation inside it: the loader's infinite main-thread animation would
+    // otherwise cost a style pass every frame all session.
+    expect(block(SPLASH_CSS, '      .boot-splash[hidden] {')).toMatch(/^\s*display: none;\s*$/u);
+    // Without the runtime nothing hides it, so everything inside freezes at
+    // release instead (WebKit also keeps an unfinished fade-in running).
     expect(SPLASH_CSS).toMatch(
-      /html:not\(\.setup-boot-block\) \.boot-splash \*,\s*html\.boot-splash-released \.boot-splash \*,\s*html\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
+      /html:not\(\[data-wordmark-runtime-ready\]\):not\(\.setup-boot-block\) \.boot-splash \*,\s*html:not\(\[data-wordmark-runtime-ready\]\)\.boot-splash-released \.boot-splash \*,\s*html:not\(\[data-wordmark-runtime-ready\]\)\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
     );
+    expect(SPLASH_CSS).not.toMatch(/html:not\(\.setup-boot-block\) \.boot-splash \*/u);
     // Last resort when nothing after the page file arrives: step aside 5 s
     // after the 15 s boot-failure fallbacks, on the same variable.
     expect(declaration(SPLASH_CSS, '      .boot-splash {', 'animation').replace(/\s+/gu, ' ')).toBe(
@@ -334,6 +371,103 @@ describe('boot splash', () => {
         /if \(!root\.classList\.contains\('setup-boot-block'\)\) root\.classList\.add\('boot-splash-released'\);\s*root\.$/u,
       );
     }
+  });
+
+  it('draws the wordmark at the centre, then raises it as the loader joins', () => {
+    const animation = (opener: string) =>
+      declaration(SPLASH_CSS, opener, 'animation').replace(/\s+/gu, ' ');
+    // Until the runtime takes it, the wordmark shows the reveal's own 15% ghost.
+    expect(
+      declaration(
+        SPLASH_CSS,
+        '      .boot-splash-logo:not([data-wordmark-ready]) > .wg {',
+        'opacity',
+      ),
+    ).toBe('0.15');
+    expect(declaration(SPLASH_CSS, '      .boot-splash .boot-splash-spinner {', 'opacity')).toBe(
+      '0',
+    );
+    // The runtime's phase: the rise keeps the mark's fade-in by name, so the
+    // fade does not restart.
+    expect(animation("      .boot-splash[data-phase='loader'] .boot-splash-mark {")).toBe(
+      'boot-splash-mark-in 0.2s ease-out 0.3s forwards, boot-splash-mark-rise 0.45s ease-in-out forwards',
+    );
+    expect(animation("      .boot-splash[data-phase='loader'] .boot-splash-spinner {")).toBe(
+      'boot-splash-spinner-in 0.3s ease-out 0.15s forwards',
+    );
+    // Without the runtime the same motion runs on fixed times.
+    expect(animation('      html:not([data-wordmark-runtime-ready]) .boot-splash-mark {')).toBe(
+      'boot-splash-mark-in 0.2s ease-out 0.3s forwards, boot-splash-mark-rise 0.45s ease-in-out 3.2s forwards',
+    );
+    expect(
+      animation(
+        '      html:not([data-wordmark-runtime-ready]) .boot-splash .boot-splash-spinner {',
+      ),
+    ).toBe('boot-splash-spinner-in 0.3s ease-out 3.35s forwards');
+    // After an app reset, or behind a fallback that already rose: the final
+    // place at once.
+    for (const opener of [
+      "      .boot-splash[data-phase='settled'] .boot-splash-mark {",
+      "      .boot-splash[data-phase='settled'] .boot-splash-spinner {",
+    ]) {
+      expect(declaration(SPLASH_CSS, opener, 'opacity'), opener).toBe('1');
+      expect(declaration(SPLASH_CSS, opener, 'animation'), opener).toBe('none');
+    }
+    expect(
+      declaration(
+        SPLASH_CSS,
+        "      .boot-splash[data-phase='settled'] .boot-splash-mark {",
+        'transform',
+      ),
+    ).toBe('none');
+  });
+
+  it('keeps the timings the runtime copies equal to the splash sheet', () => {
+    // wordmark-anim.ts cannot import the page's sheet, so this pins its copies
+    // (resource-ownership registry RO-55).
+    const runtime = readFileSync('browser/classic-runtime/wordmark-anim.ts', 'utf8');
+    const constant = (name: string) =>
+      Number(runtime.match(new RegExp(`const ${name} = ([\\d_]+);`, 'u'))?.[1]?.replace(/_/gu, ''));
+    const seconds = (value: string | undefined) =>
+      Math.round(Number.parseFloat(value ?? '') * 1000);
+    expect(constant('SPLASH_MARK_DELAY')).toBe(
+      seconds(declaration(SPLASH_CSS, '      .boot-splash-mark {', 'animation').split(' ')[3]),
+    );
+    expect(constant('SPLASH_INK_FALLBACK')).toBe(
+      seconds(
+        declaration(
+          SPLASH_CSS,
+          '      .boot-splash-logo:not([data-wordmark-ready]) > .wg {',
+          'animation',
+        ).split(' ')[3],
+      ),
+    );
+    const fallbackRise = declaration(
+      SPLASH_CSS,
+      '      html:not([data-wordmark-runtime-ready]) .boot-splash-mark {',
+      'animation',
+    ).replace(/\s+/gu, ' ');
+    expect(constant('SPLASH_RISE_FALLBACK')).toBe(
+      seconds(fallbackRise.match(/boot-splash-mark-rise [\d.]+s [a-z-]+ ([\d.]+s)/u)?.[1]),
+    );
+    expect(constant('SPLASH_FADE')).toBe(
+      seconds(
+        declaration(SPLASH_CSS, '      html.setup-boot-failed .boot-splash {', 'animation').split(
+          ' ',
+        )[1],
+      ),
+    );
+    // The runtime retires the splash after exactly these two fades.
+    for (const name of ['boot-splash-out', 'boot-splash-fail-open']) {
+      expect(runtime).toContain(`'${name}'`);
+      expect(SPLASH_CSS).toContain(`@keyframes ${name} {`);
+    }
+    // The reset writes the stamp the next page's runtime reads and clears.
+    const reset = readFileSync('src/core/session-reset.ts', 'utf8');
+    const key = (source: string, name: string) =>
+      source.match(new RegExp(`const ${name} = '([^']+)';`, 'u'))?.[1];
+    expect(key(runtime, 'CONTINUITY_KEY')).toBe('mxqr-boot-continuity');
+    expect(key(reset, 'BOOT_SPLASH_CONTINUITY_KEY')).toBe(key(runtime, 'CONTINUITY_KEY'));
   });
 
   it('stays safe for the legacy TV engines and off without scripting', () => {

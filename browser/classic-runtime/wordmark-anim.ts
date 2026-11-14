@@ -1,11 +1,24 @@
 /**
- * Draw one wordmark silhouette through an exact, nonzero compound-path mask.
- * Every revealed polygon has the same winding, so shared edges are rasterized
- * together without widening a reveal into a stroke that has not started yet.
+ * Draw the boot splash's wordmark (index.html) through an exact, nonzero
+ * compound-path mask. Every revealed polygon has the same winding, so shared
+ * edges are rasterized together without widening a reveal into a stroke that
+ * has not started yet.
  *
- * Setup owns when the entrance is visible and sends mxqr:wordmark-start once.
- * Its desktop-header copier sends mxqr:wordmark-refresh after replacing markup.
- * With no runtime (or invalid geometry), the authored silhouette stays visible.
+ * Loaded async right after the splash, so it runs as soon as it arrives. It
+ * draws once at the centre, from the moment the splash shows its mark (0.3 s
+ * after the page's first byte), while the splash is still up; once drawn it
+ * sets the splash's data-phase="loader", and the wordmark rises while the
+ * loader fades in below. It leaves the wordmark drawn instead when the CSS
+ * fallback has already shown the static wordmark (1.8 s, the rise then
+ * follows at the fallback's 3.2 s, or at once when that has passed:
+ * data-phase="settled"), with reduced motion, and after an app reset, whose
+ * refresh screen showed the wordmark and loader in their final place: the new
+ * page then shows them there at once (settled). When the app takes the screen
+ * mid-draw, the drawing stops where it is and fades out with the splash; a
+ * runtime that arrives after that leaves the splash as it is. The splash's
+ * loader runs on the wall clock's phase, as the refresh screen's does, so it
+ * does not jump across that reload. With no runtime (or invalid geometry), the
+ * CSS fallback shows the authored silhouette and rises at 3.2 s.
  */
 (function installWordmarkReveal() {
   type Point = [number, number];
@@ -31,19 +44,27 @@
   }
 
   const root = document.documentElement;
-  if (root.hasAttribute('data-wordmark-runtime-ready')) {
-    document.dispatchEvent(new CustomEvent('mxqr:wordmark-refresh'));
-    return;
-  }
+  if (root.hasAttribute('data-wordmark-runtime-ready')) return;
   root.setAttribute('data-wordmark-runtime-ready', 'true');
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
+  // The splash shows its mark 0.3 s after it first styles, its CSS fallback
+  // shows the static wordmark at 1.8 s and rises at 3.2 s, and its fade over
+  // the app takes 0.3 s (index.html, boot-splash test pins these copies).
+  const SPLASH_MARK_DELAY = 300;
+  const SPLASH_INK_FALLBACK = 1800;
+  const SPLASH_RISE_FALLBACK = 3200;
+  const SPLASH_FADE = 300;
+  // A drawing that never reports its end still lets the loader join this late.
+  const SPLASH_RISE_GRACE = 300;
+  // Written by src/core/session-reset.ts just before an app reset navigates.
+  const CONTINUITY_KEY = 'mxqr-boot-continuity';
+  const CONTINUITY_WINDOW = 15_000;
   const DRAW_BASE_DELAY = 500;
   const GHOST_START = 2500;
   const GHOST_DURATION = 400;
   const END = GHOST_START + GHOST_DURATION;
   const instances = new Map<SVGSVGElement, Instance>();
-  const completed = new WeakSet<SVGSVGElement>();
   let startTime: number | null = null;
   let settled = false;
   let frame: number | null = null;
@@ -55,11 +76,10 @@
     // Older embedded browsers still get the bounded reveal and static fallback.
   }
 
+  /** The wordmark stands drawn (the splash CSS stops showing its fallback). */
   function complete(svg: SVGSVGElement): void {
+    svg.dataset.wordmarkReady = 'true';
     svg.dataset.wordmarkDrawComplete = 'true';
-    if (completed.has(svg)) return;
-    completed.add(svg);
-    svg.dispatchEvent(new CustomEvent('mxqr:wordmark-draw-complete', { bubbles: true }));
   }
 
   function clean(svg: SVGSVGElement): SVGGElement | null {
@@ -86,6 +106,15 @@
     settled = true;
     stopFrame();
     for (const instance of instances.values()) finish(instance);
+  }
+
+  /**
+   * Stop drawing where it is, mask and all: the splash is fading out over the
+   * app. Drawing the rest at once would flash the whole wordmark in that fade.
+   */
+  function freeze(): void {
+    settled = true;
+    stopFrame();
   }
 
   function readStroke(element: SVGElement): Stroke | null {
@@ -136,7 +165,7 @@
     if (instances.has(svg)) return;
     const ink = clean(svg);
     if (!ink) return;
-    if (settled || motion?.matches || completed.has(svg)) {
+    if (settled || motion?.matches || svg.dataset.wordmarkDrawComplete === 'true') {
       complete(svg);
       return;
     }
@@ -185,6 +214,8 @@
     mask.append(ghost, reveal);
     defs.append(mask);
     ink.setAttribute('mask', `url(#${id})`);
+    // The ink is now masked: the splash CSS stops hiding it.
+    svg.dataset.wordmarkReady = 'true';
     instances.set(svg, {
       svg,
       ink,
@@ -282,7 +313,10 @@
         'opacity',
         String(0.15 + 0.85 * ease((elapsed - GHOST_START) / GHOST_DURATION, 0.25, 0.1, 0.25, 1)),
       );
-      if (elapsed >= instance.drawEnd) complete(instance.svg);
+      if (elapsed >= instance.drawEnd) {
+        complete(instance.svg);
+        enterSplashPhase('loader');
+      }
     }
     if (elapsed >= END && instances.size === 0) settled = true;
     if (instances.size > 0 && !document.hidden) frame = requestAnimationFrame(render);
@@ -291,22 +325,149 @@
   function refresh(): void {
     if (startTime === null) return;
     stopFrame();
-    document.querySelectorAll<SVGSVGElement>('.logo-welcome').forEach(initialize);
     render();
   }
 
   function start(): void {
-    if (startTime !== null) return;
+    if (startTime !== null || settled) return;
+    if (!splashUp()) {
+      freeze();
+      return;
+    }
     startTime = performance.now();
-    // A delayed/blocked classic asset must never replay behind an already shown greeting.
-    settled = Boolean(
-      motion?.matches || document.querySelector('.setup-brand-greeting-stage.is-greeting-visible'),
-    );
-    refresh();
+    settled = Boolean(motion?.matches);
+    if (settled) settle();
+    else refresh();
   }
 
-  document.addEventListener('mxqr:wordmark-start', start);
-  document.addEventListener('mxqr:wordmark-refresh', refresh);
+  /**
+   * Move the splash to its next phase once: 'loader' (the wordmark rises and
+   * the loader fades in) or 'settled' (the final place at once, no motion).
+   */
+  function enterSplashPhase(phase: 'loader' | 'settled'): void {
+    const splash = document.querySelector<HTMLElement>('.boot-splash');
+    if (!splash || splash.dataset.phase || !splashUp()) return;
+    splash.dataset.phase = phase;
+  }
+
+  /** The splash still covers the page: the app has not taken the screen and boot has not failed. */
+  function splashUp(): boolean {
+    const classes = root.classList;
+    return (
+      classes.contains('setup-boot-block') &&
+      !classes.contains('boot-splash-released') &&
+      !classes.contains('setup-boot-failed')
+    );
+  }
+
+  /** When the page's document began to arrive, on this page's clock. */
+  function documentArrival(): number {
+    try {
+      const entry = performance.getEntriesByType('navigation')[0] as
+        PerformanceNavigationTiming | undefined;
+      if (entry && entry.responseStart > 0) return entry.responseStart;
+    } catch {
+      // Older engines without navigation timing fall back to the runtime's start.
+    }
+    return performance.now();
+  }
+
+  /** Whether an app reset just navigated here (it showed the same wordmark and loader). */
+  function takeContinuity(): boolean {
+    try {
+      const value = Number(sessionStorage.getItem(CONTINUITY_KEY));
+      sessionStorage.removeItem(CONTINUITY_KEY);
+      return Number.isFinite(value) && value > 0 && Date.now() - value < CONTINUITY_WINDOW;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Run a loader's animations on the wall clock's phase, as the refresh screen's loader does. */
+  function alignToWallClock(spinner: Element | null): void {
+    if (!spinner) return;
+    const now = Date.now();
+    for (const element of spinner.querySelectorAll<SVGElement>(':scope > svg, circle')) {
+      const period = Number.parseFloat(getComputedStyle(element).animationDuration) * 1000;
+      if (Number.isFinite(period) && period > 0) {
+        element.style.animationDelay = `${-(now % period)}ms`;
+      }
+    }
+  }
+
+  /**
+   * Take the splash out of rendering once its fade over the app has ended (or
+   * its last-resort fade-out), so nothing inside it keeps animating hidden.
+   * The loader keeps turning through the fade itself.
+   */
+  function retireSplashAfterFade(splash: HTMLElement | null): void {
+    if (!splash) return;
+    const retire = () => {
+      splash.hidden = true;
+    };
+    splash.addEventListener('animationend', (event) => {
+      if (event.target !== splash) return;
+      if (
+        event.animationName === 'boot-splash-out' ||
+        event.animationName === 'boot-splash-fail-open'
+      ) {
+        retire();
+      }
+    });
+    // Arrived after the app had already taken the screen: the fade may be over.
+    if (!splashUp()) window.setTimeout(retire, SPLASH_FADE + 100);
+  }
+
+  function boot(): void {
+    retireSplashAfterFade(document.querySelector<HTMLElement>('.boot-splash'));
+    const svg = document.querySelector<SVGSVGElement>('.boot-splash-logo');
+    if (!svg) return;
+    alignToWallClock(document.querySelector('.boot-splash .boot-splash-spinner'));
+    // Read (and clear) the reset's stamp first, so it never outlives this page.
+    const continued = takeContinuity();
+    // The app already took the screen: the splash fades out as it stands.
+    if (!splashUp()) return;
+    if (continued) {
+      enterSplashPhase('settled');
+      complete(svg);
+      return;
+    }
+    const arrival = documentArrival();
+    const sinceArrival = performance.now() - arrival;
+    const riseAt = (ms: number) =>
+      window.setTimeout(() => enterSplashPhase('loader'), Math.max(0, ms - sinceArrival));
+    if (sinceArrival >= SPLASH_RISE_FALLBACK) {
+      // The CSS fallback already showed the wordmark and raised it.
+      enterSplashPhase('settled');
+      complete(svg);
+      return;
+    }
+    if (sinceArrival >= SPLASH_INK_FALLBACK) {
+      // The static wordmark already showed; keep the fallback's rise time.
+      complete(svg);
+      riseAt(SPLASH_RISE_FALLBACK);
+      return;
+    }
+    initialize(svg);
+    if (!instances.has(svg)) {
+      // Reduced motion or invalid geometry: the wordmark stands drawn.
+      enterSplashPhase('loader');
+      return;
+    }
+    // Stop where it is when the app takes the screen or boot fails mid-draw.
+    const observer = new MutationObserver(() => {
+      if (splashUp()) return;
+      observer.disconnect();
+      freeze();
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    const startIn = Math.max(0, SPLASH_MARK_DELAY - sinceArrival);
+    window.setTimeout(start, startIn);
+    // The drawing reports its end (render); a frame loop that never gets
+    // there (a suspended tab) still lets the loader join just after.
+    riseAt(sinceArrival + startIn + (instances.get(svg)?.drawEnd ?? 0) + SPLASH_RISE_GRACE);
+  }
+
   document.addEventListener('visibilitychange', () => {
     stopFrame();
     if (!document.hidden) refresh();
@@ -317,5 +478,5 @@
   };
   if (motion?.addEventListener) motion.addEventListener('change', reduceMotion);
   else motion?.addListener(reduceMotion);
-  if (root.hasAttribute('data-wordmark-start-requested')) start();
+  boot();
 })();

@@ -581,8 +581,6 @@
       inset: 0;
       z-index: 5000;
       background: var(--bg);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
     }
 
     /* Desktop-only: full-viewport card positioning */
@@ -640,8 +638,6 @@
       grid-area: tab-play;
       z-index: 5000;
       background: var(--bg);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
       border-inline-end: 1px solid var(--divider);
       padding: 0;
       padding-inline-start: var(--safe-left);

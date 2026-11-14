@@ -798,8 +798,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     justify-content: space-between;
     align-items: center;
     background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     position: fixed;
     top: 0;
     left: 0;
@@ -1491,8 +1489,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 11px;
     font-weight: var(--font-weight-label);
     background: var(--surface-2);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     color: var(--text-sub);
     padding: 6px 14px;
     border-radius: var(--radius-pill);
@@ -5011,8 +5007,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 10px 16px calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
 
     /* Match header solid chrome */
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     background: var(--surface-1);
 
     box-shadow: none;
@@ -5037,8 +5031,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Light Mode */
   [data-theme='light'] .bottom-nav {
     background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     box-shadow: none;
     border: none;
   }
@@ -5046,8 +5038,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Dark Mode */
   [data-theme='dark'] .bottom-nav {
     background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     box-shadow: none;
     border: none;
   }
@@ -5155,8 +5145,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .toast > span {
     background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     color: var(--text-main);
     padding: 14px 28px;
     border-radius: 100px;
@@ -5268,8 +5256,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       max(var(--dialog-edge-gap), var(--safe-bottom)) max(24px, var(--safe-physical-left));
     /* Match other overlays (sync/media/setup) for consistency */
     background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     z-index: 6000;
     /* Higher than onboarding-overlay (2000) and desktop overlay (5000) */
     animation: dialogBackdropIn 0.3s ease-out both;
@@ -9210,8 +9196,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     z-index: 3000;
     display: flex;
     align-items: center;
@@ -9602,8 +9586,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     z-index: 1;
     pointer-events: none;
     background: linear-gradient(to bottom, rgba(18, 18, 18, 0.52), rgba(18, 18, 18, 0));
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     -webkit-mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 100%);
     mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 100%);
   }
@@ -10286,8 +10268,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: var(--radius-pill);
     background: var(--surface-2);
     color: var(--text-sub);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     font: inherit;
     /* The demo step indicator keeps its own sizes and shares the button label
        weight and tracking (button-label-contract.test.ts). */
@@ -11135,8 +11115,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     transition: opacity 0.3s;
     opacity: 0;
     /* Hidden by default */
@@ -11951,8 +11929,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     inset: 0;
     z-index: 99999;
     background: rgba(0, 0, 0, 0.88);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
     /* Column layout so live-updating graphs always sit at the bottom of the
        viewport rather than below a long, scrolling text snapshot. */
     display: flex;
@@ -12298,8 +12274,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     html:not(.standalone) header,
     html:not(.standalone) .bottom-nav {
       background: var(--surface-1);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
     }
 
     html[data-theme='light']:not(.standalone) header,
@@ -12467,8 +12441,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding: 8px 20px;
       padding-right: calc(20px + var(--safe-physical-right));
       background: transparent;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
       border: none;
       z-index: 2502;
       box-shadow: none;

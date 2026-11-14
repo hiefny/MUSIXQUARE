@@ -500,9 +500,25 @@ describe('PRO upload rows', () => {
     expect(stylesheet).not.toContain('.pro-upload-cancel:not(:disabled)');
     expect(stylesheet).toContain('.pro-upload-cancel:disabled');
     expect(stylesheet).toContain('opacity: 0.32');
-    expect(stylesheet).toContain(
-      '.track-item:focus-within .btn-playlist-remove:not(.is-selected):not(:disabled)',
-    );
+    // Neither focus nor hover brightens a disabled cancel: in the four app
+    // sheets, the only opacity a rule naming the button sets is the base 1
+    // and the disabled 0.32.
+    const cancelOpacity: string[] = [];
+    for (const path of APP_CSS_SHEETS) {
+      parseCss(await readFile(path, 'utf8')).walkRules((rule) => {
+        if (!/\.(?:btn-playlist-remove|pro-upload-cancel)(?![\w-])/u.test(rule.selector)) return;
+        rule.walkDecls('opacity', (declaration) => {
+          const important = declaration.important ? ' !important' : '';
+          cancelOpacity.push(
+            `${path} ${rule.selector} { opacity: ${declaration.value}${important} }`,
+          );
+        });
+      });
+    }
+    expect(cancelOpacity).toEqual([
+      'css/style.css .pro-upload-cancel:disabled { opacity: 0.32 }',
+      'css/style.css .btn-playlist-remove { opacity: 1 }',
+    ]);
     expect(stylesheet).toContain('.btn-playlist-remove:not(:disabled):hover');
     expect(stylesheet).not.toMatch(/\.btn-playlist-remove:hover\s*\{/);
   });

@@ -3271,12 +3271,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     stroke-linejoin: round;
   }
 
-  .track-item:focus-within .btn-playlist-remove:not(.is-selected):not(:disabled) {
-    opacity: 1;
-  }
-
   :where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover {
-    opacity: 1;
     color: var(--danger-foreground);
   }
 

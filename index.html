@@ -34,6 +34,12 @@
         justify-content: center;
         background: var(--bg, var(--boot-splash-bg));
         color: var(--text-main, var(--boot-splash-fg));
+        /* Last resort: when neither fouc-cleanup.js nor the app stylesheet
+           ever arrives, nothing else can lift the splash. Step aside 5 s
+           after the 15 s boot-failure fallbacks (same variable) so the
+           page's own Retry form shows; any earlier release replaces this. */
+        animation: boot-splash-fail-open 0s linear calc(var(--setup-boot-failure-delay, 15s) + 5s)
+          forwards;
       }
 
       @media (prefers-color-scheme: light) {
@@ -61,6 +67,17 @@
       html.setup-boot-failed .boot-splash {
         pointer-events: none;
         animation: boot-splash-out 0.3s ease-out forwards;
+      }
+
+      /* The hidden splash stays in the document; freeze its loader where it
+         is so it costs no frame for the rest of the session. */
+      html:not(.setup-boot-block) .boot-splash-spinner > svg,
+      html:not(.setup-boot-block) .boot-splash-spinner circle,
+      html.boot-splash-released .boot-splash-spinner > svg,
+      html.boot-splash-released .boot-splash-spinner circle,
+      html.setup-boot-failed .boot-splash-spinner > svg,
+      html.setup-boot-failed .boot-splash-spinner circle {
+        animation-play-state: paused;
       }
 
       /* A load that finishes within 0.3 s never shows the mark, only the
@@ -130,6 +147,13 @@
       }
 
       @keyframes boot-splash-out {
+        to {
+          opacity: 0;
+          visibility: hidden;
+        }
+      }
+
+      @keyframes boot-splash-fail-open {
         to {
           opacity: 0;
           visibility: hidden;

@@ -61,6 +61,8 @@ const PUBLIC_DOCUMENT_PATHS = [
   '/events/asamo/0/',
   '/404.html',
   '/zz/',
+  // A legacy language alias: the App Worker redirects it to /nb/, so it is not an app entry.
+  '/no/',
 ] as const;
 
 type FetchListener = (event: {
@@ -1701,6 +1703,106 @@ describe('service worker cache policy', () => {
       }
     },
   );
+
+  function stalledBody(text: string): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(text));
+      },
+    });
+  }
+
+  it('ends its own work on a stalled public page body within the navigation deadline and stores nothing', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(
+      new Response(stalledBody('<!doctype html><title>About</title>'), { status: 200 }),
+    );
+    // A real Cache.put reads the whole body before it settles.
+    cachePut.mockImplementation(async (_request: Request, response: Response) => {
+      await response.arrayBuffer();
+    });
+
+    try {
+      const { response, work } = await dispatchWithWork(
+        new Request('https://musixquare.com/about', { headers: { accept: 'text/html' } }),
+      );
+      expect(response.status).toBe(200);
+      let settled = false;
+      void Promise.all(work).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS);
+
+      expect(settled).toBe(true);
+      expect(cachePut).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns a stable asset that misses the cache when it arrives after the revalidation bound', async () => {
+    vi.useFakeTimers();
+    const arrival = STATIC_REVALIDATION_TIMEOUT_MS + 1_000;
+    fetchMock.mockImplementation(
+      (_request: Request, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve(new Response('.lp-hero{}', { status: 200 })),
+            arrival,
+          );
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer);
+              reject(new DOMException('revalidation timed out', 'AbortError'));
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    try {
+      const responsePromise = dispatch(new Request('https://musixquare.com/editorial-design.css'));
+      await vi.advanceTimersByTimeAsync(arrival);
+      const response = await responsePromise;
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('.lp-hero{}');
+      expect(cachePut).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hands a stalled stable asset miss to the page and ends its own work within the revalidation bound', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(new Response(stalledBody('.lp-hero{'), { status: 200 }));
+    cachePut.mockImplementation(async (_request: Request, response: Response) => {
+      await response.arrayBuffer();
+    });
+
+    try {
+      let answered: Awaited<ReturnType<typeof dispatchWithWork>> | undefined;
+      void dispatchWithWork(new Request('https://musixquare.com/editorial-design.css')).then(
+        (result) => {
+          answered = result;
+        },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      // The page receives the network response at its headers, as without a worker.
+      expect(answered?.response.status).toBe(200);
+      let settled = false;
+      void Promise.all(answered?.work ?? []).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(STATIC_REVALIDATION_TIMEOUT_MS);
+
+      expect(settled).toBe(true);
+      expect(cachePut).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('leaves translation reference refresh requests outside the service-worker cache', () => {
     for (const pathname of [

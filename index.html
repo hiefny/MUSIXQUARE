@@ -9,6 +9,40 @@
       name="viewport"
       content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
+    <!-- Boot preflight: the one inline script. It runs before the boot splash
+         first paints (bootstrap.js runs after it, from <body>), so a page a
+         session reset opens is in the stored theme and shows the splash where
+         the reset screen left it from its first frame. It applies the stored
+         theme and, when a reset stamped this tab under 15 s ago, marks the root
+         data-boot-continued with the loader's wall-clock phase; bootstrap.js
+         still owns and removes the stamp. The app document CSP allows exactly
+         this text by its SHA-256 and the inline-JS guard exempts exactly this
+         block (src/core/boot-preflight.ts): editing it means a new hash. -->
+    <script data-boot-preflight>
+      (function () {
+        var root = document.documentElement;
+        try {
+          var mode = localStorage.getItem('musixquare-theme');
+          var theme =
+            mode === 'dark' || mode === 'light'
+              ? mode
+              : matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          root.setAttribute('data-theme', theme);
+          root.style.colorScheme = theme;
+        } catch (error) {}
+        try {
+          var now = Date.now();
+          var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity'));
+          if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) {
+            root.setAttribute('data-boot-continued', '');
+            root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms');
+            root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms');
+          }
+        } catch (error) {}
+      })();
+    </script>
     <!-- Boot splash: the wordmark and the shared loader paint from this
          document alone, before any script or stylesheet arrives, so a slow
          first visit never shows a blank page. Nothing in <head> before this
@@ -181,6 +215,34 @@
       .boot-splash[data-phase='settled'] .boot-splash-logo > .wg {
         opacity: 1;
         animation: none;
+      }
+
+      /* The same final place from the very first frame of a page a session
+         reset opened: the <head> preflight marks the root before the splash
+         paints, while bootstrap.js only settles it once it has run. The loader
+         starts on the wall-clock phase the reset screen's loader used. */
+      html[data-boot-continued] .boot-splash .boot-splash-mark {
+        opacity: 1;
+        transform: none;
+        animation: none;
+      }
+
+      html[data-boot-continued] .boot-splash .boot-splash-spinner {
+        opacity: 1;
+        animation: none;
+      }
+
+      html[data-boot-continued] .boot-splash .boot-splash-logo > .wg {
+        opacity: 1;
+        animation: none;
+      }
+
+      html[data-boot-continued] .boot-splash .boot-splash-spinner > svg {
+        animation-delay: var(--boot-splash-spin-delay, 0ms);
+      }
+
+      html[data-boot-continued] .boot-splash .boot-splash-spinner circle {
+        animation-delay: var(--boot-splash-dash-delay, 0ms);
       }
 
       /* The 24px gap above the 24px loader lives inside the box: style.css

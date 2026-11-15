@@ -1,13 +1,38 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import {
+  BOOT_PREFLIGHT_SCRIPT_ATTRIBUTE,
+  BOOT_PREFLIGHT_SCRIPT_SHA256,
+} from '../src/core/boot-preflight.ts';
+
 export const DEFAULT_INLINE_INVENTORY_PATH =
   'docs/typescript-migration/authored-inline-js-baseline.json' as const;
+
+/**
+ * Inline scripts allowed beside the shrink-only baseline, each pinned to one
+ * file, one marker attribute and the exact SHA-256 that file's CSP allows:
+ * index.html's boot preflight (src/core/boot-preflight.ts). A pinned block
+ * whose text changes counts as an ordinary inline script again, and so does a
+ * second copy or the same block in any other file.
+ */
+export const PINNED_INLINE_SCRIPTS: readonly {
+  readonly path: string;
+  readonly attribute: string;
+  readonly sha256: string;
+}[] = [
+  {
+    path: 'index.html',
+    attribute: BOOT_PREFLIGHT_SCRIPT_ATTRIBUTE,
+    sha256: BOOT_PREFLIGHT_SCRIPT_SHA256,
+  },
+];
 
 const NON_EXECUTABLE_SCRIPT_TYPES = new Set([
   'application/json',
@@ -189,9 +214,15 @@ function closingTag(source: string, start: number, name: string): RegExpExecArra
 /**
  * Count authored executable inline JavaScript constructs. The historical
  * manifest calls these "blocks"; one script body or executable attribute is
- * one block so the original script-block baseline remains stable.
+ * one block so the original script-block baseline remains stable. Given the
+ * file's repository path, a block pinned to that file (PINNED_INLINE_SCRIPTS)
+ * is not counted, once, while its text still has the pinned hash.
  */
-export function countExecutableInlineScripts(source: string): number {
+export function countExecutableInlineScripts(source: string, repositoryPath?: string): number {
+  const pins = PINNED_INLINE_SCRIPTS.filter((pin) => pin.path === repositoryPath).map((pin) => ({
+    ...pin,
+    used: false,
+  }));
   let count = 0;
   let index = 0;
   while (index < source.length) {
@@ -227,7 +258,14 @@ export function countExecutableInlineScripts(source: string): number {
         .toLowerCase();
       const external = tag.attributes.some((attribute) => attribute.name === 'src');
       if (body.trim().length > 0 && !external && !NON_EXECUTABLE_SCRIPT_TYPES.has(type)) {
-        count += 1;
+        const pin = pins.find(
+          (candidate) =>
+            !candidate.used &&
+            tag.attributes.some((attribute) => attribute.name === candidate.attribute) &&
+            createHash('sha256').update(body, 'utf8').digest('base64') === candidate.sha256,
+        );
+        if (pin) pin.used = true;
+        else count += 1;
       }
       index = closing ? closing.index + closing[0].length : source.length;
       continue;
@@ -345,7 +383,7 @@ export function listCurrentInlineSources(repository = process.cwd()): Map<string
   )) {
     const absolutePath = path.resolve(repository, repositoryPath);
     if (!existsSync(absolutePath)) continue;
-    const blocks = countExecutableInlineScripts(readFileSync(absolutePath, 'utf8'));
+    const blocks = countExecutableInlineScripts(readFileSync(absolutePath, 'utf8'), repositoryPath);
     if (blocks > 0) current.set(repositoryPath, blocks);
   }
   return current;

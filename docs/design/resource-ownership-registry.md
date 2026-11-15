@@ -3358,24 +3358,36 @@ RO-55 accepted-exception
   message for screen readers only (RO-55): it writes the next document's
   `BOOT_SPLASH_CONTINUITY_KEY` when it shows (that document's `bootstrap.js` reads it) and removes
   it when its own document stays, and it leaves rendering once its fade-out ends, on that
-  transition's own `finished` (`retireOverlayAfterFade`, no timer or listener).
+  transition's own `finished` (`retireOverlayAfterFade`, no timer or listener). Since App 9.0.49
+  the owner starts the action only once the overlay's own fade-in has run (two frames after the
+  show, then a timer for what is left of it), and the native fallback waits
+  `RESET_PAINT_FALLBACK_MS` beyond that fade-in, so the next page continues a whole screen: a fast
+  reload had left at about 14% of the overlay's opacity.
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
   back-forward cache recovery once (`initPageNavigation`: the role, the reload message, the log
   and, since Phase 7 7A-1, the `onPageHide` callback).
 - **Lifecycle operations:** schedule a reset or reload, navigate, recover, restore.
-- **Deadline owner:** `session-reset.ts`: `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s) for a prepare
-  step, then `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) from the final navigation call.
+- **Deadline owner:** `session-reset.ts`: the overlay's fade-in and `RESET_PAINT_FALLBACK_MS`
+  beyond it for the paint, `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s) for a prepare step, then
+  `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) from the final navigation call.
 - **Timing-constant home:** `src/core/navigation-contract.ts` (`NAVIGATION_COMMIT_TIMEOUT_MS`,
   `NAVIGATION_PREPARE_TIMEOUT_MS`, `RESET_PAINT_FALLBACK_MS` and the next-document
   `sessionStorage` keys), a dependency-free module
   because `src/core/navigation.ts` imports the owner. The ordering it relies on is pinned in
-  `src/core/__tests__/navigation-contract.test.ts` (Phase 2, C6-1).
+  `src/core/__tests__/navigation-contract.test.ts` (Phase 2, C6-1). The fade-in's length lives
+  in the overlay's `transition` in `style.css`; the owner reads it from the computed style
+  (`resetFadeInMs`) and keeps no copy.
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/session-reset.test.ts` "uses a native timeout fallback and
     accepts only the first reset request"; `src/core/__tests__/document-reload.test.ts` "does not
     let a stale guard release its successor".
+  - Paint: `session-reset.test.ts` "starts the action only once the screen's fade-in has run, so
+    the next page continues a whole screen" and "waits out the fade-in in the timeout fallback
+    too, and runs the action once"; `e2e/boot-splash.test.ts` "shows the splash's wordmark and
+    loader without text, and the page it opens continues them" (the overlay's opacity when the
+    page leaves).
   - User pause/stop: n/a.
   - Teardown: `session-reset.test.ts` "recovers a no-op navigation and accepts a later reset
     request".
@@ -4483,8 +4495,8 @@ entry needs the owner's acceptance and is not implied by this registry.
   from rendering (`hidden`), and the reset screen's continuity stamp (`sessionStorage`
   `mxqr-boot-continuity`), which hands the reset screen's wordmark and loader to the next page
   ([App 9.0.48 train report](app-9-0-48-train-2026-11-15.md)).
-- **Current owners/flows:** two machines on the drawing and the phase, kept on purpose, and one
-  start-up step that settles the splash after a reset:
+- **Current owners/flows:** two machines on the drawing and the phase, kept on purpose, and two
+  start-up steps that show and settle the splash after a reset:
   - the sheet `<style data-boot-splash>` in `index.html`: the mark's fade-in 0.3 s after the
     splash first styles, and without this release's runtime the whole wordmark at 1.8 s, the rise
     at 3.2 s and the loader's fade-in at 3.35 s; the 0.3 s fade over the app once
@@ -4506,12 +4518,23 @@ entry needs the owner's acceptance and is not implied by this registry.
     already rose), completes the wordmark of a splash already settled, stops the drawing where it
     is when the splash is released, and sets `hidden` once the splash's `boot-splash-out` or
     `boot-splash-fail-open` animation ends;
+  - the head preflight `<script data-boot-preflight>` in `index.html` (App 9.0.49), the page's one
+    inline script, allowed by its sha256 in the app documents' CSP (`src/core/boot-preflight.ts`,
+    read by `cloudflare/app-worker.ts`) and pinned by that hash in `guard:authored-inline-js`.
+    `bootstrap.js` runs from the top of `<body>`, after the splash, so the first paint came before
+    it: a refresh showed one frame in the device's theme and one without the wordmark. Before that
+    paint the preflight applies the stored theme to the root (the theme step of `bootstrap.js`
+    applies the same one again) and, after a reset under 15 s ago, marks the root
+    `data-boot-continued` and sets the loader's two phase variables from the wall clock; the sheet
+    shows a marked splash in its settled place, loader running, from the first frame. It never
+    removes the stamp and never sets `data-phase`;
   - the start-up step `browser/classic-runtime/bootstrap.ts` (its fifth preflight, in order before
     the runtime and the app module): it reads and removes the reset's stamp once (0 to 15 s old)
-    and then sets `data-phase="settled"` and starts the splash's loader on the wall clock's phase
-    (a negative delay). The async runtime could not do this first in every engine (WebKit ran it
-    after the app had taken the screen), and the runtime's tag comes after the start-up scripts,
-    so it never starts a drawing on a page this step settles.
+    and then sets `data-phase="settled"`, also on a root the head preflight marked (the stamp may
+    be gone by then), and starts the splash's loader on the wall clock's phase (a negative delay)
+    only when the preflight did not already phase it. The async runtime could not do this first in
+    every engine (WebKit ran it after the app had taken the screen), and the runtime's tag comes
+    after the start-up scripts, so it never starts a drawing on a page this step settles.
   - The reset screen of RO-23 (`src/core/session-reset.ts`) copies the splash's wordmark and
     loader into its own overlay (the page's static markup or one it builds), runs that loader on
     the wall clock's phase, writes the stamp in `showResetOverlay`, removes it in
@@ -4524,9 +4547,10 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Allowed requesters:** setup's boot guard classes on the root (`setup-boot-block`,
   `boot-splash-released`, `setup-boot-failed`) release the splash; the reset screen writes and
   removes the stamp.
-- **Lifecycle operations:** set the phase (start-up step after a reset, else the runtime, once);
-  stop or finish the drawing (runtime); fade (sheet); `hidden` after the fade (runtime); write and
-  remove the stamp (reset screen); read and remove it (start-up step).
+- **Lifecycle operations:** mark the root continued (head preflight, before the first paint); set
+  the phase (start-up step after a reset, else the runtime, once); stop or finish the drawing
+  (runtime); fade (sheet); `hidden` after the fade (runtime); write and remove the stamp (reset
+  screen); read it (head preflight); read and remove it (start-up step).
 - **Deadline owner:** the sheet for its fallback times and the last-resort fade; the runtime for
   the drawing's start on the sheet's clock, for the loader's rise 0.3 s after the drawing's end
   from its real start when no frame reports that end (a hidden tab), and for `hidden`
@@ -4535,10 +4559,12 @@ entry needs the owner's acceptance and is not implied by this registry.
   `SPLASH_INK_FALLBACK` (1800), `SPLASH_RISE_FALLBACK` (3200) and `SPLASH_FADE` (300) copy them,
   because a classic runtime cannot import the page's sheet; the start-up step's `continuityKey`
   copies `BOOT_SPLASH_CONTINUITY_KEY` in `src/core/navigation-contract.ts`, the home of the
-  next-document keys (RO-23), and its 15 s window is its own (the only reader).
+  next-document keys (RO-23), and its 15 s window is its own. The head preflight runs before any
+  module and copies the stored theme's key from the theme step of `bootstrap.js`, the stamp's key,
+  that 15 s window and the sheet's loader periods (1.85 s turn, 1.45 s dash).
   `src/core/__tests__/boot-splash.test.ts` "keeps the timings the runtime copies equal to the
-  splash sheet" pins the four times and the key copy; `navigation-contract.test.ts` pins the key
-  string.
+  splash sheet" pins the four times and the key copy, and "keeps the copies it carries equal to
+  their homes" pins the preflight's; `navigation-contract.test.ts` pins the key string.
 - **Anchor tests:**
   - Supersession (the first release wins; a stamp counts once; this release's runtime only):
     `src/core/__tests__/wordmark-reveal-runtime.test.ts` "stops the drawing where it is when %s
@@ -4546,8 +4572,12 @@ entry needs the owner's acceptance and is not implied by this registry.
     stands, and still retires it", "leaves the final place bootstrap.js settled after an app reset,
     and never draws" and "marks itself apart from an older release runtime, so the sheet keeps its
     fallbacks for that one"; `boot-splash.test.ts` "settles the splash after a reset under 15 s
-    ago, once, its loader on the wall clock's phase" and "lets the splash draw after a stamp %s,
-    and removes it"; `src/core/__tests__/session-reset.test.ts` "stamps the next page as a
+    ago, once, its loader on the wall clock's phase", "lets the splash draw after a stamp %s,
+    and removes it", "settles a splash the head preflight already marked as continued, even once
+    the stamp is gone, and leaves its loader phase alone", "marks a splash an app reset under 15 s
+    ago continues, its loader on the wall clock's phase, and leaves the stamp to bootstrap.js" and
+    "leaves the splash to draw after a stamp %s"; `src/core/__tests__/session-reset.test.ts`
+    "stamps the next page as a
     continuation and clears the stamp when this page stays" and "keeps the stamp for the page a
     committed navigation opens, until this page returns".
   - User pause/stop: n/a (the splash has no control); reduced motion: "settles safely on %s
@@ -4563,10 +4593,12 @@ entry needs the owner's acceptance and is not implied by this registry.
   - Clock: "counts from the splash's own CSS clock when it can read it".
   - With the real page: `e2e/boot-splash.test.ts` "renders frames while the start-up scripts are
     still loading" (WebKit's fixed-size SVG rule) and "session reset screen" (the page's own
-    overlay, the stamp and the settled next page), and `e2e/wordmark-reveal.test.ts`, default suite
-    and WebKit lane.
+    overlay, the stamp and the settled next page; since App 9.0.49 "a page a reset opens shows the
+    stored theme and the settled splash from its first frame"), and `e2e/wordmark-reveal.test.ts`,
+    default suite and WebKit lane.
 - **Status:** `accepted-exception`. Added with the App 9.0.48 train, when the drawing runtime
-  became a second machine on the splash beside its sheet.
+  became a second machine on the splash beside its sheet. The App 9.0.49 train added the head
+  preflight ahead of the start-up step, which still owns the stamp and the phase.
 
 ## Checked side flows without a record
 

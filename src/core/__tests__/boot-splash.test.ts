@@ -62,7 +62,8 @@ describe('boot splash', () => {
     expect(head).not.toMatch(/<link\b[^>]*\brel=["']stylesheet["']/u);
     for (const [, attributes] of head.matchAll(/<script\b([^>]*)>/gu)) {
       expect(
-        /\btype=["']application\/ld\+json["']|\bdefer\b|\btype=["']module["']/u.test(
+        // The boot preflight runs inline: it waits for nothing (below).
+        /\btype=["']application\/ld\+json["']|\bdefer\b|\btype=["']module["']|^ data-boot-preflight$/u.test(
           attributes ?? '',
         ),
         `blocking head script: ${attributes}`,
@@ -598,12 +599,14 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     expect(app.delays()).toEqual(['', '']);
   });
 
-  it('settles a splash the head preflight already marked as continued, even once the stamp is gone', () => {
+  it('settles a splash the head preflight already marked as continued, even once the stamp is gone, and leaves its loader phase alone', () => {
     const app = page();
     app.window.document.documentElement.setAttribute('data-boot-continued', '');
     app.run();
     expect(app.phase()).toBe('settled');
-    expect(app.delays()).toEqual(['-1000ms', '-950ms']);
+    // The preflight's CSS variables started the loader on the wall clock from
+    // the first frame; a delay set now would add the time since then.
+    expect(app.delays()).toEqual(['', '']);
   });
 
   it('changes nothing without a stamp, with a phase already set, or without storage', () => {

@@ -197,6 +197,71 @@ describe('session reset coordinator', () => {
     expect(action).toHaveBeenCalledOnce();
   });
 
+  /** The overlay's running opacity transition as the Web Animations API reports it. */
+  function stubFadeInClock(running: { currentTime: number; endTime: number } | null): void {
+    const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
+    const fadeIn = running && {
+      transitionProperty: 'opacity',
+      currentTime: running.currentTime,
+      effect: { getComputedTiming: () => ({ endTime: running.endTime }) },
+    };
+    Object.defineProperty(overlay, 'getAnimations', {
+      configurable: true,
+      value: () => (fadeIn ? [fadeIn] : []),
+    });
+  }
+
+  it("times that wait by the fade-in's own clock, which a busy page starts only at its first frame", async () => {
+    const frames: FrameRequestCallback[] = [];
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      }),
+    });
+    stubResetFadeIn();
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    // WebKit measured: the page stayed busy 180 ms past the show, and the
+    // fade-in started on the first frame after it.
+    vi.advanceTimersByTime(180);
+    stubFadeInClock({ currentTime: 20, endTime: 200 });
+    frames.shift()?.(180);
+    frames.shift()?.(200);
+    // 200 ms have passed since the show, but 180 ms of the fade-in are left.
+    vi.advanceTimersByTime(179);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(1_000);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it('starts the action at once when the fade-in has already run by the second frame', async () => {
+    const frames: FrameRequestCallback[] = [];
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      }),
+    });
+    stubResetFadeIn();
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    // WebKit can date the fade-in from the last frame before the show, so it
+    // may have ended by the first frame the page renders.
+    stubFadeInClock(null);
+    frames.shift()?.(0);
+    frames.shift()?.(16);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
   it('restores interaction and releases its unload exemption when the action throws', async () => {
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,

@@ -127,6 +127,12 @@
     unicode-bidi: isolate;
   }
 
+  /* Mirror the optical offset that balances the transport icons with the seek
+ * rail. A rule of its own: older TV browsers drop the zero-weight rule above. */
+  html[dir='rtl'] .play-btn-group {
+    transform: translateX(13px);
+  }
+
   /* Point the speaker toward its mirrored volume rail in both player surfaces. */
   html[dir='rtl'] .volume-icon-button .volume-icon {
     transform: scaleX(-1);

@@ -11069,8 +11069,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
-      calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
+    padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-physical-right))
+      calc(24px + var(--safe-bottom)) calc(24px + var(--safe-physical-left));
     color: var(--text-main);
     text-align: center;
     background: var(--bg);

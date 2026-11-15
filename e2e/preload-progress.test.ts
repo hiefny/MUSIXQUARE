@@ -165,7 +165,8 @@ test('keeps promoted preload progress and waiting animation until the file is re
     await expect.poll(() => headerPercent(page)).toBeGreaterThan(83.5);
     await expect(page.locator('#play-btn')).toHaveAttribute('aria-busy', 'true');
 
-    const spinner = page.locator('#play-btn .play-loading-spinner > svg');
+    // The loader's turning layer (src/ui/material-elastic-spinner.ts).
+    const spinner = page.locator('#play-btn .play-loading-spinner .material-elastic-turn');
     await expect(spinner).toBeVisible();
     const animation = await spinner.evaluate((element) => {
       const spin = element

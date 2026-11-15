@@ -208,7 +208,9 @@ test.describe('session reset screen', () => {
         return Math.round((box.top + box.height / 2 - middle) * 10) / 10;
       };
       const message = document.getElementById('session-reset-message')!;
-      const loader = document.querySelector('#session-reset-overlay .boot-splash-spinner > svg')!;
+      const loader = document.querySelector(
+        '#session-reset-overlay .boot-splash-spinner .material-elastic-turn',
+      )!;
       const wordmark = document.querySelector('#session-reset-overlay .session-reset-wordmark')!;
       return {
         // Drawn: the screen is what the page shows while its input is blocked
@@ -218,11 +220,14 @@ test.describe('session reset screen', () => {
         ),
         // The boot splash's final place: wordmark 24px above the centre, loader 24px below.
         wordmark: centre('#session-reset-overlay .session-reset-wordmark'),
-        loader: centre('#session-reset-overlay .boot-splash-spinner > svg'),
+        loader: centre('#session-reset-overlay .boot-splash-spinner .material-elastic-turn'),
         wordmarkHeight: wordmark.getBoundingClientRect().height,
-        loaderTurning: loader
-          .getAnimations()
-          .some((animation) => animation.playState === 'running'),
+        // Its turn and the arc's three turning parts.
+        loaderMoving: loader
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.playState === 'running')
+          .map((animation) => (animation as CSSAnimation).animationName)
+          .sort(),
         // The message is for screen readers only.
         message: message.textContent,
         messageClipped: message.getBoundingClientRect().width <= 1,
@@ -237,7 +242,7 @@ test.describe('session reset screen', () => {
       wordmark: -24,
       loader: 24,
       wordmarkHeight: 24,
-      loaderTurning: true,
+      loaderMoving: ['boot-splash-arc', 'boot-splash-head', 'boot-splash-spin', 'boot-splash-tail'],
       message: 'Leaving session...',
       messageClipped: true,
       stamped: true,

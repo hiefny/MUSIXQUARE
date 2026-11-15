@@ -711,10 +711,11 @@
     // time since then.
     if (marked) return;
     // The loader's animations start with the splash's first frame: a negative
-    // delay starts them on the wall clock's phase, as the reset screen's were.
+    // delay starts each moving part on the wall clock's phase, as the reset
+    // screen's were.
     const now = Date.now();
     splash
-      .querySelectorAll<SVGElement>('.boot-splash-spinner > svg, .boot-splash-spinner circle')
+      .querySelectorAll<HTMLElement | SVGElement>('.boot-splash-spinner *')
       .forEach(function (element) {
         const period = Number.parseFloat(getComputedStyle(element).animationDuration) * 1000;
         if (Number.isFinite(period) && period > 0) {

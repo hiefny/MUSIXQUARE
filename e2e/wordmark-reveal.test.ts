@@ -114,7 +114,10 @@ async function offsets(page: Page): Promise<{ logo: number; loader: number }> {
       const box = document.querySelector(selector)!.getBoundingClientRect();
       return Math.round((box.top + box.height / 2 - middle) * 10) / 10;
     };
-    return { logo: centre('.boot-splash-logo'), loader: centre('.boot-splash-spinner > svg') };
+    return {
+      logo: centre('.boot-splash-logo'),
+      loader: centre('.boot-splash-spinner .material-elastic-turn'),
+    };
   });
 }
 
@@ -178,7 +181,10 @@ test.describe('boot splash wordmark reveal', () => {
     // One 24px unit: the wordmark 24px above the centre, the loader 24px below.
     expect(await offsets(page)).toEqual({ logo: -24, loader: 24 });
     await expect(page.locator('.boot-splash-logo')).toHaveCSS('height', '24px');
-    await expect(page.locator('.boot-splash-spinner > svg')).toHaveCSS('height', '24px');
+    await expect(page.locator('.boot-splash-spinner .material-elastic-turn')).toHaveCSS(
+      'height',
+      '24px',
+    );
   });
 
   test('rasterizes completed joins without internal seams at low and high pixel density', async ({

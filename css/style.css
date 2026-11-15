@@ -857,7 +857,24 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Shared indeterminate loader: refined Material Elastic motion.
      The lab preset's approximate circumference and end-of-loop collapse are
      replaced by a normalized, continuous grow/catch-up arc. Determinate
-     progress surfaces keep their monotonic width/value behavior. */
+     progress surfaces keep their monotonic width/value behavior.
+
+     Every part moves by a transform alone, which the compositor runs without
+     the page: iOS stops painting a page it is leaving, and the stroke dash
+     this loader once animated froze there while its turn ran on (App 9.0.50;
+     parts in src/ui/material-elastic-spinner.ts). The arc is the dash it
+     replaces: from 2 of 100 units at 3 o'clock, to 74 units 12 units on at
+     48 %, to 2 units a full turn on.
+     - turn: the whole loader, one turn per 1.85 s.
+     - arc: a frame whose 12 o'clock follows the arc's middle (3.6, 176.4,
+       363.6 degrees clockwise from 3 o'clock, plus 90).
+     - tail, head: the frame's left and right halves. Each shows the part of
+       a half ring (the ring's bottom half) turning inside it: the tail ring
+       turns by -(90 + h), the head ring by 90 + h, h half the arc (3.6,
+       133.2, 3.6 degrees), so the arc runs from one ring's end through
+       12 o'clock to the other's.
+     - seam: the shortest arc at 12 o'clock, under the line where the halves
+       meet, which the arc always covers. */
   .material-elastic-spinner {
     --material-elastic-size: 24px;
     --material-elastic-stroke: 4.75;
@@ -868,28 +885,77 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: currentColor;
   }
 
-  .material-elastic-spinner > svg {
+  .material-elastic-spinner .material-elastic-turn {
+    position: relative;
     display: block;
     width: 100%;
     height: 100%;
-    overflow: visible;
-    transform-box: fill-box;
-    transform-origin: center;
-    shape-rendering: geometricPrecision;
     animation: material-elastic-spin 1.85s linear infinite;
     animation-delay: var(--material-elastic-spin-delay, 0ms);
   }
 
-  .material-elastic-spinner circle {
+  .material-elastic-spinner .material-elastic-arc,
+  .material-elastic-spinner .material-elastic-seam {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* The arc's three parts share one phase; its variable keeps the name of the
+     dash they replace (src/ui/playlist-view.ts sets it). */
+  .material-elastic-spinner .material-elastic-arc {
+    animation: material-elastic-arc 1.45s ease-in-out infinite;
+    animation-delay: var(--material-elastic-dash-delay, 0ms);
+  }
+
+  .material-elastic-spinner .material-elastic-tail,
+  .material-elastic-spinner .material-elastic-head {
+    position: absolute;
+    top: 0;
+    display: block;
+    width: 50%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .material-elastic-spinner .material-elastic-tail {
+    left: 0;
+  }
+
+  .material-elastic-spinner .material-elastic-head {
+    left: 50%;
+  }
+
+  .material-elastic-spinner .material-elastic-tail > svg,
+  .material-elastic-spinner .material-elastic-head > svg {
+    position: absolute;
+    top: 0;
+    display: block;
+    width: 200%;
+    height: 100%;
+  }
+
+  .material-elastic-spinner .material-elastic-tail > svg {
+    left: 0;
+    animation: material-elastic-tail 1.45s ease-in-out infinite;
+    animation-delay: var(--material-elastic-dash-delay, 0ms);
+  }
+
+  .material-elastic-spinner .material-elastic-head > svg {
+    left: -100%;
+    animation: material-elastic-head 1.45s ease-in-out infinite;
+    animation-delay: var(--material-elastic-dash-delay, 0ms);
+  }
+
+  .material-elastic-spinner path {
     fill: none;
     stroke: currentColor;
     stroke-width: var(--material-elastic-stroke);
     stroke-linecap: butt;
-    stroke-dasharray: 2 98;
-    stroke-dashoffset: 0;
     shape-rendering: geometricPrecision;
-    animation: material-elastic-dash 1.45s ease-in-out infinite;
-    animation-delay: var(--material-elastic-dash-delay, 0ms);
   }
 
   @keyframes material-elastic-spin {
@@ -898,32 +964,68 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
   }
 
-  @keyframes material-elastic-dash {
+  @keyframes material-elastic-arc {
     0% {
-      stroke-dasharray: 2 98;
-      stroke-dashoffset: 0;
+      transform: rotate(93.6deg);
     }
 
     48% {
-      stroke-dasharray: 74 26;
-      stroke-dashoffset: -12;
+      transform: rotate(266.4deg);
     }
 
     100% {
-      stroke-dasharray: 2 98;
-      stroke-dashoffset: -100;
+      transform: rotate(453.6deg);
     }
   }
 
+  @keyframes material-elastic-tail {
+    0% {
+      transform: rotate(-93.6deg);
+    }
+
+    48% {
+      transform: rotate(-223.2deg);
+    }
+
+    100% {
+      transform: rotate(-93.6deg);
+    }
+  }
+
+  @keyframes material-elastic-head {
+    0% {
+      transform: rotate(93.6deg);
+    }
+
+    48% {
+      transform: rotate(223.2deg);
+    }
+
+    100% {
+      transform: rotate(93.6deg);
+    }
+  }
+
+  /* Reduced motion holds a still arc: 58 of 100 units from 18 units on (its
+     middle at 169.2 degrees, half of it 104.4). */
   @media (prefers-reduced-motion: reduce) {
-    .material-elastic-spinner > svg,
-    .material-elastic-spinner circle {
+    .material-elastic-spinner .material-elastic-turn,
+    .material-elastic-spinner .material-elastic-arc,
+    .material-elastic-spinner .material-elastic-tail > svg,
+    .material-elastic-spinner .material-elastic-head > svg {
       animation: none !important;
     }
 
-    .material-elastic-spinner circle {
-      stroke-dasharray: 58 42;
-      stroke-dashoffset: -18;
+    .material-elastic-spinner .material-elastic-arc {
+      transform: rotate(259.2deg);
+    }
+
+    .material-elastic-spinner .material-elastic-tail > svg {
+      transform: rotate(-194.4deg);
+    }
+
+    .material-elastic-spinner .material-elastic-head > svg {
+      transform: rotate(194.4deg);
     }
   }
 
@@ -2553,7 +2655,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --material-elastic-stroke: 6.545;
   }
 
-  .track-playback-loading-indicator > svg {
+  .track-playback-loading-indicator > .material-elastic-turn {
     display: none;
   }
 
@@ -2570,7 +2672,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transform: scale(1);
   }
 
-  .playlist-current-leading.is-current-loading .track-playback-loading-indicator > svg {
+  .playlist-current-leading.is-current-loading
+    .track-playback-loading-indicator
+    > .material-elastic-turn {
     display: block;
   }
 
@@ -7392,8 +7496,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Set after the fade-out (setup-host-invite.ts): the hidden loop holds its
      place and continues from it on the next fade-in. */
-  .setup-host-qr-loading-spinner.is-paused > svg,
-  .setup-host-qr-loading-spinner.is-paused circle {
+  .setup-host-qr-loading-spinner.is-paused .material-elastic-turn,
+  .setup-host-qr-loading-spinner.is-paused .material-elastic-arc,
+  .setup-host-qr-loading-spinner.is-paused .material-elastic-tail > svg,
+  .setup-host-qr-loading-spinner.is-paused .material-elastic-head > svg {
     animation-play-state: paused;
   }
 

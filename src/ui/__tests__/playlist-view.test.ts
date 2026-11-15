@@ -12,6 +12,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection, PlaylistItem } from '../../types/index.ts';
 import { setLanguageMode, t } from '../../i18n/index.ts';
 import { initPlaylistView, updatePlaylistUI } from '../playlist-view.ts';
+import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../material-elastic-spinner.ts';
 import { safeSend } from '../../network/peer.ts';
 import { updateSubItemTitle } from '../../youtube/_state.ts';
 import { ProRoomUploadQueue } from '../../pro-room/upload-queue.ts';
@@ -126,6 +127,25 @@ function clickSelect(queueItemId: string): void {
 
 function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/** The shared loader's turning parts (src/ui/material-elastic-spinner.ts), as parsed. */
+function sharedLoaderParts(): string {
+  const holder = document.createElement('span');
+  holder.innerHTML = MATERIAL_ELASTIC_SPINNER_PARTS;
+  return holder.innerHTML;
+}
+
+/** The loader's markup without the whitespace index.html indents it with. */
+function loaderParts(spinner: Element | null | undefined): string {
+  const copy = spinner?.cloneNode(true) as Element | undefined;
+  if (!copy) return '';
+  const walker = copy.ownerDocument.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+  const blank: Node[] = [];
+  while (walker.nextNode())
+    if (!walker.currentNode.textContent?.trim()) blank.push(walker.currentNode);
+  for (const node of blank) node.parentNode?.removeChild(node);
+  return copy.innerHTML;
 }
 
 /**
@@ -395,11 +415,7 @@ describe('PRO upload rows', () => {
       expect(track?.childElementCount).toBe(2);
       expect(spinner?.parentElement?.childElementCount).toBe(1);
       expect(spinner?.getAttribute('aria-hidden')).toBe('true');
-      expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
-      expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
-      expect(spinner?.querySelector('circle')?.getAttribute('cy')).toBe('22');
-      expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
-      expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
+      expect(loaderParts(spinner)).toBe(sharedLoaderParts());
       // The phase is `-(now % period)`; a zero remainder renders as `0ms`, not `-0ms`.
       expect(spinner?.style.getPropertyValue('--material-elastic-spin-delay')).toMatch(/^-?\d+ms$/);
       expect(spinner?.style.getPropertyValue('--material-elastic-dash-delay')).toMatch(/^-?\d+ms$/);
@@ -1124,7 +1140,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(replaceChildren).not.toHaveBeenCalled();
   });
 
-  it('uses the shared Material Elastic SVG contract for playlist playback loading', async () => {
+  it('uses the shared Material Elastic loader for playlist playback loading', async () => {
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', FILE_A);
     setState('playback.mode', 'file');
@@ -1137,11 +1153,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(spinner).not.toBeNull();
     expect(spinner?.classList).toContain('playlist-row-spinner');
     expect(spinner?.getAttribute('aria-hidden')).toBe('true');
-    expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
-    expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
-    expect(spinner?.querySelector('circle')?.getAttribute('cy')).toBe('22');
-    expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
-    expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
+    expect(loaderParts(spinner)).toBe(sharedLoaderParts());
     const stylesheet = await readFile('css/style.css', 'utf8');
     const activeRowRules = stylesheet.match(/\.track-item\.active\s*\{([^}]*)\}/)?.[1] ?? '';
     const playbackIconRules =
@@ -1168,23 +1180,25 @@ describe('playlist queue identity rendering and actions', () => {
       const spinner = parsed.querySelector(selector);
       expect(spinner, selector).not.toBeNull();
       expect(spinner?.getAttribute('aria-hidden')).toBe('true');
-      expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
-      expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
-      expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
+      expect(loaderParts(spinner), selector).toBe(sharedLoaderParts());
     }
 
+    // The arc and its turn are transforms only: material-elastic-spinner.test.ts
+    // pins their keyframes to the dash they replace.
     expect(stylesheet).toContain('animation: material-elastic-spin 1.85s linear infinite');
-    expect(stylesheet).toContain('animation: material-elastic-dash 1.45s ease-in-out infinite');
+    for (const part of ['arc', 'tail', 'head']) {
+      expect(stylesheet).toContain(
+        `animation: material-elastic-${part} 1.45s ease-in-out infinite`,
+      );
+      expect(stylesheet).toContain(`@keyframes material-elastic-${part}`);
+    }
     expect(stylesheet).toContain('animation-delay: var(--material-elastic-spin-delay, 0ms)');
     expect(stylesheet).toContain('animation-delay: var(--material-elastic-dash-delay, 0ms)');
     expect(stylesheet).toContain('@keyframes material-elastic-spin');
-    expect(stylesheet).toContain('@keyframes material-elastic-dash');
+    expect(stylesheet).not.toContain('@keyframes material-elastic-dash');
     expect(stylesheet).toContain('stroke-linecap: butt');
-    expect(stylesheet).toContain('stroke-dasharray: 74 26');
-    expect(stylesheet).toContain('stroke-dasharray: 2 98');
-    expect(stylesheet).toContain('stroke-dashoffset: -100');
     expect(stylesheet).toMatch(
-      /\.material-elastic-spinner > svg\s*\{[^}]*animation:\s*material-elastic-spin/s,
+      /\.material-elastic-spinner \.material-elastic-turn\s*\{[^}]*animation:\s*material-elastic-spin/s,
     );
     expect(stylesheet).not.toMatch(
       /\.material-elastic-spinner\s*\{[^}]*animation:\s*material-elastic-spin/s,
@@ -1203,11 +1217,12 @@ describe('playlist queue identity rendering and actions', () => {
     expect(
       parsed.querySelector('#header-loading-text .header-loading-text-content'),
     ).not.toBeNull();
+    // The playlist ring's parts render only while its row loads.
     expect(stylesheet).toMatch(
-      /\.track-playback-loading-indicator > svg\s*\{[^}]*display:\s*none;/,
+      /\.track-playback-loading-indicator > \.material-elastic-turn\s*\{[^}]*display:\s*none;/,
     );
     expect(stylesheet).toMatch(
-      /\.playlist-current-leading\.is-current-loading \.track-playback-loading-indicator > svg\s*\{[^}]*display:\s*block;/,
+      /\.playlist-current-leading\.is-current-loading\s+\.track-playback-loading-indicator\s+>\s+\.material-elastic-turn\s*\{[^}]*display:\s*block;/,
     );
     expect(stylesheet).not.toContain('@keyframes yt-spin');
     expect(stylesheet).not.toContain('@keyframes track-playback-spin');

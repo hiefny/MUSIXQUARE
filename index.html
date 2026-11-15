@@ -215,11 +215,13 @@
         animation: none;
       }
 
-      html[data-boot-continued] .boot-splash .boot-splash-spinner > svg {
+      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-turn {
         animation-delay: var(--boot-splash-spin-delay, 0ms);
       }
 
-      html[data-boot-continued] .boot-splash .boot-splash-spinner circle {
+      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-arc,
+      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-tail > svg,
+      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-head > svg {
         animation-delay: var(--boot-splash-dash-delay, 0ms);
       }
 
@@ -234,27 +236,75 @@
         height: 48px;
       }
 
-      .boot-splash-spinner > svg {
+      /* The app's loader (css/style.css .material-elastic-spinner) at its
+         24px, in fixed lengths: every part turns by a transform alone, which
+         the compositor keeps running while iOS freezes a page it leaves. */
+      .boot-splash-spinner .material-elastic-turn {
+        position: relative;
         display: block;
         flex: none;
         width: 24px;
         height: 24px;
-        overflow: visible;
-        transform-box: fill-box;
-        transform-origin: center;
-        shape-rendering: geometricPrecision;
         animation: boot-splash-spin 1.85s linear infinite;
       }
 
-      .boot-splash-spinner circle {
+      .boot-splash-spinner .material-elastic-arc,
+      .boot-splash-spinner .material-elastic-seam {
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: block;
+        width: 24px;
+        height: 24px;
+      }
+
+      .boot-splash-spinner .material-elastic-arc {
+        animation: boot-splash-arc 1.45s ease-in-out infinite;
+      }
+
+      .boot-splash-spinner .material-elastic-tail,
+      .boot-splash-spinner .material-elastic-head {
+        position: absolute;
+        top: 0;
+        display: block;
+        width: 12px;
+        height: 24px;
+        overflow: hidden;
+      }
+
+      .boot-splash-spinner .material-elastic-tail {
+        left: 0;
+      }
+
+      .boot-splash-spinner .material-elastic-head {
+        left: 12px;
+      }
+
+      .boot-splash-spinner .material-elastic-tail > svg,
+      .boot-splash-spinner .material-elastic-head > svg {
+        position: absolute;
+        top: 0;
+        display: block;
+        width: 24px;
+        height: 24px;
+      }
+
+      .boot-splash-spinner .material-elastic-tail > svg {
+        left: 0;
+        animation: boot-splash-tail 1.45s ease-in-out infinite;
+      }
+
+      .boot-splash-spinner .material-elastic-head > svg {
+        left: -12px;
+        animation: boot-splash-head 1.45s ease-in-out infinite;
+      }
+
+      .boot-splash-spinner path {
         fill: none;
         stroke: currentColor;
         stroke-width: 4.75;
         stroke-linecap: butt;
-        stroke-dasharray: 2 98;
-        stroke-dashoffset: 0;
         shape-rendering: geometricPrecision;
-        animation: boot-splash-dash 1.45s ease-in-out infinite;
       }
 
       @keyframes boot-splash-mark-in {
@@ -301,20 +351,45 @@
         }
       }
 
-      @keyframes boot-splash-dash {
+      @keyframes boot-splash-arc {
         0% {
-          stroke-dasharray: 2 98;
-          stroke-dashoffset: 0;
+          transform: rotate(93.6deg);
         }
 
         48% {
-          stroke-dasharray: 74 26;
-          stroke-dashoffset: -12;
+          transform: rotate(266.4deg);
         }
 
         100% {
-          stroke-dasharray: 2 98;
-          stroke-dashoffset: -100;
+          transform: rotate(453.6deg);
+        }
+      }
+
+      @keyframes boot-splash-tail {
+        0% {
+          transform: rotate(-93.6deg);
+        }
+
+        48% {
+          transform: rotate(-223.2deg);
+        }
+
+        100% {
+          transform: rotate(-93.6deg);
+        }
+      }
+
+      @keyframes boot-splash-head {
+        0% {
+          transform: rotate(93.6deg);
+        }
+
+        48% {
+          transform: rotate(223.2deg);
+        }
+
+        100% {
+          transform: rotate(93.6deg);
         }
       }
 
@@ -331,14 +406,23 @@
           animation-duration: 0s;
         }
 
-        .boot-splash-spinner > svg,
-        .boot-splash-spinner circle {
+        .boot-splash-spinner .material-elastic-turn,
+        .boot-splash-spinner .material-elastic-arc,
+        .boot-splash-spinner .material-elastic-tail > svg,
+        .boot-splash-spinner .material-elastic-head > svg {
           animation: none;
         }
 
-        .boot-splash-spinner circle {
-          stroke-dasharray: 58 42;
-          stroke-dashoffset: -18;
+        .boot-splash-spinner .material-elastic-arc {
+          transform: rotate(259.2deg);
+        }
+
+        .boot-splash-spinner .material-elastic-tail > svg {
+          transform: rotate(-194.4deg);
+        }
+
+        .boot-splash-spinner .material-elastic-head > svg {
+          transform: rotate(194.4deg);
         }
       }
     </style>
@@ -830,9 +914,19 @@
           </defs>
         </svg>
         <span class="boot-splash-spinner" aria-hidden="true">
-          <svg viewBox="0 0 44 44" focusable="false">
-            <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-          </svg>
+          <span class="material-elastic-turn">
+            <span class="material-elastic-arc">
+              <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
+                <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
+              </svg>
+              <span class="material-elastic-tail">
+                <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+              </span>
+              <span class="material-elastic-head">
+                <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+              </span>
+            </span>
+          </span>
         </span>
       </div>
     </div>
@@ -1073,9 +1167,19 @@
                 class="material-elastic-spinner youtube-sync-loading-spinner"
                 aria-hidden="true"
               >
-                <svg viewBox="0 0 44 44">
-                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-                </svg>
+                <span class="material-elastic-turn">
+                  <span class="material-elastic-arc">
+                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
+                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
+                    </svg>
+                    <span class="material-elastic-tail">
+                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                    </span>
+                    <span class="material-elastic-head">
+                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                    </span>
+                  </span>
+                </span>
               </span>
               <span data-i18n="toast.yt_sync_start">Syncing...</span>
             </div>
@@ -1152,9 +1256,19 @@
                   <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
                 </svg>
                 <span class="material-elastic-spinner play-loading-spinner" aria-hidden="true">
-                  <svg viewBox="0 0 44 44">
-                    <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-                  </svg>
+                  <span class="material-elastic-turn">
+                    <span class="material-elastic-arc">
+                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
+                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
+                      </svg>
+                      <span class="material-elastic-tail">
+                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                      </span>
+                      <span class="material-elastic-head">
+                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                      </span>
+                    </span>
+                  </span>
                 </span>
               </button>
               <button
@@ -3118,9 +3232,19 @@
                 class="material-elastic-spinner setup-host-qr-loading-spinner"
                 aria-hidden="true"
               >
-                <svg viewBox="0 0 44 44">
-                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-                </svg>
+                <span class="material-elastic-turn">
+                  <span class="material-elastic-arc">
+                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
+                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
+                    </svg>
+                    <span class="material-elastic-tail">
+                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                    </span>
+                    <span class="material-elastic-head">
+                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                    </span>
+                  </span>
+                </span>
               </span>
             </div>
 
@@ -3176,9 +3300,19 @@
                   />
                 </svg>
                 <span class="material-elastic-spinner setup-qr-join-spinner" aria-hidden="true">
-                  <svg viewBox="0 0 44 44">
-                    <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-                  </svg>
+                  <span class="material-elastic-turn">
+                    <span class="material-elastic-arc">
+                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
+                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
+                      </svg>
+                      <span class="material-elastic-tail">
+                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                      </span>
+                      <span class="material-elastic-head">
+                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                      </span>
+                    </span>
+                  </span>
                 </span>
               </button>
               <div id="setup-qr-camera" class="setup-qr-camera" hidden>
@@ -3931,9 +4065,19 @@
                   <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
                 </svg>
                 <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
-                  <svg viewBox="0 0 44 44">
-                    <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-                  </svg>
+                  <span class="material-elastic-turn">
+                    <span class="material-elastic-arc">
+                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
+                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
+                      </svg>
+                      <span class="material-elastic-tail">
+                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                      </span>
+                      <span class="material-elastic-head">
+                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                      </span>
+                    </span>
+                  </span>
                 </span>
               </button>
               <div class="demo-inline-controls" id="demo-inline-controls" inert aria-hidden="true">
@@ -3948,10 +4092,21 @@
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path data-demo-play-icon d="M8 5v14l11-7z" />
                     </svg>
-                    <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true"
-                      ><svg viewBox="0 0 44 44">
-                        <circle cx="22" cy="22" r="18" pathLength="100"></circle></svg
-                    ></span>
+                    <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
+                      <span class="material-elastic-turn">
+                        <span class="material-elastic-arc">
+                          <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
+                            <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
+                          </svg>
+                          <span class="material-elastic-tail">
+                            <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                          </span>
+                          <span class="material-elastic-head">
+                            <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                          </span>
+                        </span>
+                      </span>
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -4353,9 +4508,19 @@
                 class="material-elastic-spinner system-audio-loading-spinner"
                 aria-hidden="true"
               >
-                <svg viewBox="0 0 44 44">
-                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-                </svg>
+                <span class="material-elastic-turn">
+                  <span class="material-elastic-arc">
+                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
+                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
+                    </svg>
+                    <span class="material-elastic-tail">
+                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                    </span>
+                    <span class="material-elastic-head">
+                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22a18 18 0 0 1-36 0"></path></svg>
+                    </span>
+                  </span>
+                </span>
               </span>
             </div>
             <span class="media-source-label-row">

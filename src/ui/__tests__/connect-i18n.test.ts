@@ -22,6 +22,7 @@ import { showToast } from '../toast.ts';
 import { showDialog, type DialogResult } from '../dialog.ts';
 import { copyTextToClipboard, offerBackToTopWindow, whenBackSurfaceSettled } from '../dom.ts';
 import { initConnect } from '../connect.ts';
+import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../material-elastic-spinner.ts';
 import { retryPeerSignalingConnection } from '../../network/peer.ts';
 import { changeStandardRoomPin } from '../../network/standard-room-pin.ts';
 import { restartProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
@@ -463,9 +464,12 @@ describe('connect signaling health status', () => {
 
     expect(spinner).not.toBeNull();
     expect(spinner?.getAttribute('aria-hidden')).toBe('true');
-    expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
-    expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
-    expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
+    // The shared loader's turning parts (src/ui/material-elastic-spinner.ts).
+    expect(spinner?.innerHTML).toBe(
+      new DOMParser().parseFromString(`<span>${MATERIAL_ELASTIC_SPINNER_PARTS}</span>`, 'text/html')
+        .body.firstElementChild?.innerHTML,
+    );
+    expect(spinner?.querySelector('circle')).toBeNull();
     expect(button.querySelector('span[data-i18n]')?.textContent).toBe('초대 링크 복사하기');
   });
 
@@ -582,7 +586,7 @@ describe('connect signaling health status', () => {
     expect(recoveringSpinnerRules).toContain('display: none');
     expect(activeRecoveringSpinnerRules).toContain('display: block');
     expect(stylesheet).not.toContain(".btn-copy-invite-link[data-mode='recovering']::before");
-    expect(stylesheet).toContain('@keyframes material-elastic-dash');
+    expect(stylesheet).toContain('@keyframes material-elastic-arc');
     expect(markup).toContain('id="signaling-recovery-overlay"');
     expect(markup).toContain('aria-labelledby="signaling-recovery-title"');
     expect(markup).not.toContain('signaling-recovery-visual');

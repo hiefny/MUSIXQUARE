@@ -30,6 +30,7 @@ import { changeStandardRoomPin } from '../network/standard-room-pin.ts';
 import { normalizeProRoomPin } from '../pro-room/room-code.ts';
 import { restartProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
 import { requestAccountNicknameChange } from './account.ts';
+import { MATERIAL_ELASTIC_SPINNER_PARTS } from './material-elastic-spinner.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
 import type {
@@ -212,7 +213,7 @@ async function generateQR(containerId: string): Promise<void> {
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'btn-copy-invite-link';
-    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${INVITE_LINK_ICON_PATH}"/></svg><span class="material-elastic-spinner signaling-recovery-spinner" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg></span><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
+    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${INVITE_LINK_ICON_PATH}"/></svg><span class="material-elastic-spinner signaling-recovery-spinner" aria-hidden="true">${MATERIAL_ELASTIC_SPINNER_PARTS}</span><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
     const copyInviteLink = async (): Promise<void> => {
       const healthStatus = getState('network.signalingHealth').status;
       if (healthStatus === 'expired') {

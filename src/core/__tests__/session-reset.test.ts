@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../../ui/material-elastic-spinner.ts';
 import { BOOT_SPLASH_CONTINUITY_KEY } from '../navigation-contract.ts';
 import { stubNavigationSinks } from './__helpers__/navigation-sinks.ts';
 
@@ -646,6 +647,12 @@ describe('session reset coordinator', () => {
   // reset opens continues them (browser/classic-runtime/wordmark-anim.ts).
   describe('the reset screen continues the boot splash', () => {
     const CONTINUITY_KEY = BOOT_SPLASH_CONTINUITY_KEY;
+    // The loader's moving parts (src/ui/material-elastic-spinner.ts): one turn
+    // per 1.85 s, and the arc's frame and half rings every 1.45 s.
+    const TURN = '.material-elastic-turn';
+    const ARC_PARTS =
+      '.material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg';
+    const MOVING_PARTS = `${TURN}, ${ARC_PARTS}`;
     // The splash as the reset finds it after boot: drawn, faded out, hidden.
     const SPLASH = `<div class="boot-splash" aria-hidden="true" hidden>
       <div class="boot-splash-mark">
@@ -654,7 +661,7 @@ describe('session reset coordinator', () => {
           <g class="wg" mask="url(#reveal)"><rect x="43" y="12" width="4" height="10"></rect><rect x="47" y="12" width="6" height="4"></rect></g>
           <defs><mask id="reveal"></mask><g data-wordmark-strokes></g></defs>
         </svg>
-        <span class="boot-splash-spinner" aria-hidden="true"><svg viewBox="0 0 44 44" focusable="false"><circle cx="22" cy="22" r="18"></circle></svg></span>
+        <span class="boot-splash-spinner" aria-hidden="true">${MATERIAL_ELASTIC_SPINNER_PARTS}</span>
       </div>
     </div>`;
 
@@ -750,11 +757,11 @@ describe('session reset coordinator', () => {
     it("runs the loader on the wall clock's phase, as the next page's splash does", async () => {
       const original = window.getComputedStyle.bind(window);
       vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
-        if (element.closest('#session-reset-overlay') && element.localName === 'svg') {
-          return { animationDuration: '1.85s' } as CSSStyleDeclaration;
-        }
-        if (element.closest('#session-reset-overlay') && element.localName === 'circle') {
-          return { animationDuration: '1.45s' } as CSSStyleDeclaration;
+        if (element.closest('#session-reset-overlay')) {
+          if (element.matches(TURN)) return { animationDuration: '1.85s' } as CSSStyleDeclaration;
+          if (element.matches(ARC_PARTS)) {
+            return { animationDuration: '1.45s' } as CSSStyleDeclaration;
+          }
         }
         return original(element, pseudo);
       });
@@ -762,13 +769,12 @@ describe('session reset coordinator', () => {
       scheduleSessionReset('Refreshing session...', vi.fn());
       const loader = document.querySelector('#session-reset-overlay .boot-splash-spinner');
       // Without the Web Animations API (jsdom): an equivalent negative delay.
-      // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
-      expect(loader?.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe(
-        '-1000ms',
-      );
-      expect(loader?.querySelector<SVGCircleElement>('circle')?.style.animationDelay).toBe(
-        '-950ms',
-      );
+      // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and the 1 450 ms arc 950 ms in.
+      expect(
+        [...(loader?.querySelectorAll<HTMLElement | SVGElement>(MOVING_PARTS) ?? [])].map(
+          (element) => element.style.animationDelay,
+        ),
+      ).toEqual(['-1000ms', '-950ms', '-950ms', '-950ms']);
     });
 
     it("sets the loader's running animations to the wall clock once shown, and again after a move", async () => {
@@ -776,15 +782,15 @@ describe('session reset coordinator', () => {
       // and a transition beside it that is not a loop to align.
       const animations = new Map<Element, { currentTime: number | null }>();
       const transitions = new Map<Element, { currentTime: number | null }>();
-      Object.defineProperty(window.SVGElement.prototype, 'getAnimations', {
+      Object.defineProperty(window.Element.prototype, 'getAnimations', {
         configurable: true,
-        value(this: SVGElement) {
-          if (!this.closest('#session-reset-overlay')) return [];
-          const duration = this.localName === 'svg' ? 1850 : 1450;
+        value(this: Element) {
+          if (!this.closest('#session-reset-overlay') || !this.matches(MOVING_PARTS)) return [];
+          const duration = this.matches(TURN) ? 1850 : 1450;
           let animation = animations.get(this);
           if (!animation) {
             animation = Object.assign(
-              { animationName: duration === 1850 ? 'boot-splash-spin' : 'boot-splash-dash' },
+              { animationName: duration === 1850 ? 'boot-splash-spin' : 'boot-splash-arc' },
               { currentTime: null, effect: { getTiming: () => ({ duration }) } },
             );
             animations.set(this, animation);
@@ -803,11 +809,9 @@ describe('session reset coordinator', () => {
       // The splash of a page a reset opened: bootstrap.js left its loader on
       // the wall clock with a negative delay, which the copy must not keep.
       document
-        .querySelectorAll<SVGElement>(
-          '.boot-splash .boot-splash-spinner > svg, .boot-splash .boot-splash-spinner circle',
-        )
+        .querySelectorAll<HTMLElement | SVGElement>(`.boot-splash .boot-splash-spinner *`)
         .forEach((element) => {
-          element.style.animationDelay = '-700ms';
+          if (element.matches(MOVING_PARTS)) element.style.animationDelay = '-700ms';
         });
       try {
         const { scheduleSessionReset, setSessionResetWindowLayer } = await loadCoordinator();
@@ -827,16 +831,20 @@ describe('session reset coordinator', () => {
         const phases = () => [...animations.values()].map((animation) => animation.currentTime);
 
         scheduleSessionReset('Refreshing session...', vi.fn());
-        expect(phases()).toEqual([1_000_000 % 1850, 1_000_000 % 1450]);
+        // The turn, then the arc's frame and its two half rings, in document order.
+        const at = (now: number) => [now % 1850, now % 1450, now % 1450, now % 1450];
+        expect(phases()).toEqual(at(1_000_000));
         // The copy dropped the splash's delay, and the transition kept its time.
         expect(
           [
-            ...document.querySelectorAll<SVGElement>(
-              '#session-reset-overlay .boot-splash-spinner > svg, #session-reset-overlay .boot-splash-spinner circle',
+            ...document.querySelectorAll<HTMLElement | SVGElement>(
+              '#session-reset-overlay .boot-splash-spinner *',
             ),
           ].map((element) => element.style.animationDelay),
-        ).toEqual(['', '']);
+        ).toEqual(Array.from({ length: 10 }, () => ''));
         expect([...transitions.values()].map((transition) => transition.currentTime)).toEqual([
+          null,
+          null,
           null,
           null,
         ]);
@@ -847,9 +855,9 @@ describe('session reset coordinator', () => {
         document.body.append(host);
         hostChanged();
         expect(document.getElementById('session-reset-overlay')?.parentElement).toBe(host);
-        expect(phases()).toEqual([1_000_700 % 1850, 1_000_700 % 1450]);
+        expect(phases()).toEqual(at(1_000_700));
       } finally {
-        Reflect.deleteProperty(window.SVGElement.prototype, 'getAnimations');
+        Reflect.deleteProperty(window.Element.prototype, 'getAnimations');
       }
     });
 

@@ -2473,26 +2473,73 @@
   color: currentColor;
 }
 
-.material-elastic-spinner > svg {
+/* The app's loader (css/style.css .material-elastic-spinner): every part turns
+   by a transform alone (src/ui/material-elastic-spinner.ts). */
+.material-elastic-spinner .material-elastic-turn {
+  position: relative;
+  display: block;
   width: 100%;
   height: 100%;
-  display: block;
-  overflow: visible;
-  transform-box: fill-box;
-  transform-origin: center;
-  shape-rendering: geometricPrecision;
   animation: material-elastic-spin 1.85s linear infinite;
 }
 
-.material-elastic-spinner circle {
+.material-elastic-spinner .material-elastic-arc,
+.material-elastic-spinner .material-elastic-seam {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.material-elastic-spinner .material-elastic-arc {
+  animation: material-elastic-arc 1.45s ease-in-out infinite;
+}
+
+.material-elastic-spinner .material-elastic-tail,
+.material-elastic-spinner .material-elastic-head {
+  position: absolute;
+  top: 0;
+  display: block;
+  width: 50%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.material-elastic-spinner .material-elastic-tail {
+  left: 0;
+}
+
+.material-elastic-spinner .material-elastic-head {
+  left: 50%;
+}
+
+.material-elastic-spinner .material-elastic-tail > svg,
+.material-elastic-spinner .material-elastic-head > svg {
+  position: absolute;
+  top: 0;
+  display: block;
+  width: 200%;
+  height: 100%;
+}
+
+.material-elastic-spinner .material-elastic-tail > svg {
+  left: 0;
+  animation: material-elastic-tail 1.45s ease-in-out infinite;
+}
+
+.material-elastic-spinner .material-elastic-head > svg {
+  left: -100%;
+  animation: material-elastic-head 1.45s ease-in-out infinite;
+}
+
+.material-elastic-spinner path {
   fill: none;
   stroke: currentColor;
   stroke-width: var(--material-elastic-stroke);
   stroke-linecap: butt;
-  stroke-dasharray: 2 98;
-  stroke-dashoffset: 0;
   shape-rendering: geometricPrecision;
-  animation: material-elastic-dash 1.45s ease-in-out infinite;
 }
 
 @keyframes material-elastic-spin {
@@ -2501,20 +2548,45 @@
   }
 }
 
-@keyframes material-elastic-dash {
+@keyframes material-elastic-arc {
   0% {
-    stroke-dasharray: 2 98;
-    stroke-dashoffset: 0;
+    transform: rotate(93.6deg);
   }
 
   48% {
-    stroke-dasharray: 74 26;
-    stroke-dashoffset: -12;
+    transform: rotate(266.4deg);
   }
 
   100% {
-    stroke-dasharray: 2 98;
-    stroke-dashoffset: -100;
+    transform: rotate(453.6deg);
+  }
+}
+
+@keyframes material-elastic-tail {
+  0% {
+    transform: rotate(-93.6deg);
+  }
+
+  48% {
+    transform: rotate(-223.2deg);
+  }
+
+  100% {
+    transform: rotate(-93.6deg);
+  }
+}
+
+@keyframes material-elastic-head {
+  0% {
+    transform: rotate(93.6deg);
+  }
+
+  48% {
+    transform: rotate(223.2deg);
+  }
+
+  100% {
+    transform: rotate(93.6deg);
   }
 }
 
@@ -3445,8 +3517,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .material-elastic-spinner > svg,
-  .material-elastic-spinner circle,
+  .material-elastic-spinner .material-elastic-turn,
+  .material-elastic-spinner .material-elastic-arc,
+  .material-elastic-spinner .material-elastic-tail > svg,
+  .material-elastic-spinner .material-elastic-head > svg,
   .app-loading-header-progress,
   .app-loading-header-logo,
   .app-loading-header-status,
@@ -3461,9 +3535,16 @@
     --range-progress: 0% !important;
   }
 
-  .material-elastic-spinner circle {
-    stroke-dasharray: 58 42;
-    stroke-dashoffset: -18;
+  .material-elastic-spinner .material-elastic-arc {
+    transform: rotate(259.2deg);
+  }
+
+  .material-elastic-spinner .material-elastic-tail > svg {
+    transform: rotate(-194.4deg);
+  }
+
+  .material-elastic-spinner .material-elastic-head > svg {
+    transform: rotate(194.4deg);
   }
 
   .app-loading-header-progress {

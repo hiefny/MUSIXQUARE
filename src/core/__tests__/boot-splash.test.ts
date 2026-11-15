@@ -28,6 +28,14 @@ function declaration(css: string, opener: string, property: string): string {
   return match?.[1]?.trim() ?? '';
 }
 
+/** A declaration of the rule whose whole selector is the opener's (not a list's last line). */
+function ownDeclaration(css: string, opener: string, property: string): string {
+  let start = css.indexOf(opener);
+  while (start > -1 && /,\s*$/u.test(css.slice(0, start))) start = css.indexOf(opener, start + 1);
+  expect(start, opener).toBeGreaterThan(-1);
+  return declaration(css.slice(start), opener, property);
+}
+
 function keyframes(css: string, name: string): string {
   const start = css.indexOf(`@keyframes ${name} {`);
   expect(start, name).toBeGreaterThan(-1);
@@ -258,8 +266,16 @@ describe('boot splash', () => {
         return Number.parseFloat(value);
       });
     const [logoWidth = 0, logoHeight = 0] = fixedSize('      .boot-splash-logo {');
-    const [loaderWidth = 0, loaderHeight = 0] = fixedSize('      .boot-splash-spinner > svg {');
-    expect(logoWidth * logoHeight + loaderWidth * loaderHeight).toBeGreaterThan(32 * 32);
+    // The loader's three SVGs: the seam patch and the two half rings.
+    const [seamWidth = 0, seamHeight = 0] = fixedSize(
+      '      .boot-splash-spinner .material-elastic-arc,\n      .boot-splash-spinner .material-elastic-seam {',
+    );
+    const [ringWidth = 0, ringHeight = 0] = fixedSize(
+      '      .boot-splash-spinner .material-elastic-tail > svg,\n      .boot-splash-spinner .material-elastic-head > svg {',
+    );
+    expect(
+      logoWidth * logoHeight + seamWidth * seamHeight + 2 * ringWidth * ringHeight,
+    ).toBeGreaterThan(32 * 32);
     // Exactly what the viewBox gives at that height, as auto would.
     const [, , boxWidth = 0, boxHeight = 0] = (
       new JSDOM(INDEX).window.document
@@ -282,8 +298,9 @@ describe('boot splash', () => {
     expect(declaration(STYLE, '  .material-elastic-spinner {', '--material-elastic-size')).toBe(
       '24px',
     );
-    expect(declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'width')).toBe('24px');
-    expect(declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'height')).toBe('24px');
+    const turn = '      .boot-splash-spinner .material-elastic-turn {';
+    expect(declaration(SPLASH_CSS, turn, 'width')).toBe('24px');
+    expect(declaration(SPLASH_CSS, turn, 'height')).toBe('24px');
     // The 24px gap above the loader is part of its box (48 = 24 + 24), never a
     // margin or padding: style.css zeroes both on every element.
     expect(declaration(SPLASH_CSS, '      .boot-splash-spinner {', 'height')).toBe('48px');
@@ -292,59 +309,63 @@ describe('boot splash', () => {
     expect(declaration(STYLE, '  * {', 'padding')).toBe('0');
     expect(SPLASH_CSS).not.toMatch(/(?:^|[\s;{])(?:margin|padding)(?:-[a-z]+)?\s*:/u);
     expect(declaration(STYLE, '  .material-elastic-spinner {', '--material-elastic-stroke')).toBe(
-      declaration(SPLASH_CSS, '      .boot-splash-spinner circle {', 'stroke-width'),
+      declaration(SPLASH_CSS, '      .boot-splash-spinner path {', 'stroke-width'),
     );
 
-    const component = block(STYLE, '  .material-elastic-spinner > svg {');
-    const splash = block(SPLASH_CSS, '      .boot-splash-spinner > svg {');
-    expect(component).toMatch(/animation: material-elastic-spin 1\.85s linear infinite;/u);
-    expect(splash).toMatch(/animation: boot-splash-spin 1\.85s linear infinite;/u);
-    for (const property of ['overflow', 'transform-box', 'transform-origin', 'shape-rendering']) {
-      expect(declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', property)).toBe(
-        declaration(STYLE, '  .material-elastic-spinner > svg {', property),
+    // Each moving part runs on the app's clock, under the splash's own name
+    // (the app sheet may load beside it); material-elastic-spinner.test.ts
+    // pins the arc itself to the dash it replaces.
+    const parts = [
+      ['.material-elastic-turn {', 'spin', '1.85s linear infinite'],
+      ['.material-elastic-arc {', 'arc', '1.45s ease-in-out infinite'],
+      ['.material-elastic-tail > svg {', 'tail', '1.45s ease-in-out infinite'],
+      ['.material-elastic-head > svg {', 'head', '1.45s ease-in-out infinite'],
+    ] as const;
+    for (const [part, name, clock] of parts) {
+      expect(ownDeclaration(STYLE, `  .material-elastic-spinner ${part}`, 'animation')).toBe(
+        `material-elastic-${name} ${clock}`,
+      );
+      expect(ownDeclaration(SPLASH_CSS, `      .boot-splash-spinner ${part}`, 'animation')).toBe(
+        `boot-splash-${name} ${clock}`,
+      );
+      expect(keyframes(SPLASH_CSS, `boot-splash-${name}`)).toBe(
+        keyframes(STYLE, `material-elastic-${name}`),
       );
     }
-
-    expect(block(STYLE, '  .material-elastic-spinner circle {')).toMatch(
-      /animation: material-elastic-dash 1\.45s ease-in-out infinite;/u,
-    );
-    expect(block(SPLASH_CSS, '      .boot-splash-spinner circle {')).toMatch(
-      /animation: boot-splash-dash 1\.45s ease-in-out infinite;/u,
-    );
-    for (const property of [
-      'fill',
-      'stroke',
-      'stroke-linecap',
-      'stroke-dasharray',
-      'stroke-dashoffset',
-    ]) {
-      expect(declaration(SPLASH_CSS, '      .boot-splash-spinner circle {', property)).toBe(
-        declaration(STYLE, '  .material-elastic-spinner circle {', property),
+    for (const property of ['fill', 'stroke', 'stroke-linecap', 'shape-rendering']) {
+      expect(declaration(SPLASH_CSS, '      .boot-splash-spinner path {', property)).toBe(
+        declaration(STYLE, '  .material-elastic-spinner path {', property),
       );
     }
-    expect(keyframes(SPLASH_CSS, 'boot-splash-spin')).toBe(
-      keyframes(STYLE, 'material-elastic-spin'),
-    );
-    expect(keyframes(SPLASH_CSS, 'boot-splash-dash')).toBe(
-      keyframes(STYLE, 'material-elastic-dash'),
-    );
+    for (const side of ['tail', 'head']) {
+      expect(
+        ownDeclaration(
+          SPLASH_CSS,
+          `      .boot-splash-spinner .material-elastic-${side} {`,
+          'left',
+        ),
+      ).toBe(side === 'tail' ? '0' : '12px');
+      expect(
+        ownDeclaration(STYLE, `  .material-elastic-spinner .material-elastic-${side} {`, 'left'),
+      ).toBe(side === 'tail' ? '0' : '50%');
+    }
 
-    // Reduced motion freezes both on the same static arc.
-    const staticArc = (section: string) => ({
-      dasharray: section.match(/stroke-dasharray:\s*([^;]+);/u)?.[1],
-      dashoffset: section.match(/stroke-dashoffset:\s*([^;]+);/u)?.[1],
-    });
-    const reducedComponent = STYLE.slice(
-      STYLE.indexOf(
-        '@media (prefers-reduced-motion: reduce) {',
-        STYLE.indexOf('@keyframes material-elastic-dash'),
-      ),
-    );
-    const reducedSplash = SPLASH_CSS.slice(
-      SPLASH_CSS.indexOf('@media (prefers-reduced-motion: reduce) {'),
-    );
-    expect(staticArc(reducedSplash)).toEqual({ dasharray: '58 42', dashoffset: '-18' });
-    expect(staticArc(reducedSplash)).toEqual(staticArc(reducedComponent));
+    // Reduced motion holds both on the same static arc: a rule of its own per
+    // part, after the one that stops their animations.
+    const staticArc = (css: string, root: string) =>
+      ['.material-elastic-arc', '.material-elastic-tail > svg', '.material-elastic-head > svg'].map(
+        (part) => {
+          const reduced = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce) {'));
+          const selector = `${root} ${part}`.replace(/\./gu, '\\.');
+          return reduced.match(
+            new RegExp(`\\n\\s*${selector} \\{\\s*transform: ([^;]+);`, 'u'),
+          )?.[1];
+        },
+      );
+    const staticSplash = staticArc(SPLASH_CSS, '.boot-splash-spinner');
+    expect(staticSplash).toEqual(['rotate(259.2deg)', 'rotate(-194.4deg)', 'rotate(194.4deg)']);
+    const appSheet = STYLE.slice(0, STYLE.indexOf('.header-safe-content {'));
+    expect(staticArc(appSheet, '.material-elastic-spinner')).toEqual(staticSplash);
   });
 
   it('steps aside once the app takes the screen or boot fails, and never comes back', () => {
@@ -557,22 +578,45 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     );
     const { window } = dom;
     Object.defineProperty(window.Date, 'now', { value: () => NOW });
+    // The loader's moving parts: one turn per 1.85 s, the arc's three parts 1.45 s.
     Object.defineProperty(window, 'getComputedStyle', {
       value: (element: Element) => ({
-        animationDuration:
-          element.localName === 'svg' ? '1.85s' : element.localName === 'circle' ? '1.45s' : '0s',
+        animationDuration: element.matches('.material-elastic-turn')
+          ? '1.85s'
+          : element.matches(
+                '.material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
+              )
+            ? '1.45s'
+            : '0s',
       }),
     });
     if (stamp !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_KEY, stamp);
     const splash = window.document.querySelector<HTMLElement>('.boot-splash')!;
     if (phase !== undefined) splash.dataset.phase = phase;
     const delay = (selector: string) =>
-      splash.querySelector<SVGElement>(selector)?.style.animationDelay ?? null;
+      splash.querySelector<HTMLElement | SVGElement>(selector)?.style.animationDelay ?? null;
     return {
       run: () => window.eval(preflight),
       phase: () => splash.dataset.phase,
       stamp: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_KEY),
-      delays: () => [delay('.boot-splash-spinner > svg'), delay('.boot-splash-spinner circle')],
+      delays: () =>
+        [
+          '.material-elastic-turn',
+          '.material-elastic-arc',
+          '.material-elastic-tail > svg',
+          '.material-elastic-head > svg',
+        ].map((part) => delay(`.boot-splash-spinner ${part}`)),
+      // Every other part of the loader keeps no delay.
+      stillParts: () =>
+        [...splash.querySelectorAll<HTMLElement | SVGElement>('.boot-splash-spinner *')]
+          .filter(
+            (element) =>
+              !element.matches(
+                '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
+              ),
+          )
+          .map((element) => element.style.animationDelay)
+          .filter(Boolean),
       window,
     };
   }
@@ -582,8 +626,9 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     app.run();
     expect(app.phase()).toBe('settled');
     expect(app.stamp()).toBeNull();
-    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
-    expect(app.delays()).toEqual(['-1000ms', '-950ms']);
+    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and the 1 450 ms arc 950 ms in.
+    expect(app.delays()).toEqual(['-1000ms', '-950ms', '-950ms', '-950ms']);
+    expect(app.stillParts()).toEqual([]);
   });
 
   it.each([
@@ -596,7 +641,7 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     app.run();
     expect(app.phase()).toBeUndefined();
     expect(app.stamp()).toBeNull();
-    expect(app.delays()).toEqual(['', '']);
+    expect(app.delays()).toEqual(['', '', '', '']);
   });
 
   it('settles a splash the head preflight already marked as continued, even once the stamp is gone, and leaves its loader phase alone', () => {
@@ -606,7 +651,7 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     expect(app.phase()).toBe('settled');
     // The preflight's CSS variables started the loader on the wall clock from
     // the first frame; a delay set now would add the time since then.
-    expect(app.delays()).toEqual(['', '']);
+    expect(app.delays()).toEqual(['', '', '', '']);
   });
 
   it('changes nothing without a stamp, with a phase already set, or without storage', () => {
@@ -768,14 +813,19 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect(
       declaration(
         SPLASH_CSS,
-        '      html[data-boot-continued] .boot-splash .boot-splash-spinner > svg {',
+        '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-turn {',
         'animation-delay',
       ),
     ).toBe('var(--boot-splash-spin-delay, 0ms)');
+    // The arc's three parts share one phase.
     expect(
       declaration(
         SPLASH_CSS,
-        '      html[data-boot-continued] .boot-splash .boot-splash-spinner circle {',
+        [
+          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-arc,',
+          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-tail > svg,',
+          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-head > svg {',
+        ].join('\n'),
         'animation-delay',
       ),
     ).toBe('var(--boot-splash-dash-delay, 0ms)');
@@ -791,19 +841,21 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     );
     expect(window).toBe(15_000);
     expect(PREFLIGHT).toContain(`< ${window}`);
-    const spin = Math.round(
-      Number.parseFloat(
-        declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'animation').split(' ')[1] ??
-          '',
-      ) * 1000,
-    );
-    const dash = Math.round(
-      Number.parseFloat(
-        declaration(SPLASH_CSS, '      .boot-splash-spinner circle {', 'animation').split(' ')[1] ??
-          '',
-      ) * 1000,
-    );
+    const period = (part: string) =>
+      Math.round(
+        Number.parseFloat(
+          ownDeclaration(SPLASH_CSS, `      .boot-splash-spinner ${part} {`, 'animation').split(
+            ' ',
+          )[1] ?? '',
+        ) * 1000,
+      );
+    const spin = period('.material-elastic-turn');
+    const dash = period('.material-elastic-arc');
     expect([spin, dash]).toEqual([1850, 1450]);
+    expect([
+      period('.material-elastic-tail > svg'),
+      period('.material-elastic-head > svg'),
+    ]).toEqual([dash, dash]);
     expect(PREFLIGHT).toContain(`now % ${spin}`);
     expect(PREFLIGHT).toContain(`now % ${dash}`);
   });

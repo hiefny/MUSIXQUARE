@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../../ui/material-elastic-spinner.ts';
 import { compileClassicRuntimeForBrowserTest } from './classic-runtime-test-asset.ts';
 
 // The boot splash (index.html) as the runtime meets it: the wordmark, its
@@ -14,7 +15,7 @@ const LOGO = `<svg class="boot-splash-logo" viewBox="43 12 214 24" xmlns="http:/
   </g></defs>
 </svg>`;
 const SPLASH = (logo = LOGO) => `<div class="boot-splash" aria-hidden="true">
-  <div class="boot-splash-mark">${logo}<span class="boot-splash-spinner" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"/></svg></span></div>
+  <div class="boot-splash-mark">${logo}<span class="boot-splash-spinner" aria-hidden="true">${MATERIAL_ELASTIC_SPINNER_PARTS}</span></div>
 </div>`;
 // Strokes start 500 ms into the drawing; the last ends at 500 + 200 + 1840.
 const DRAW_END = 2540;

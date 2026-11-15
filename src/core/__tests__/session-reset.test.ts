@@ -1045,8 +1045,8 @@ describe('session reset coordinator', () => {
             document.body.append(host);
             hostChanged();
           },
+          // The host element stays in the page; it only leaves fullscreen.
           exit() {
-            host?.remove();
             host = null;
             hostChanged();
           },

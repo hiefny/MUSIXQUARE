@@ -220,14 +220,23 @@
       }
 
       /* The reset screen's box as well. iOS gives the page a reset opens a
-         first screen short by the home indicator strip, and centred in that
-         the wordmark and loader stood half the strip higher until the screen
-         grew (owner report 2026-11-16). The preflight keeps the reset screen's
-         height while this screen is as wide and within 64px of it; without
-         that the splash fills this screen as before. */
-      html[data-boot-continued] .boot-splash {
-        bottom: auto;
-        height: var(--boot-continued-height, 100%);
+         first screen short by the home indicator strip (inferred from the
+         owner's report, 2026-11-16), and centred in that the wordmark and
+         loader stood half the strip higher until the screen grew. The
+         preflight keeps the reset screen's height while this screen is as wide
+         and within 64px of it; without that the splash fills this screen as
+         before. It never falls short of its screen (no band under it) nor
+         grows past that window (a screen turned after the first frame keeps
+         the mark on it). From these sizes css/desktop.css scales body, the
+         splash's containing block once the app stylesheet loads, so a px
+         height there is left to the plain fill. */
+      @media not all and (min-width: 2560px) and (min-height: 1280px) {
+        html[data-boot-continued] .boot-splash {
+          bottom: auto;
+          height: var(--boot-continued-height, 100%);
+          min-height: 100%;
+          max-height: calc(100% + 64px);
+        }
       }
 
       html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-turn {

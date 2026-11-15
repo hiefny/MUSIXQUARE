@@ -616,8 +616,10 @@ function followSurfaceHost(): void {
   releasePageClaims(attempt);
   placeOverlay(overlay);
   claimPageAround(overlay, attempt);
-  // Its new host is a new box for the next page to keep.
-  rememberResetScreenBox(overlay);
+  // No next page has a fullscreen host's box (a navigation ends element
+  // fullscreen), and back in the page the body can still be fullscreen-tall
+  // for a frame: the box is taken again just before the page leaves.
+  forgetResetScreenBox();
   // A move restarts the loader's animations.
   alignLoaderToWallClock(overlay.querySelector('.boot-splash-spinner'));
   // Moving the focused overlay drops its focus; the page holds no other.
@@ -728,25 +730,37 @@ function forgetBootSplashContinuity(): void {
 
 /**
  * Leave the box this screen centres the wordmark and loader in (the window's
- * width and the screen's height) for the page the reset opens. iOS gives that
- * page a first screen short by the home indicator strip, and its splash,
- * centred in that, put them half the strip higher until the screen grew (owner
- * report 2026-11-16); its head preflight keeps this height instead while its
- * screen is as wide and nearly as tall. A screen with no box leaves none.
+ * width and the screen's laid-out height) for the page the reset opens. iOS
+ * gives that page a first screen short by the home indicator strip (inferred
+ * from the owner's report, 2026-11-16), and its splash, centred in that, put
+ * them half the strip higher until the screen grew; its head preflight keeps
+ * this height instead while its screen is as wide and within 64 px of it. It
+ * is taken when the screen shows and again just before the page leaves, only
+ * while the screen sits in the page's body: no next page has a fullscreen
+ * host's box, since a navigation ends element fullscreen. A screen with no box
+ * there leaves none.
  */
 function rememberResetScreenBox(overlay: HTMLElement): void {
-  const height = overlay.offsetHeight;
+  const height = overlay.parentElement === document.body ? overlay.offsetHeight : 0;
+  if (!(height > 0)) {
+    forgetResetScreenBox();
+    return;
+  }
   try {
-    if (height > 0) {
-      sessionStorage.setItem(
-        BOOT_SPLASH_CONTINUITY_BOX_KEY,
-        `${Math.round(window.innerWidth)}x${height}`,
-      );
-    } else {
-      sessionStorage.removeItem(BOOT_SPLASH_CONTINUITY_BOX_KEY);
-    }
+    sessionStorage.setItem(
+      BOOT_SPLASH_CONTINUITY_BOX_KEY,
+      `${Math.round(window.innerWidth)}x${height}`,
+    );
   } catch {
     // Without storage the next page centres them in its own first screen.
+  }
+}
+
+function forgetResetScreenBox(): void {
+  try {
+    sessionStorage.removeItem(BOOT_SPLASH_CONTINUITY_BOX_KEY);
+  } catch {
+    // Without storage the box was never written.
   }
 }
 
@@ -866,6 +880,10 @@ function navigateAttempt(attempt: NavigationAttempt, request: NavigationRequest)
     return;
   }
   _state = { phase: 'navigating', attempt };
+  // The screen as the page leaves it: a keyboard bar that hid after the
+  // reset's blur, or a window resized meanwhile, changed it since it showed.
+  const overlay = document.getElementById(OVERLAY_ID);
+  if (overlay instanceof HTMLElement) rememberResetScreenBox(overlay);
   try {
     request.navigate();
   } catch (error) {

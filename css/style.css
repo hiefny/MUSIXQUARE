@@ -400,7 +400,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 12px 24px;
     background: var(--primary-filled, #3b82f6);
     color: #fff;
-    border-radius: 0 0 var(--radius-s, 14px) var(--radius-s, 14px);
+    border-radius: 0 0 var(--radius-s) var(--radius-s);
     font-size: 14px;
     font-weight: var(--font-weight-label);
     text-decoration: none;
@@ -4680,7 +4680,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .qr-container img {
     max-width: 220px;
     max-height: 220px;
-    border-radius: var(--radius-s, 14px);
+    border-radius: var(--radius-s);
   }
 
   .qr-svg {
@@ -7138,7 +7138,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border: none;
     outline: none;
     background: none;
-    color: var(--text-sub, #888);
+    color: var(--text-sub);
     width: 20px;
     height: 20px;
     display: flex;
@@ -7160,7 +7160,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   :where(html[data-hover-pointer]) .ob-nav-arrow:hover {
     color: var(--primary);
-    background: rgba(var(--primary-rgb, 0, 122, 255), 0.08);
+    background: rgba(var(--primary-rgb), 0.08);
   }
 
   .ob-nav-arrow:active {

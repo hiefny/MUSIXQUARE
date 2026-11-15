@@ -1632,8 +1632,7 @@ p {
   color: #121212;
 }
 
-.pro-room-transfer-actions button:focus-visible,
-.pro-room-owner-detach-actions button:focus-visible {
+.pro-room-transfer-actions button:focus-visible {
   outline: 2px solid rgba(var(--primary-rgb), 0.72);
   outline-offset: 2px;
 }
@@ -1704,12 +1703,7 @@ p {
 .pro-room-api-field select {
   min-width: 0;
   height: 38px;
-  border: 0;
-  border-radius: var(--radius);
   padding: 0 11px;
-  background: var(--surface-2);
-  color: var(--text-main);
-  outline: none;
 }
 
 .pro-room-api-form button {
@@ -1863,10 +1857,6 @@ p {
   background: rgba(var(--primary-rgb), 0.13);
 }
 
-.pro-room-api-secret-copy {
-  display: flex;
-}
-
 .pro-room-api-secret-copy strong {
   font-size: 12px;
   font-weight: 700;
@@ -1879,17 +1869,12 @@ p {
 }
 
 .pro-room-api-secret-row input {
-  width: 100%;
   min-width: 0;
   height: 36px;
-  border: 0;
-  border-radius: var(--radius);
   padding: 0 11px;
   background: var(--surface-1);
-  color: var(--text-main);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 10px;
-  outline: none;
 }
 
 @keyframes pro-room-api-skeleton-pulse {

@@ -96,6 +96,20 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.49 / v824 train: the session reset leaves once its screen has fully faded in, and the page it opens shows the stored theme and the settled splash from its first frame (2026-11-15)](design/app-9-0-49-train-2026-11-15.md):
+  in progress on `agent/reload-seamless`, not merged or released. An App update after 9.0.48 / v823, on main
+  `45d83f3b` (whose App runtime equals 9.0.48's `3b75753e`), for the two fixes the owner chose on 2026-11-15 after
+  asking why a reload flashed and whether the refresh screen still meant anything. The session reset now navigates
+  only once its overlay's 0.2 s fade-in has run by the transition's own clock (9.0.48 left at about 13% opacity), so
+  the app appears about 0.2 s later. A one-line inline `<head>` preflight, allowed only by its sha256 in the app
+  documents' CSP and pinned in the inline-JS guard, applies the stored theme and the reset's continuation before the
+  first paint; `bootstrap.js` still owns the stamp. The first independent review found that the localized build
+  stripped the indented script's whitespace, so production would have blocked it; the body is now one line and the
+  build refuses a shell whose copy hashes otherwise. Frames were measured on local builds of the app's own refresh
+  path at 390x844 in Chromium only (headless and a GPU window); WebKit was checked for the overlay's opacity on the
+  leave path, the first frame's state in e2e, and the preflight under the app documents' CSP (as was Chromium), but
+  its frames were not captured. Not verified on a physical device, in Firefox or on legacy TV engines.
+
 - [App 9.0.48 / v823 train: a loading screen paints from the page file, draws the wordmark and raises it as the loader joins, setup greets at once, and the session reset screen continues it (2026-11-15)](design/app-9-0-48-train-2026-11-15.md):
   released on 2026-11-15 11:05 KST in Release 43665977505 (PR #594, squash `3b75753e`) as App 9.0.48 / v823 (App build
   823, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

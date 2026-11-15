@@ -3380,7 +3380,8 @@ RO-55 accepted-exception
   because `src/core/navigation.ts` imports the owner. The ordering it relies on is pinned in
   `src/core/__tests__/navigation-contract.test.ts` (Phase 2, C6-1). The fade-in's length lives
   in the overlay's `transition` in `style.css`; the owner reads it from the computed style
-  (`resetFadeInMs`) and keeps no copy.
+  (`resetFadeInMs`) and keeps no copy, and `navigation-contract.test.ts` reads it there to keep the
+  no-frame wait (`RESET_PAINT_FALLBACK_MS` beyond it) under `LEAVE_FALLBACK_MS`.
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/session-reset.test.ts` "uses a native timeout fallback and
     accepts only the first reset request"; `src/core/__tests__/document-reload.test.ts` "does not

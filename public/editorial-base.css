@@ -14,22 +14,18 @@
   --range-fill-active: var(--text-main);
   --play-fab-bg-idle: rgba(238, 238, 238, 0.9);
   --play-fab-bg-active: var(--text-main);
-  --play-fab-bg-disabled: rgba(238, 238, 238, 0.2);
   --primary: #3b82f6;
   --primary-rgb: 59, 130, 246;
   --radius-s: 14px;
   --radius-m: 20px;
   --radius-l: 32px;
-  --glass-bg: var(--surface-1);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-fast: 0.2s;
-  --dur-base: 0.3s;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --header-h: calc(60px + var(--safe-top));
-  --tabs-h: 46px;
   --hairline-scale: 1;
   --pad-x: 48px;
   --max-w: 1440px;
@@ -798,7 +794,6 @@ code {
 @media (max-width: 720px) {
   :root {
     --pad-x: 24px;
-    --tabs-h: 44px;
   }
 
   .lp-lead {

@@ -104,7 +104,7 @@ runbooks. Neither belongs in a general setup document.
   passed, 1 failed, 5 skipped; the Chromium `e2e` lane passed all 1070 and the large-room R2 smoke passed); a
   tests-only fix (#595, `8d4fec08`) has the row read the splash's CSS clock instead of leaning on the paused page
   clock, and the rerun 43672822021 passed on Linux WebKit (185 passed, 5 skipped) with the production-build service
-  worker test and the large-room R2 smoke, its Chromium `e2e` lane still running as this record opened. Headless
+  worker test and the large-room R2 smoke, and its Chromium `e2e` lane passed all 1070. Headless
   Chromium and WebKit first visits to the production home after the deploy, read-only on this computer's real path,
   showed the splash as soon as the document arrived; WebKit drew the wordmark, while Chromium requested the drawing
   runtime at Low priority and got it just before the app, so the CSS fallback showed the whole wordmark instead (a

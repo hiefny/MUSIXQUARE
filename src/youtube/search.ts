@@ -495,7 +495,6 @@ function hidePreviewCard(): void {
   const preview = getPreviewContainer();
   if (!preview) return;
   preview.hidden = true;
-  preview.style.removeProperty('display');
 }
 
 function clearSearchResults(): void {
@@ -883,7 +882,6 @@ export function fetchYouTubePreview(url: string): void {
           applyUserTextFontFallback(chan, chan.innerText);
         }
 
-        freshPreview.style.removeProperty('display');
         freshPreview.hidden = false;
         freshStatus.style.display = 'none';
 
@@ -906,7 +904,6 @@ export function fetchYouTubePreview(url: string): void {
         if (!isCurrentPreview()) return;
         log.error('[YouTube Preview] Error:', e);
         freshPreview.hidden = true;
-        freshPreview.style.removeProperty('display');
         setStatus('youtube.fetch_failed', 'error');
         setYouTubePrimaryButton('off');
         abort.abort();

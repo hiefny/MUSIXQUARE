@@ -885,7 +885,7 @@ code {
     padding: 0 4px;
     border-radius: 0;
     background: transparent;
-    color: #8b95a1;
+    color: var(--grey-500);
     font-size: 13px;
     font-weight: 400;
     position: relative;

@@ -12085,11 +12085,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     html:not(.standalone) .bottom-nav {
       background: var(--surface-1);
     }
-
-    html[data-theme='light']:not(.standalone) header,
-    html[data-theme='light']:not(.standalone) .bottom-nav {
-      background: #ffffff;
-    }
   /* Phone setup: the step areas (the elements that scroll) and the actions
      bar span the screen, so a contained area's scrollbar, drawn at the right
      edge of .setup-mobile-view (src/ui/custom-scrollbar.ts), sits at the

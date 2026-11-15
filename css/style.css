@@ -10898,7 +10898,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     #setup-overlay {
       --setup-panel-w: 320px;
       --setup-px: 28px;
-      --setup-px-end: 28px;
       --setup-head-py: clamp(24px, 6vh, 48px);
       --setup-head-px: clamp(24px, 6vh, 48px);
       --setup-logo-h: clamp(18px, 4.5vh, 26px);
@@ -12805,14 +12804,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* Content padding inside right panel */
     .setup-mobile-view > div:not(.ob-actions):not(.setup-header-pill):not(.cscroll-track) {
       padding-inline-start: var(--setup-px);
-      padding-inline-end: var(--setup-px-end);
+      padding-inline-end: var(--setup-px);
     }
 
     /* Actions bar at bottom of right column */
     #setup-overlay .setup-mobile-view .ob-actions {
       background: var(--setup-panel-bg);
-      padding: var(--setup-actions-top) var(--setup-px-end) var(--setup-actions-bottom)
-        var(--setup-px);
+      padding: var(--setup-actions-top) var(--setup-px) var(--setup-actions-bottom);
       border-top: none;
       margin-top: auto;
       flex-shrink: 0;

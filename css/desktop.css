@@ -510,7 +510,6 @@
     #setup-overlay {
       --setup-panel-w: 480px;
       --setup-px: 44px;
-      --setup-px-end: 44px;
       --setup-head-py: clamp(48px, 7vh, 80px);
       --setup-head-px: clamp(48px, 5vw, 80px);
       --setup-logo-h: clamp(22px, calc(-34px + 4.375vw), 29px);

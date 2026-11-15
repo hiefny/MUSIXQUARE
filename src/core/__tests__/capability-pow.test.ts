@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 
+import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
@@ -491,6 +492,17 @@ describe('capability proof-of-work client', () => {
     const { getCapabilityHeaders } = await import('../capability.ts');
     const pending = getCapabilityHeaders('/api/capability-token', ['turn'], controller.signal);
     await vi.waitFor(() => expect(turnstile.execute).toHaveBeenCalledOnce());
+
+    // css/style.css places the overlay over the whole screen, above everything
+    // else; the code writes no inline style of its own.
+    const overlay = document.querySelector('#mxqr-turnstile-container');
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('style')).toBeNull();
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const overlayRule = stylesheet.match(/#mxqr-turnstile-container \{([^}]*)\}/u)?.[1] ?? '';
+    expect(overlayRule).toContain('position: fixed;');
+    expect(overlayRule).toContain('inset: 0;');
+    expect(overlayRule).toContain('z-index: 2147483647;');
 
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });

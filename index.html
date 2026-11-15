@@ -17,32 +17,10 @@
          data-boot-continued with the loader's wall-clock phase; bootstrap.js
          still owns and removes the stamp. The app document CSP allows exactly
          this text by its SHA-256 and the inline-JS guard exempts exactly this
-         block (src/core/boot-preflight.ts): editing it means a new hash. -->
-    <script data-boot-preflight>
-      (function () {
-        var root = document.documentElement;
-        try {
-          var mode = localStorage.getItem('musixquare-theme');
-          var theme =
-            mode === 'dark' || mode === 'light'
-              ? mode
-              : matchMedia('(prefers-color-scheme: dark)').matches
-                ? 'dark'
-                : 'light';
-          root.setAttribute('data-theme', theme);
-          root.style.colorScheme = theme;
-        } catch (error) {}
-        try {
-          var now = Date.now();
-          var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity'));
-          if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) {
-            root.setAttribute('data-boot-continued', '');
-            root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms');
-            root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms');
-          }
-        } catch (error) {}
-      })();
-    </script>
+         block (src/core/boot-preflight.ts): editing it means a new hash. Its body
+         stays on one line: the localized build strips every line's leading
+         indentation and blank lines, which would change those bytes. -->
+    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms'); } } catch (error) {} })();</script>
     <!-- Boot splash: the wordmark and the shared loader paint from this
          document alone, before any script or stylesheet arrives, so a slow
          first visit never shows a blank page. Nothing in <head> before this

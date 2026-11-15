@@ -4524,7 +4524,9 @@ entry needs the owner's acceptance and is not implied by this registry.
     `boot-splash-fail-open` animation ends;
   - the head preflight `<script data-boot-preflight>` in `index.html` (App 9.0.49), the page's one
     inline script, allowed by its sha256 in the app documents' CSP (`src/core/boot-preflight.ts`,
-    read by `cloudflare/app-worker.ts`) and pinned by that hash in `guard:authored-inline-js`.
+    read by `cloudflare/app-worker.ts`) and pinned by that hash in `guard:authored-inline-js`; the
+    localized build (`scripts/materialize-localized-html.mts`) refuses to write an app shell whose
+    copy hashes otherwise, since its indentation stripping once changed those bytes.
     `bootstrap.js` runs from the top of `<body>`, after the splash, so the first paint came before
     it: a refresh showed one frame in the device's theme and one without the wordmark. Before that
     paint the preflight applies the stored theme to the root (the theme step of `bootstrap.js`

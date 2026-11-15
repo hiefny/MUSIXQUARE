@@ -1,5 +1,10 @@
+import { createHash } from 'node:crypto';
 import { JSDOM } from 'jsdom';
 
+import {
+  BOOT_PREFLIGHT_SCRIPT_ATTRIBUTE,
+  BOOT_PREFLIGHT_SCRIPT_SHA256,
+} from '../src/core/boot-preflight.ts';
 import { APP_DICTIONARIES, type TranslationDictionary } from '../src/i18n/catalogs.ts';
 import { restFontSheetInHead } from '../src/i18n/public-font-contract.ts';
 import { PUBLIC_FONT_SHEET_URLS } from '../src/i18n/public-font-urls.ts';
@@ -294,4 +299,27 @@ export function renderLocalizedApp(
     .replace(/\n{2,}/gu, '\n');
   dom.window.close();
   return html;
+}
+
+/**
+ * The app documents' CSP allows the one inline boot preflight only by the
+ * SHA-256 of its body (src/core/boot-preflight.ts). Throws unless the app shell
+ * carries exactly one preflight whose body hashes to that pin, so a build never
+ * writes a document whose preflight the CSP would block.
+ */
+export function assertBootPreflightPinned(appHtml: string, where: string): void {
+  const hashes = Array.from(
+    appHtml.matchAll(
+      new RegExp(`<script ${BOOT_PREFLIGHT_SCRIPT_ATTRIBUTE}(?:="")?>([\\s\\S]*?)</script>`, 'gu'),
+    ),
+    ([, body]) =>
+      createHash('sha256')
+        .update(body ?? '')
+        .digest('base64'),
+  );
+  if (hashes.length === 1 && hashes[0] === BOOT_PREFLIGHT_SCRIPT_SHA256) return;
+  throw new Error(
+    `${where}: the boot preflight hashes to ${hashes.join(', ') || 'nothing'}, not the ` +
+      `${BOOT_PREFLIGHT_SCRIPT_SHA256} the app documents' CSP allows (src/core/boot-preflight.ts).`,
+  );
 }

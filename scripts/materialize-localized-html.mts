@@ -2,7 +2,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { LANGUAGE_OPTIONS, localizedAboutPath, localizedAppPath } from '../src/i18n/locales.ts';
-import { renderLocalizedAbout, renderLocalizedApp } from './localized-html-lib.mts';
+import {
+  assertBootPreflightPinned,
+  renderLocalizedAbout,
+  renderLocalizedApp,
+} from './localized-html-lib.mts';
 
 const repoRoot = process.cwd();
 const distRoot = path.join(repoRoot, 'dist');
@@ -13,6 +17,7 @@ const landingI18nJavaScript = await readFile(path.join(distRoot, 'landing-i18n.j
 for (const option of LANGUAGE_OPTIONS) {
   const localizedAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, option.code);
   const localizedApp = renderLocalizedApp(appHtml, option.code, localizedAbout.metadata);
+  assertBootPreflightPinned(localizedApp, `[localized-html] ${localizedAppPath(option.code)}`);
   const outputDirectory =
     option.code === 'en' ? distRoot : path.join(distRoot, option.code.toLowerCase());
   await mkdir(outputDirectory, { recursive: true });

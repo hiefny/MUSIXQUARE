@@ -10,6 +10,7 @@ import {
 } from '../../../scripts/classic-runtime-assets.ts';
 import {
   APP_DICTIONARIES,
+  assertBootPreflightPinned,
   renderLocalizedAbout,
   renderLocalizedApp,
   SITE_ORIGIN,
@@ -283,8 +284,26 @@ describe('localized static HTML materialization', () => {
         ...materializedApp(option.code).matchAll(
           /<script data-boot-preflight(?:="")?>([\s\S]*?)<\/script>/gu,
         ),
-      ].map(([, body]) => createHash('sha256').update(body ?? '').digest('base64'));
+      ].map(([, body]) =>
+        createHash('sha256')
+          .update(body ?? '')
+          .digest('base64'),
+      );
       expect(bodies, option.code).toEqual([BOOT_PREFLIGHT_SCRIPT_SHA256]);
+    }
+  });
+
+  it('refuses to write an app shell whose boot preflight the CSP would block', () => {
+    const shell = materializedApp('en');
+    expect(() => assertBootPreflightPinned(shell, '/')).not.toThrow();
+    const preflight = /<script data-boot-preflight(?:="")?>[\s\S]*?<\/script>/u;
+    const [block] = shell.match(preflight) ?? [''];
+    for (const [label, html] of [
+      ['an edited body', shell.replace(preflight, block.replace('15000', '16000'))],
+      ['no preflight', shell.replace(preflight, '')],
+      ['two preflights', shell.replace(preflight, `${block}${block}`)],
+    ] as const) {
+      expect(() => assertBootPreflightPinned(html, '/'), label).toThrow(/boot preflight/u);
     }
   });
 

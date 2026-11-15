@@ -7,14 +7,20 @@
  * JavaScript guard exempts exactly this block in index.html
  * (scripts/check-authored-inline-js-inventory.mts). Any edit of the script's
  * text needs the new hash here, in the same change: the boot-splash,
- * app-worker and inline-guard tests compare it with index.html.
+ * app-worker, inline-guard and localized-HTML tests compare it with index.html
+ * and with every locale's built copy, and the localized build refuses to write
+ * an app shell whose copy hashes otherwise (scripts/materialize-localized-html.mts).
  */
 
 /** The attribute that names the preflight's `<script>` element. */
 export const BOOT_PREFLIGHT_SCRIPT_ATTRIBUTE = 'data-boot-preflight';
 
-/** Base64 SHA-256 of the preflight script's text, exactly as index.html carries it. */
-export const BOOT_PREFLIGHT_SCRIPT_SHA256 = '+aAftJOmrteXcseZDaYwEI4GxV+FWcHqsDU3BrGS8gQ=';
+/**
+ * Base64 SHA-256 of the preflight script's text, exactly as index.html and
+ * every built app shell carry it (one line, so the build's indentation
+ * stripping leaves it alone).
+ */
+export const BOOT_PREFLIGHT_SCRIPT_SHA256 = 'Q9LmBkrzhBSdGSkQ0UbfBz3xEEU6afdXjoQc/Z1lJWY=';
 
 /** The CSP source that allows the preflight on app documents. */
 export const BOOT_PREFLIGHT_CSP_SOURCE = `'sha256-${BOOT_PREFLIGHT_SCRIPT_SHA256}'`;

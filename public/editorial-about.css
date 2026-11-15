@@ -345,8 +345,6 @@ main {
 
 .lp-toast > span {
   background: var(--surface-1);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   color: var(--text-main);
   padding: 14px 28px;
   border-radius: 100px;

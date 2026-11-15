@@ -1311,8 +1311,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     width: auto;
     min-width: 0;
     min-height: 44px;
-    padding: 0 10px 0 12px;
-    margin: calc((1.2em - 44px) / 2) -10px calc((1.2em - 44px) / 2) -12px;
+    padding: 0;
+    padding-inline-start: 12px;
+    padding-inline-end: 10px;
+    margin: calc((1.2em - 44px) / 2) 0;
+    margin-inline-start: -12px;
+    margin-inline-end: -10px;
     display: inline-flex;
     align-items: center;
     justify-content: center;

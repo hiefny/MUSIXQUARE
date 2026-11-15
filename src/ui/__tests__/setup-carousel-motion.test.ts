@@ -679,7 +679,7 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toContain('.setup-greeting-row.is-visible');
   });
 
-  it('reuses the welcome crossfade timing when the host guide becomes an invitation QR', async () => {
+  it('crossfades the host placeholder QR into the invitation QR at 0.36s out and 0.48s in', async () => {
     const markup = await readFile('index.html', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');
     const setupShared = await readFile('src/ui/setup-shared.ts', 'utf8');

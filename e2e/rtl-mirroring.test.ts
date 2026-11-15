@@ -7,7 +7,7 @@ import { navigateToTab, waitForViewTransitionEnd } from './helpers/wait.ts';
 
 // Arabic is one of the four right-to-left languages (ar, fa, he, ur). These
 // rows open the real app in it and expect what the left-to-right layout does,
-// on the mirrored side.
+// on the mirrored side. English rows run as the left-to-right control.
 
 const TOLERANCE_PX = 1;
 

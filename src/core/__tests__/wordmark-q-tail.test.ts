@@ -4,8 +4,8 @@
  * and the R's leg y 36.4. An svg clips at its viewBox by default.
  *
  * The app sizes and aligns its wordmarks by the letters' own box (viewBox
- * `43 12 214 24`, or the PRO wordmark's `43 12 170 24`): the header heights,
- * the setup screen's optical offsets and the boot splash's centring all read
+ * `43 12 214 24`, or the PRO wordmark's `43 12 170 24`): the header heights
+ * and the boot splash's centring read
  * that box, so the tail is drawn outside it. That permission lives in each
  * svg's own markup (`overflow="visible"`), so a copy of the markup keeps the
  * tail; a stylesheet rule alone (`.logo-svg`) does not travel with a copy. The

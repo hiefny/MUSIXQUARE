@@ -111,6 +111,67 @@ test('the setup brand column starts its line under the heading where the heading
   expect(Math.abs(lineStart - headingStart)).toBeLessThanOrEqual(4);
 });
 
+// The language button reaches 12px past the greeting on its start side and
+// 10px past the globe on its end side, and its negative margins keep the
+// greeting where the row starts. Mirrored, its hover background and focus
+// ring sit around the greeting and the globe as they do in English.
+for (const language of ['ar', 'en'] as const) {
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1024, height: 768 },
+  ]) {
+    test(`the start screen's language button reaches 12px past the greeting and 10px past the globe (${language} ${viewport.width}x${viewport.height})`, async ({
+      page,
+    }) => {
+      await openInLanguage(page, language, viewport.width, viewport.height);
+      if (language === 'ar') {
+        await openStartScreen(page);
+      } else {
+        await page.goto('/');
+        await waitForBootstrapReady(page);
+        await page.waitForSelector('#btn-setup-host', { state: 'visible', timeout: 15_000 });
+      }
+      const header = viewport.width >= 720 ? '#desktop-step-header' : '#setup-welcome-header';
+      const button = page.locator(`${header} .setup-language-button`);
+      await expect(button).toBeVisible();
+      const edges = await button.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node.querySelector('.setup-greeting-text')!);
+        const text = range.getBoundingClientRect();
+        const own = node.getBoundingClientRect();
+        const globe = node.querySelector('svg')!.getBoundingClientRect();
+        const row = node.closest('.setup-greeting-row')!.getBoundingClientRect();
+        return {
+          button: { left: own.left, right: own.right },
+          text: { left: text.left, right: text.right },
+          globe: { left: globe.left, right: globe.right },
+          row: { left: row.left, right: row.right },
+        };
+      });
+      const rtl = language === 'ar';
+      const pastGreeting = rtl
+        ? edges.button.right - edges.text.right
+        : edges.text.left - edges.button.left;
+      const pastGlobe = rtl
+        ? edges.globe.left - edges.button.left
+        : edges.button.right - edges.globe.right;
+      const greetingFromRowStart = rtl
+        ? edges.row.right - edges.text.right
+        : edges.text.left - edges.row.left;
+      // Soft checks: each part of this row reports on its own.
+      expect
+        .soft(Math.abs(pastGreeting - 12), 'the button past the greeting')
+        .toBeLessThanOrEqual(TOLERANCE_PX);
+      expect
+        .soft(Math.abs(pastGlobe - 10), 'the button past the globe')
+        .toBeLessThanOrEqual(TOLERANCE_PX);
+      expect
+        .soft(Math.abs(greetingFromRowStart), 'the greeting starts where the row starts')
+        .toBeLessThanOrEqual(TOLERANCE_PX);
+    });
+  }
+}
+
 test('a running room mirrors the Playlist title, the password switch and the demo panel', async ({
   page,
 }) => {

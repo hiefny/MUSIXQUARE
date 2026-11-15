@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
-import { setupHostAndStart } from './helpers/setup-flow.ts';
+import { setupHost, setupHostAndStart } from './helpers/setup-flow.ts';
 
 // Arabic is one of the four right-to-left languages (ar, fa, he, ur). These
 // rows open the real app in it and expect what the left-to-right layout does,
@@ -277,5 +277,72 @@ for (const { language, width, height } of [
       return fromRight ? innerWidth - rect.right : rect.left;
     }, rtl);
     expect(Math.abs(edgeGap - 16)).toBeLessThanOrEqual(TOLERANCE_PX);
+  });
+}
+
+// On desktop the settings column's parts slide in as a room opens, from the
+// screen edge beside the column: the right in English, the left in Arabic.
+// Until then each part waits 30px out toward that edge.
+const SETTINGS_ENTRANCE_TARGETS = [
+  '#tab-settings > .tab-header',
+  '#tab-settings > .settings-subtab-nav',
+  '#settings-language-section',
+  '#theme-section',
+  '#ui-sounds-section',
+  '#settings-sync-section',
+];
+
+async function expectSettingsEntranceOffset(page: Page, offset: number): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (selectors) =>
+          selectors.map(
+            (selector) =>
+              `${selector}: ${getComputedStyle(document.querySelector(selector)!).transform}`,
+          ),
+        SETTINGS_ENTRANCE_TARGETS,
+      ),
+    )
+    .toEqual(
+      SETTINGS_ENTRANCE_TARGETS.map((selector) => `${selector}: matrix(1, 0, 0, 1, ${offset}, 0)`),
+    );
+}
+
+for (const { language, width, height, offset } of [
+  { language: 'ar', width: 1440, height: 900, offset: -30 },
+  { language: 'ar', width: 1280, height: 720, offset: -30 },
+  { language: 'en', width: 1440, height: 900, offset: 30 },
+]) {
+  test(`the desktop settings column waits at its own screen edge before a room opens (${language} ${width}x${height})`, async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName === 'webkit', 'Desktop entrance rows run in the Chromium lane.');
+    await openInLanguage(page, language, width, height);
+    await setupHost(page);
+    await expect(page.locator('html')).toHaveAttribute('dir', language === 'ar' ? 'rtl' : 'ltr');
+    await expectSettingsEntranceOffset(page, offset);
+  });
+}
+
+for (const { from, to, offset } of [
+  { from: 'ar', to: 'en', offset: 30 },
+  { from: 'en', to: 'ar', offset: -30 },
+]) {
+  test(`the desktop settings column follows a language switch on the start screen (${from} to ${to})`, async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName === 'webkit', 'Desktop entrance rows run in the Chromium lane.');
+    await openInLanguage(page, from, 1440, 900);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    await page.waitForSelector('#btn-setup-host', { state: 'visible', timeout: 15_000 });
+    await page.locator('[data-setup-language-trigger]:visible').first().click();
+    await page.locator(`.language-option[data-lang="${to}"]`).click();
+    await page.locator('#btn-language-dialog-done').click();
+    await expect(page.locator('html')).toHaveAttribute('dir', to === 'ar' ? 'rtl' : 'ltr');
+    await expectSettingsEntranceOffset(page, offset);
   });
 }

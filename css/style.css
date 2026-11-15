@@ -8459,8 +8459,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-height: 0;
     max-height: calc(var(--app-height, 100dvh) + 22px);
     background: var(--surface-1);
-    border-top-left-radius: 20px;
-    border-top-right-radius: 20px;
+    border-top-left-radius: var(--radius-m);
+    border-top-right-radius: var(--radius-m);
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
     /* Slightly stronger shadow for depth */
     transform: translateY(100%);
@@ -8504,8 +8504,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .chat-drawer[data-chat-snap='half'] {
       --chat-snap-height: calc(var(--app-height, 100dvh) * 0.5);
       padding-top: var(--chat-live-safe-top, 0px);
-      border-top-left-radius: 20px;
-      border-top-right-radius: 20px;
+      border-top-left-radius: var(--radius-m);
+      border-top-right-radius: var(--radius-m);
     }
 
     .chat-drawer[data-chat-snap='full'] {
@@ -9390,8 +9390,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       var(--demo-shell-pad-top) + var(--demo-visual-height) + var(--demo-panel-start-offset)
     );
     background: var(--surface-1);
-    border-top-left-radius: 20px;
-    border-top-right-radius: 20px;
+    border-top-left-radius: var(--radius-m);
+    border-top-right-radius: var(--radius-m);
     pointer-events: none;
   }
 
@@ -10689,7 +10689,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .btn-icon-bg {
     width: 44px;
     height: 44px;
-    border-radius: 14px;
+    border-radius: var(--radius-s);
     background: transparent;
     display: flex;
     align-items: center;
@@ -12405,8 +12405,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     .chat-drawer[data-chat-snap='half'] {
-      border-top-left-radius: 20px;
-      border-top-right-radius: 20px;
+      border-top-left-radius: var(--radius-m);
+      border-top-right-radius: var(--radius-m);
       padding-top: var(--chat-live-safe-top, 0px);
     }
 

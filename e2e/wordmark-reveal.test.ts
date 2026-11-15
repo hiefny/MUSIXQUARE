@@ -6,7 +6,11 @@ import { expect, test, type Page } from '@playwright/test';
 // stays up, and pause the page clock so the drawing can be sampled. The
 // splash's own CSS motion (the rise, the fades) runs on real time.
 
-type SplashWindow = Window & { __splashDrawStart?: number };
+type SplashWindow = Window & {
+  __splashDrawStart?: number;
+  /** The splash's first phase and where its CSS clock stood when it was set. */
+  __splashFirstPhase?: { phase: string; clock: number | null };
+};
 
 /** The first stroke starts 500 ms into the drawing (index.html, DRAW_BASE_DELAY). */
 const FIRST_STROKE_MS = 500;
@@ -20,15 +24,19 @@ interface HeldSplash {
   draw?: boolean;
   /** An app reset stamped this tab just before navigating here. */
   continuity?: boolean;
+  /** Pause the page clock (the drawing is sampled on it); otherwise it runs. */
+  pausedClock?: boolean;
 }
 
 async function openHeldSplash(
   page: Page,
-  { runtime = true, draw = runtime, continuity = false }: HeldSplash = {},
+  { runtime = true, draw = runtime, continuity = false, pausedClock = true }: HeldSplash = {},
 ): Promise<void> {
   const initialTime = new Date('2026-09-29T00:00:00Z');
-  await page.clock.install({ time: initialTime });
-  await page.clock.pauseAt(initialTime);
+  if (pausedClock) {
+    await page.clock.install({ time: initialTime });
+    await page.clock.pauseAt(initialTime);
+  }
   if (continuity) {
     // On the page's (paused) clock: init scripts run in the order they were added.
     await page.addInitScript(() => {
@@ -317,11 +325,34 @@ test.describe('boot splash wordmark reveal', () => {
 
   test('shows a complete static wordmark and its loader with reduced motion', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await openHeldSplash(page, { draw: false });
-    // The loader joins as the mark shows (0.3 s), never before it.
-    await expect(page.locator('.boot-splash')).not.toHaveAttribute('data-phase', /.+/u);
-    await page.clock.runFor(1_000);
+    // Nothing is drawn, so the page clock runs: the runtime times the loader on
+    // the splash's own CSS clock, and a runtime that arrives after the mark has
+    // shown adds it at once. Record where that clock stood when it joined.
+    await page.addInitScript(() => {
+      new MutationObserver(() => {
+        const splash = document.querySelector<HTMLElement>('.boot-splash');
+        const target = window as SplashWindow;
+        if (!splash?.dataset.phase || target.__splashFirstPhase) return;
+        const fadeIn = document
+          .querySelector('.boot-splash-mark')
+          ?.getAnimations()
+          .find((animation) => (animation as CSSAnimation).animationName === 'boot-splash-mark-in');
+        const start = fadeIn?.startTime;
+        const now = document.timeline.currentTime;
+        target.__splashFirstPhase = {
+          phase: splash.dataset.phase,
+          clock: typeof start === 'number' && typeof now === 'number' ? now - start : null,
+        };
+      }).observe(document, { subtree: true, attributes: true, attributeFilter: ['data-phase'] });
+    });
+    await openHeldSplash(page, { draw: false, pausedClock: false });
     await expect(page.locator('.boot-splash')).toHaveAttribute('data-phase', 'loader');
+    // The loader joins as the mark shows (0.3 s on the CSS clock), never before
+    // it. A timer callback reads that clock at the last frame, hence the slack.
+    // (A loader set before the mark's fade-in has even started reads null.)
+    const first = await page.evaluate(() => (window as SplashWindow).__splashFirstPhase);
+    expect(first).toEqual({ phase: 'loader', clock: expect.any(Number) });
+    expect(first!.clock).toBeGreaterThanOrEqual(200);
     await expect(page.locator('.boot-splash-logo > .wg[mask]')).toHaveCount(0);
     await expect(page.locator('.boot-splash-logo > .wg')).toHaveCSS('opacity', '1');
     await expect.poll(() => markRise(page)).toBe(0);

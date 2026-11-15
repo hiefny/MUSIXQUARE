@@ -146,27 +146,12 @@ test.describe('Settings Panel', () => {
       'xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " setup-brand-greeting-stage ")][1]',
     );
     await expect(stage).toHaveClass(/is-greeting-visible/);
-    await expect
-      .poll(() => stage.locator('.logo-welcome').evaluate((logo) => getComputedStyle(logo).opacity))
-      .toBe('0');
+    await expect(stage.locator('.logo-welcome')).toHaveCount(0);
     await expect
       .poll(() =>
         stage.locator('.setup-greeting-row').evaluate((row) => getComputedStyle(row).opacity),
       )
       .toBe('1');
-    const handoffTiming = await stage.evaluate((element) => {
-      const logo = element.querySelector('.logo-welcome');
-      const greeting = element.querySelector('.setup-greeting-row');
-      if (!logo || !greeting) throw new Error('Setup brand handoff elements are missing');
-      const firstSeconds = (value: string) => parseFloat(value.split(',')[0] ?? '0');
-      return {
-        logoFadeSeconds: firstSeconds(getComputedStyle(logo).transitionDuration),
-        greetingDelaySeconds: firstSeconds(getComputedStyle(greeting).transitionDelay),
-      };
-    });
-    expect(handoffTiming.greetingDelaySeconds).toBeGreaterThanOrEqual(
-      handoffTiming.logoFadeSeconds,
-    );
     const pillStyle = await trigger.evaluate((button) => {
       const style = getComputedStyle(button);
       const icon = button.querySelector('svg');

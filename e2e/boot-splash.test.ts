@@ -106,10 +106,7 @@ test.describe('boot splash', () => {
     await expect(greeting).toHaveCSS('opacity', '1');
     await expect(greeting).not.toHaveAttribute('aria-hidden', /.*/u);
     // The wordmark drew on the splash; the start screen has none.
-    await expect(page.locator('#setup-welcome-header .logo-welcome')).toHaveCSS(
-      'visibility',
-      'hidden',
-    );
+    await expect(page.locator('#setup-welcome-header .logo-welcome:visible')).toHaveCount(0);
     await page.locator('#setup-welcome-header [data-setup-language-trigger]').click();
     await expect(page.locator('#language-dialog-overlay')).toBeVisible();
   });

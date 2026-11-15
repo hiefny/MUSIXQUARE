@@ -1231,17 +1231,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: none !important;
   }
 
-  .logo-welcome {
-    height: 22px;
-    width: auto;
-    margin: 0;
-    opacity: 1;
-    visibility: visible;
-    transition:
-      opacity 0.36s ease-in,
-      visibility 0s linear 0s;
-  }
-
   .setup-brand-greeting-stage {
     display: grid;
     justify-items: start;
@@ -1250,24 +1239,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin-bottom: 8px;
   }
 
-  .setup-brand-greeting-stage > .logo-welcome {
-    /* Keep the wordmark's optical offset without moving the title/description
-       layout that replaces it. */
-    transform: translateY(3px);
-  }
-
-  .setup-brand-greeting-stage > .logo-welcome,
   .setup-brand-greeting-stage > .setup-greeting-row {
     grid-area: 1 / 1;
-  }
-
-  .setup-brand-greeting-stage.is-greeting-visible > .logo-welcome {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition:
-      opacity 0.36s ease-in,
-      visibility 0s linear 0.36s;
   }
 
   .setup-greeting-row {
@@ -1358,18 +1331,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     stroke-linejoin: round;
   }
 
-  /* The wordmark runtime reveals one complete silhouette through an exact
-     union mask. Without that optional runtime, keep the static logo readable. */
-  .logo-welcome > .wg {
-    opacity: 1;
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .logo-welcome > .wg {
-      mask: none !important;
-    }
-
-    .setup-brand-greeting-stage > .logo-welcome,
     .setup-greeting-row,
     .setup-language-button {
       transition: none;
@@ -10904,11 +10866,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --setup-px: 28px;
       --setup-head-py: clamp(24px, 6vh, 48px);
       --setup-head-px: clamp(24px, 6vh, 48px);
-      --setup-logo-h: clamp(18px, 4.5vh, 26px);
-      /* Lower the wordmark by the phone layout's 3px so its top meets the
-         greeting that replaces it (0–1px below at 18–26px). Unnudged, it sat
-         2–3px above; a size-scaled nudge dropped the 26px tablet mark too far. */
-      --setup-logo-mt: 3px;
       --setup-h2: clamp(20px, 5vh, 28px);
       --setup-h2-mb: clamp(4px, 1vh, 8px);
       --setup-p: clamp(13px, 3vh, 16px);
@@ -12772,19 +12729,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       z-index: 2;
     }
 
-    .desktop-step-header .logo-svg {
-      height: var(--setup-logo-h);
-      width: auto;
-      margin: 0;
-    }
-
     .desktop-step-header .setup-brand-greeting-stage {
       margin-top: 0;
       margin-bottom: var(--setup-h2-mb);
-    }
-
-    .desktop-step-header .setup-brand-greeting-stage > .logo-welcome {
-      transform: translateY(var(--setup-logo-mt));
     }
 
     .desktop-step-header h2 {

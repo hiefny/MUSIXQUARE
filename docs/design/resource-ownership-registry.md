@@ -3360,7 +3360,7 @@ RO-55 accepted-exception
   it when its own document stays, and it leaves rendering once its fade-out ends, on that
   transition's own `finished` (`retireOverlayAfterFade`, no timer or listener). Since App 9.0.49
   the owner starts the action only once the overlay's own fade-in has run, so the next page
-  continues a whole screen (a fast reload had left at about 14% of the overlay's opacity): two
+  continues a whole screen (a fast reload had left at about 13% of the overlay's opacity): two
   frames after the show it reads what is left of that transition by the transition's own clock
   (`fadeInLeftMs`; it starts on the first frame the page renders, which WebKit measured about
   175 ms past the show) and sets one timer for it in place of the native fallback, which waits

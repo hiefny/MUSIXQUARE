@@ -3753,7 +3753,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .room-password-toggle[aria-checked='true'] .room-password-toggle-knob {
     background: var(--primary);
-    transform: translateX(var(--room-password-knob-travel)) !important;
+    transform: translateX(var(--room-password-knob-travel));
   }
 
   .room-password-toggle:disabled,

@@ -146,8 +146,6 @@ test('a running room mirrors the Playlist title, the password switch and the dem
   await toggle.evaluate((node) => {
     node.classList.add('active');
     node.setAttribute('aria-checked', 'true');
-    node.querySelector<HTMLElement>('.room-password-toggle-knob')!.style.transform =
-      'translateX(20px)';
   });
   await page.waitForTimeout(400);
   expect
@@ -166,7 +164,6 @@ test('a running room mirrors the Playlist title, the password switch and the dem
   await toggle.evaluate((node) => {
     node.classList.remove('active');
     node.setAttribute('aria-checked', 'false');
-    node.querySelector<HTMLElement>('.room-password-toggle-knob')!.style.transform = '';
   });
 
   // The administrator permission switch, on, as its dialog renders it: the

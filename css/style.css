@@ -557,7 +557,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* Pair of the html rule above — both roots must opt out or iOS picks
        the permissive one for the document bounce. */
     overscroll-behavior: none;
-    transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   /* Every UI not listed here, Korean and English included, reads the

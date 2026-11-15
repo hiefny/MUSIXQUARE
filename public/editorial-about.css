@@ -1138,11 +1138,6 @@ main {
 }
 
 @media (max-width: 720px) {
-  :root {
-    --pad-x: 24px;
-    --tabs-h: 44px;
-  }
-
   .lp-section {
     padding: 96px var(--pad-x);
   }
@@ -1150,10 +1145,6 @@ main {
   .lp-hero {
     padding-top: 36px;
     padding-bottom: 56px;
-  }
-
-  .lp-lead {
-    font-size: 16px;
   }
 
   .lp-array {
@@ -1231,24 +1222,5 @@ main {
     grid-template-columns: 1fr;
     gap: 6px;
     padding: 14px 0;
-  }
-
-  .lp-footer__inner {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .lp-footer__nav {
-    flex-wrap: wrap;
-    row-gap: 14px;
-  }
-
-  .lp-footer__nav a,
-  .lp-lang-btn {
-    white-space: nowrap;
-  }
-
-  .lp-lang-divider {
-    display: none;
   }
 }

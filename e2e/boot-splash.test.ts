@@ -232,6 +232,10 @@ test.describe('session reset screen', () => {
         message: message.textContent,
         messageClipped: message.getBoundingClientRect().width <= 1,
         stamped: sessionStorage.getItem('mxqr-boot-continuity') !== null,
+        // The box the screen centres them in, for the next page to keep.
+        box:
+          sessionStorage.getItem('mxqr-boot-continuity-box') ===
+          `${Math.round(innerWidth)}x${document.getElementById('session-reset-overlay')!.offsetHeight}`,
         // Still the reset's page: the next one has not been let in yet.
         pending: document.documentElement.classList.contains('session-reset-pending'),
       };
@@ -246,6 +250,7 @@ test.describe('session reset screen', () => {
       message: 'Leaving session...',
       messageClipped: true,
       stamped: true,
+      box: true,
       pending: true,
     });
 
@@ -253,6 +258,9 @@ test.describe('session reset screen', () => {
     await expect(page.locator('#setup-overlay.active')).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.boot-splash')).toHaveAttribute('data-phase', 'settled');
     expect(await page.evaluate(() => sessionStorage.getItem('mxqr-boot-continuity'))).toBeNull();
+    expect(
+      await page.evaluate(() => sessionStorage.getItem('mxqr-boot-continuity-box')),
+    ).toBeNull();
     // It left only once the screen had faded in (0.2 s), so the next page took
     // over a whole screen rather than a half-shown one.
     expect(
@@ -317,6 +325,71 @@ test.describe('session reset screen', () => {
     expect(frames.slice(0, 2)).toEqual([
       { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1' },
       { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1' },
+    ]);
+  });
+
+  // Owner report 2026-11-16: on an iPhone the page a refresh opened got a
+  // first screen short by the home indicator strip, and the wordmark and
+  // loader, centred in that screen, jumped up by half the strip and back.
+  test("a page a reset opens keeps the reset screen's place while its first screen is shorter", async ({
+    page,
+  }) => {
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    const { width, height } = page.viewportSize()!;
+    // What a reset leaves just before it navigates (session-reset.ts): the
+    // stamp and the box its screen centred the wordmark and loader in.
+    await page.evaluate(() => {
+      sessionStorage.setItem('mxqr-boot-continuity', String(Date.now()));
+      sessionStorage.setItem('mxqr-boot-continuity-box', `${innerWidth}x${innerHeight}`);
+    });
+    type Frame = { screen: number; mark: number };
+    await page.addInitScript(() => {
+      const frames: Frame[] = [];
+      (window as typeof window & { __firstFrames: Frame[] }).__firstFrames = frames;
+      const sample = () => {
+        const mark = document.querySelector('.boot-splash .boot-splash-mark');
+        if (mark) {
+          const box = mark.getBoundingClientRect();
+          frames.push({ screen: innerHeight, mark: box.top + box.height / 2 });
+        }
+        if (frames.length < 3) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    // Hold the next page's bootstrap.js, so its first frames come before it.
+    let releaseBootstrap = (): void => undefined;
+    const bootstrapHeld = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    await page.route(/\/bootstrap\.js(?:\?.*)?$/u, async (route) => {
+      await bootstrapHeld;
+      await route.fallback();
+    });
+    // The next page's first screen stops 34 px short, as an iPhone's does by
+    // its home indicator strip.
+    await page.setViewportSize({ width, height: height - 34 });
+    await page.reload({ waitUntil: 'commit' });
+    await page.waitForFunction(
+      () =>
+        ((window as typeof window & { __firstFrames?: Frame[] }).__firstFrames?.length ?? 0) >= 2,
+      null,
+      { timeout: 10_000, polling: 20 },
+    );
+    const frames = await page.evaluate(
+      () => (window as typeof window & { __firstFrames: Frame[] }).__firstFrames,
+    );
+    releaseBootstrap();
+    await page.setViewportSize({ width, height });
+    // The mark stays where the reset screen centred it: half the full screen down.
+    expect(
+      frames
+        .slice(0, 2)
+        .map((frame) => ({ screen: frame.screen, mark: Math.round(frame.mark * 2) / 2 })),
+    ).toEqual([
+      { screen: height - 34, mark: height / 2 },
+      { screen: height - 34, mark: height / 2 },
     ]);
   });
 });

@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../../ui/material-elastic-spinner.ts';
-import { BOOT_SPLASH_CONTINUITY_KEY } from '../navigation-contract.ts';
+import {
+  BOOT_SPLASH_CONTINUITY_BOX_KEY,
+  BOOT_SPLASH_CONTINUITY_KEY,
+} from '../navigation-contract.ts';
 import { stubNavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 const originalRequestAnimationFrame = window.requestAnimationFrame;
@@ -958,6 +961,68 @@ describe('session reset coordinator', () => {
       // Safari returned this document instead: no later page continues it.
       window.dispatchEvent(new Event('pageshow'));
       expect(sessionStorage.getItem(CONTINUITY_KEY)).toBeNull();
+    });
+
+    // Owner report 2026-11-16: iOS gives the page a reset opens a first screen
+    // short by the home indicator strip, and its splash centred the wordmark
+    // and loader in that, so they jumped up and back. The reset screen leaves
+    // its own box (the window's width, its height) for the next page's head
+    // preflight to keep.
+    describe("the reset screen's box", () => {
+      const BOX_KEY = BOOT_SPLASH_CONTINUITY_BOX_KEY;
+      const jsdomWidth = window.innerWidth;
+      let overlayHeight = 844;
+      let offsetHeight: { mockRestore(): void } | null = null;
+
+      beforeEach(() => {
+        overlayHeight = 844;
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+        // jsdom lays nothing out: the reset screen is as tall as this.
+        offsetHeight = vi
+          .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+          .mockImplementation(function (this: HTMLElement) {
+            return this.id === 'session-reset-overlay' ? overlayHeight : 0;
+          });
+      });
+
+      afterEach(() => {
+        offsetHeight?.mockRestore();
+        offsetHeight = null;
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: jsdomWidth });
+      });
+
+      it('travels with the stamp and goes with it when this page stays', async () => {
+        const { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } =
+          await import('../navigation-contract.ts');
+        const { scheduleSessionReset } = await loadCoordinator();
+
+        scheduleSessionReset('Refreshing session...', vi.fn());
+        expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
+        expect(sessionStorage.getItem(BOX_KEY)).toBe('390x844');
+        vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+        expect(sessionStorage.getItem(BOX_KEY)).toBeNull();
+      });
+
+      it('stays for the page a committed navigation opens, until this page returns', async () => {
+        const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+        const { scheduleSessionReset } = await loadCoordinator();
+
+        scheduleSessionReset('Refreshing session...', vi.fn());
+        vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+        window.dispatchEvent(new Event('pagehide'));
+        expect(sessionStorage.getItem(BOX_KEY)).toBe('390x844');
+        window.dispatchEvent(new Event('pageshow'));
+        expect(sessionStorage.getItem(BOX_KEY)).toBeNull();
+      });
+
+      it('is not left when the screen has no box (not laid out)', async () => {
+        overlayHeight = 0;
+        const { scheduleSessionReset } = await loadCoordinator();
+
+        scheduleSessionReset('Refreshing session...', vi.fn());
+        expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
+        expect(sessionStorage.getItem(BOX_KEY)).toBeNull();
+      });
     });
 
     it('fades in over the page and out when the page stays', () => {

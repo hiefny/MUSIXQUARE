@@ -6,7 +6,10 @@ import { transformWithEsbuild } from 'vite';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { APP_RENDER_ASSETS_SLOT, prioritizeActiveStylesheetsInHtml } from '../../../vite.config.ts';
-import { BOOT_SPLASH_CONTINUITY_KEY } from '../navigation-contract.ts';
+import {
+  BOOT_SPLASH_CONTINUITY_BOX_KEY,
+  BOOT_SPLASH_CONTINUITY_KEY,
+} from '../navigation-contract.ts';
 
 // The boot splash (index.html) is the only thing a slow first visit can paint
 // before the start-up scripts, the app stylesheet and the module graph arrive.
@@ -538,6 +541,15 @@ describe('boot splash', () => {
     expect(readFileSync('src/core/session-reset.ts', 'utf8')).toMatch(
       /sessionStorage\.setItem\(BOOT_SPLASH_CONTINUITY_KEY,/u,
     );
+    // The reset screen's box travels with the stamp: the same writer, and the
+    // same start-up step reads nothing from it but removes it with the stamp.
+    expect(bootstrap.match(/const continuityBoxKey = '([^']+)';/u)?.[1]).toBe(
+      BOOT_SPLASH_CONTINUITY_BOX_KEY,
+    );
+    expect(runtime).not.toContain(BOOT_SPLASH_CONTINUITY_BOX_KEY);
+    expect(readFileSync('src/core/session-reset.ts', 'utf8')).toMatch(
+      /sessionStorage\.setItem\(\s*BOOT_SPLASH_CONTINUITY_BOX_KEY,/u,
+    );
   });
 
   it('stays safe for the legacy TV engines and off without scripting', () => {
@@ -570,7 +582,7 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     ).code;
   });
 
-  function page({ stamp, phase }: { stamp?: string; phase?: string } = {}) {
+  function page({ stamp, phase, box }: { stamp?: string; phase?: string; box?: string } = {}) {
     const shipped = new JSDOM(INDEX).window.document.querySelector('.boot-splash')!.outerHTML;
     const dom = new JSDOM(
       `<!doctype html><html class="setup-boot-block"><body>${shipped}</body></html>`,
@@ -591,6 +603,7 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
       }),
     });
     if (stamp !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_KEY, stamp);
+    if (box !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_BOX_KEY, box);
     const splash = window.document.querySelector<HTMLElement>('.boot-splash')!;
     if (phase !== undefined) splash.dataset.phase = phase;
     const delay = (selector: string) =>
@@ -599,6 +612,7 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
       run: () => window.eval(preflight),
       phase: () => splash.dataset.phase,
       stamp: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_KEY),
+      box: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_BOX_KEY),
       delays: () =>
         [
           '.material-elastic-turn',
@@ -654,6 +668,19 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     expect(app.delays()).toEqual(['', '', '', '']);
   });
 
+  it.each([
+    ['a fresh stamp', String(NOW - 1000)],
+    ['an old stamp', String(NOW - 15_000)],
+    ['no stamp', undefined],
+  ])(
+    "removes the reset screen's box with %s (the head preflight already read it)",
+    (_label, stamp) => {
+      const app = page({ stamp, box: '390x844' });
+      app.run();
+      expect(app.box()).toBeNull();
+    },
+  );
+
   it('changes nothing without a stamp, with a phase already set, or without storage', () => {
     const none = page();
     none.run();
@@ -685,14 +712,32 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   function page({
     theme,
     stamp,
+    box,
+    width,
+    height,
     deviceDark = false,
-  }: { theme?: string; stamp?: string; deviceDark?: boolean } = {}) {
+  }: {
+    theme?: string;
+    stamp?: string;
+    box?: string;
+    width?: number;
+    height?: number;
+    deviceDark?: boolean;
+  } = {}) {
     const dom = new JSDOM('<!doctype html><html class="setup-boot-block"><head></head></html>', {
       runScripts: 'outside-only',
       url: 'https://musixquare.com/',
     });
     const { window } = dom;
     Object.defineProperty(window.Date, 'now', { value: () => NOW });
+    // The first screen this page gets (jsdom's own is 1024 x 768).
+    if (width !== undefined) {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    }
+    if (height !== undefined) {
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+    }
+    if (box !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_BOX_KEY, box);
     Object.defineProperty(window, 'matchMedia', {
       value: (query: string) => ({
         matches: deviceDark && query === '(prefers-color-scheme: dark)',
@@ -713,6 +758,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
         ],
       }),
       stamp: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_KEY),
+      box: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_BOX_KEY),
+      height: () => root.style.getPropertyValue('--boot-continued-height'),
       window,
     };
   }
@@ -780,6 +827,61 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect(app.state().delays).toEqual(['', '']);
   });
 
+  // Owner report 2026-11-16: on an iPhone a refresh showed the home indicator
+  // strip for a moment while the wordmark and loader jumped up and back. iOS
+  // gives the new page a first screen short by that strip, and the splash
+  // centres in whatever screen it gets, so the reset screen's own height
+  // carries the place across instead.
+  it.each([
+    ['as tall', 844],
+    ['34 px shorter (an iPhone home indicator strip)', 810],
+    ['64 px shorter', 780],
+    ['64 px taller', 908],
+  ])(
+    "keeps the reset screen's height for a first screen %s at the same width, and leaves its box to bootstrap.js",
+    (_label, height) => {
+      const app = page({ stamp: String(NOW - 1000), box: '390x844', width: 390, height });
+      app.run();
+      expect(app.state().continued).toBe(true);
+      expect(app.height()).toBe('844px');
+      expect(app.box()).toBe('390x844');
+    },
+  );
+
+  it.each([
+    ['another width (the device turned)', '844x390', 390, 810],
+    ['more than 64 px shorter', '390x844', 390, 779],
+    ['more than 64 px taller', '390x844', 390, 909],
+    ['an unreadable box', 'tall', 390, 844],
+    ['a box without a height', '390x', 390, 844],
+    ['a zero height', '390x0', 390, 30],
+    ['no box', undefined, 390, 844],
+  ] as const)(
+    'lets a continued splash fill its own first screen after %s',
+    (_label, box, width, height) => {
+      const app = page({ stamp: String(NOW - 1000), box, width, height });
+      app.run();
+      expect(app.state().continued).toBe(true);
+      expect(app.height()).toBe('');
+    },
+  );
+
+  it('reads no box without a fresh stamp', () => {
+    const app = page({ stamp: String(NOW - 15_000), box: '390x844', width: 390, height: 810 });
+    app.run();
+    expect(app.state().continued).toBe(false);
+    expect(app.height()).toBe('');
+  });
+
+  it("keeps a continued splash in the reset screen's box: from the top, as tall as the screen it left", () => {
+    const opener = '      html[data-boot-continued] .boot-splash {';
+    expect(declaration(SPLASH_CSS, opener, 'bottom')).toBe('auto');
+    expect(declaration(SPLASH_CSS, opener, 'height')).toBe('var(--boot-continued-height, 100%)');
+    // Without a kept height it fills its screen as before, from the same top.
+    expect(ownDeclaration(SPLASH_CSS, '      .boot-splash {', 'top')).toBe('0');
+    expect(ownDeclaration(SPLASH_CSS, '      .boot-splash {', 'position')).toBe('fixed');
+  });
+
   it('changes nothing it cannot read when storage is blocked', () => {
     const app = page();
     for (const name of ['localStorage', 'sessionStorage']) {
@@ -836,6 +938,16 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect(PREFLIGHT).toContain(`localStorage.getItem('musixquare-theme')`);
     expect(bootstrap).toContain(`localStorage.getItem('musixquare-theme')`);
     expect(PREFLIGHT).toContain(`sessionStorage.getItem('${BOOT_SPLASH_CONTINUITY_KEY}')`);
+    expect(PREFLIGHT).toContain(`sessionStorage.getItem('${BOOT_SPLASH_CONTINUITY_BOX_KEY}')`);
+    // A kept height counts only within the largest safe-area difference the
+    // installed iOS app shows between its height readings (src/core/platform.ts).
+    const safeAreaDelta = Number(
+      readFileSync('src/core/platform.ts', 'utf8').match(
+        /const IOS_STANDALONE_SAFE_AREA_DELTA_MAX = (\d+);/u,
+      )?.[1],
+    );
+    expect(safeAreaDelta).toBe(64);
+    expect(PREFLIGHT).toContain(`<= ${safeAreaDelta}`);
     const window = Number(
       bootstrap.match(/const continuityWindowMs = ([\d_]+);/u)?.[1]?.replace(/_/gu, ''),
     );

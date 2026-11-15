@@ -271,7 +271,7 @@ const NARROW_OVERRIDES: ReadonlyArray<{
   {
     condition:
       '@media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px)',
-    selector: '#media-source-overlay #btn-close-media-popup',
+    selector: '#btn-close-media-popup',
     declaration: 'font-size: 0',
     reason:
       'On two-column screens the media source Close becomes a 40px icon circle ' +

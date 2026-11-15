@@ -938,7 +938,7 @@ describe('setup recovery accessibility', () => {
     expect(desktopSetupEnd).toBeGreaterThan(desktopSetupStart);
 
     const centeredAreaRules = stylesheet.slice(desktopSetupStart, desktopSetupEnd);
-    expect(centeredAreaRules).toContain('#setup-overlay #setup-auto-join-area');
+    expect(centeredAreaRules).toContain('#setup-auto-join-area');
     expect(centeredAreaRules).toContain('justify-content: center;');
   });
 });

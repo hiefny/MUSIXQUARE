@@ -7714,7 +7714,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     overflow-y: auto;
   }
 
-  #youtube-url-overlay #youtube-preview-thumb {
+  #youtube-preview-thumb {
     max-height: 35vh;
   }
 
@@ -12138,7 +12138,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     /* 56 + 5 + 4 - 8 - 16 */
-    #setup-welcome-area > #ob-slider-area {
+    #setup-welcome-area > .ob-slider-block {
       flex: none;
       margin-block: auto;
       padding-bottom: 41px;
@@ -12518,7 +12518,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       overflow-y: auto;
     }
 
-    #media-source-overlay #btn-close-media-popup {
+    #btn-close-media-popup {
       width: 40px;
       height: 40px;
       min-width: 0;
@@ -12536,16 +12536,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
         color 0.15s;
     }
 
-    :where(html[data-hover-pointer]) #media-source-overlay #btn-close-media-popup:hover {
+    :where(html[data-hover-pointer]) #btn-close-media-popup:hover {
       background: var(--surface-3);
       color: var(--text-main);
     }
 
-    #media-source-overlay #btn-close-media-popup > span {
+    #btn-close-media-popup > span {
       display: none;
     }
 
-    #media-source-overlay #btn-close-media-popup > svg {
+    #btn-close-media-popup > svg {
       display: block;
       width: 20px;
       height: 20px;
@@ -12790,11 +12790,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     /* Content areas: center vertically */
-    #setup-overlay #setup-welcome-area,
-    #setup-overlay #setup-code-area,
-    #setup-overlay #setup-join-area,
-    #setup-overlay #setup-auto-join-area,
-    #setup-overlay #setup-role-area {
+    #setup-welcome-area,
+    #setup-code-area,
+    #setup-join-area,
+    #setup-auto-join-area,
+    #setup-role-area {
       flex: 1;
       flex-direction: column;
       justify-content: center;

@@ -672,12 +672,12 @@
     }
 
     /* Limit preview thumbnail to avoid pushing buttons off-screen */
-    #youtube-url-overlay #youtube-preview {
+    #youtube-preview {
       max-height: calc(var(--desktop-viewport-height) - 420px);
       overflow-y: auto;
     }
 
-    #youtube-url-overlay #youtube-preview-thumb {
+    #youtube-preview-thumb {
       max-height: calc(40vh * var(--desktop-layout-ratio));
     }
 

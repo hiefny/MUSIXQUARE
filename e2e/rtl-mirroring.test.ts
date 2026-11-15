@@ -10,15 +10,20 @@ import { setupHostAndStart } from './helpers/setup-flow.ts';
 
 const TOLERANCE_PX = 1;
 
-async function openInArabic(page: Page, width: number, height: number): Promise<void> {
+async function openInLanguage(
+  page: Page,
+  language: string,
+  width: number,
+  height: number,
+): Promise<void> {
   await injectPeerServer(page);
-  await page.addInitScript(() => {
+  await page.addInitScript((code) => {
     try {
-      localStorage.setItem('musixquare-lang', 'ar');
+      localStorage.setItem('musixquare-lang', code);
     } catch {
       // Opaque documents such as about:blank have no storage.
     }
-  });
+  }, language);
   await page.setViewportSize({ width, height });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.route('https://demo.musixquare.com/linelight/*.m4a', (route) =>
@@ -27,6 +32,10 @@ async function openInArabic(page: Page, width: number, height: number): Promise<
       contentType: 'audio/mpeg',
     }),
   );
+}
+
+async function openInArabic(page: Page, width: number, height: number): Promise<void> {
+  await openInLanguage(page, 'ar', width, height);
 }
 
 async function openStartScreen(page: Page): Promise<void> {
@@ -235,3 +244,38 @@ test('a running room mirrors the Playlist title, the password switch and the dem
     )
     .toEqual({ scrolls: true, onThePanel: true });
 });
+
+// The skip link appears on focus 16px from the screen edge where reading
+// starts: the right in Arabic, the left in English.
+for (const { language, width, height } of [
+  { language: 'ar', width: 390, height: 844 },
+  { language: 'ar', width: 1440, height: 900 },
+  { language: 'en', width: 390, height: 844 },
+  { language: 'en', width: 1440, height: 900 },
+]) {
+  test(`the skip link appears at the reading-start corner (${language} ${width}x${height})`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const rtl = language === 'ar';
+    await openInLanguage(page, language, width, height);
+    await setupHostAndStart(page);
+    await expect(page.locator('html')).toHaveAttribute('dir', rtl ? 'rtl' : 'ltr');
+    await page
+      .waitForFunction(() => !document.querySelector('.app-entrance'), undefined, {
+        timeout: 8_000,
+      })
+      .catch(() => undefined);
+
+    // Focused directly: after the setup clicks, the first Tab need not reach it.
+    const link = page.locator('.skip-link');
+    await link.focus();
+    await expect(link).toBeFocused();
+    await expect(link).toHaveCSS('top', '0px');
+    const edgeGap = await link.evaluate((node, fromRight) => {
+      const rect = node.getBoundingClientRect();
+      return fromRight ? innerWidth - rect.right : rect.left;
+    }, rtl);
+    expect(Math.abs(edgeGap - 16)).toBeLessThanOrEqual(TOLERANCE_PX);
+  });
+}

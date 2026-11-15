@@ -21,10 +21,6 @@ const ALLOWED_PRELUDES = new Set([
   NOT_DESKTOP_LAYOUT_QUERY,
   COMPACT_LAYOUT_QUERY,
   SHORT_DESKTOP_LAYOUT_QUERY,
-  // A portrait viewport is never at least 1280px wide and under 720px tall,
-  // so these width-only portrait branches already agree with the bands.
-  '(max-width: 1279px) and (max-height: 720px) and (orientation: portrait)',
-  '(min-width: 720px) and (max-width: 1279px) and (orientation: portrait)',
 ]);
 
 function layoutPreludes(): string[] {

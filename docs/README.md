@@ -100,21 +100,26 @@ runbooks. Neither belongs in a general setup document.
   released on 2026-11-15 11:05 KST in Release 43665977505 (PR #594, squash `3b75753e`) as App 9.0.48 / v823 (App build
   823, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker
   changed (`7e7ef536` to `2725ae79`); the four smokes passed at the first try and the Drift Audit passed (32 pass, 0
-  fail, 5 manual-only). {{E2E_README}} Headless Chromium and WebKit first visits to the production home after the
-  deploy, read-only on this computer's real path, showed the splash as soon as the document arrived; WebKit drew the
-  wordmark, while Chromium requested the drawing runtime at Low priority and got it just before the app, so the CSS
-  fallback showed the whole wordmark instead (a `fetchpriority="high"` follow-up awaits the owner). An App update
-  after 9.0.47 / v822, on main `867988e8` (whose App runtime equals 9.0.47's `4abbf312`), for a loading screen the
-  owner proposed on 2026-11-15 and shaped through frame sheets the same day.
-  The page file carries a boot splash that paints from its first 3.3 KB (brotli) before any script or stylesheet; the
-  start-up scripts and the app stylesheet move to the top of `<body>`, after it. There the wordmark draws once at
-  the centre and, while the app still loads, rises 24px as the loader fades in below (one 24px unit for the
-  wordmark, the gap and the loader); the splash fades over the app for 0.3 s with the loader still turning, and the
-  drawing stops where it is if the app arrives first. The start screen shows no wordmark: its greeting and language
-  button are there from the first frame. The session reset screen (refresh, leave, a PRO room opened in another tab)
-  shows the same wordmark and loader in their final place with no visible text, fades in and out, and the reloaded
-  page continues them at the same place and loader phase. Over an imitated slow path the splash painted at about
-  1.1 s where the base showed a blank page until 15.4 s; the app opened at the same time in both builds. The
+  fail, 5 manual-only). Its post-merge Full E2E 43666169683 failed one new reduced-motion row on Linux WebKit (184
+  passed, 1 failed, 5 skipped; the Chromium `e2e` lane passed all 1070 and the large-room R2 smoke passed); a
+  tests-only fix (#595, `8d4fec08`) has the row read the splash's CSS clock instead of leaning on the paused page
+  clock, and the rerun 43672822021 passed on Linux WebKit (185 passed, 5 skipped) with the production-build service
+  worker test and the large-room R2 smoke, its Chromium `e2e` lane still running as this record opened. Headless
+  Chromium and WebKit first visits to the production home after the deploy, read-only on this computer's real path,
+  showed the splash as soon as the document arrived; WebKit drew the wordmark, while Chromium requested the drawing
+  runtime at Low priority and got it just before the app, so the CSS fallback showed the whole wordmark instead (a
+  page copy with `fetchpriority="high"` got it before the app every time but early enough to draw only half the time;
+  the owner decides whether to change it). An App update after 9.0.47 / v822, on main `867988e8` (whose App runtime
+  equals 9.0.47's `4abbf312`), for a loading screen the owner proposed on 2026-11-15 and shaped through frame sheets
+  the same day. The page file carries a boot splash that paints from its first 3.3 KB (brotli) before any script or
+  stylesheet; the start-up scripts and the app stylesheet move to the top of `<body>`, after it. There the wordmark
+  draws once at the centre and, while the app still loads, rises 24px as the loader fades in below (one 24px unit for
+  the wordmark, the gap and the loader); the splash fades over the app for 0.3 s with the loader still turning, and
+  the drawing stops where it is if the app arrives first. The start screen shows no wordmark: its greeting and
+  language button are there from the first frame. The session reset screen (refresh, leave, a PRO room opened in
+  another tab) shows the same wordmark and loader in their final place with no visible text, fades in and out, and the
+  reloaded page continues them at the same place and loader phase. Over an imitated slow path the splash painted at
+  about 1.1 s where the base showed a blank page until 15.4 s; the app opened at the same time in both builds. The
   wordmark's Q tail is no longer clipped anywhere, guarded on every copy. The registry adds RO-55 for the splash's
   sheet and runtime. Not verified on a physical device.
 

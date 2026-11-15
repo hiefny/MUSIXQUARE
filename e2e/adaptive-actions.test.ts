@@ -5,6 +5,7 @@ import { APP_FONT_SHEETS } from '../src/i18n/app-font-contract.ts';
 import { APP_DICTIONARIES as LOCALES } from '../src/i18n/catalogs.ts';
 import { LANGUAGE_OPTIONS, languageDirection } from '../src/i18n/locales.ts';
 import { isDesktopLayoutSize } from '../src/core/layout-breakpoints.ts';
+import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../src/ui/material-elastic-spinner.ts';
 
 const APP_STYLES = readFileSync(resolve('css/style.css'), 'utf8');
 const DESKTOP_STYLES = readFileSync(resolve('css/desktop.css'), 'utf8');
@@ -611,108 +612,111 @@ test.describe('content-based adaptive action groups', () => {
   }) => {
     await installLayoutProbe(page, '<main id="locale-probes"></main>');
     const localesWithFonts = await localizedActionsWithFonts(page);
-    await page.evaluate((locales) => {
-      const root = document.getElementById('locale-probes')!;
+    await page.evaluate(
+      ({ locales, spinnerParts }) => {
+        const root = document.getElementById('locale-probes')!;
 
-      for (const locale of locales) {
-        const section = document.createElement('section');
-        section.className = 'locale-probe';
-        section.lang = locale.htmlLang;
-        section.style.setProperty('--font-sans', locale.fontFamily);
-        section.style.fontFamily = locale.fontFamily;
+        for (const locale of locales) {
+          const section = document.createElement('section');
+          section.className = 'locale-probe';
+          section.lang = locale.htmlLang;
+          section.style.setProperty('--font-sans', locale.fontFamily);
+          section.style.fontFamily = locale.fontFamily;
 
-        for (let index = 0; index < locale.labels.length; index += 2) {
-          const group = document.createElement('div');
-          group.className =
-            'dialog-actions adaptive-action-group layout-probe text-200 locale-action-pair';
+          for (let index = 0; index < locale.labels.length; index += 2) {
+            const group = document.createElement('div');
+            group.className =
+              'dialog-actions adaptive-action-group layout-probe text-200 locale-action-pair';
 
-          for (const [offset, label] of locale.labels.slice(index, index + 2).entries()) {
-            const button = document.createElement('button');
-            button.className = offset === 0 ? 'dialog-secondary' : 'dialog-primary';
-            button.textContent = label;
-            group.appendChild(button);
+            for (const [offset, label] of locale.labels.slice(index, index + 2).entries()) {
+              const button = document.createElement('button');
+              button.className = offset === 0 ? 'dialog-secondary' : 'dialog-primary';
+              button.textContent = label;
+              group.appendChild(button);
+            }
+            section.appendChild(group);
           }
-          section.appendChild(group);
+
+          const accountGroup = document.createElement('div');
+          accountGroup.className =
+            'account-dialog-actions adaptive-action-group text-200 locale-account-actions';
+          for (const [className, label] of [
+            ['dialog-secondary', locale.account.logout],
+            ['dialog-secondary dialog-danger', locale.account.deleteAccount],
+            [
+              'dialog-primary account-dialog-account-close adaptive-action-group-full',
+              locale.account.close,
+            ],
+          ]) {
+            const button = document.createElement('button');
+            button.className = className;
+            button.textContent = label;
+            accountGroup.appendChild(button);
+          }
+          section.appendChild(accountGroup);
+
+          const loginGroup = document.createElement('div');
+          loginGroup.className = 'account-dialog-login-actions text-200 locale-login-actions';
+
+          const google = document.createElement('a');
+          google.className = 'account-google-button';
+          google.href = '#';
+          const googleMark = document.createElement('span');
+          googleMark.className = 'account-google-mark';
+          const googleLabel = document.createElement('span');
+          googleLabel.className = 'account-google-label';
+          googleLabel.textContent = locale.account.google;
+          const googleBalance = document.createElement('span');
+          googleBalance.className = 'account-google-balance';
+          google.append(googleMark, googleLabel, googleBalance);
+
+          const loginClose = document.createElement('button');
+          loginClose.className = 'dialog-secondary account-dialog-login-close';
+          loginClose.textContent = locale.account.close;
+          loginGroup.append(google, loginClose);
+          section.appendChild(loginGroup);
+
+          for (const [mode, label] of Object.entries(locale.invite)) {
+            const inviteGroup = document.createElement('div');
+            inviteGroup.className = 'qr-container layout-probe text-200 locale-invite-action';
+
+            const button = document.createElement('button');
+            button.className = 'btn-copy-invite-link';
+            button.dataset.mode = mode;
+
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            icon.setAttribute('viewBox', '0 0 24 24');
+            // The app's own loader parts (src/ui/connect.ts builds the button so).
+            const spinner = document.createElement('span');
+            spinner.className = 'material-elastic-spinner signaling-recovery-spinner';
+            spinner.innerHTML = spinnerParts;
+            const text = document.createElement('span');
+            text.setAttribute('data-i18n', `connect.${mode}`);
+            text.textContent = label;
+            button.append(icon, spinner, text);
+            inviteGroup.appendChild(button);
+            section.appendChild(inviteGroup);
+          }
+
+          const bottomNav = document.createElement('nav');
+          bottomNav.className = 'bottom-nav locale-bottom-nav';
+          for (const label of locale.nav) {
+            const button = document.createElement('button');
+            button.className = 'nav-item';
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            icon.setAttribute('viewBox', '0 0 24 24');
+            const text = document.createElement('span');
+            text.textContent = label;
+            button.append(icon, text);
+            bottomNav.appendChild(button);
+          }
+          section.appendChild(bottomNav);
+
+          root.appendChild(section);
         }
-
-        const accountGroup = document.createElement('div');
-        accountGroup.className =
-          'account-dialog-actions adaptive-action-group text-200 locale-account-actions';
-        for (const [className, label] of [
-          ['dialog-secondary', locale.account.logout],
-          ['dialog-secondary dialog-danger', locale.account.deleteAccount],
-          [
-            'dialog-primary account-dialog-account-close adaptive-action-group-full',
-            locale.account.close,
-          ],
-        ]) {
-          const button = document.createElement('button');
-          button.className = className;
-          button.textContent = label;
-          accountGroup.appendChild(button);
-        }
-        section.appendChild(accountGroup);
-
-        const loginGroup = document.createElement('div');
-        loginGroup.className = 'account-dialog-login-actions text-200 locale-login-actions';
-
-        const google = document.createElement('a');
-        google.className = 'account-google-button';
-        google.href = '#';
-        const googleMark = document.createElement('span');
-        googleMark.className = 'account-google-mark';
-        const googleLabel = document.createElement('span');
-        googleLabel.className = 'account-google-label';
-        googleLabel.textContent = locale.account.google;
-        const googleBalance = document.createElement('span');
-        googleBalance.className = 'account-google-balance';
-        google.append(googleMark, googleLabel, googleBalance);
-
-        const loginClose = document.createElement('button');
-        loginClose.className = 'dialog-secondary account-dialog-login-close';
-        loginClose.textContent = locale.account.close;
-        loginGroup.append(google, loginClose);
-        section.appendChild(loginGroup);
-
-        for (const [mode, label] of Object.entries(locale.invite)) {
-          const inviteGroup = document.createElement('div');
-          inviteGroup.className = 'qr-container layout-probe text-200 locale-invite-action';
-
-          const button = document.createElement('button');
-          button.className = 'btn-copy-invite-link';
-          button.dataset.mode = mode;
-
-          const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          icon.setAttribute('viewBox', '0 0 24 24');
-          const spinner = document.createElement('span');
-          spinner.className = 'material-elastic-spinner signaling-recovery-spinner';
-          const spinnerIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          spinner.appendChild(spinnerIcon);
-          const text = document.createElement('span');
-          text.setAttribute('data-i18n', `connect.${mode}`);
-          text.textContent = label;
-          button.append(icon, spinner, text);
-          inviteGroup.appendChild(button);
-          section.appendChild(inviteGroup);
-        }
-
-        const bottomNav = document.createElement('nav');
-        bottomNav.className = 'bottom-nav locale-bottom-nav';
-        for (const label of locale.nav) {
-          const button = document.createElement('button');
-          button.className = 'nav-item';
-          const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          icon.setAttribute('viewBox', '0 0 24 24');
-          const text = document.createElement('span');
-          text.textContent = label;
-          button.append(icon, text);
-          bottomNav.appendChild(button);
-        }
-        section.appendChild(bottomNav);
-
-        root.appendChild(section);
-      }
-    }, localesWithFonts);
+      },
+      { locales: localesWithFonts, spinnerParts: MATERIAL_ELASTIC_SPINNER_PARTS },
+    );
     await waitForLayoutFonts(page);
 
     const allActions = await page.locator('#locale-probes :is(button, a)').evaluateAll((actions) =>

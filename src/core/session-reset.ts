@@ -111,10 +111,12 @@ interface NavigationAttempt {
 }
 
 /**
- * - painting: the overlay is up; the action waits for two frames and the rest
- *   of the overlay's own fade-in (its computed opacity transition), or for the
- *   RESET_PAINT_FALLBACK_MS timeout after that fade-in. The page a navigation
- *   opens then continues a whole screen rather than a half-shown one.
+ * - painting: the overlay is up; the action waits for two frames and then for
+ *   what is left of the overlay's own fade-in by that transition's clock (it
+ *   starts on the first frame the page renders, which a busy page can hold
+ *   well past the show), or, when no frame comes, for the
+ *   RESET_PAINT_FALLBACK_MS timeout after that fade-in's length. The page a
+ *   navigation opens then continues a whole screen rather than a half-shown one.
  * - preparing: the request's prepare step runs, bounded by
  *   NAVIGATION_PREPARE_TIMEOUT_MS.
  * - navigating: the final navigation call ran; NAVIGATION_COMMIT_TIMEOUT_MS is
@@ -529,16 +531,18 @@ function alignLoaderToWallClock(loader: Element | null): void {
  * listener: that fade's own end does it; a later show cancels the fade and
  * keeps the overlay.
  */
+/** The overlay's running opacity transition: its fade-in or its fade-out. */
+function overlayFade(overlay: HTMLElement): Animation | undefined {
+  return overlay
+    .getAnimations()
+    .find((animation) => (animation as CSSTransition).transitionProperty === 'opacity');
+}
+
 function retireOverlayAfterFade(overlay: HTMLElement): void {
   const retireIfHidden = (): void => {
     if (!overlay.classList.contains('show')) overlay.classList.add(OVERLAY_RETIRED_CLASS);
   };
-  const fade =
-    typeof overlay.getAnimations === 'function'
-      ? overlay
-          .getAnimations()
-          .find((animation) => (animation as CSSTransition).transitionProperty === 'opacity')
-      : undefined;
+  const fade = typeof overlay.getAnimations === 'function' ? overlayFade(overlay) : undefined;
   if (!fade) {
     retireIfHidden();
     return;
@@ -905,6 +909,26 @@ function resetFadeInMs(overlay: HTMLElement | null): number {
   }
 }
 
+/**
+ * What is left of the shown overlay's fade-in by the transition's own clock,
+ * 0 once it has run, or null when the engine cannot tell (no Web Animations
+ * API). The fade-in starts on the first frame the page renders after the show,
+ * which a busy page can hold well past it (WebKit about 175 ms), and WebKit can
+ * instead date it from the last frame before the show.
+ */
+function fadeInLeftMs(overlay: HTMLElement | null): number | null {
+  if (!overlay || typeof overlay.getAnimations !== 'function') return null;
+  try {
+    const fadeIn = overlayFade(overlay);
+    if (!fadeIn) return 0;
+    const end = Number(fadeIn.effect?.getComputedTiming().endTime);
+    const left = end - Number(fadeIn.currentTime ?? 0);
+    return Number.isFinite(left) ? Math.max(0, left) : null;
+  } catch {
+    return null;
+  }
+}
+
 function beginAttempt(
   message: string,
   request: NavigationRequest,
@@ -936,11 +960,15 @@ function beginAttempt(
 
   // The screen fades in (style.css): the action waits until it has, so the page
   // a navigation opens continues a whole screen, not one barely begun.
+  const overlay = document.getElementById(OVERLAY_ID);
   const shownAt = Date.now();
-  const fadeInMs = resetFadeInMs(document.getElementById('session-reset-overlay'));
+  const fadeInMs = resetFadeInMs(overlay);
   const runOnceFadedIn = () => {
     if (_state.phase !== 'painting' || _state.attempt !== attempt) return;
-    const remaining = fadeInMs - (Date.now() - shownAt);
+    // The page renders: the fade-in's own clock replaces the fallback, which
+    // counts from the show and can end before a late-started fade-in.
+    window.clearTimeout(attempt.timers.paint);
+    const remaining = fadeInLeftMs(overlay) ?? fadeInMs - (Date.now() - shownAt);
     if (remaining > 0) attempt.timers.fade = window.setTimeout(runAction, remaining);
     else runAction();
   };

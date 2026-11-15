@@ -204,6 +204,7 @@ describe('session reset coordinator', () => {
       transitionProperty: 'opacity',
       currentTime: running.currentTime,
       effect: { getComputedTiming: () => ({ endTime: running.endTime }) },
+      finished: Promise.resolve(),
     };
     Object.defineProperty(overlay, 'getAnimations', {
       configurable: true,

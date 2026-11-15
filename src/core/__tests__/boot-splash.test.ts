@@ -695,16 +695,19 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     ['system', false, 'light'],
     [undefined, true, 'dark'],
     ['nonsense', false, 'light'],
-  ] as const)('applies the stored theme %s (device dark: %s) as %s', (theme, deviceDark, expected) => {
-    const app = page({ theme, deviceDark });
-    app.run();
-    expect(app.state()).toEqual({
-      theme: expected,
-      scheme: expected,
-      continued: false,
-      delays: ['', ''],
-    });
-  });
+  ] as const)(
+    'applies the stored theme %s (device dark: %s) as %s',
+    (theme, deviceDark, expected) => {
+      const app = page({ theme, deviceDark });
+      app.run();
+      expect(app.state()).toEqual({
+        theme: expected,
+        scheme: expected,
+        continued: false,
+        delays: ['', ''],
+      });
+    },
+  );
 
   it("marks a splash an app reset under 15 s ago continues, its loader on the wall clock's phase, and leaves the stamp to bootstrap.js", () => {
     const app = page({ theme: 'dark', stamp: String(NOW - 14_999) });
@@ -755,7 +758,11 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       block(SPLASH_CSS, `      html[data-boot-continued] .boot-splash ${selector} {`)
         .replace(/\s+/gu, ' ')
         .trim();
-    for (const selector of ['.boot-splash-mark', '.boot-splash-spinner', '.boot-splash-logo > .wg']) {
+    for (const selector of [
+      '.boot-splash-mark',
+      '.boot-splash-spinner',
+      '.boot-splash-logo > .wg',
+    ]) {
       expect(continued(selector), selector).toBe(settled(selector));
     }
     expect(
@@ -779,14 +786,22 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect(PREFLIGHT).toContain(`localStorage.getItem('musixquare-theme')`);
     expect(bootstrap).toContain(`localStorage.getItem('musixquare-theme')`);
     expect(PREFLIGHT).toContain(`sessionStorage.getItem('${BOOT_SPLASH_CONTINUITY_KEY}')`);
-    const window = Number(bootstrap.match(/const continuityWindowMs = ([\d_]+);/u)?.[1]?.replace(/_/gu, ''));
+    const window = Number(
+      bootstrap.match(/const continuityWindowMs = ([\d_]+);/u)?.[1]?.replace(/_/gu, ''),
+    );
     expect(window).toBe(15_000);
     expect(PREFLIGHT).toContain(`< ${window}`);
     const spin = Math.round(
-      Number.parseFloat(declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'animation').split(' ')[1] ?? '') * 1000,
+      Number.parseFloat(
+        declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'animation').split(' ')[1] ??
+          '',
+      ) * 1000,
     );
     const dash = Math.round(
-      Number.parseFloat(declaration(SPLASH_CSS, '      .boot-splash-spinner circle {', 'animation').split(' ')[1] ?? '') * 1000,
+      Number.parseFloat(
+        declaration(SPLASH_CSS, '      .boot-splash-spinner circle {', 'animation').split(' ')[1] ??
+          '',
+      ) * 1000,
     );
     expect([spin, dash]).toEqual([1850, 1450]);
     expect(PREFLIGHT).toContain(`now % ${spin}`);

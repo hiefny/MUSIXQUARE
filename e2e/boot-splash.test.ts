@@ -299,7 +299,8 @@ test.describe('session reset screen', () => {
     });
     await page.reload({ waitUntil: 'commit' });
     await page.waitForFunction(
-      () => ((window as typeof window & { __firstFrames?: Frame[] }).__firstFrames?.length ?? 0) >= 2,
+      () =>
+        ((window as typeof window & { __firstFrames?: Frame[] }).__firstFrames?.length ?? 0) >= 2,
       null,
       { timeout: 10_000, polling: 20 },
     );

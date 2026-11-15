@@ -3359,10 +3359,12 @@ RO-55 accepted-exception
   `BOOT_SPLASH_CONTINUITY_KEY` when it shows (that document's `bootstrap.js` reads it) and removes
   it when its own document stays, and it leaves rendering once its fade-out ends, on that
   transition's own `finished` (`retireOverlayAfterFade`, no timer or listener). Since App 9.0.49
-  the owner starts the action only once the overlay's own fade-in has run (two frames after the
-  show, then a timer for what is left of it), and the native fallback waits
-  `RESET_PAINT_FALLBACK_MS` beyond that fade-in, so the next page continues a whole screen: a fast
-  reload had left at about 14% of the overlay's opacity.
+  the owner starts the action only once the overlay's own fade-in has run, so the next page
+  continues a whole screen (a fast reload had left at about 14% of the overlay's opacity): two
+  frames after the show it reads what is left of that transition by the transition's own clock
+  (`fadeInLeftMs`; it starts on the first frame the page renders, which WebKit measured about
+  175 ms past the show) and sets one timer for it in place of the native fallback, which waits
+  `RESET_PAINT_FALLBACK_MS` beyond the fade-in's length only when no frame comes.
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
@@ -3384,8 +3386,10 @@ RO-55 accepted-exception
     accepts only the first reset request"; `src/core/__tests__/document-reload.test.ts` "does not
     let a stale guard release its successor".
   - Paint: `session-reset.test.ts` "starts the action only once the screen's fade-in has run, so
-    the next page continues a whole screen" and "waits out the fade-in in the timeout fallback
-    too, and runs the action once"; `e2e/boot-splash.test.ts` "shows the splash's wordmark and
+    the next page continues a whole screen", "waits out the fade-in in the timeout fallback
+    too, and runs the action once", "times that wait by the fade-in's own clock, which a busy
+    page starts only at its first frame" and "starts the action at once when the fade-in has
+    already run by the second frame"; `e2e/boot-splash.test.ts` "shows the splash's wordmark and
     loader without text, and the page it opens continues them" (the overlay's opacity when the
     page leaves).
   - User pause/stop: n/a.

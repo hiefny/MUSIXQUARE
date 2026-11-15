@@ -62,6 +62,7 @@ import {
 } from './document-reload.ts';
 import { setElementInertForOwner } from './inert-ownership.ts';
 import {
+  BOOT_SPLASH_CONTINUITY_BOX_KEY,
   BOOT_SPLASH_CONTINUITY_KEY,
   NAVIGATION_COMMIT_TIMEOUT_MS,
   NAVIGATION_PREPARE_TIMEOUT_MS,
@@ -615,6 +616,8 @@ function followSurfaceHost(): void {
   releasePageClaims(attempt);
   placeOverlay(overlay);
   claimPageAround(overlay, attempt);
+  // Its new host is a new box for the next page to keep.
+  rememberResetScreenBox(overlay);
   // A move restarts the loader's animations.
   alignLoaderToWallClock(overlay.querySelector('.boot-splash-spinner'));
   // Moving the focused overlay drops its focus; the page holds no other.
@@ -650,6 +653,9 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
   overlay.hidden = false;
   overlay.setAttribute('aria-hidden', 'false');
   overlay.setAttribute('aria-busy', 'true');
+  // Shown and placed, the screen has its box: the page this reset opens keeps
+  // its height.
+  rememberResetScreenBox(overlay);
   // Settle the hidden starting style first so the surface fades in (it blocks
   // input from this call on, before the fade completes).
   void overlay.getBoundingClientRect();
@@ -714,8 +720,33 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
 function forgetBootSplashContinuity(): void {
   try {
     sessionStorage.removeItem(BOOT_SPLASH_CONTINUITY_KEY);
+    sessionStorage.removeItem(BOOT_SPLASH_CONTINUITY_BOX_KEY);
   } catch {
     // Without storage the stamp was never written.
+  }
+}
+
+/**
+ * Leave the box this screen centres the wordmark and loader in (the window's
+ * width and the screen's height) for the page the reset opens. iOS gives that
+ * page a first screen short by the home indicator strip, and its splash,
+ * centred in that, put them half the strip higher until the screen grew (owner
+ * report 2026-11-16); its head preflight keeps this height instead while its
+ * screen is as wide and nearly as tall. A screen with no box leaves none.
+ */
+function rememberResetScreenBox(overlay: HTMLElement): void {
+  const height = overlay.offsetHeight;
+  try {
+    if (height > 0) {
+      sessionStorage.setItem(
+        BOOT_SPLASH_CONTINUITY_BOX_KEY,
+        `${Math.round(window.innerWidth)}x${height}`,
+      );
+    } else {
+      sessionStorage.removeItem(BOOT_SPLASH_CONTINUITY_BOX_KEY);
+    }
+  } catch {
+    // Without storage the next page centres them in its own first screen.
   }
 }
 

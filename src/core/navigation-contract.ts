@@ -94,6 +94,20 @@ export const PREVIOUS_LINK_CLOSE_KEY = 'mxqr-prev-close';
 export const BOOT_SPLASH_CONTINUITY_KEY = 'mxqr-boot-continuity';
 
 /**
+ * The box the reset screen centred the wordmark and loader in, as
+ * "<window width>x<screen height>" (CSS px), written beside
+ * BOOT_SPLASH_CONTINUITY_KEY. The next document's head preflight (index.html)
+ * gives its continued splash that height while its own first screen is as wide
+ * and within the installed iOS app's largest safe-area difference of it, so a
+ * first screen iOS gives short by the home indicator strip no longer moves them
+ * up and back (owner report 2026-11-16). core/session-reset.ts writes it and
+ * removes it with the stamp; browser/classic-runtime/bootstrap.ts removes it
+ * with the stamp; neither copy can import this (boot-splash.test.ts pins them;
+ * RO-55).
+ */
+export const BOOT_SPLASH_CONTINUITY_BOX_KEY = 'mxqr-boot-continuity-box';
+
+/**
  * This page's audio output recovery counts with its build and label set,
  * "<label set> <build> <every slot>", kept at each pagehide; the next
  * document in the tab reads and removes it once and shows it in

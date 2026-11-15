@@ -683,8 +683,12 @@
   // (index.html, src/core/boot-preflight.ts) reads the same stamp before the
   // splash first paints and marks the root data-boot-continued, so the splash
   // already shows the final place; this block follows that mark (the two reads
-  // can straddle the 15 s edge) and owns removing the stamp.
+  // can straddle the 15 s edge) and owns removing the stamp. The reset also left
+  // the box its screen centred them in (BOOT_SPLASH_CONTINUITY_BOX_KEY), which
+  // only the preflight reads, to keep that height on a shorter first screen; this
+  // block removes it with the stamp.
   const continuityKey = 'mxqr-boot-continuity';
+  const continuityBoxKey = 'mxqr-boot-continuity-box';
   const continuityWindowMs = 15_000;
   let marked = false;
   try {
@@ -696,6 +700,7 @@
   try {
     const stamp = Number(sessionStorage.getItem(continuityKey));
     sessionStorage.removeItem(continuityKey);
+    sessionStorage.removeItem(continuityBoxKey);
     const age = Date.now() - stamp;
     fresh = stamp > 0 && Number.isFinite(age) && age >= 0 && age < continuityWindowMs;
   } catch {

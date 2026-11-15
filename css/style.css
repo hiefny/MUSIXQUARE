@@ -869,10 +869,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      - arc: a frame whose 12 o'clock follows the arc's middle (3.6, 176.4,
        363.6 degrees clockwise from 3 o'clock, plus 90).
      - tail, head: the frame's left and right halves. Each shows the part of
-       a half ring (the ring's bottom half) turning inside it: the tail ring
-       turns by -(90 + h), the head ring by 90 + h, h half the arc (3.6,
-       133.2, 3.6 degrees), so the arc runs from one ring's end through
-       12 o'clock to the other's.
+       a ring piece turning inside it: the tail ring turns by -(90 + h), the
+       head ring by 90 + h, h half the arc (3.6, 133.2, 3.6 degrees), so the
+       arc runs from one ring's end through 12 o'clock to the other's. Each
+       piece is only the 150 degrees that can ever show, so its hidden end
+       stays far from the line the halves share.
      - seam: the shortest arc at 12 o'clock, under the line where the halves
        meet, which the arc always covers. */
   .material-elastic-spinner {

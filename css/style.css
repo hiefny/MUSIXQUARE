@@ -12988,6 +12988,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transform: translateX(30px);
   }
 
+  /* In right-to-left the settings column sits at the left edge, so its parts
+     wait out on that side until they enter. */
+  html[dir='rtl'] .app-entrance.app-entrance-left:not(.app-entered) {
+    transform: translateX(-30px);
+  }
+
   .app-entrance.app-entered {
     opacity: 1;
     transform: var(--app-entered-transform, none);

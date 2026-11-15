@@ -1502,7 +1502,7 @@ export function initChat(): void {
     suggest.id = 'chat-command-suggestions';
     suggest.className = 'chat-cmd-suggest';
     suggest.setAttribute('role', 'listbox');
-    suggest.style.display = 'none';
+    suggest.hidden = true;
     if (wrapper) wrapper.appendChild(suggest);
 
     chatInput.setAttribute('role', 'combobox');
@@ -1560,12 +1560,12 @@ export function initChat(): void {
             hintNode.className = 'chat-cmd-ghost-hint';
             hintNode.textContent = remaining.join(' ');
             ghost.replaceChildren(typed, hintNode);
-            ghost.style.display = '';
+            ghost.hidden = false;
             return;
           }
         }
       }
-      ghost.style.display = 'none';
+      ghost.hidden = true;
     }
 
     let _suggestIdx = 0;
@@ -1616,13 +1616,13 @@ export function initChat(): void {
           return item;
         }),
       );
-      suggest.style.display = '';
+      suggest.hidden = false;
       chatInput!.setAttribute('aria-expanded', 'true');
       syncSuggestSelection();
     }
 
     function hideSuggest(): void {
-      suggest.style.display = 'none';
+      suggest.hidden = true;
       _suggestItems = [];
       chatInput!.setAttribute('aria-expanded', 'false');
       chatInput!.removeAttribute('aria-activedescendant');
@@ -1739,7 +1739,7 @@ export function initChat(): void {
       'keydown',
       (e) => {
         // Autocomplete navigation
-        if (_suggestItems.length && suggest.style.display !== 'none') {
+        if (_suggestItems.length && !suggest.hidden) {
           if (e.key === 'Tab') {
             e.preventDefault();
             applySuggest();

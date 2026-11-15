@@ -8220,6 +8220,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     white-space: nowrap;
   }
 
+  .chat-cmd-ghost[hidden] {
+    display: none;
+  }
+
   .chat-cmd-ghost-typed {
     color: transparent;
     white-space: pre;

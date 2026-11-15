@@ -838,7 +838,7 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     ['64 px shorter', 780],
     ['64 px taller', 908],
   ])(
-    "keeps the reset screen's height for a first screen %s at the same width, and leaves its box to bootstrap.js",
+    "hands the sheet the reset screen's height for a first screen %s at the same width, and leaves its box to bootstrap.js",
     (_label, height) => {
       const app = page({ stamp: String(NOW - 1000), box: '390x844', width: 390, height });
       app.run();
@@ -874,12 +874,54 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   });
 
   it("keeps a continued splash in the reset screen's box: from the top, as tall as the screen it left", () => {
-    const opener = '      html[data-boot-continued] .boot-splash {';
+    const opener = '        html[data-boot-continued] .boot-splash {';
     expect(declaration(SPLASH_CSS, opener, 'bottom')).toBe('auto');
     expect(declaration(SPLASH_CSS, opener, 'height')).toBe('var(--boot-continued-height, 100%)');
+    // Never shorter than its own screen (a box left short by a size change
+    // leaves no band under it), and never more than the preflight's window
+    // taller (a screen turned after the first frame keeps the wordmark and
+    // loader on it).
+    const safeAreaDelta = Number(
+      readFileSync('src/core/platform.ts', 'utf8').match(
+        /const IOS_STANDALONE_SAFE_AREA_DELTA_MAX = (\d+);/u,
+      )?.[1],
+    );
+    expect(declaration(SPLASH_CSS, opener, 'min-height')).toBe('100%');
+    expect(declaration(SPLASH_CSS, opener, 'max-height')).toBe(`calc(100% + ${safeAreaDelta}px)`);
     // Without a kept height it fills its screen as before, from the same top.
     expect(ownDeclaration(SPLASH_CSS, '      .boot-splash {', 'top')).toBe('0');
     expect(ownDeclaration(SPLASH_CSS, '      .boot-splash {', 'position')).toBe('fixed');
+  });
+
+  it('leaves a continued splash to fill the page wherever the desktop layout scales body', () => {
+    // css/desktop.css scales body (the splash's containing block once the app
+    // stylesheet loads) from these sizes on; a kept px height would be scaled
+    // with it, so the rule stands outside the smallest of them.
+    const desktop = readFileSync('css/desktop.css', 'utf8');
+    const scaled = [
+      ...desktop.matchAll(
+        /@media \(min-width: (\d+)px\) and \(min-height: (\d+)px\) \{\s*body \{\s*--desktop-ui-scale: ([\d.]+);/gu,
+      ),
+    ].map(([, width, height, scale]) => ({
+      width: Number(width),
+      height: Number(height),
+      scale: Number(scale),
+    }));
+    expect(scaled.length).toBeGreaterThan(0);
+    const smallest = scaled.reduce((a, b) => (a.width * a.height <= b.width * b.height ? a : b));
+    expect(smallest.scale).toBeGreaterThan(1);
+    for (const query of scaled) {
+      expect(query.width).toBeGreaterThanOrEqual(smallest.width);
+      expect(query.height).toBeGreaterThanOrEqual(smallest.height);
+    }
+    const guard = `      @media not all and (min-width: ${smallest.width}px) and (min-height: ${smallest.height}px) {`;
+    const start = SPLASH_CSS.indexOf(guard);
+    expect(start, guard).toBeGreaterThan(-1);
+    const rule = SPLASH_CSS.indexOf('        html[data-boot-continued] .boot-splash {', start);
+    expect(rule).toBeGreaterThan(start);
+    // The rule is the guard's only content.
+    expect(SPLASH_CSS.slice(start + guard.length, rule).trim()).toBe('');
+    expect(SPLASH_CSS.indexOf('html[data-boot-continued] .boot-splash {')).toBe(rule + 8);
   });
 
   it('changes nothing it cannot read when storage is blocked', () => {

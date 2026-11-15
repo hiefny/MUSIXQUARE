@@ -392,4 +392,90 @@ test.describe('session reset screen', () => {
       { screen: height - 34, mark: height / 2 },
     ]);
   });
+
+  test('a continued splash keeps the wordmark and loader on a screen turned after its first frame', async ({
+    page,
+  }) => {
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    const { width, height } = page.viewportSize()!;
+    await page.evaluate(() => {
+      sessionStorage.setItem('mxqr-boot-continuity', String(Date.now()));
+      sessionStorage.setItem('mxqr-boot-continuity-box', `${innerWidth}x${innerHeight}`);
+    });
+    let releaseBootstrap = (): void => undefined;
+    const bootstrapHeld = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    await page.route(/\/bootstrap\.js(?:\?.*)?$/u, async (route) => {
+      await bootstrapHeld;
+      await route.fallback();
+    });
+    await page.reload({ waitUntil: 'commit' });
+    await page.waitForFunction(
+      () => document.documentElement.hasAttribute('data-boot-continued'),
+      null,
+      { timeout: 10_000, polling: 20 },
+    );
+    // The device turns while the page still boots.
+    await page.setViewportSize({ width: height, height: width });
+    const turned = await page.evaluate(
+      () =>
+        new Promise<{ screen: number; mark: number }>((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const box = document
+                .querySelector('.boot-splash .boot-splash-mark')!
+                .getBoundingClientRect();
+              resolve({ screen: innerHeight, mark: box.top + box.height / 2 });
+            }),
+          );
+        }),
+    );
+    releaseBootstrap();
+    await page.setViewportSize({ width, height });
+    // On the turned screen, within half the kept height's window of its centre.
+    expect(turned.screen).toBe(width);
+    expect(Math.abs(turned.mark - turned.screen / 2)).toBeLessThanOrEqual(32);
+  });
+
+  test('a continued splash fills the page wherever the desktop layout scales it', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== 'chromium', 'the desktop layout runs in the Chromium lane');
+    // A QHD screen: the app stylesheet scales body by 1.2 (css/desktop.css).
+    await page.setViewportSize({ width: 2560, height: 1440 });
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    // A box as tall as the window, as a reset screen in a fullscreen host or
+    // in the fake fullscreen (which unscales body) measures it.
+    await page.evaluate(() => {
+      sessionStorage.setItem('mxqr-boot-continuity', String(Date.now()));
+      sessionStorage.setItem('mxqr-boot-continuity-box', `${innerWidth}x${innerHeight}`);
+    });
+    // Hold the app module, so the splash stays while the app stylesheet applies.
+    let releaseApp = (): void => undefined;
+    const appHeld = new Promise<void>((resolve) => {
+      releaseApp = resolve;
+    });
+    await page.route(/\/assets\/main-[^/]+\.js$/u, async (route) => {
+      await appHeld;
+      await route.fallback();
+    });
+    await page.reload({ waitUntil: 'commit' });
+    await page.waitForFunction(() => getComputedStyle(document.body).transform !== 'none', null, {
+      timeout: 15_000,
+      polling: 50,
+    });
+    const placed = await page.evaluate(() => {
+      const box = document.querySelector('.boot-splash .boot-splash-mark')!.getBoundingClientRect();
+      return { screen: innerHeight, mark: Math.round(box.top + box.height / 2) };
+    });
+    releaseApp();
+    await page.setViewportSize({ width: 1280, height: 720 });
+    expect(placed).toEqual({ screen: 1440, mark: 720 });
+  });
 });

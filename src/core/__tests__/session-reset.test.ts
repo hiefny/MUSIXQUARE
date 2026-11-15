@@ -1023,6 +1023,88 @@ describe('session reset coordinator', () => {
         expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
         expect(sessionStorage.getItem(BOX_KEY)).toBeNull();
       });
+
+      // A navigation always ends element fullscreen, so no next page has the
+      // box the screen gets inside a fullscreen host (the top layer).
+      function fullscreenLayer() {
+        let host: HTMLElement | null = null;
+        let hostChanged = (): void => undefined;
+        return {
+          layer: {
+            release: () => undefined,
+            surfaceHost: () => host,
+            onSurfaceHostChange: (listener: () => void) => {
+              hostChanged = listener;
+              return () => {
+                hostChanged = () => undefined;
+              };
+            },
+          },
+          enter() {
+            host = document.createElement('div');
+            document.body.append(host);
+            hostChanged();
+          },
+          exit() {
+            host?.remove();
+            host = null;
+            hostChanged();
+          },
+        };
+      }
+
+      it('is not left from a fullscreen host', async () => {
+        const fullscreen = fullscreenLayer();
+        const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+        const { scheduleSessionReset, setSessionResetWindowLayer } = await loadCoordinator();
+        setSessionResetWindowLayer(fullscreen.layer);
+        fullscreen.enter();
+
+        const navigate = vi.fn(() => sessionStorage.getItem(BOX_KEY));
+        scheduleSessionReset('Refreshing session...', navigate);
+        expect(document.getElementById('session-reset-overlay')?.parentElement).not.toBe(
+          document.body,
+        );
+        expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
+        expect(sessionStorage.getItem(BOX_KEY)).toBeNull();
+        vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+        expect(navigate).toHaveBeenCalledOnce();
+        expect(navigate.mock.results[0]?.value).toBeNull();
+      });
+
+      it('goes when the screen moves into a fullscreen host, and is taken again just before the page leaves', async () => {
+        const fullscreen = fullscreenLayer();
+        const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+        const { scheduleSessionReset, setSessionResetWindowLayer } = await loadCoordinator();
+        setSessionResetWindowLayer(fullscreen.layer);
+
+        const navigate = vi.fn(() => sessionStorage.getItem(BOX_KEY));
+        scheduleSessionReset('Refreshing session...', navigate);
+        expect(sessionStorage.getItem(BOX_KEY)).toBe('390x844');
+        fullscreen.enter();
+        expect(sessionStorage.getItem(BOX_KEY)).toBeNull();
+        // Back in the page, the body's own height may still be the fullscreen
+        // one for a frame: nothing is measured at the move.
+        overlayHeight = 900;
+        fullscreen.exit();
+        expect(sessionStorage.getItem(BOX_KEY)).toBeNull();
+        overlayHeight = 850;
+        vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+        expect(navigate.mock.results[0]?.value).toBe('390x850');
+      });
+
+      it('is taken again just before the page leaves, after the screen changed size', async () => {
+        const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+        const { scheduleSessionReset } = await loadCoordinator();
+
+        const navigate = vi.fn(() => sessionStorage.getItem(BOX_KEY));
+        scheduleSessionReset('Refreshing session...', navigate);
+        expect(sessionStorage.getItem(BOX_KEY)).toBe('390x844');
+        // A keyboard bar hid after the reset blurred the field.
+        overlayHeight = 899;
+        vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+        expect(navigate.mock.results[0]?.value).toBe('390x899');
+      });
     });
 
     it('fades in over the page and out when the page stays', () => {

@@ -1220,8 +1220,10 @@ describe('playlist queue identity rendering and actions', () => {
       /\.material-elastic-spinner\s*\{[^}]*animation:\s*material-elastic-spin/s,
     );
     expect(stylesheet).toMatch(/\.play-loading-spinner\s*\{[^}]*--material-elastic-size:\s*26px;/);
+    // Sharing dims the transport, but its loading play button stays at full
+    // strength: this more specific rule outranks the dim without !important.
     expect(systemAudioStylesheet).toMatch(
-      /body\.mode-system-audio #play-btn\.is-loading\s*\{[^}]*opacity:\s*1\s*!important;/,
+      /body\.mode-system-audio #play-btn\.is-loading\s*\{[^}]*opacity:\s*1;/,
     );
     expect(stylesheet).toMatch(
       /\.track-playback-loading-indicator\s*\{[^}]*--material-elastic-size:\s*16px;/,

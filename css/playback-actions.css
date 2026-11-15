@@ -11,12 +11,12 @@
   body.mode-system-audio #btn-next,
   body.mode-system-audio #play-btn,
   body.mode-system-audio #seek-slider {
-    opacity: 0.3 !important;
+    opacity: 0.3;
     pointer-events: none;
   }
 
   body.mode-system-audio #play-btn.is-loading {
-    opacity: 1 !important;
+    opacity: 1;
   }
 
   /* Playlist: blur + overlay */

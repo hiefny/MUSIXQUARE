@@ -13465,6 +13465,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   body.mode-system-audio :is(#btn-prev, #btn-next, #play-btn, #seek-slider) {
     color: GrayText !important;
+  }
+
+  /* While sharing, the transport looks like the other buttons that cannot be
+     pressed. The seek bar keeps its sharing dim (owner decision 2026-11-15):
+     its track and thumb take the usable colours here, so at full strength it
+     would look usable. */
+  body.mode-system-audio :is(#btn-prev, #btn-next, #play-btn) {
     opacity: 1 !important;
   }
 

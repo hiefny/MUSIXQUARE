@@ -385,14 +385,6 @@ main {
   color: var(--primary);
 }
 
-.lp-code__caption {
-  font-size: 12px;
-  color: var(--text-muted);
-  letter-spacing: 0.03em;
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-
 .lp-sync {
   width: 100%;
   padding: 40px 28px;
@@ -475,17 +467,6 @@ main {
 .lp-sync__delta {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.lp-sync__meta {
-  margin: 0;
-  padding-top: 22px;
-  border-top: 1px dashed var(--surface-2);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -590,12 +571,6 @@ main {
   text-anchor: middle;
   fill: var(--primary);
   text-transform: uppercase;
-}
-
-.lp-standin__caption--muted {
-  fill: var(--text-muted);
-  opacity: 0.55;
-  letter-spacing: 0.22em;
 }
 
 .lp-cta {
@@ -1246,10 +1221,6 @@ main {
 
   .lp-sync__rows {
     gap: 16px;
-  }
-
-  .lp-sync__meta {
-    padding-top: 16px;
   }
 
   .lp-sync__label {

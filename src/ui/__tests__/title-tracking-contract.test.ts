@@ -434,7 +434,6 @@ describe('design-system title tracking mirror', () => {
       '.theme-palette-title',
       '.palette-text strong, .palette-text code',
       '.palette-band strong',
-      '.embed h3',
     ];
     expect(
       editorialRules

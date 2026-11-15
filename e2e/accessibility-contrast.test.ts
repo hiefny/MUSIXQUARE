@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
+import { useAnonymousAccountSession } from './helpers/context-factory.ts';
+import { injectPeerServer } from './helpers/peer-server.ts';
+import { setupHostAndStart } from './helpers/setup-flow.ts';
+import {
+  installSyntheticSystemAudio,
+  readSyntheticSystemAudio,
+} from './helpers/system-audio-source.ts';
+import { navigateToTab } from './helpers/wait.ts';
 
 type ContrastPreference = 'auto' | 'on' | 'off';
 
@@ -529,4 +537,64 @@ test.describe('OS contrast CSS integration', () => {
     expect(joining.color).toBe(joining.grayText);
     expect(joining.fill).toBe(joining.grayText);
   });
+});
+
+test.describe('Forced colors while sharing system audio', () => {
+  const TRANSPORT = ['#btn-prev', '#play-btn', '#btn-next'] as const;
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`shows the transport at full strength and keeps the seek bar dimmed in ${theme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({
+        colorScheme: theme,
+        contrast: 'no-preference',
+        forcedColors: 'active',
+      });
+      await page.addInitScript((storedTheme) => {
+        try {
+          localStorage.setItem('musixquare-theme', storedTheme);
+        } catch {
+          /* The preview origin provides storage; retain a safe fallback for harness startup. */
+        }
+      }, theme);
+      await injectPeerServer(page);
+      await installSyntheticSystemAudio(page);
+      await useAnonymousAccountSession(page);
+      await setupHostAndStart(page);
+      await navigateToTab(page, 'play');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+
+      await page.locator('#btn-media-source').click();
+      await page.locator('#btn-system-audio').click();
+      await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+      await expect(page.locator('body')).toHaveClass(/\bmode-system-audio\b/);
+      await expect(page.locator('#play-btn')).not.toHaveClass(/\bis-loading\b/);
+
+      const grayText = await page.evaluate(() => {
+        const probe = document.createElement('span');
+        probe.style.color = 'GrayText';
+        document.body.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      for (const selector of [...TRANSPORT, '#seek-slider']) {
+        await expect(page.locator(selector)).toHaveCSS('color', grayText);
+      }
+      // Like the other buttons that cannot be pressed, the transport keeps
+      // its GrayText at full strength. The seek bar's track and thumb take
+      // the usable colours here, so it stays dimmed and does not look usable.
+      for (const selector of TRANSPORT) {
+        await expect(page.locator(selector)).toHaveCSS('opacity', '1');
+      }
+      await expect(page.locator('#seek-slider')).toHaveCSS('opacity', '0.3');
+
+      // The ordinary palette keeps all four dimmed while sharing.
+      await page.emulateMedia({ forcedColors: 'none' });
+      for (const selector of [...TRANSPORT, '#seek-slider']) {
+        await expect(page.locator(selector)).toHaveCSS('opacity', '0.3');
+      }
+    });
+  }
 });

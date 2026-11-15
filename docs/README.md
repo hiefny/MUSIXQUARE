@@ -96,6 +96,16 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.50 / v825 train: every loader moves by turning layers only, so the arc keeps growing and shrinking on the iPhone and iPad session refresh screen (2026-11-15)](design/app-9-0-50-train-2026-11-15.md):
+  not yet merged or released. An App update after 9.0.49 / v824, on main `525386d8` (whose App runtime equals
+  9.0.49's `1b1b672e`), for the fix the owner chose on 2026-11-15 after reporting that on iPhone and iPad the session
+  refresh screen's loader only turned at one steady speed: WebKit freezes the page it leaves while the compositor keeps
+  turning, and the arc's length was a stroke-dash animation the page had to repaint. Every loader (the app's, the boot
+  splash's that the refresh screen copies, and the public pages' copies) now draws the same arc with transforms only:
+  a turning loader, a frame turning its 12 o'clock to the arc's middle, two clipped half rings and a 7.2 degree seam
+  patch, on the old dash's 1.85 s and 1.45 s clocks and keyframes. Frame by frame against 9.0.49 the splash and
+  design-system loaders match (mean pixel difference under 0.5 of 255 in Chromium and WebKit); with the main thread
+  blocked for 2 s in Chromium the old arc froze while the new one kept moving. Not verified on a physical device.
 - [App 9.0.49 / v824 train: the session reset leaves once its screen has fully faded in, and the page it opens shows the stored theme and the settled splash from its first frame (2026-11-15)](design/app-9-0-49-train-2026-11-15.md):
   released on 2026-11-15 16:50 KST in Release 43691535297 (PR #597, squash `1b1b672e`) as App 9.0.49 / v824 (App build
   824, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

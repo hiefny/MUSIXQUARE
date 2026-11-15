@@ -12,7 +12,7 @@ import {
 
 const CSS_FILES = ['css/style.css', 'css/desktop.css', 'css/playback-actions.css', 'css/rtl.css'];
 const LAYOUT_FEATURE =
-  /\((?:min|max)-width:\s*12(?:79|80)px\)|\(min-height:\s*720px\)|\(max-height:\s*(?:719|899)px\)/u;
+  /\((?:min|max)-width:\s*12(?:79(?:\.\d+)?|80)px\)|\(min-height:\s*720px\)|\(max-height:\s*(?:719|899)(?:\.\d+)?px\)/u;
 
 // Layout bands carry no input features: whether the user can hover is one
 // runtime flag (src/ui/hover-pointer.ts), not a media query.
@@ -23,13 +23,18 @@ const ALLOWED_PRELUDES = new Set([
   SHORT_DESKTOP_LAYOUT_QUERY,
 ]);
 
-function layoutPreludes(): string[] {
+// The phone band has no shared string: its rules sit beside the two-column
+// rules, which start at 720px.
+const PHONE_FEATURE = /\(max-width:\s*719(?:\.\d+)?px\)/u;
+const TWO_COLUMNS = '(min-width: 720px)';
+
+function layoutPreludes(feature = LAYOUT_FEATURE): string[] {
   const preludes: string[] = [];
   for (const file of CSS_FILES) {
     parseCss(readFileSync(resolve(file), 'utf8')).walkAtRules('media', (rule) => {
       // Formatting may wrap a long query list across lines.
       const prelude = rule.params.replace(/\s+/gu, ' ');
-      if (LAYOUT_FEATURE.test(prelude)) preludes.push(prelude);
+      if (feature.test(prelude)) preludes.push(prelude);
     });
   }
   return preludes;
@@ -39,7 +44,7 @@ function layoutPreludes(): string[] {
 function evaluate(query: string, width: number, height: number): boolean {
   return query.split(', ').some((branch) =>
     branch.split(' and ').every((feature) => {
-      const match = /^\((min|max)-(width|height):\s*(\d+)px\)$/u.exec(feature);
+      const match = /^\((min|max)-(width|height):\s*(\d+(?:\.\d+)?)px\)$/u.exec(feature);
       if (!match) throw new Error(`Unsupported media feature: ${feature}`);
       const value = match[2] === 'width' ? width : height;
       const limit = Number(match[3]);
@@ -81,8 +86,16 @@ describe('layout breakpoint contract', () => {
   });
 
   it('partitions every viewport into one layout band', () => {
-    for (const width of [360, 719, 720, 1024, 1279, 1280, 1440, 1920, 2560]) {
-      for (const height of [320, 500, 539, 540, 620, 719, 720, 768, 800, 899, 900, 1440]) {
+    // Display scaling and browser zoom give fractional viewports: 1599 device
+    // pixels at 125% are 1279.2px. The max sides stop at .98, so the fractions
+    // here stay below it; the gap left above .98 is theoretical, as common
+    // scales put no viewport inside it.
+    for (const width of [
+      360, 719, 719.2, 719.5, 720, 1024, 1279, 1279.2, 1279.33, 1279.5, 1280, 1440, 1920, 2560,
+    ]) {
+      for (const height of [
+        320, 500, 539, 540, 620, 719, 719.2, 719.5, 720, 768, 800, 899, 899.2, 899.5, 900, 1440,
+      ]) {
         const size = `${width}x${height}`;
         const desktop = evaluate(DESKTOP_LAYOUT_QUERY, width, height);
         expect(evaluate(NOT_DESKTOP_LAYOUT_QUERY, width, height), size).toBe(!desktop);
@@ -93,6 +106,21 @@ describe('layout breakpoint contract', () => {
         expect(isDesktopLayoutSize(width, height), size).toBe(desktop);
       }
     }
+  });
+
+  it('leaves no width between the phone band and the two-column rules', () => {
+    // Every width takes the phone rules or the two-column rules, never
+    // neither, and every phone rule writes its band the same way.
+    const phoneBands = new Set(
+      layoutPreludes(PHONE_FEATURE).map((prelude) => PHONE_FEATURE.exec(prelude)![0]),
+    );
+    for (const phone of phoneBands) {
+      for (const width of [719, 719.2, 719.5, 720]) {
+        const bands = [phone, TWO_COLUMNS].filter((query) => evaluate(query, width, 900));
+        expect(bands, `${phone} at ${width}px`).toHaveLength(1);
+      }
+    }
+    expect([...phoneBands]).toEqual(['(max-width: 719.98px)']);
   });
 
   it('forces the compact layout below 720px and narrows the header below 900px', () => {

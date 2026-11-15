@@ -467,6 +467,23 @@ describe('showToast', () => {
   });
 });
 
+describe('toast stylesheet', () => {
+  it('paints the toast text in the main text colour in every theme', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const colors: { selector: string; value: string }[] = [];
+    parseCss(stylesheet).walkRules((rule) => {
+      if (!/\.toast\s*>\s*span\b/u.test(rule.selector)) return;
+      rule.walkDecls('color', ({ value }) => {
+        colors.push({ selector: rule.selector, value });
+      });
+    });
+
+    // A theme rule of its own must not bring back a fixed colour such as #fff.
+    expect(colors.length).toBeGreaterThan(0);
+    for (const { selector, value } of colors) expect(value, selector).toBe('var(--text-main)');
+  });
+});
+
 describe('showLoader', () => {
   it('keeps header progress text-only and removes reintroduced spinners', () => {
     const spinner = document.createElement('span');

@@ -24,7 +24,16 @@ describe('page navigation timing contract (RO-23, RO-30)', () => {
   });
 
   it('runs the reset action well inside the commit window when frames are suspended', () => {
-    expect(RESET_PAINT_FALLBACK_MS).toBeLessThan(LEAVE_FALLBACK_MS);
+    // Without frames the reset waits RESET_PAINT_FALLBACK_MS beyond its
+    // screen's fade-in, whose length lives in css/style.css (session-reset.ts
+    // reads it from the computed style).
+    const css = readFileSync('css/style.css', 'utf8');
+    const shown = /\.session-reset-overlay\.show \{([^}]*)\}/u.exec(css)?.[1] ?? '';
+    const fadeIn = /opacity ([\d.]+)s/u.exec(/transition:([^;]*);/u.exec(shown)?.[1] ?? '')?.[1];
+    expect(fadeIn, '.session-reset-overlay.show has no opacity transition').toBeDefined();
+    const fadeInMs = Number(fadeIn) * 1000;
+    expect(fadeInMs).toBe(200);
+    expect(RESET_PAINT_FALLBACK_MS + fadeInMs).toBeLessThan(LEAVE_FALLBACK_MS);
   });
 
   it("leaves the hard reset's activation wait room inside the prepare window (C6-8)", () => {

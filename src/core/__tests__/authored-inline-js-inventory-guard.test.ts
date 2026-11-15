@@ -39,6 +39,25 @@ describe('authored inline JavaScript shrink-only guard', () => {
     expect(countExecutableInlineScripts(html)).toBe(2);
   });
 
+  it('lets only the hash-pinned boot preflight stay inline, once, in index.html', () => {
+    const index = readFileSync('index.html', 'utf8');
+    const preflight = index.match(/<script data-boot-preflight>([\s\S]*?)<\/script>/u)?.[1];
+    expect(preflight, 'index.html has no <script data-boot-preflight>').toBeTruthy();
+    expect(listCurrentInlineSources().has('index.html')).toBe(false);
+    expect(countExecutableInlineScripts(index, 'index.html')).toBe(0);
+    // Any edit of its text makes it an ordinary inline script again (its hash is in the CSP).
+    const edited = index.replace('<script data-boot-preflight>', '<script data-boot-preflight>\n;');
+    expect(countExecutableInlineScripts(edited, 'index.html')).toBe(1);
+    // The pin is for index.html alone, and for one block.
+    expect(countExecutableInlineScripts(index, 'about.html')).toBe(1);
+    expect(countExecutableInlineScripts(index)).toBe(1);
+    const twice = index.replace(
+      '</head>',
+      `<script data-boot-preflight>${preflight ?? ''}</script></head>`,
+    );
+    expect(countExecutableInlineScripts(twice, 'index.html')).toBe(1);
+  });
+
   it('detects event handlers and normalized javascript URLs without counting inert text', () => {
     expect(countExecutableInlineScripts('<button oNcLiCk=boot()>Boot</button>')).toBe(1);
     expect(

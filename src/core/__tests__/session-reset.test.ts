@@ -132,6 +132,273 @@ describe('session reset coordinator', () => {
     expect(unloadPrompts()).toBe(false);
   });
 
+  /**
+   * The screen's own fade-in, as style.css gives `.session-reset-overlay.show`
+   * (0.2 s), or another computed transition, or one that throws when read.
+   */
+  function stubResetFadeIn(
+    fadeIn: Readonly<Record<string, string>> | 'unreadable' = {
+      transitionProperty: 'opacity, visibility',
+      transitionDuration: '0.2s, 0s',
+      transitionDelay: '0s, 0s',
+    },
+  ): void {
+    const computed = window.getComputedStyle.bind(window);
+    const transitionNames = ['transitionProperty', 'transitionDuration', 'transitionDelay'];
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
+      const style = computed(element, pseudo);
+      if (!(element instanceof HTMLElement) || element.id !== 'session-reset-overlay') return style;
+      return new Proxy(style, {
+        get(target, property) {
+          if (typeof property === 'string' && transitionNames.includes(property)) {
+            if (fadeIn === 'unreadable') throw new Error('computed style unavailable');
+            if (property in fadeIn) return fadeIn[property];
+          }
+          const value: unknown = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    });
+  }
+
+  /** Animation frames the test runs by hand. */
+  function useFrames(): FrameRequestCallback[] {
+    const frames: FrameRequestCallback[] = [];
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      }),
+    });
+    return frames;
+  }
+
+  it("starts the action only once the screen's fade-in has run, so the next page continues a whole screen", async () => {
+    const frames: FrameRequestCallback[] = [];
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      }),
+    });
+    stubResetFadeIn();
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    frames.shift()?.(0);
+    frames.shift()?.(16);
+    // Painted, but still fading in: the next page would replace a half-shown screen.
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(199);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(false);
+  });
+
+  it('waits out the fade-in in the timeout fallback too, and runs the action once', async () => {
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: undefined,
+    });
+    stubResetFadeIn();
+    const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+    expect(action).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(1_000);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * The overlay's running opacity transition as the Web Animations API reports
+   * it: a null current time has not started, a null end time has no effect.
+   */
+  function stubFadeInClock(
+    running: { currentTime: number | null; endTime: number | null } | null,
+  ): void {
+    const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
+    const fadeIn = running && {
+      transitionProperty: 'opacity',
+      currentTime: running.currentTime,
+      effect:
+        running.endTime === null
+          ? null
+          : { getComputedTiming: () => ({ endTime: running.endTime }) },
+      finished: Promise.resolve(),
+    };
+    Object.defineProperty(overlay, 'getAnimations', {
+      configurable: true,
+      value: () => (fadeIn ? [fadeIn] : []),
+    });
+  }
+
+  it("times that wait by the fade-in's own clock, which a busy page starts only at its first frame", async () => {
+    const frames: FrameRequestCallback[] = [];
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      }),
+    });
+    stubResetFadeIn();
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    // WebKit measured: the page stayed busy 180 ms past the show, and the
+    // fade-in started on the first frame after it.
+    vi.advanceTimersByTime(180);
+    stubFadeInClock({ currentTime: 20, endTime: 200 });
+    frames.shift()?.(180);
+    frames.shift()?.(200);
+    // 200 ms have passed since the show, but 180 ms of the fade-in are left.
+    vi.advanceTimersByTime(179);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(1_000);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it('starts the action at once when the fade-in has already run by the second frame', async () => {
+    const frames: FrameRequestCallback[] = [];
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      }),
+    });
+    stubResetFadeIn();
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    // WebKit can date the fade-in from the last frame before the show, so it
+    // may have ended by the first frame the page renders.
+    stubFadeInClock(null);
+    frames.shift()?.(0);
+    frames.shift()?.(16);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [
+      'no opacity transition',
+      { transitionProperty: 'visibility', transitionDuration: '0s', transitionDelay: '0s' },
+    ],
+    ['a transition it cannot read', 'unreadable'],
+  ] as const)(
+    'starts the action at the second frame when the screen has %s',
+    async (_label, fadeIn) => {
+      const frames = useFrames();
+      stubResetFadeIn(fadeIn);
+      const action = vi.fn();
+      const { scheduleSessionReset } = await loadCoordinator();
+
+      scheduleSessionReset('Refreshing session...', action);
+      frames.shift()?.(0);
+      expect(action).not.toHaveBeenCalled();
+      frames.shift()?.(16);
+      expect(action).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('reads a fade-in given in milliseconds', async () => {
+    const frames = useFrames();
+    stubResetFadeIn({
+      transitionProperty: 'opacity',
+      transitionDuration: '200ms',
+      transitionDelay: '0ms',
+    });
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    frames.shift()?.(0);
+    frames.shift()?.(16);
+    vi.advanceTimersByTime(199);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it('waits the whole fade-in when its transition has not started by the second frame', async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    vi.advanceTimersByTime(50);
+    stubFadeInClock({ currentTime: null, endTime: 200 });
+    frames.shift()?.(50);
+    frames.shift()?.(66);
+    vi.advanceTimersByTime(199);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("counts from the show when the transition's timing cannot be read", async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    vi.advanceTimersByTime(50);
+    stubFadeInClock({ currentTime: 20, endTime: null });
+    frames.shift()?.(50);
+    frames.shift()?.(66);
+    // The computed 0.2 s from the show, as without the Web Animations API.
+    vi.advanceTimersByTime(149);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it('ignores the frames of a reset that a returning page already ended', async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    const action = vi.fn();
+    const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+
+    try {
+      scheduleSessionReset('Leaving', action);
+      window.dispatchEvent(new Event('pagehide'));
+      vi.advanceTimersByTime(1_000);
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+      vi.advanceTimersByTime(1_000);
+      expect(isSessionResetPending()).toBe(false);
+
+      // Frames the page asked for before it left still arrive.
+      frames.shift()?.(0);
+      frames.shift()?.(16);
+      vi.advanceTimersByTime(1_000);
+      expect(action).not.toHaveBeenCalled();
+    } finally {
+      if (originalVisibility) {
+        Object.defineProperty(document, 'visibilityState', originalVisibility);
+      } else {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+    }
+  });
+
   it('restores interaction and releases its unload exemption when the action throws', async () => {
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,

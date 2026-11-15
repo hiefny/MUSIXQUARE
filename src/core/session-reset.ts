@@ -95,7 +95,13 @@ interface NavigationAttempt {
   settling: boolean;
   /** Set just before the listeners run; a later subscriber hears it at once. */
   outcome: NavigationOutcome | null;
-  readonly timers: { paint: number; prepare: number; commit: number; frames: number[] };
+  readonly timers: {
+    paint: number;
+    fade: number;
+    prepare: number;
+    commit: number;
+    frames: number[];
+  };
   /** Aborted when the prepare window closes: its deadline passed or the attempt settled. */
   readonly prepareAbort: AbortController;
   readonly inertElements: HTMLElement[];
@@ -105,8 +111,12 @@ interface NavigationAttempt {
 }
 
 /**
- * - painting: the overlay is up; the action waits for two frames or the
- *   RESET_PAINT_FALLBACK_MS timeout.
+ * - painting: the overlay is up; the action waits for two frames and then for
+ *   what is left of the overlay's own fade-in by that transition's clock (it
+ *   starts on the first frame the page renders, which a busy page can hold
+ *   well past the show), or, when no frame comes, for the
+ *   RESET_PAINT_FALLBACK_MS timeout after that fade-in's length. The page a
+ *   navigation opens then continues a whole screen rather than a half-shown one.
  * - preparing: the request's prepare step runs, bounded by
  *   NAVIGATION_PREPARE_TIMEOUT_MS.
  * - navigating: the final navigation call ran; NAVIGATION_COMMIT_TIMEOUT_MS is
@@ -227,6 +237,7 @@ function removeInteractionBlockers(): void {
 
 function cancelPaint(attempt: NavigationAttempt): void {
   window.clearTimeout(attempt.timers.paint);
+  window.clearTimeout(attempt.timers.fade);
   if (typeof window.cancelAnimationFrame === 'function') {
     for (const frame of attempt.timers.frames) window.cancelAnimationFrame(frame);
   }
@@ -520,16 +531,18 @@ function alignLoaderToWallClock(loader: Element | null): void {
  * listener: that fade's own end does it; a later show cancels the fade and
  * keeps the overlay.
  */
+/** The overlay's running opacity transition: its fade-in or its fade-out. */
+function overlayFade(overlay: HTMLElement): Animation | undefined {
+  return overlay
+    .getAnimations()
+    .find((animation) => (animation as CSSTransition).transitionProperty === 'opacity');
+}
+
 function retireOverlayAfterFade(overlay: HTMLElement): void {
   const retireIfHidden = (): void => {
     if (!overlay.classList.contains('show')) overlay.classList.add(OVERLAY_RETIRED_CLASS);
   };
-  const fade =
-    typeof overlay.getAnimations === 'function'
-      ? overlay
-          .getAnimations()
-          .find((animation) => (animation as CSSTransition).transitionProperty === 'opacity')
-      : undefined;
+  const fade = typeof overlay.getAnimations === 'function' ? overlayFade(overlay) : undefined;
   if (!fade) {
     retireIfHidden();
     return;
@@ -870,6 +883,52 @@ function prepareAttempt(attempt: NavigationAttempt, request: NavigationRequest):
   });
 }
 
+/**
+ * How long the shown overlay's opacity takes to finish its fade-in, read from
+ * its computed transition (style.css `.session-reset-overlay.show`), so no
+ * copy of the timing lives here. 0 when it has none or it cannot be read.
+ */
+function resetFadeInMs(overlay: HTMLElement | null): number {
+  if (!overlay) return 0;
+  try {
+    const style = window.getComputedStyle(overlay);
+    const properties = style.transitionProperty.split(',').map((value) => value.trim());
+    const index = properties.findIndex((value) => value === 'opacity' || value === 'all');
+    if (index < 0) return 0;
+    const seconds = (list: string): number => {
+      const values = list.split(',');
+      const value = (values[index % values.length] ?? '').trim();
+      const number = Number.parseFloat(value);
+      if (!Number.isFinite(number)) return 0;
+      return value.endsWith('ms') ? number / 1000 : number;
+    };
+    const total = (seconds(style.transitionDuration) + seconds(style.transitionDelay)) * 1000;
+    return Number.isFinite(total) && total > 0 ? total : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * What is left of the shown overlay's fade-in by the transition's own clock,
+ * 0 once it has run, or null when the engine cannot tell (no Web Animations
+ * API). The fade-in starts on the first frame the page renders after the show,
+ * which a busy page can hold well past it (WebKit about 175 ms), and WebKit can
+ * instead date it from the last frame before the show.
+ */
+function fadeInLeftMs(overlay: HTMLElement | null): number | null {
+  if (!overlay || typeof overlay.getAnimations !== 'function') return null;
+  try {
+    const fadeIn = overlayFade(overlay);
+    if (!fadeIn) return 0;
+    const end = Number(fadeIn.effect?.getComputedTiming().endTime);
+    const left = end - Number(fadeIn.currentTime ?? 0);
+    return Number.isFinite(left) ? Math.max(0, left) : null;
+  } catch {
+    return null;
+  }
+}
+
 function beginAttempt(
   message: string,
   request: NavigationRequest,
@@ -880,7 +939,7 @@ function beginAttempt(
     settledListeners: new Set(),
     settling: false,
     outcome: null,
-    timers: { paint: 0, prepare: 0, commit: 0, frames: [] },
+    timers: { paint: 0, fade: 0, prepare: 0, commit: 0, frames: [] },
     prepareAbort: new AbortController(),
     inertElements: [],
     previousFocus: null,
@@ -899,10 +958,25 @@ function beginAttempt(
     else navigateAttempt(attempt, request);
   };
 
-  attempt.timers.paint = window.setTimeout(runAction, RESET_PAINT_FALLBACK_MS);
+  // The screen fades in (style.css): the action waits until it has, so the page
+  // a navigation opens continues a whole screen, not one barely begun.
+  const overlay = document.getElementById(OVERLAY_ID);
+  const shownAt = Date.now();
+  const fadeInMs = resetFadeInMs(overlay);
+  const runOnceFadedIn = () => {
+    if (_state.phase !== 'painting' || _state.attempt !== attempt) return;
+    // The page renders: the fade-in's own clock replaces the fallback, which
+    // counts from the show and can end before a late-started fade-in.
+    window.clearTimeout(attempt.timers.paint);
+    const remaining = fadeInLeftMs(overlay) ?? fadeInMs - (Date.now() - shownAt);
+    if (remaining > 0) attempt.timers.fade = window.setTimeout(runAction, remaining);
+    else runAction();
+  };
+
+  attempt.timers.paint = window.setTimeout(runAction, RESET_PAINT_FALLBACK_MS + fadeInMs);
   if (typeof window.requestAnimationFrame === 'function') {
     const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(runAction);
+      const secondFrame = window.requestAnimationFrame(runOnceFadedIn);
       attempt.timers.frames.push(secondFrame);
     });
     attempt.timers.frames.push(firstFrame);

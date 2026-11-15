@@ -16,7 +16,11 @@
  * 200 B of gzip glue. sw-update-completion.test.ts pins that copy.
  */
 
-/** The reset runs its action after two frames, or after this when frames are suspended. */
+/**
+ * The reset runs its action once its screen's fade-in has run (two frames, then
+ * what is left of that transition), or, when frames are suspended, this long
+ * after the fade-in's length.
+ */
 export const RESET_PAINT_FALLBACK_MS = 120;
 
 /**

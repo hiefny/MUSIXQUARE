@@ -85,6 +85,7 @@ import {
   PUBLIC_FONT_SHEET_URLS,
   PUBLIC_HAN_ORDER_SCRIPT_URL,
 } from '../src/i18n/public-font-urls.ts';
+import { BOOT_PREFLIGHT_SCRIPT_SHA256 } from '../src/core/boot-preflight.ts';
 import {
   abortProRoomOwnershipTransferEntitlement,
   authorizeProGrantActivation,
@@ -379,7 +380,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '9.0.48';
+const ADMIN_ASSET_VERSION = '9.0.49';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -601,11 +602,12 @@ const SECURITY_HEADERS = {
     "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://afocirmbqdxnkyescnev.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://share.musixquare.com https://signal.musixquare.com https://signal-alt.musixquare.com wss://signal.musixquare.com wss://signal-alt.musixquare.com https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com; frame-src https://www.youtube.com https://challenges.cloudflare.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
 };
 
+// App documents (the page file, its locale copies and invite pages) also run
+// index.html's boot preflight, the one inline script, allowed by its hash only.
 const APP_DOCUMENT_SECURITY_HEADERS = {
-  'Content-Security-Policy': SECURITY_HEADERS['Content-Security-Policy'].replace(
-    'frame-src ',
-    "frame-src 'self' ",
-  ),
+  'Content-Security-Policy': SECURITY_HEADERS['Content-Security-Policy']
+    .replace('frame-src ', "frame-src 'self' ")
+    .replace("script-src 'self' ", `script-src 'self' 'sha256-${BOOT_PREFLIGHT_SCRIPT_SHA256}' `),
 };
 
 const SCREENSAVER_SECURITY_HEADERS = {

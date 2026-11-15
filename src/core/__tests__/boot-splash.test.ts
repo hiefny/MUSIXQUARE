@@ -62,7 +62,8 @@ describe('boot splash', () => {
     expect(head).not.toMatch(/<link\b[^>]*\brel=["']stylesheet["']/u);
     for (const [, attributes] of head.matchAll(/<script\b([^>]*)>/gu)) {
       expect(
-        /\btype=["']application\/ld\+json["']|\bdefer\b|\btype=["']module["']/u.test(
+        // The boot preflight runs inline: it waits for nothing (below).
+        /\btype=["']application\/ld\+json["']|\bdefer\b|\btype=["']module["']|^ data-boot-preflight$/u.test(
           attributes ?? '',
         ),
         `blocking head script: ${attributes}`,
@@ -598,6 +599,16 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     expect(app.delays()).toEqual(['', '']);
   });
 
+  it('settles a splash the head preflight already marked as continued, even once the stamp is gone, and leaves its loader phase alone', () => {
+    const app = page();
+    app.window.document.documentElement.setAttribute('data-boot-continued', '');
+    app.run();
+    expect(app.phase()).toBe('settled');
+    // The preflight's CSS variables started the loader on the wall clock from
+    // the first frame; a delay set now would add the time since then.
+    expect(app.delays()).toEqual(['', '']);
+  });
+
   it('changes nothing without a stamp, with a phase already set, or without storage', () => {
     const none = page();
     none.run();
@@ -616,5 +627,184 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     });
     expect(() => blocked.run()).not.toThrow();
     expect(blocked.phase()).toBeUndefined();
+  });
+});
+
+describe('boot preflight (index.html <head>): the stored theme and a reset continuity before the first paint', () => {
+  // bootstrap.js runs from the top of <body>, after the splash, so the splash
+  // can paint before it: that first paint used the device theme and an unsettled
+  // splash, a frame of the wrong colour or without the wordmark after a refresh.
+  const NOW = 1_000_000;
+  const PREFLIGHT = INDEX.match(/<script data-boot-preflight>([\s\S]*?)<\/script>/u)?.[1] ?? '';
+
+  function page({
+    theme,
+    stamp,
+    deviceDark = false,
+  }: { theme?: string; stamp?: string; deviceDark?: boolean } = {}) {
+    const dom = new JSDOM('<!doctype html><html class="setup-boot-block"><head></head></html>', {
+      runScripts: 'outside-only',
+      url: 'https://musixquare.com/',
+    });
+    const { window } = dom;
+    Object.defineProperty(window.Date, 'now', { value: () => NOW });
+    Object.defineProperty(window, 'matchMedia', {
+      value: (query: string) => ({
+        matches: deviceDark && query === '(prefers-color-scheme: dark)',
+      }),
+    });
+    if (theme !== undefined) window.localStorage.setItem('musixquare-theme', theme);
+    if (stamp !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_KEY, stamp);
+    const root = window.document.documentElement;
+    return {
+      run: () => window.eval(PREFLIGHT),
+      state: () => ({
+        theme: root.getAttribute('data-theme'),
+        scheme: root.style.colorScheme,
+        continued: root.hasAttribute('data-boot-continued'),
+        delays: [
+          root.style.getPropertyValue('--boot-splash-spin-delay'),
+          root.style.getPropertyValue('--boot-splash-dash-delay'),
+        ],
+      }),
+      stamp: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_KEY),
+      window,
+    };
+  }
+
+  it('is the one inline script, in <head> before the splash sheet, with no source to wait for', () => {
+    expect(PREFLIGHT, 'index.html has no <script data-boot-preflight> in <head>').not.toBe('');
+    const head = INDEX.slice(INDEX.indexOf('<head>'), INDEX.indexOf('</head>'));
+    const preflightAt = head.indexOf('<script data-boot-preflight>');
+    expect(preflightAt).toBeGreaterThan(-1);
+    expect(preflightAt).toBeLessThan(head.indexOf('<style data-boot-splash>'));
+    const inline = [...INDEX.matchAll(/<script\b([^>]*)>/gu)].filter(
+      ([, attributes]) =>
+        !/\bsrc=/u.test(attributes ?? '') &&
+        !/\btype=["'](?:application\/ld\+json|application\/json|importmap)["']/u.test(
+          attributes ?? '',
+        ),
+    );
+    expect(inline.map(([tag]) => tag)).toEqual(['<script data-boot-preflight>']);
+  });
+
+  it.each([
+    ['dark', false, 'dark'],
+    ['light', true, 'light'],
+    ['system', true, 'dark'],
+    ['system', false, 'light'],
+    [undefined, true, 'dark'],
+    ['nonsense', false, 'light'],
+  ] as const)(
+    'applies the stored theme %s (device dark: %s) as %s',
+    (theme, deviceDark, expected) => {
+      const app = page({ theme, deviceDark });
+      app.run();
+      expect(app.state()).toEqual({
+        theme: expected,
+        scheme: expected,
+        continued: false,
+        delays: ['', ''],
+      });
+    },
+  );
+
+  it("marks a splash an app reset under 15 s ago continues, its loader on the wall clock's phase, and leaves the stamp to bootstrap.js", () => {
+    const app = page({ theme: 'dark', stamp: String(NOW - 14_999) });
+    app.run();
+    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
+    expect(app.state()).toEqual({
+      theme: 'dark',
+      scheme: 'dark',
+      continued: true,
+      delays: ['-1000ms', '-950ms'],
+    });
+    expect(app.stamp()).toBe(String(NOW - 14_999));
+  });
+
+  it.each([
+    ['older than 15 s', String(NOW - 15_000)],
+    ['unreadable', 'soon'],
+    ['negative', String(-1)],
+    ['from the future', String(NOW + 1)],
+    ['missing', undefined],
+  ])('leaves the splash to draw after a stamp %s', (_label, stamp) => {
+    const app = page({ stamp });
+    app.run();
+    expect(app.state().continued).toBe(false);
+    expect(app.state().delays).toEqual(['', '']);
+  });
+
+  it('changes nothing it cannot read when storage is blocked', () => {
+    const app = page();
+    for (const name of ['localStorage', 'sessionStorage']) {
+      Object.defineProperty(app.window, name, {
+        configurable: true,
+        get() {
+          throw new Error('denied');
+        },
+      });
+    }
+    expect(() => app.run()).not.toThrow();
+    expect(app.state()).toEqual({ theme: null, scheme: '', continued: false, delays: ['', ''] });
+  });
+
+  it('shows a continued splash in its final place from the first frame, as the settled one', () => {
+    const settled = (selector: string) =>
+      block(SPLASH_CSS, `      .boot-splash[data-phase='settled'] ${selector} {`)
+        .replace(/\s+/gu, ' ')
+        .trim();
+    const continued = (selector: string) =>
+      block(SPLASH_CSS, `      html[data-boot-continued] .boot-splash ${selector} {`)
+        .replace(/\s+/gu, ' ')
+        .trim();
+    for (const selector of [
+      '.boot-splash-mark',
+      '.boot-splash-spinner',
+      '.boot-splash-logo > .wg',
+    ]) {
+      expect(continued(selector), selector).toBe(settled(selector));
+    }
+    expect(
+      declaration(
+        SPLASH_CSS,
+        '      html[data-boot-continued] .boot-splash .boot-splash-spinner > svg {',
+        'animation-delay',
+      ),
+    ).toBe('var(--boot-splash-spin-delay, 0ms)');
+    expect(
+      declaration(
+        SPLASH_CSS,
+        '      html[data-boot-continued] .boot-splash .boot-splash-spinner circle {',
+        'animation-delay',
+      ),
+    ).toBe('var(--boot-splash-dash-delay, 0ms)');
+  });
+
+  it('keeps the copies it carries equal to their homes', () => {
+    const bootstrap = readFileSync('browser/classic-runtime/bootstrap.ts', 'utf8');
+    expect(PREFLIGHT).toContain(`localStorage.getItem('musixquare-theme')`);
+    expect(bootstrap).toContain(`localStorage.getItem('musixquare-theme')`);
+    expect(PREFLIGHT).toContain(`sessionStorage.getItem('${BOOT_SPLASH_CONTINUITY_KEY}')`);
+    const window = Number(
+      bootstrap.match(/const continuityWindowMs = ([\d_]+);/u)?.[1]?.replace(/_/gu, ''),
+    );
+    expect(window).toBe(15_000);
+    expect(PREFLIGHT).toContain(`< ${window}`);
+    const spin = Math.round(
+      Number.parseFloat(
+        declaration(SPLASH_CSS, '      .boot-splash-spinner > svg {', 'animation').split(' ')[1] ??
+          '',
+      ) * 1000,
+    );
+    const dash = Math.round(
+      Number.parseFloat(
+        declaration(SPLASH_CSS, '      .boot-splash-spinner circle {', 'animation').split(' ')[1] ??
+          '',
+      ) * 1000,
+    );
+    expect([spin, dash]).toEqual([1850, 1450]);
+    expect(PREFLIGHT).toContain(`now % ${spin}`);
+    expect(PREFLIGHT).toContain(`now % ${dash}`);
   });
 });

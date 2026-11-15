@@ -11,13 +11,17 @@
  *   2. Language preflight: resolve localStorage + system language and set
  *      html[lang] before CSS so locale font stacks match the first frame.
  *   3. Theme preflight: resolve dark/light from localStorage + system
- *      preference, apply data-theme + theme-color so first paint matches
- *      the resolved theme. Avoids a flash of light → dark on PWA boot.
+ *      preference, apply data-theme + theme-color so the app's first paint
+ *      matches the resolved theme. Avoids a flash of light → dark on PWA boot.
+ *      The boot splash paints before this runs, so index.html's <head>
+ *      preflight applies the same data-theme first (src/core/boot-preflight.ts).
  *   4. Contrast preflight: restore the local authored-contrast override.
  *      Automatic mode intentionally leaves no attribute so CSS can follow
  *      the live OS `prefers-contrast` query from the first paint.
  *   5. Boot splash continuity: after an app reset, show the splash's
- *      wordmark and loader where the reset screen showed them.
+ *      wordmark and loader where the reset screen showed them (the <head>
+ *      preflight already shows them there from the first frame; this settles
+ *      the splash for the runtime and removes the stamp).
  *
  * Loaded as the first script, at the top of <body> right after the boot
  * splash (which paints from the document alone) and before the app
@@ -675,17 +679,37 @@
   // drawing the wordmark again. This runs in order before the app module,
   // which the async wordmark-anim.js cannot promise (WebKit ran it after the
   // app had taken the screen); that runtime only reads the phase set here.
-  // A stamp counts once, and only while 0 to 15 s old.
+  // A stamp counts once, and only while 0 to 15 s old. The <head> preflight
+  // (index.html, src/core/boot-preflight.ts) reads the same stamp before the
+  // splash first paints and marks the root data-boot-continued, so the splash
+  // already shows the final place; this block follows that mark (the two reads
+  // can straddle the 15 s edge) and owns removing the stamp.
   const continuityKey = 'mxqr-boot-continuity';
   const continuityWindowMs = 15_000;
+  let marked = false;
+  try {
+    marked = document.documentElement.hasAttribute('data-boot-continued');
+  } catch {
+    /* A document without the DOM API: only a fresh stamp can continue. */
+  }
+  let fresh = false;
   try {
     const stamp = Number(sessionStorage.getItem(continuityKey));
     sessionStorage.removeItem(continuityKey);
     const age = Date.now() - stamp;
-    if (!(stamp > 0 && Number.isFinite(age) && age >= 0 && age < continuityWindowMs)) return;
+    fresh = stamp > 0 && Number.isFinite(age) && age >= 0 && age < continuityWindowMs;
+  } catch {
+    /* Storage-blocked contexts: only the preflight's mark can continue. */
+  }
+  if (!marked && !fresh) return;
+  try {
     const splash = document.querySelector<HTMLElement>('.boot-splash');
     if (!splash || splash.dataset.phase) return;
     splash.dataset.phase = 'settled';
+    // The preflight already started the loader on the wall clock's phase from
+    // the splash's first frame (CSS variables): a delay set now would add the
+    // time since then.
+    if (marked) return;
     // The loader's animations start with the splash's first frame: a negative
     // delay starts them on the wall clock's phase, as the reset screen's were.
     const now = Date.now();
@@ -698,6 +722,6 @@
         }
       });
   } catch {
-    /* Storage-blocked contexts: the splash draws its wordmark as usual. */
+    /* A document without the splash's styles: leave the splash as it is. */
   }
 })();

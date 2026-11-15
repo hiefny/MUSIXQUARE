@@ -449,6 +449,13 @@ describe('boot splash wordmark reveal', () => {
     app.advance(400);
     expect(app.window.sessionStorage.getItem('mxqr-boot-continuity')).not.toBeNull();
     const loader = app.splash.querySelector('.boot-splash-spinner')!;
-    expect(loader.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe('');
+    // None of the loader's moving parts (src/ui/material-elastic-spinner.ts) is phased here.
+    const parts = [
+      ...loader.querySelectorAll<HTMLElement | SVGElement>(
+        '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
+      ),
+    ];
+    expect(parts).toHaveLength(4);
+    expect(parts.map((part) => part.style.animationDelay)).toEqual(['', '', '', '']);
   });
 });

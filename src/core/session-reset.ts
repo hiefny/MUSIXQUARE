@@ -60,6 +60,7 @@ import {
   setReloadFenceOpenHandler,
   type ReloadFenceTicket,
 } from './document-reload.ts';
+import { getFullscreenElement } from './fullscreen.ts';
 import { setElementInertForOwner } from './inert-ownership.ts';
 import {
   BOOT_SPLASH_CONTINUITY_BOX_KEY,
@@ -616,9 +617,9 @@ function followSurfaceHost(): void {
   releasePageClaims(attempt);
   placeOverlay(overlay);
   claimPageAround(overlay, attempt);
-  // No next page has a fullscreen host's box (a navigation ends element
-  // fullscreen), and back in the page the body can still be fullscreen-tall
-  // for a frame: the box is taken again just before the page leaves.
+  // No next page has a fullscreen box (a navigation ends fullscreen), and
+  // back in the page the body can still be fullscreen-tall for a frame: the
+  // box is taken again just before the page leaves.
   forgetResetScreenBox();
   // A move restarts the loader's animations.
   alignLoaderToWallClock(overlay.querySelector('.boot-splash-spinner'));
@@ -736,12 +737,14 @@ function forgetBootSplashContinuity(): void {
  * them half the strip higher until the screen grew; its head preflight keeps
  * this height instead while its screen is as wide and within 64 px of it. It
  * is taken when the screen shows and again just before the page leaves, only
- * while the screen sits in the page's body: no next page has a fullscreen
- * host's box, since a navigation ends element fullscreen. A screen with no box
- * there leaves none.
+ * while the screen sits in the page's body and nothing is fullscreen: a
+ * navigation ends element and document fullscreen alike (the screensaver's is
+ * the root), so no next page has that box. A screen with no box there leaves
+ * none.
  */
 function rememberResetScreenBox(overlay: HTMLElement): void {
-  const height = overlay.parentElement === document.body ? overlay.offsetHeight : 0;
+  const height =
+    overlay.parentElement === document.body && !getFullscreenElement() ? overlay.offsetHeight : 0;
   if (!(height > 0)) {
     forgetResetScreenBox();
     return;

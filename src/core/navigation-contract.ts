@@ -97,8 +97,8 @@ export const BOOT_SPLASH_CONTINUITY_KEY = 'mxqr-boot-continuity';
  * The box the reset screen centred the wordmark and loader in, as
  * "<window width>x<screen height>" (CSS px; the height is the screen's laid-out
  * height in the page's body), written beside BOOT_SPLASH_CONTINUITY_KEY when
- * the screen shows and again just before the page leaves, never from a
- * fullscreen host. The next document's head preflight (index.html) gives its
+ * the screen shows and again just before the page leaves, never while anything
+ * is fullscreen. The next document's head preflight (index.html) gives its
  * continued splash that height while its own first screen is as wide and
  * within the installed iOS app's largest safe-area difference of it (the sheet
  * keeps the splash within that window of its screen), so a first screen iOS

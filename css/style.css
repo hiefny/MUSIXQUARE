@@ -12005,6 +12005,23 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--primary-filled);
   }
 
+  /* The accent actions and the light pinned notice paint literals the
+     palettes cannot reach; with more contrast they take the palette's blue
+     and warning brown (owner decision 2026-11-15). The OS path repeats these
+     rules, and the forced-colors block keeps their forced look. */
+  html[data-contrast='more'] .accent-action-btn {
+    color: var(--primary);
+  }
+
+  html[data-contrast='more'] .accent-action-btn svg {
+    fill: var(--primary);
+  }
+
+  html[data-theme='light'][data-contrast='more']
+    :is(.chat-pinned-notice-label, .chat-pinned-notice-time, .chat-pinned-notice-close) {
+    color: var(--warning-foreground);
+  }
+
   @media (prefers-contrast: more) {
     html:not([data-contrast='normal']) {
       --bg: #000000;
@@ -12094,6 +12111,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
     html:not([data-contrast='normal']) .tab-action-btn.active-one::after {
       color: var(--primary-filled);
+    }
+
+    html:not([data-contrast='normal']) .accent-action-btn {
+      color: var(--primary);
+    }
+
+    html:not([data-contrast='normal']) .accent-action-btn svg {
+      fill: var(--primary);
+    }
+
+    html[data-theme='light']:not([data-contrast='normal'])
+      :is(.chat-pinned-notice-label, .chat-pinned-notice-time, .chat-pinned-notice-close) {
+      color: var(--warning-foreground);
     }
   }
 }
@@ -13487,6 +13517,25 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      would look usable. */
   body.mode-system-audio :is(#btn-prev, #btn-next, #play-btn) {
     opacity: 1 !important;
+  }
+
+  /* More contrast recolours the accent actions and the light pinned notice
+     with tokens that resolve to system colours here. Their own literals come
+     back, so they look as they do without more contrast: the text is forced,
+     while SVG fill and the notice X keep the literal. Track info's text
+     already reads --primary. */
+  .accent-action-btn:not(.demo-link-button) {
+    color: #007aff;
+  }
+
+  .accent-action-btn svg {
+    fill: #007aff;
+  }
+
+  .chat-pinned-notice-label,
+  .chat-pinned-notice-time,
+  .chat-pinned-notice-close {
+    color: #ffc107;
   }
 
   /* QR readability is functional, not decorative. Preserve a deterministic

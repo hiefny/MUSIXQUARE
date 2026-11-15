@@ -167,6 +167,51 @@ describe('OS contrast accessibility styles', () => {
     expect(prefersCss).toContain('--text-main: #000000;');
   });
 
+  it('pairs every manual contrast rule with the same OS preference rule', async () => {
+    const css = await readFile('css/style.css', 'utf8');
+    const prefersStart = css.indexOf('@media (prefers-contrast: more)');
+    const manualCss = css.slice(css.indexOf("html[data-contrast='more']"), prefersStart);
+    const contrastMedia: string[] = [];
+    parseCss(css).walkAtRules('media', (rule) => {
+      if (rule.params === '(prefers-contrast: more)') contrastMedia.push(rule.toString());
+    });
+    // The two paths differ only in how they select the root.
+    const osSelector = (selector: string): string =>
+      selector
+        .replace(
+          "html[data-theme='light'][data-contrast='more']",
+          "html[data-theme='light']:not([data-contrast='normal'])",
+        )
+        .replace("html[data-contrast='more']", "html:not([data-contrast='normal'])");
+    const declarations = (body: string): string[] =>
+      body
+        .replace(/\/\*[\s\S]*?\*\//gu, '')
+        .split(';')
+        .map((declaration) => declaration.replace(/\s+/gu, ' ').trim())
+        .filter(Boolean);
+    const manualRules = styleRules(manualCss).map((rule) => ({
+      selectors: rule.selectors.map(osSelector),
+      declarations: declarations(rule.body),
+    }));
+    const osRules = styleRules(contrastMedia.join('\n')).map((rule) => ({
+      selectors: rule.selectors,
+      declarations: declarations(rule.body),
+    }));
+
+    expect(manualRules.length).toBeGreaterThan(2);
+    expect(osRules).toEqual(manualRules);
+    expect(osRules).toContainEqual({
+      selectors: ["html:not([data-contrast='normal']) .accent-action-btn svg"],
+      declarations: ['fill: var(--primary)'],
+    });
+    expect(osRules).toContainEqual({
+      selectors: [
+        "html[data-theme='light']:not([data-contrast='normal']) :is(.chat-pinned-notice-label, .chat-pinned-notice-time, .chat-pinned-notice-close)",
+      ],
+      declarations: ['color: var(--warning-foreground)'],
+    });
+  });
+
   it('keeps authored palette contrasts above their required ratios', () => {
     expect(contrastRatio('#8ab4ff', '#1f1f1f')).toBeGreaterThanOrEqual(4.5);
     expect('#8ab4ff').not.toBe('#0047a8');

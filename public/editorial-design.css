@@ -223,10 +223,6 @@
   letter-spacing: -0.02em;
 }
 
-.palette-text code {
-  color: inherit;
-}
-
 .palette-spectrum {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1535,22 +1531,6 @@
   67% {
     --range-progress: 0%;
   }
-}
-
-.design-range-volume::-webkit-slider-runnable-track {
-  height: 4px;
-}
-
-.design-range-volume::-moz-range-track {
-  height: 4px;
-}
-
-.design-range-volume:active::-webkit-slider-runnable-track {
-  height: 6px;
-}
-
-.design-range-volume:active::-moz-range-track {
-  height: 6px;
 }
 
 .range-eq-container {

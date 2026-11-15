@@ -38,7 +38,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 | 검증 범위              | Exact-main CI [43731097409](https://github.com/hiefny/MUSIXQUARE/actions/runs/43731097409) success(push, attempt 1, 11 jobs, 00:39:29 KST 생성, job 00:39:31 ~ 00:49:26 KST): Production release candidate(~ 00:40:49), Release tooling coverage(~ 00:40:43, 14 파일 433행), Worker runtime coverage(~ 00:42:02, 69 파일 3,331행), Critical runtime coverage(~ 00:42:20, 118 파일 4,745행), Types and source guards(~ 00:43:12), Lint and formatting(~ 00:43:12), Static checks(00:43:14 ~ 00:43:18), Unit tests (1/2)와 (2/2)(00:44:38, 00:48:01에 끝남, 395 파일 8,660행과 394 파일 10,360행·1 건너뜀), Broad unit coverage(00:48:04 ~ 00:48:49, 789 파일 19,020행·1 건너뜀), Critical browser gate(00:40:51 ~ 00:49:26, 운영 후보 브라우저·서비스 워커 smoke 19 / 19, critical 경로 101 / 101). Production release candidate의 로그는 release identity와 `guard:sw-cache-version` PASS v825, `guard:initial-transfer-budget` 통과(진입 839.2 KiB raw / 248.3 KiB gzip, eager JS 458.2 KiB gzip, eager total 2031.2 KiB raw / 538.0 KiB gzip)를 냈다. 이 기록은 그 실행의 로그를 읽었다. 로컬 결과(열차 보고서 §10)는 exact-main 후보를 대신하지 않는다 |
 | 잔여 성능 조사         | 리버브 팝 원인은 실기기에서 미확정이다(9.0.0 이후 변화 없음). 9.0.0으로 리버브 Off의 계산은 거의 0이 됐고 켠 상태에서도 가상 저음·익사이터 몫이 빠졌다. 제보 기기 재확인은 §2에 유지한다. 허용 위험 #18은 2026-10-25 운영 9.0.10의 오너 실기기 확인으로 은퇴했다([은퇴 기록](known-accepted.md#retired-risks), §2 최근 해결 근거) |
 | Operations Drift Audit | 배포 뒤 [43732426996](https://github.com/hiefny/MUSIXQUARE/actions/runs/43732426996), `cbce861f`(workflow_dispatch, attempt 1, 00:54:02 KST 생성, 00:54:39 KST에 끝남) success, 결과 automated-checks-passed: 요약 표는 32 pass / 0 fail / 5 manual-only다(표의 행을 세어 냄). PASS는 R2 CORS 셋, remote-share lifecycle, pro-media의 짧은 삭제 lifecycle 없음, 여섯 Worker의 비밀 이름 목록, 여섯 Worker의 바인딩·workers.dev와 Preview URL 꺼짐·custom domain, 계정의 custom domain 목록, App build floor('Stored floor 795 (enforced 795) is within the live App build 825 reported 46 s ago.'), GitHub main의 규칙(deletion, non_fast_forward)이고, MANUAL 다섯(zone route, Access와 MFA, WAF와 비용 알림, 두 번째 Git 배포 길, main 리뷰·필수 검사 정책)은 이 저장소가 증명하지 않는 계정 단위 상태다 |
-| Full E2E               | FULL_E2E_PLACEHOLDER |
+| Full E2E               | 매주 월 18:17 UTC. 9.0.50의 머지 뒤 Full E2E [43732429976](https://github.com/hiefny/MUSIXQUARE/actions/runs/43732429976)(workflow_dispatch, main `cbce861f`, 2026-11-16 00:54:04 KST 생성) attempt 1 success(02:10:33 KST에 끝남): `e2e`(Linux Chromium, 00:54:06 ~ 02:10:33 KST) 1071 passed(1.3 h, 9.0.49의 실행과 같은 1071행, 이 열차는 e2e 파일 넷의 행을 고치기만 하고 더하거나 빼지 않음), `webkit-mobile`(Linux WebKit iPhone, 00:54:07 ~ 01:02:15 KST) 186 passed·5 skipped(6.8분)와 운영 빌드 SW 시험 1 passed(9.5초), 운영 large-room R2 smoke(00:54:07 ~ 00:55:24 KST) 1 passed(31.1초). 로그에 재시도와 불안정 줄은 없다. `cbce861f`의 런타임은 운영 9.0.50과 같고 이 실행은 exact-main 후보가 아니다(후보는 exact-main CI 43731097409). 최신 정기 main 실행은 [42736760814](https://github.com/hiefny/MUSIXQUARE/actions/runs/42736760814)(schedule, 2026-11-10 10:34:40 KST 생성, main `f11a5cba`) success다: `e2e` 970 passed, `webkit-mobile` 111 passed·5 skipped와 운영 빌드 SW 시험 1 passed, 운영 large-room R2 smoke 1 passed |
 | 의존성·호환            | App 9.0.50 열차(로딩 표시를 회전 층만으로, target `app`, 2026-11-16 00:52 KST 배포): 신규 npm 의존성·D1 스키마·비밀·바인딩·Wrangler 설정·CORS·응답 헤더(앱 문서 CSP 포함)·계약 표지·IndexedDB·localStorage·sessionStorage 데이터 모양·버스 사건 이름·신호와 중계 프레임 모양·서비스 워커 코드 변경 없음(`package.json`과 `package-lock.json`은 버전 줄 셋만, 머리 미리 실행의 바이트와 해시도 같음). 운영(App 9.0.49 `1b1b672e`, PRO room R4 `683074bc`, 다른 넷 9.0.22 `71f5b96c`)과 견준 바뀐 런타임 경로는 App 13개(`index.html`, `css/style.css`, `public/editorial-design.css`, `public/designsystem/index.html`, `src/ui/material-elastic-spinner.ts`, `src/ui/connect.ts`, `src/ui/playlist-view.ts`, `src/ui/setup-host-invite.ts`(주석), `src/core/session-reset.ts`, `browser/classic-runtime/bootstrap.ts`, `browser/classic-runtime/admin.ts`, `cloudflare/app-worker.ts`, `scripts/service-worker-asset.ts`)이고 다른 다섯 Worker는 0개다(릴리스의 부분 릴리스 판정 compatible). 계약 경로(`cloudflare/`, `src/network/`, `src/chat/protocol.ts`, `src/core/`, `src/types/`)의 차이는 `cloudflare/app-worker.ts`의 버전 한 줄, `src/core/session-reset.ts`(위상 맞추기가 움직이는 부품 모두를 돎), `src/core/__tests__`의 시험뿐이다(이 기록의 git 대조). 서비스 워커 캐시 epoch는 v825이고 업데이트 창이 한 번 뜬다. 섞인 버전: 9.0.49 이하 탭과 같은 방에서 그대로 함께 쓴다[추론: 섞인 방을 따로 시험하지 않음] |
 
 ## 2. 열린 확인 항목
@@ -46,7 +46,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### App 9.0.50 열차(로딩 표시를 회전하는 층만으로, 아이폰·아이패드 세션 새로고침 화면에서도 호가 늘었다 줄어듦, 9.0.50/v825) 배포 뒤 확인: 릴리스 smoke와 공개 읽기(최소 빌드 상태, `/`와 `/ko/`의 로딩 표시 마크업과 CSP 해시, 서비스 워커)와 헤드리스 Chromium·WebKit 첫 방문(로딩 화면의 로딩 표시가 첫 프레임부터 네 부품으로 돎)만 봤고, 기기 확인은 누구도 하지 않음(실제 iPhone·iPad·Android는 아직), FULL_E2E_HEADING, 다음 App 열차(B의 Phase 8, 9.0.51 / v826)는 이 기록의 머지 뒤에
+### App 9.0.50 열차(로딩 표시를 회전하는 층만으로, 아이폰·아이패드 세션 새로고침 화면에서도 호가 늘었다 줄어듦, 9.0.50/v825) 배포 뒤 확인: 릴리스 smoke와 공개 읽기(최소 빌드 상태, `/`와 `/ko/`의 로딩 표시 마크업과 CSP 해시, 서비스 워커)와 헤드리스 Chromium·WebKit 첫 방문(로딩 화면의 로딩 표시가 첫 프레임부터 네 부품으로 돎)만 봤고, 로딩 표시의 기기 판정은 아직(오너가 아이폰 세션 새로고침에서 로고가 위로 갔다 돌아오는 다른 증상 하나를 알림, 아래 열린 항목), 머지 뒤 Full E2E는 첫 시도에 통과(이 열차가 고친 e2e 파일 넷의 행 포함), 다음 App 열차(B의 Phase 8, 9.0.51 / v826)는 이 기록의 머지 뒤에
 
 - [ ] 범위와 상태(오너 결정 2026-11-15, PR #599, 배포 뒤): 운영이던 9.0.49 / v824(아래 9.0.49 절) 다음 App 패치로 App 9.0.50 / v825(App 빌드
       825, target `app`, 업데이트 창 한 번)가 2026-11-16 00:52 KST에 나갔다. 바닥은 795 그대로다(`raise_app_build_floor` false, Developer API D1
@@ -82,7 +82,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       나가기)과 업데이트 적용, 재생목록 줄, 재생 버튼, 방장 QR의 로딩 표시. 실패하면 먼저 새 서비스 워커(v825)인지 다시 보고, 증상의 화면을 적고 위
       되돌리기대로 정한다. 닫는 근거: (c)의 판정.
       [배포 뒤 확인](design/app-9-0-50-train-2026-11-15.md#8-배포-뒤-확인-블라인드-기기-후보-게이트-아님).
-- [ ] 다음 단계(게이트 아님): (1) 이 열차의 머지 뒤 Full E2E: FULL_E2E_STEP (2) Operations Drift Audit
+- [ ] 다음 단계(게이트 아님): (1) 이 열차의 머지 뒤 Full E2E: main `cbce861f`에서 [43732429976](https://github.com/hiefny/MUSIXQUARE/actions/runs/43732429976)(workflow_dispatch, 00:54:04 KST 생성)을 돌렸고 attempt 1이 02:10:33
+      KST에 success로 끝났다: `e2e`(Linux Chromium, 00:54:06 ~ 02:10:33 KST) 1071 passed(1.3 h, 9.0.49의 실행과 같은 행 수, 이 열차가 고친 e2e
+      파일 넷의 행 포함), `webkit-mobile`(Linux WebKit iPhone, 00:54:07 ~ 01:02:15 KST) 186 passed·5 skipped(6.8분)와 운영 빌드 SW 시험 1 passed(9.5초),
+      운영 large-room R2 smoke(00:54:07 ~ 00:55:24 KST) 1 passed(31.1초). 로그에 재시도와 불안정 줄은 없고, 이 실행은 exact-main 후보가 아니다(후보는
+      exact-main CI 43731097409). (2) Operations Drift Audit
       [43732426996](https://github.com/hiefny/MUSIXQUARE/actions/runs/43732426996)(`cbce861f`, 00:54:02 ~ 00:54:39 KST) success, 32 pass / 0 fail / 5
       manual-only(§1). (3) B의 Phase 8 앱 CSS 열차(9.0.51 / v826)는 이 기록의 머지 뒤 새 기준 위에서 낸다. (4) 다음 App 열차는 이 열차의 머지
       뒤 Full E2E가 통과하고 이 기록이 머지된 뒤에만 머지한다(한 번에 한 열차).
@@ -90,6 +94,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
       iOS가 떠나는 페이지를 얼려 두는 상황을 흉내 내지 못한다(주 스레드가 막히면 옛 것과 새 것이 함께 멈춤). Chromium의 작은 고리(13 ~ 16 px)는
       3배율에서 크게 확대하면 호 가운데에 기기 화소 하나 너비의 옅은 선이 남는다(보고서 §3.5, 9.0.49는 없음). 닫는 근거: 오너의 아이폰·아이패드
       세션 새로고침 확인. [하지 않은 것과 확인하지 않은 것](design/app-9-0-50-train-2026-11-15.md#11-하지-않은-것과-확인하지-않은-것).
+- [ ] 오너 기기 보고(2026-11-16, 게이트 아님): 오너가 아이폰 세션 새로고침에서 화면 아래 홈 표시줄 띠가 아주 잠깐 생겼다 사라지며 로고와 로딩
+      표시가 위로 갔다 돌아온다고 알렸다(오너는 아래 안전 영역을 원인으로 짐작함). 원인 추론: 세션 새로고침 화면과 다시 불러온 페이지의 로딩 화면은
+      둘 다 받은 화면 상자의 가운데에 로고를 놓고 안전 영역 값을 쓰지 않으므로, iOS가 새 페이지의 첫 순간 화면 높이를 그 띠(아이폰 34px)만큼 덜
+      줬다가 돌려주면 가운데가 17px 위로 갔다 돌아온다[추론: 이 작업 컴퓨터에서 iOS의 그 순간을 재현하지 못함, Chromium 흉내는 보고서 §8.1].
+      9.0.50이 바꾼 것은 로딩 표시 안쪽의 부품뿐이라 이 열차가 만든 증상은 아니고, 9.0.49부터 다시 불러온 페이지의 로딩 화면이 첫 프레임부터 보여
+      드러났을 수 있다[추론]. 고칠지는 오너의 답을 기다린다(시안: 새로고침 화면이 떠나기 전 자기 높이를 남기고 머리 미리 실행이 그 높이를 로딩 화면에
+      줌, 미리 실행의 CSP 해시가 바뀜). 닫는 근거: 오너의 결정과, 고친다면 그 열차의 기기 확인.
+      [오너 기기 보고](design/app-9-0-50-train-2026-11-15.md#81-오너-기기-보고-2026-11-16-게이트-아님).
 
 ### App 9.0.49 열차(세션 새로고침 화면이 다 나타난 뒤 떠나기, 다시 불러온 페이지는 첫 프레임부터 저장된 테마와 자리 잡은 로딩 화면, 9.0.49/v824) 배포 뒤 확인: 릴리스 smoke와 공개 읽기(최소 빌드 상태, `/`와 `/ko/`의 CSP 해시와 미리 실행 몸통 해시, 서비스 워커)와 헤드리스 Chromium·WebKit 첫 방문(운영 CSP 아래의 미리 실행)만 봤고, 기기 확인은 누구도 하지 않음(실제 iPhone·Android는 아직), 머지 뒤 Full E2E는 첫 시도에 통과(이 열차가 더한 첫 프레임 1행 포함), 다음 App 업데이트 9.0.50 / v825 열차(로딩 표시를 회전 층만으로)가 2026-11-16 00:52 KST 그 위로 나감(위 9.0.50 절)
 

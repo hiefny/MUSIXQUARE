@@ -102,7 +102,12 @@ runbooks. Neither belongs in a general setup document.
   changed (`defaf685` to `947a0403`); the four smokes passed at the first try and the Drift Audit passed (32 pass, 0
   fail, 5 manual-only). Post-deploy reads found all eight loaders on `/` and `/ko/` drawn from the new parts (no dash
   circle left), the preflight's CSP hash unchanged and v825, and headless Chromium and WebKit first visits showed the
-  splash loader's four parts running from the first frame on the wall clock's phase. FULL_E2E_README
+  splash loader's four parts running from the first frame on the wall clock's phase. Its post-merge Full E2E
+  43732429976 passed at the first try: the Chromium `e2e` lane 1071 (the same rows as 9.0.49's run; this train only
+  edited four e2e files), Linux WebKit 186 passed and 5 skipped with the production-build service worker test, and the
+  large-room R2 smoke. The owner then reported, on an iPhone session refresh, the logo and loader jumping up and back
+  while the home-indicator strip flashed; the report infers iOS briefly giving the new page a shorter screen (open,
+  §8.1).
   An App update after 9.0.49 / v824, on main `525386d8` (whose App runtime equals
   9.0.49's `1b1b672e`), for the fix the owner chose on 2026-11-15 after reporting that on iPhone and iPad the session
   refresh screen's loader only turned at one steady speed: WebKit freezes the page it leaves while the compositor keeps

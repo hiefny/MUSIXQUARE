@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../../ui/material-elastic-spinner.ts';
 import { compileClassicRuntimeForBrowserTest } from './classic-runtime-test-asset.ts';
 
 // The boot splash (index.html) as the runtime meets it: the wordmark, its
@@ -14,7 +15,7 @@ const LOGO = `<svg class="boot-splash-logo" viewBox="43 12 214 24" xmlns="http:/
   </g></defs>
 </svg>`;
 const SPLASH = (logo = LOGO) => `<div class="boot-splash" aria-hidden="true">
-  <div class="boot-splash-mark">${logo}<span class="boot-splash-spinner" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"/></svg></span></div>
+  <div class="boot-splash-mark">${logo}<span class="boot-splash-spinner" aria-hidden="true">${MATERIAL_ELASTIC_SPINNER_PARTS}</span></div>
 </div>`;
 // Strokes start 500 ms into the drawing; the last ends at 500 + 200 + 1840.
 const DRAW_END = 2540;
@@ -448,6 +449,13 @@ describe('boot splash wordmark reveal', () => {
     app.advance(400);
     expect(app.window.sessionStorage.getItem('mxqr-boot-continuity')).not.toBeNull();
     const loader = app.splash.querySelector('.boot-splash-spinner')!;
-    expect(loader.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe('');
+    // None of the loader's moving parts (src/ui/material-elastic-spinner.ts) is phased here.
+    const parts = [
+      ...loader.querySelectorAll<HTMLElement | SVGElement>(
+        '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
+      ),
+    ];
+    expect(parts).toHaveLength(4);
+    expect(parts.map((part) => part.style.animationDelay)).toEqual(['', '', '', '']);
   });
 });

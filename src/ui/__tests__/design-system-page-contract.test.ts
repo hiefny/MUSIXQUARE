@@ -780,7 +780,11 @@ describe('public design-system page contract', () => {
     expect(composer?.getAttribute('data-placeholder')).toBe("Message or '/' for commands...");
     expect(search?.getAttribute('contenteditable')).toBe('true');
     expect(search?.textContent?.trim()).toBe('bach cello suite');
-    expect(components.querySelector('.material-elastic-spinner--large circle')).toBeTruthy();
+    expect(
+      components.querySelector(
+        '.material-elastic-spinner--large .material-elastic-turn .material-elastic-arc .material-elastic-head > svg',
+      ),
+    ).toBeTruthy();
     expect(components.querySelector('.large-spinner-stage')?.textContent?.trim()).toBe('');
     expect(components.querySelector('.app-loading-header-progress')).toBeTruthy();
     expect(components.querySelector('.app-loading-header-status')?.textContent?.trim()).toBe(
@@ -835,12 +839,12 @@ describe('public design-system page contract', () => {
     );
     expect(designStylesheet).not.toContain('.app-loading-header-badge i');
     expect(designStylesheet).not.toContain('.role-sample i');
+    // The page's copy of the app loader turns its parts only; the arc's
+    // keyframes are pinned to the app's in material-elastic-spinner.test.ts.
     expect(designStylesheet).toMatch(
-      /48%\s*\{[^}]*stroke-dasharray:\s*74 26;[^}]*stroke-dashoffset:\s*-12;/su,
+      /@keyframes material-elastic-arc\s*\{\s*0%\s*\{\s*transform:\s*rotate\(93\.6deg\);\s*\}\s*48%\s*\{\s*transform:\s*rotate\(266\.4deg\);/su,
     );
-    expect(designStylesheet).toMatch(
-      /100%\s*\{[^}]*stroke-dasharray:\s*2 98;[^}]*stroke-dashoffset:\s*-100;/su,
-    );
+    expect(designStylesheet).not.toMatch(/stroke-dasharray:\s*74 26/u);
 
     const deviceEntries = [...components.querySelectorAll<HTMLElement>('.device-entry-sample')];
     const deviceNames = devices.map((row) =>

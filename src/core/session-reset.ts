@@ -492,14 +492,15 @@ function splashWordmarkCopy(): SVGSVGElement | null {
 /**
  * Run a loader on the wall clock's phase, as the next page's splash does
  * (browser/classic-runtime/bootstrap.ts), so it does not jump when the
- * reload replaces this page with the splash. Each running animation is set to
- * the wall clock's place in its own period; without the Web Animations API an
- * equivalent negative delay does it, exact for an animation that just started.
+ * reload replaces this page with the splash. Each moving part's running
+ * animation (src/ui/material-elastic-spinner.ts) is set to the wall clock's
+ * place in its own period; without the Web Animations API an equivalent
+ * negative delay does it, exact for an animation that just started.
  */
 function alignLoaderToWallClock(loader: Element | null): void {
   if (!loader) return;
   const now = Date.now();
-  for (const element of loader.querySelectorAll<SVGElement>(':scope > svg, circle')) {
+  for (const element of loader.querySelectorAll<HTMLElement | SVGElement>('*')) {
     // A copy of a splash bootstrap.js aligned carries that page's negative
     // delay, which would shift every currentTime set below: drop it first.
     element.style.removeProperty('animation-delay');

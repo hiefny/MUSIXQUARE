@@ -87,7 +87,7 @@ beforeEach(() => {
       <div class="header-safe-content">
         <span id="header-loading-text">
           <span class="material-elastic-spinner header-loading-spinner" aria-hidden="true">
-            <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+            <span class="material-elastic-turn"></span>
           </span>
           <span class="header-loading-text-content"></span>
         </span>

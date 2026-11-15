@@ -35,6 +35,7 @@ import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { setControlHint, setControlUnavailable } from './control-hint.ts';
+import { MATERIAL_ELASTIC_SPINNER_PARTS } from './material-elastic-spinner.ts';
 import { renderPlaylistSlotName } from './playlist-slot-names.ts';
 import { SELECTION_TOGGLE_PATHS } from './selection-mark.ts';
 import { getFileDisplayName, getTrackDisplayTitle } from '../player/track-display.ts';
@@ -321,9 +322,7 @@ function renderPlaybackIndicatorIcons(pausePath: string): string {
     <svg class="track-playback-state-icon track-paused-indicator" viewBox="0 0 24 24" aria-hidden="true">
       <path d="${pausePath}"/>
     </svg>
-    <span class="track-playback-state-icon track-playback-loading-indicator material-elastic-spinner playlist-row-spinner" aria-hidden="true">
-      <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg>
-    </span>`;
+    <span class="track-playback-state-icon track-playback-loading-indicator material-elastic-spinner playlist-row-spinner" aria-hidden="true">${MATERIAL_ELASTIC_SPINNER_PARTS}</span>`;
 }
 
 function syncPlaylistPlaybackIndicator(
@@ -764,11 +763,10 @@ function createProRoomUploadSpinner(): HTMLSpanElement {
   const spinner = document.createElement('span');
   spinner.className = 'material-elastic-spinner playlist-row-spinner pro-upload-spinner';
   spinner.setAttribute('aria-hidden', 'true');
-  spinner.innerHTML =
-    '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg>';
+  spinner.innerHTML = MATERIAL_ELASTIC_SPINNER_PARTS;
   // Upload rows can be rebuilt when their phase or an authoritative playlist
-  // snapshot changes. Anchor new SVG instances to the document clock so those
-  // renders do not visibly restart the elastic head/tail motion.
+  // snapshot changes. Anchor new loader instances to the document clock so
+  // those renders do not visibly restart the elastic head/tail motion.
   const now = performance.now();
   spinner.style.setProperty(
     '--material-elastic-spin-delay',

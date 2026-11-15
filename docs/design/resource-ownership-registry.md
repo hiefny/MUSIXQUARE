@@ -4568,7 +4568,8 @@ entry needs the owner's acceptance and is not implied by this registry.
   copies `BOOT_SPLASH_CONTINUITY_KEY` in `src/core/navigation-contract.ts`, the home of the
   next-document keys (RO-23), and its 15 s window is its own. The head preflight runs before any
   module and copies the stored theme's key from the theme step of `bootstrap.js`, the stamp's key,
-  that 15 s window and the sheet's loader periods (1.85 s turn, 1.45 s dash).
+  that 15 s window and the sheet's loader periods (1.85 s turn, 1.45 s arc; the arc's variable
+  keeps the name `--boot-splash-dash-delay` of the dash its turning parts replaced in App 9.0.50).
   `src/core/__tests__/boot-splash.test.ts` "keeps the timings the runtime copies equal to the
   splash sheet" pins the four times and the key copy, and "keeps the copies it carries equal to
   their homes" pins the preflight's; `navigation-contract.test.ts` pins the key string.

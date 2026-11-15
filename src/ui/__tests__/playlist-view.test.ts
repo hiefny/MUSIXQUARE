@@ -1073,6 +1073,21 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.activeElement).toBe(replacement);
   });
 
+  it('draws the YouTube playlist icon without an inline transform', () => {
+    setState('playlist.items', sampleItems());
+    updatePlaylistUI();
+
+    const icon = document.querySelector(`.track-name[data-queue-item-id="${YT_B}"] .type-icon`);
+    expect(icon).not.toBeNull();
+    // The list glyph draws 120% of the other source icons, matching the
+    // YouTube logo's weight. Its viewBox carries that size instead of an
+    // inline transform, so the current row's state rule shrinks it by the
+    // same ratio as the other source icons.
+    expect(icon?.getAttribute('style')).not.toContain('transform');
+    expect(icon?.getAttribute('style')).toBe('fill:#FF0033;');
+    expect(icon?.getAttribute('viewBox')).toBe('2 2 20 20');
+  });
+
   it('does not rebuild every row for play/pause activity changes', async () => {
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', FILE_A);

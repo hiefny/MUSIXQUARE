@@ -1,6 +1,9 @@
 /** @vitest-environment jsdom */
 
+import { readFileSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BOOT_SPLASH_CONTINUITY_KEY } from '../navigation-contract.ts';
 import { stubNavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 const originalRequestAnimationFrame = window.requestAnimationFrame;
@@ -369,6 +372,346 @@ describe('session reset coordinator', () => {
     expect(keyEvent.defaultPrevented).toBe(false);
     expect(shortcutHandler).toHaveBeenCalledOnce();
     window.removeEventListener('keydown', shortcutHandler);
+  });
+
+  // Owner decision 2026-11-15: the reset screen is the boot splash's wordmark
+  // and loader in their final place, with no visible text, and the page the
+  // reset opens continues them (browser/classic-runtime/wordmark-anim.ts).
+  describe('the reset screen continues the boot splash', () => {
+    const CONTINUITY_KEY = BOOT_SPLASH_CONTINUITY_KEY;
+    // The splash as the reset finds it after boot: drawn, faded out, hidden.
+    const SPLASH = `<div class="boot-splash" aria-hidden="true" hidden>
+      <div class="boot-splash-mark">
+        <svg class="boot-splash-logo" viewBox="43 12 214 24" aria-hidden="true" focusable="false"
+          data-wordmark-ready="true" data-wordmark-draw-complete="true">
+          <g class="wg" mask="url(#reveal)"><rect x="43" y="12" width="4" height="10"></rect><rect x="47" y="12" width="6" height="4"></rect></g>
+          <defs><mask id="reveal"></mask><g data-wordmark-strokes></g></defs>
+        </svg>
+        <span class="boot-splash-spinner" aria-hidden="true"><svg viewBox="0 0 44 44" focusable="false"><circle cx="22" cy="22" r="18"></circle></svg></span>
+      </div>
+    </div>`;
+
+    beforeEach(() => {
+      sessionStorage.clear();
+      vi.setSystemTime(1_000_000);
+      document.body.insertAdjacentHTML('afterbegin', SPLASH);
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: undefined,
+      });
+    });
+
+    afterEach(() => {
+      sessionStorage.clear();
+    });
+
+    it("furnishes the page's own overlay with the splash's wordmark and loader, once", async () => {
+      // index.html as shipped: its splash and its static reset overlay.
+      const page = new DOMParser().parseFromString(readFileSync('index.html', 'utf8'), 'text/html');
+      const splash = page.querySelector('.boot-splash');
+      const shipped = page.getElementById('session-reset-overlay');
+      expect(splash).not.toBeNull();
+      expect(shipped).not.toBeNull();
+      document.body.innerHTML = '<main id="app"><button id="control">Control</button></main>';
+      document.body.prepend(document.importNode(splash!, true));
+      document.body.append(document.importNode(shipped!, true));
+      const { scheduleSessionReset, __resetPageNavigationForTests } = await loadCoordinator();
+
+      for (const message of ['Refreshing session...', 'Leaving session...']) {
+        scheduleSessionReset(message, vi.fn());
+        const overlays = document.querySelectorAll('.session-reset-overlay');
+        expect(overlays).toHaveLength(1);
+        const mark = overlays[0]!.querySelector('.session-reset-mark') as HTMLElement;
+        expect([...overlays[0]!.children]).toEqual([mark]);
+        expect([...mark.children].map((child) => child.getAttribute('class'))).toEqual([
+          'session-reset-wordmark',
+          'boot-splash-spinner',
+          'session-reset-message sr-only',
+        ]);
+        expect(document.getElementById('session-reset-message')?.textContent).toBe(message);
+        const wordmark = mark.querySelector('svg.session-reset-wordmark') as SVGSVGElement;
+        expect(wordmark.querySelector('defs, mask')).toBeNull();
+        expect(wordmark.querySelectorAll('.wg > *')).toHaveLength(12);
+        expect(wordmark.getAttribute('aria-hidden')).toBe('true');
+        expect(wordmark.getAttribute('overflow')).toBe('visible');
+        __resetPageNavigationForTests();
+      }
+    });
+
+    it("shows the splash's wordmark and loader, with its message for screen readers only", async () => {
+      const { scheduleSessionReset } = await loadCoordinator();
+      scheduleSessionReset('Refreshing session...', vi.fn());
+
+      const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
+      const mark = overlay.querySelector('.session-reset-mark') as HTMLElement;
+      expect([...overlay.children]).toEqual([mark]);
+      expect([...mark.children].map((child) => child.getAttribute('class'))).toEqual([
+        'session-reset-wordmark',
+        'boot-splash-spinner',
+        'session-reset-message sr-only',
+      ]);
+      expect(document.getElementById('session-reset-message')?.textContent).toBe(
+        'Refreshing session...',
+      );
+      const wordmark = mark.querySelector('svg.session-reset-wordmark') as SVGSVGElement;
+      // Drawn whole: no reveal geometry, mask or runtime state.
+      expect(wordmark.querySelector('defs, mask')).toBeNull();
+      expect(wordmark.querySelector('.wg')?.hasAttribute('mask')).toBe(false);
+      expect(wordmark.hasAttribute('data-wordmark-ready')).toBe(false);
+      expect(wordmark.hasAttribute('data-wordmark-draw-complete')).toBe(false);
+      expect(wordmark.querySelectorAll('.wg > rect')).toHaveLength(2);
+      expect(wordmark.getAttribute('viewBox')).toBe('43 12 214 24');
+      // The live status region announces the message, not the pictures.
+      expect(wordmark.getAttribute('aria-hidden')).toBe('true');
+      expect(mark.querySelector('.boot-splash-spinner')?.getAttribute('aria-hidden')).toBe('true');
+      // The splash itself is left as it was.
+      const splashLogo = document.querySelector('.boot-splash .boot-splash-logo') as SVGSVGElement;
+      expect(splashLogo.querySelector('defs')).not.toBeNull();
+      expect(splashLogo.querySelector('.wg')?.getAttribute('mask')).toBe('url(#reveal)');
+    });
+
+    it('builds the screen once and keeps only its message when the splash is missing', async () => {
+      document.querySelector('.boot-splash')?.remove();
+      const { scheduleSessionReset } = await loadCoordinator();
+      scheduleSessionReset('Leaving session...', vi.fn());
+      const mark = document.querySelector('#session-reset-overlay .session-reset-mark');
+      expect([...(mark?.children ?? [])].map((child) => child.id)).toEqual([
+        'session-reset-message',
+      ]);
+    });
+
+    it("runs the loader on the wall clock's phase, as the next page's splash does", async () => {
+      const original = window.getComputedStyle.bind(window);
+      vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
+        if (element.closest('#session-reset-overlay') && element.localName === 'svg') {
+          return { animationDuration: '1.85s' } as CSSStyleDeclaration;
+        }
+        if (element.closest('#session-reset-overlay') && element.localName === 'circle') {
+          return { animationDuration: '1.45s' } as CSSStyleDeclaration;
+        }
+        return original(element, pseudo);
+      });
+      const { scheduleSessionReset } = await loadCoordinator();
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      const loader = document.querySelector('#session-reset-overlay .boot-splash-spinner');
+      // Without the Web Animations API (jsdom): an equivalent negative delay.
+      // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
+      expect(loader?.querySelector<SVGSVGElement>(':scope > svg')?.style.animationDelay).toBe(
+        '-1000ms',
+      );
+      expect(loader?.querySelector<SVGCircleElement>('circle')?.style.animationDelay).toBe(
+        '-950ms',
+      );
+    });
+
+    it("sets the loader's running animations to the wall clock once shown, and again after a move", async () => {
+      // Each element's CSS animation, as the Web Animations API reports it,
+      // and a transition beside it that is not a loop to align.
+      const animations = new Map<Element, { currentTime: number | null }>();
+      const transitions = new Map<Element, { currentTime: number | null }>();
+      Object.defineProperty(window.SVGElement.prototype, 'getAnimations', {
+        configurable: true,
+        value(this: SVGElement) {
+          if (!this.closest('#session-reset-overlay')) return [];
+          const duration = this.localName === 'svg' ? 1850 : 1450;
+          let animation = animations.get(this);
+          if (!animation) {
+            animation = Object.assign(
+              { animationName: duration === 1850 ? 'boot-splash-spin' : 'boot-splash-dash' },
+              { currentTime: null, effect: { getTiming: () => ({ duration }) } },
+            );
+            animations.set(this, animation);
+          }
+          let transition = transitions.get(this);
+          if (!transition) {
+            transition = Object.assign(
+              { transitionProperty: 'opacity' },
+              { currentTime: null, effect: { getTiming: () => ({ duration: 200 }) } },
+            );
+            transitions.set(this, transition);
+          }
+          return [animation, transition];
+        },
+      });
+      // The splash of a page a reset opened: bootstrap.js left its loader on
+      // the wall clock with a negative delay, which the copy must not keep.
+      document
+        .querySelectorAll<SVGElement>(
+          '.boot-splash .boot-splash-spinner > svg, .boot-splash .boot-splash-spinner circle',
+        )
+        .forEach((element) => {
+          element.style.animationDelay = '-700ms';
+        });
+      try {
+        const { scheduleSessionReset, setSessionResetWindowLayer } = await loadCoordinator();
+        // A fullscreen host that appears while the reset holds the page.
+        let host: HTMLElement | null = null;
+        let hostChanged = (): void => undefined;
+        setSessionResetWindowLayer({
+          release: () => undefined,
+          surfaceHost: () => host,
+          onSurfaceHostChange: (listener) => {
+            hostChanged = listener;
+            return () => {
+              hostChanged = () => undefined;
+            };
+          },
+        });
+        const phases = () => [...animations.values()].map((animation) => animation.currentTime);
+
+        scheduleSessionReset('Refreshing session...', vi.fn());
+        expect(phases()).toEqual([1_000_000 % 1850, 1_000_000 % 1450]);
+        // The copy dropped the splash's delay, and the transition kept its time.
+        expect(
+          [
+            ...document.querySelectorAll<SVGElement>(
+              '#session-reset-overlay .boot-splash-spinner > svg, #session-reset-overlay .boot-splash-spinner circle',
+            ),
+          ].map((element) => element.style.animationDelay),
+        ).toEqual(['', '']);
+        expect([...transitions.values()].map((transition) => transition.currentTime)).toEqual([
+          null,
+          null,
+        ]);
+
+        // The move into the host restarts them: the wall clock's phase again.
+        vi.setSystemTime(1_000_700);
+        host = document.createElement('div');
+        document.body.append(host);
+        hostChanged();
+        expect(document.getElementById('session-reset-overlay')?.parentElement).toBe(host);
+        expect(phases()).toEqual([1_000_700 % 1850, 1_000_700 % 1450]);
+      } finally {
+        Reflect.deleteProperty(window.SVGElement.prototype, 'getAnimations');
+      }
+    });
+
+    it('takes the screen out of rendering once its own fade-out has ended, and back for the next show', async () => {
+      const { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } =
+        await import('../navigation-contract.ts');
+      const recover = () =>
+        vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      const microtasks = async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      };
+      const { scheduleSessionReset } = await loadCoordinator();
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
+      // The fade-out each release starts, as the browser runs it; the test ends
+      // or cancels it.
+      const fades: Array<{ end(): void; cancel(): void }> = [];
+      let transitions = true;
+      Object.defineProperty(overlay, 'getAnimations', {
+        configurable: true,
+        value: () => {
+          if (!transitions) return [];
+          const fade: { end(): void; cancel(): void } = {
+            end: () => undefined,
+            cancel: () => undefined,
+          };
+          const finished = new Promise<void>((resolve, reject) => {
+            fade.end = () => resolve();
+            fade.cancel = () => reject(new DOMException('Cancelled', 'AbortError'));
+          });
+          fades.push(fade);
+          return [
+            { transitionProperty: 'visibility', finished: new Promise(() => undefined) },
+            { transitionProperty: 'opacity', finished },
+          ];
+        },
+      });
+      const opacityEvent = (type: string) => {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, 'propertyName', { value: 'opacity' });
+        overlay.dispatchEvent(event);
+      };
+
+      // The navigation never commits: this page stays and the screen fades out.
+      recover();
+      expect(overlay.hidden).toBe(true);
+      expect(fades).toHaveLength(1);
+      // Its loader keeps turning through the fade; another opacity transition's
+      // end or cancellation (a fade-in the release cut short) does not count.
+      opacityEvent('transitioncancel');
+      opacityEvent('transitionend');
+      await microtasks();
+      expect(overlay.classList.contains('is-retired')).toBe(false);
+      fades[0]!.end();
+      await microtasks();
+      expect(overlay.classList.contains('is-retired')).toBe(true);
+
+      // The next reset shows it again.
+      scheduleSessionReset('Leaving session...', vi.fn());
+      expect(overlay.classList.contains('is-retired')).toBe(false);
+      expect(overlay.classList.contains('show')).toBe(true);
+      // A show during a fade-out cancels that fade and keeps the screen.
+      recover();
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      fades[1]!.cancel();
+      await microtasks();
+      expect(overlay.classList.contains('is-retired')).toBe(false);
+
+      // With no fade running (transitions off), it leaves rendering at once.
+      transitions = false;
+      recover();
+      expect(overlay.classList.contains('is-retired')).toBe(true);
+    });
+
+    it('stamps the next page as a continuation and clears the stamp when this page stays', async () => {
+      const { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } =
+        await import('../navigation-contract.ts');
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+
+      // A navigation that never commits (a rejected traversal) recovers here.
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
+      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + NAVIGATION_COMMIT_TIMEOUT_MS);
+      expect(isSessionResetPending()).toBe(false);
+      expect(sessionStorage.getItem(CONTINUITY_KEY)).toBeNull();
+    });
+
+    it('keeps the stamp for the page a committed navigation opens, until this page returns', async () => {
+      const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+      const { scheduleSessionReset } = await loadCoordinator();
+
+      scheduleSessionReset('Refreshing session...', vi.fn());
+      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+      window.dispatchEvent(new Event('pagehide'));
+      expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
+
+      // Safari returned this document instead: no later page continues it.
+      window.dispatchEvent(new Event('pageshow'));
+      expect(sessionStorage.getItem(CONTINUITY_KEY)).toBeNull();
+    });
+
+    it('fades in over the page and out when the page stays', () => {
+      const stylesheet = readFileSync('css/style.css', 'utf8');
+      const rule = (opener: string) => {
+        const start = stylesheet.indexOf(opener);
+        expect(start, opener).toBeGreaterThan(-1);
+        return stylesheet.slice(start, stylesheet.indexOf('}', start)).replace(/\s+/gu, ' ');
+      };
+      expect(rule('  .session-reset-overlay {')).toContain(
+        'transition: opacity 0.3s ease-out, visibility 0s linear 0.3s;',
+      );
+      expect(rule('  .session-reset-overlay.show {')).toContain(
+        'transition: opacity 0.2s ease-out, visibility 0s linear 0s;',
+      );
+      // Hidden until shown; the shown screen is the only thing the page shows
+      // while its input is blocked and the rest is inert.
+      expect(rule('  .session-reset-overlay {')).toContain('visibility: hidden;');
+      expect(rule('  .session-reset-overlay.show {')).toContain('visibility: visible;');
+      // Its sheet keeps it rendered while hidden, so the fade can run; the
+      // owner takes it out once the fade has ended.
+      expect(rule('  .session-reset-overlay {')).toContain('display: grid;');
+      expect(rule('  .session-reset-overlay.is-retired {')).toContain('display: none;');
+      // The hidden starting style is settled before .show, so the fade runs.
+      const source = readFileSync('src/core/session-reset.ts', 'utf8');
+      expect(source).toMatch(
+        /void overlay\.getBoundingClientRect\(\);\s*overlay\.classList\.add\('show'\);/u,
+      );
+    });
   });
 
   describe('exactly-once typed settlement (C6-4)', () => {

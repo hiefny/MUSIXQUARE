@@ -396,6 +396,9 @@ export function prioritizeActiveStylesheetsInHtml(html: string): string {
   if (firstModuleScript === -1) return html;
 
   const withoutStylesheets = maskedHtml.replace(stylesheetPattern, '\n');
+  if (withoutStylesheets.includes(APP_RENDER_ASSETS_SLOT)) {
+    return restoreInertBlocks(moveRenderAssetsIntoSlot(withoutStylesheets, stylesheets));
+  }
   const insertAt = withoutStylesheets.search(/<script\b[^>]*\btype=(["'])module\1[^>]*>/i);
   if (insertAt === -1) return html;
 
@@ -403,6 +406,32 @@ export function prioritizeActiveStylesheetsInHtml(html: string): string {
   return restoreInertBlocks(
     `${withoutStylesheets.slice(0, insertAt)}${block}\n    ${withoutStylesheets.slice(insertAt)}`,
   );
+}
+
+/**
+ * index.html marks where its parser-blocking start-up scripts end, after the
+ * boot splash at the top of <body>. The app stylesheets, the entry module and
+ * its preloads move there in that order: the splash paints from the document
+ * alone, the start-up scripts are requested before the bundle, and every
+ * stylesheet still precedes the module script.
+ */
+export const APP_RENDER_ASSETS_SLOT = '<!-- mxqr:app-render-assets -->';
+
+function moveRenderAssetsIntoSlot(html: string, stylesheets: readonly string[]): string {
+  const moduleScriptPattern = /\s*<script\b[^>]*\btype=(["'])module\1[^>]*><\/script>\s*/i;
+  const modulePreloadPattern = /\s*<link\b[^>]*\brel=(["'])modulepreload\1[^>]*>\s*/gi;
+  const moduleScript = html.match(moduleScriptPattern)?.[0]?.trim();
+  if (!moduleScript) {
+    throw new Error('The app render-assets slot needs the entry module script.');
+  }
+  const preloads = (html.match(modulePreloadPattern) ?? []).map((tag) => tag.trim());
+  const remaining = html.replace(moduleScriptPattern, '\n').replace(modulePreloadPattern, '\n');
+  const slotAt = remaining.indexOf(APP_RENDER_ASSETS_SLOT);
+  if (slotAt === -1 || remaining.indexOf(APP_RENDER_ASSETS_SLOT, slotAt + 1) !== -1) {
+    throw new Error('The app document must mark exactly one render-assets slot.');
+  }
+  const block = [...stylesheets.map((tag) => tag.trim()), moduleScript, ...preloads].join('\n    ');
+  return `${remaining.slice(0, slotAt)}${block}${remaining.slice(slotAt + APP_RENDER_ASSETS_SLOT.length)}`;
 }
 
 const prioritizeStylesheetsInHtml = (): Plugin => ({

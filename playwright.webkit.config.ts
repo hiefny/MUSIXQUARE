@@ -21,6 +21,7 @@ export default defineConfig({
     'setup-youtube-activation.test.ts',
     'setup-scroll-edge.test.ts',
     'app-entrance.test.ts',
+    'boot-splash.test.ts',
     'app-touch-policy.test.ts',
     'wordmark-reveal.test.ts',
     'rtl-player-layout.test.ts',

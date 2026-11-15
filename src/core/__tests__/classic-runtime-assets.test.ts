@@ -36,7 +36,10 @@ async function compiledContrastPreflight(): Promise<string> {
   const marker = '(function () {\n  // 4. Per-device contrast preflight';
   const start = source.indexOf(marker);
   if (start < 0) throw new Error('Missing classic contrast preflight marker');
-  const result = await transformWithEsbuild(source.slice(start), 'contrast-preflight.ts', {
+  // Up to the next preflight (the boot splash continuity), or the end.
+  const next = source.indexOf('\n(function () {\n  // 5.', start);
+  const block = source.slice(start, next < 0 ? undefined : next);
+  const result = await transformWithEsbuild(block, 'contrast-preflight.ts', {
     format: 'iife',
     loader: 'ts',
     target: 'es2018',
@@ -1504,7 +1507,7 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(eventHtml).toContain('<script src="/clearable-editors.js" defer></script>');
     expect(eventHtml).toContain('<script src="/events/event.js" defer></script>');
     expect(appHtml).toContain('<script src="/fouc-cleanup.js"></script>');
-    expect(appHtml).toContain('<script src="/wordmark-anim.js" defer></script>');
+    expect(appHtml).toContain('<script src="/wordmark-anim.js" async></script>');
     expect(appHtml).toMatch(/<script src="\/bootstrap\.js\?cache=v\d+"><\/script>/u);
     expect(landingHtml).toContain('<script src="/static-language.js"></script>');
     expect(landingHtml).toContain('<script src="/landing-bootstrap.js"></script>');

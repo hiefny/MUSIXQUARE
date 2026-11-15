@@ -137,6 +137,17 @@ test.describe('Playback controls in the authored application layout', () => {
           const authored = new DOMParser().parseFromString(markup, 'text/html');
           // Keep the real panel ancestry and controls. This is a CSS layout
           // fixture after setup closes; it does not initialize transports.
+          // The start-up block (the boot splash, whose own styles live in the
+          // document head, and the start-up scripts and stylesheet) ends at the
+          // render-assets slot; the authored app markup follows it.
+          const nodes = [...authored.body.childNodes];
+          const slot = nodes.findIndex(
+            (node) =>
+              node.nodeType === Node.COMMENT_NODE &&
+              node.nodeValue?.trim() === 'mxqr:app-render-assets',
+          );
+          if (slot === -1) throw new Error('index.html lost its render-assets slot');
+          nodes.slice(0, slot + 1).forEach((node) => node.remove());
           authored.querySelectorAll('script').forEach((script) => script.remove());
           document.body.replaceChildren(...authored.body.childNodes);
           document.body.classList.add('fouc-loaded', 'viz-circular');

@@ -9,15 +9,303 @@
       name="viewport"
       content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
-    <!-- Sync bootstrap: scrub one-time PRO credentials before app code, then
-         apply Android viewport, language, and theme preflight. The main SPA
-         deliberately does not load third-party analytics. Source:
-         browser/classic-runtime/bootstrap.ts -->
-    <!-- bootstrap assigns the locale-specific href synchronously. Keeping the
-         link href-less until then prevents a race that could pin install UI to
-         the wrong language. -->
+    <!-- Boot splash: the wordmark and the shared loader paint from this
+         document alone, before any script or stylesheet arrives, so a slow
+         first visit never shows a blank page. Nothing in <head> before this
+         block may block rendering, and the start-up scripts run from the top
+         of <body>, after the splash. style.css never styles the splash: it
+         only lends --bg and --text-main once it has loaded, and the fallbacks
+         and loader values below mirror its tokens (boot-splash test). The
+         splash steps aside once setup-boot-block leaves the root (the app
+         surface took the screen) or boot fails; setup latches
+         boot-splash-released before it ever re-adds the guard. -->
+    <style data-boot-splash>
+      .boot-splash {
+        --boot-splash-bg: #121212;
+        --boot-splash-fg: #eeeeee;
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 11000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg, var(--boot-splash-bg));
+        color: var(--text-main, var(--boot-splash-fg));
+        /* Last resort: when neither fouc-cleanup.js nor the app stylesheet
+           ever arrives, nothing else can lift the splash. Step aside 5 s
+           after the 15 s boot-failure fallbacks (same variable) so the
+           page's own Retry form shows; any earlier release replaces this. */
+        animation: boot-splash-fail-open 0s linear calc(var(--setup-boot-failure-delay, 15s) + 5s)
+          forwards;
+      }
+
+      @media (prefers-color-scheme: light) {
+        .boot-splash {
+          --boot-splash-bg: #f8f9fa;
+          --boot-splash-fg: #303540;
+        }
+      }
+
+      html[data-theme='dark'] .boot-splash {
+        --boot-splash-bg: #121212;
+        --boot-splash-fg: #eeeeee;
+      }
+
+      html[data-theme='light'] .boot-splash {
+        --boot-splash-bg: #f8f9fa;
+        --boot-splash-fg: #303540;
+      }
+
+      /* Fades over the app as it takes the screen. This is an animation
+         rather than a transition because style.css switches transitions off
+         while the app boots (html.is-booting). */
+      html:not(.setup-boot-block) .boot-splash,
+      html.boot-splash-released .boot-splash,
+      html.setup-boot-failed .boot-splash {
+        pointer-events: none;
+        animation: boot-splash-out 0.3s ease-out forwards;
+      }
+
+      /* The loader keeps turning through the fade. Once the fade has ended,
+         wordmark-anim.js takes the splash out of rendering ([hidden]), which
+         ends every animation inside it (the loader's two infinite ones, and the
+         mark's fade-in when the app opens within 0.5 s) so the hidden splash
+         costs no frame for the rest of the session. Without that runtime the
+         splash freezes them at release instead. Every no-runtime rule keys on
+         data-boot-splash-runtime, which only this release's runtime sets: on
+         the update's first load an older release's service worker can still
+         serve its own cached wordmark-anim.js, and that page keeps the
+         fallbacks. */
+      .boot-splash[hidden] {
+        display: none;
+      }
+
+      html:not([data-boot-splash-runtime]):not(.setup-boot-block) .boot-splash *,
+      html:not([data-boot-splash-runtime]).boot-splash-released .boot-splash *,
+      html:not([data-boot-splash-runtime]).setup-boot-failed .boot-splash * {
+        animation-play-state: paused;
+      }
+
+      /* A load that finishes within 0.3 s never shows the mark, only the
+         canvas colour the app opens on anyway. The wordmark first stands alone
+         at the centre (the mark sits half the loader's 48px box lower); once it
+         has drawn and the app is still loading, it rises by those 24px while
+         the loader fades in below, so the pair ends centred (owner decision
+         2026-11-15). */
+      .boot-splash-mark {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        opacity: 0;
+        transform: translateY(24px);
+        animation: boot-splash-mark-in 0.2s ease-out 0.3s forwards;
+      }
+
+      /* One 24px unit on every screen (owner decision 2026-11-15): the
+         wordmark is drawn 24 units tall, so at 24px one unit is one pixel and
+         every stroke is exactly 4.5px; the loader is the app's default 24px;
+         the gap between them is 24px. The Q's tail and the R's leg reach below
+         the wordmark's viewBox, as they do for every app wordmark; the svg also
+         says so itself (overflow="visible"). Both sizes are fixed (214px is
+         the viewBox's 214 units, what auto would give): WebKit paints nothing
+         until the page holds over 32x32 px of fixed-size SVG (or 200 text
+         characters), and the splash's only other SVG, the 24px loader, is 576
+         px; with an auto width a slow first visit stayed blank in WebKit until
+         the app stylesheet arrived (WebKit bugs 208482 and 208663). */
+      .boot-splash-logo {
+        display: block;
+        width: 214px;
+        height: 24px;
+        overflow: visible;
+      }
+
+      /* The wordmark draws itself once (wordmark-anim.js, loaded async after
+         the start-up scripts). Until that runtime takes the wordmark, its ink
+         shows as the same faint 15% outline the reveal starts from; if the
+         runtime never arrives, the whole wordmark fades in at 1.8 s instead
+         (the runtime then leaves it drawn). */
+      .boot-splash-logo:not([data-wordmark-ready]) > .wg {
+        opacity: 0.15;
+        animation: boot-splash-ink-fallback 0.2s ease-out 1.8s forwards;
+      }
+
+      .boot-splash .boot-splash-spinner {
+        opacity: 0;
+      }
+
+      /* wordmark-anim.js sets data-phase="loader" once the wordmark has drawn
+         (or when a late runtime catches up). Without that runtime the same
+         rise starts at 3.2 s. */
+      .boot-splash[data-phase='loader'] .boot-splash-mark {
+        animation:
+          boot-splash-mark-in 0.2s ease-out 0.3s forwards,
+          boot-splash-mark-rise 0.45s ease-in-out forwards;
+      }
+
+      .boot-splash[data-phase='loader'] .boot-splash-spinner {
+        animation: boot-splash-spinner-in 0.3s ease-out 0.15s forwards;
+      }
+
+      html:not([data-boot-splash-runtime]) .boot-splash-mark {
+        animation:
+          boot-splash-mark-in 0.2s ease-out 0.3s forwards,
+          boot-splash-mark-rise 0.45s ease-in-out 3.2s forwards;
+      }
+
+      html:not([data-boot-splash-runtime]) .boot-splash .boot-splash-spinner {
+        animation: boot-splash-spinner-in 0.3s ease-out 3.35s forwards;
+      }
+
+      /* The final place at once, with no motion: after an app reset (the
+         refresh screen showed the wordmark and loader there; bootstrap.js
+         settles the splash before the app module runs and starts the loader
+         on the wall-clock phase the refresh screen used, so it does not jump
+         across the reload) and when a late runtime finds the fallback rise
+         already done. */
+      .boot-splash[data-phase='settled'] .boot-splash-mark {
+        opacity: 1;
+        transform: none;
+        animation: none;
+      }
+
+      .boot-splash[data-phase='settled'] .boot-splash-spinner {
+        opacity: 1;
+        animation: none;
+      }
+
+      /* The whole wordmark, as the reset screen showed it, whether or not the
+         drawing runtime has run yet (bootstrap.js settles the splash first). */
+      .boot-splash[data-phase='settled'] .boot-splash-logo > .wg {
+        opacity: 1;
+        animation: none;
+      }
+
+      /* The 24px gap above the 24px loader lives inside the box: style.css
+         zeroes every element's margin and padding with a rule this block
+         cannot outrank once it loads. */
+      .boot-splash-spinner {
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        width: 24px;
+        height: 48px;
+      }
+
+      .boot-splash-spinner > svg {
+        display: block;
+        flex: none;
+        width: 24px;
+        height: 24px;
+        overflow: visible;
+        transform-box: fill-box;
+        transform-origin: center;
+        shape-rendering: geometricPrecision;
+        animation: boot-splash-spin 1.85s linear infinite;
+      }
+
+      .boot-splash-spinner circle {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 4.75;
+        stroke-linecap: butt;
+        stroke-dasharray: 2 98;
+        stroke-dashoffset: 0;
+        shape-rendering: geometricPrecision;
+        animation: boot-splash-dash 1.45s ease-in-out infinite;
+      }
+
+      @keyframes boot-splash-mark-in {
+        to {
+          opacity: 1;
+        }
+      }
+
+      @keyframes boot-splash-out {
+        to {
+          opacity: 0;
+          visibility: hidden;
+        }
+      }
+
+      @keyframes boot-splash-fail-open {
+        to {
+          opacity: 0;
+          visibility: hidden;
+        }
+      }
+
+      @keyframes boot-splash-ink-fallback {
+        to {
+          opacity: 1;
+        }
+      }
+
+      @keyframes boot-splash-spinner-in {
+        to {
+          opacity: 1;
+        }
+      }
+
+      @keyframes boot-splash-mark-rise {
+        to {
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes boot-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes boot-splash-dash {
+        0% {
+          stroke-dasharray: 2 98;
+          stroke-dashoffset: 0;
+        }
+
+        48% {
+          stroke-dasharray: 74 26;
+          stroke-dashoffset: -12;
+        }
+
+        100% {
+          stroke-dasharray: 2 98;
+          stroke-dashoffset: -100;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html:not(.setup-boot-block) .boot-splash,
+        html.boot-splash-released .boot-splash,
+        html.setup-boot-failed .boot-splash,
+        .boot-splash-mark,
+        .boot-splash[data-phase='loader'] .boot-splash-mark,
+        html:not([data-boot-splash-runtime]) .boot-splash-mark,
+        .boot-splash .boot-splash-spinner,
+        .boot-splash[data-phase='loader'] .boot-splash-spinner,
+        html:not([data-boot-splash-runtime]) .boot-splash .boot-splash-spinner {
+          animation-duration: 0s;
+        }
+
+        .boot-splash-spinner > svg,
+        .boot-splash-spinner circle {
+          animation: none;
+        }
+
+        .boot-splash-spinner circle {
+          stroke-dasharray: 58 42;
+          stroke-dashoffset: -18;
+        }
+      }
+    </style>
+    <!-- bootstrap (top of <body>) assigns the locale-specific href
+         synchronously. Keeping the link href-less until then prevents a race
+         that could pin install UI to the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v822"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <!-- mxqr-hreflang:start -->
@@ -122,23 +410,420 @@
     <link rel="icon" href="/icons/icon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <!-- FOUC guard lives inside style.css (`body { opacity: 0 }` unlayered)
-         and gets revealed by adding body.fouc-loaded once the stylesheet
-         parses. No inline <style> needed → CSP can drop style-src
-         'unsafe-inline'. -->
-    <link rel="stylesheet" href="css/app.css" />
     <noscript><link rel="stylesheet" href="/noscript.css" /></noscript>
+
+  </head>
+
+  <body>
+    <div class="boot-splash" aria-hidden="true">
+      <div class="boot-splash-mark">
+        <svg
+          class="boot-splash-logo"
+          viewBox="43 12 214 24"
+          overflow="visible"
+          fill="currentColor"
+          xmlns="http://www.w3.org/2000/svg"
+          focusable="false"
+          aria-hidden="true"
+        >
+          <g class="wg">
+            <polygon
+              points="45.5 17.3 45.5 35.3 50 35.3 50 17.3 54.5 17.3 54.5 35.3 59 35.3 59 17.3 63.5 17.3 63.5 35.3 68 35.3 68 17.3 68 12.8 45.5 12.8 45.5 17.3"
+            />
+            <polygon
+              points="86 30.8 77 30.8 77 12.8 72.5 12.8 72.5 30.8 72.5 35.3 90.5 35.3 90.5 30.8 90.5 12.8 86 12.8 86 30.8"
+            />
+            <polygon
+              points="95 17.3 95 21.8 95 26.3 108.5 26.3 108.5 30.8 95 30.8 95 35.3 113 35.3 113 30.8 113 26.3 113 21.8 99.5 21.8 99.5 17.3 113 17.3 113 12.8 95 12.8 95 17.3"
+            />
+            <rect x="117.5" y="12.8" width="4.5" height="22.5" />
+            <polygon
+              points="139.3 12.8 134.6 20.0 129.9 12.8 124.5 12.8 131.9 24.0 124.5 35.3 129.9 35.3 134.6 28.1 139.3 35.3 144.7 35.3 137.3 24.0 144.7 12.8 139.3 12.8"
+            />
+            <path
+              d="M147.2,17.3l0,13.5 0,4.5 6.75,0 0,2.7 4.5,0 0-2.7 6.75,0 0-4.5 0-13.5 0-4.5-18,0 0,4.5ZM160.7,17.3l0,13.5-2.25,0 0-2.25-4.5,0 0,2.25-2.25,0 0-13.5 9,0Z"
+            />
+            <polygon
+              points="183.2 30.8 174.2 30.8 174.2 12.8 169.7 12.8 169.7 30.8 169.7 35.3 187.7 35.3 187.7 30.8 187.7 12.8 183.2 12.8 183.2 30.8"
+            />
+            <path
+              d="M192.2,17.3l0,18 4.5,0 0-9 9,0 0,9 4.5,0 0-18 0-4.5-18,0 0,4.5ZM205.7,17.3l0,4.5-9,0 0-4.5 9,0Z"
+            />
+            <path
+              d="M232.7,26.3l0-13.5-18,0 0,13.5 0,9 4.5,0 0-9 4.6,0 5.8,10.1 3.9-2.3-4.5-7.8 3.7,0ZM219.2,17.3l9,0 0,4.5-9,0 0-4.5Z"
+            />
+            <rect x="237.2" y="12.8" width="18" height="4.5" />
+            <rect x="237.2" y="21.8" width="13.5" height="4.5" />
+            <rect x="237.2" y="30.8" width="18" height="4.5" />
+          </g>
+          <!-- Declarative reveal geometry is never painted separately. The
+               classic wordmark runtime clips these exact shapes into one
+               nonzero mask path, keeping shared joins and future strokes clean. -->
+          <defs>
+            <g data-wordmark-strokes>
+              <!-- M -->
+              <rect
+                class="wl wlr"
+                x="45.5"
+                y="12.8"
+                width="22.5"
+                height="4.5"
+                data-wt="0"
+                data-wd="1080"
+              />
+              <rect
+                class="wl wtb"
+                x="45.5"
+                y="17.3"
+                width="4.5"
+                height="18"
+                data-wt="120"
+                data-wd="900"
+              />
+              <rect
+                class="wl wtb"
+                x="54.5"
+                y="17.3"
+                width="4.5"
+                height="18"
+                data-wt="400"
+                data-wd="900"
+              />
+              <rect
+                class="wl wtb"
+                x="63.5"
+                y="17.3"
+                width="4.5"
+                height="18"
+                data-wt="660"
+                data-wd="900"
+              />
+              <!-- U -->
+              <rect
+                class="wl wtb"
+                x="72.5"
+                y="12.8"
+                width="4.5"
+                height="18"
+                data-wt="0"
+                data-wd="840"
+              />
+              <rect
+                class="wl wlr"
+                x="72.5"
+                y="30.8"
+                width="18"
+                height="4.5"
+                data-wt="480"
+                data-wd="840"
+              />
+              <rect
+                class="wl wbt"
+                x="86"
+                y="12.8"
+                width="4.5"
+                height="18"
+                data-wt="960"
+                data-wd="840"
+              />
+              <!-- S -->
+              <rect
+                class="wl wrl"
+                x="95"
+                y="12.8"
+                width="18"
+                height="4.5"
+                data-wt="0"
+                data-wd="600"
+              />
+              <rect
+                class="wl wtb"
+                x="95"
+                y="17.3"
+                width="4.5"
+                height="4.5"
+                data-wt="360"
+                data-wd="300"
+              />
+              <rect
+                class="wl wlr"
+                x="95"
+                y="21.8"
+                width="18"
+                height="4.5"
+                data-wt="540"
+                data-wd="600"
+              />
+              <rect
+                class="wl wtb"
+                x="108.5"
+                y="26.3"
+                width="4.5"
+                height="4.5"
+                data-wt="900"
+                data-wd="300"
+              />
+              <rect
+                class="wl wrl"
+                x="95"
+                y="30.8"
+                width="18"
+                height="4.5"
+                data-wt="1080"
+                data-wd="600"
+              />
+              <!-- I -->
+              <rect
+                class="wl wtb"
+                x="117.5"
+                y="12.8"
+                width="4.5"
+                height="22.5"
+                data-wt="0"
+                data-wd="840"
+              />
+              <!-- X: / then \ -->
+              <polygon
+                class="wl wtb"
+                points="144.7 12.8 139.3 12.8 124.5 35.3 129.9 35.3"
+                data-wt="0"
+                data-wd="700"
+              />
+              <polygon
+                class="wl wtb"
+                points="124.5 12.8 129.9 12.8 144.7 35.3 139.3 35.3"
+                data-wt="400"
+                data-wd="700"
+              />
+              <!-- Q -->
+              <rect
+                class="wl wrl"
+                x="147.2"
+                y="12.8"
+                width="18"
+                height="4.5"
+                data-wt="0"
+                data-wd="600"
+              />
+              <rect
+                class="wl wtb"
+                x="147.2"
+                y="17.3"
+                width="4.5"
+                height="13.5"
+                data-wt="360"
+                data-wd="600"
+              />
+              <rect
+                class="wl wlr"
+                x="147.2"
+                y="30.8"
+                width="18"
+                height="4.5"
+                data-wt="780"
+                data-wd="600"
+              />
+              <rect
+                class="wl wbt"
+                x="160.7"
+                y="17.3"
+                width="4.5"
+                height="13.5"
+                data-wt="1200"
+                data-wd="600"
+              />
+              <rect
+                class="wl wtb"
+                x="153.95"
+                y="28.55"
+                width="4.5"
+                height="2.25"
+                data-wt="1560"
+                data-wd="180"
+              />
+              <rect
+                class="wl wtb"
+                x="153.95"
+                y="35.3"
+                width="4.5"
+                height="2.7"
+                data-wt="1660"
+                data-wd="300"
+              />
+              <!-- U -->
+              <rect
+                class="wl wtb"
+                x="169.7"
+                y="12.8"
+                width="4.5"
+                height="18"
+                data-wt="0"
+                data-wd="840"
+              />
+              <rect
+                class="wl wlr"
+                x="169.7"
+                y="30.8"
+                width="18"
+                height="4.5"
+                data-wt="480"
+                data-wd="840"
+              />
+              <rect
+                class="wl wbt"
+                x="183.2"
+                y="12.8"
+                width="4.5"
+                height="18"
+                data-wt="960"
+                data-wd="840"
+              />
+              <!-- A -->
+              <rect
+                class="wl wbt"
+                x="192.2"
+                y="17.3"
+                width="4.5"
+                height="18"
+                data-wt="0"
+                data-wd="840"
+              />
+              <rect
+                class="wl wlr"
+                x="192.2"
+                y="12.8"
+                width="18"
+                height="4.5"
+                data-wt="480"
+                data-wd="600"
+              />
+              <rect
+                class="wl wtb"
+                x="205.7"
+                y="17.3"
+                width="4.5"
+                height="18"
+                data-wt="840"
+                data-wd="840"
+              />
+              <rect
+                class="wl wlr"
+                x="196.7"
+                y="21.8"
+                width="9"
+                height="4.5"
+                data-wt="1380"
+                data-wd="480"
+              />
+              <!-- R -->
+              <rect
+                class="wl wtb"
+                x="214.7"
+                y="12.8"
+                width="4.5"
+                height="22.5"
+                data-wt="0"
+                data-wd="1020"
+              />
+              <rect
+                class="wl wlr"
+                x="219.2"
+                y="12.8"
+                width="13.5"
+                height="4.5"
+                data-wt="600"
+                data-wd="540"
+              />
+              <rect
+                class="wl wtb"
+                x="228.2"
+                y="17.3"
+                width="4.5"
+                height="4.5"
+                data-wt="960"
+                data-wd="240"
+              />
+              <rect
+                class="wl wrl"
+                x="219.2"
+                y="21.8"
+                width="13.5"
+                height="4.5"
+                data-wt="1080"
+                data-wd="540"
+              />
+              <polygon
+                class="wl wdiag"
+                points="223.8 26.3 229.6 36.4 233.5 34.1 229 26.3"
+                data-wt="1440"
+                data-wd="600"
+              />
+              <!-- E -->
+              <rect
+                class="wl wlr"
+                x="237.2"
+                y="12.8"
+                width="18"
+                height="4.5"
+                data-wt="0"
+                data-wd="600"
+              />
+              <rect
+                class="wl wlr"
+                x="237.2"
+                y="21.8"
+                width="13.5"
+                height="4.5"
+                data-wt="480"
+                data-wd="480"
+              />
+              <rect
+                class="wl wlr"
+                x="237.2"
+                y="30.8"
+                width="18"
+                height="4.5"
+                data-wt="960"
+                data-wd="600"
+              />
+            </g>
+          </defs>
+        </svg>
+        <span class="boot-splash-spinner" aria-hidden="true">
+          <svg viewBox="0 0 44 44" focusable="false">
+            <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+          </svg>
+        </span>
+      </div>
+    </div>
+
+    <!-- Sync bootstrap: scrub one-time PRO credentials before app code, then
+         apply Android viewport, language, and theme preflight before the app
+         stylesheet. It runs after the boot splash so the splash never waits
+         for it. The main SPA deliberately does not load third-party
+         analytics. Source: browser/classic-runtime/bootstrap.ts -->
+    <script src="/bootstrap.js?cache=v823"></script>
 
     <!-- Reveal body (toggles body.fouc-loaded) once style.css has parsed.
          Source: browser/classic-runtime/fouc-cleanup.ts -->
     <script src="/fouc-cleanup.js"></script>
 
-    <!-- Animate the setup wordmark through one exact union reveal mask.
-         Source: browser/classic-runtime/wordmark-anim.ts -->
-    <script src="/wordmark-anim.js" defer></script>
-  </head>
+    <!-- Draw the splash wordmark through one exact union reveal mask as soon
+         as this runtime arrives (async, never blocks the parser). It comes
+         after the two start-up scripts: the parser only reaches it once they
+         have run, so after an app reset bootstrap.js has settled the splash
+         before this can start a drawing (ahead of them, Chromium could run it
+         first). Source: browser/classic-runtime/wordmark-anim.ts -->
+    <script src="/wordmark-anim.js" async></script>
 
-  <body>
+    <!-- FOUC guard lives inside style.css (`body { opacity: 0 }` unlayered)
+         and gets revealed by adding body.fouc-loaded once the stylesheet
+         parses; the boot splash covers the page until the app takes the
+         screen. The production build moves the app stylesheet, the entry
+         module and its preloads to the slot below, after the start-up
+         scripts (vite.config.ts, prioritizeActiveStylesheetsInHtml). -->
+    <link rel="stylesheet" href="css/app.css" />
+    <!-- mxqr:app-render-assets -->
     <a href="#tab-play" class="skip-link" data-i18n="common.skip_to_content">Skip to content</a>
     <h1 class="sr-only" data-i18n="app.search_title">MUSIXQUARE</h1>
     <p class="sr-only" data-i18n="app.search_description">
@@ -181,6 +866,7 @@
               class="logo-svg logo-header"
               id="header-standard-wordmark"
               viewBox="43 12 214 24"
+              overflow="visible"
               aria-hidden="true"
               fill="currentColor"
               xmlns="http://www.w3.org/2000/svg"
@@ -218,6 +904,7 @@
               class="logo-svg logo-header header-pro-wordmark"
               id="header-pro-wordmark"
               viewBox="43 12 170 24"
+              overflow="visible"
               aria-hidden="true"
               fill="currentColor"
               xmlns="http://www.w3.org/2000/svg"
@@ -2124,6 +2811,7 @@
             <svg
               class="logo-svg logo-brand"
               viewBox="43 12 214 24"
+              overflow="visible"
               fill="currentColor"
               xmlns="http://www.w3.org/2000/svg"
             >
@@ -2173,10 +2861,11 @@
             data-custom-scroll-contained
           >
             <div id="setup-welcome-header" class="setup-header-text">
-              <div class="setup-brand-greeting-stage">
+              <div class="setup-brand-greeting-stage is-greeting-visible">
                 <svg
                   class="logo-svg logo-welcome"
                   viewBox="43 12 214 24"
+                  overflow="visible"
                   fill="currentColor"
                   xmlns="http://www.w3.org/2000/svg"
                   aria-hidden="true"
@@ -2211,340 +2900,8 @@
                     <rect x="237.2" y="21.8" width="13.5" height="4.5" />
                     <rect x="237.2" y="30.8" width="18" height="4.5" />
                   </g>
-                  <!-- Declarative reveal geometry is never painted separately. The
-                       classic wordmark runtime clips these exact shapes into one
-                       nonzero mask path, keeping shared joins and future strokes clean. -->
-                  <defs>
-                    <g data-wordmark-strokes>
-                      <!-- M -->
-                      <rect
-                        class="wl wlr"
-                        x="45.5"
-                        y="12.8"
-                        width="22.5"
-                        height="4.5"
-                        data-wt="0"
-                        data-wd="1080"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="45.5"
-                        y="17.3"
-                        width="4.5"
-                        height="18"
-                        data-wt="120"
-                        data-wd="900"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="54.5"
-                        y="17.3"
-                        width="4.5"
-                        height="18"
-                        data-wt="400"
-                        data-wd="900"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="63.5"
-                        y="17.3"
-                        width="4.5"
-                        height="18"
-                        data-wt="660"
-                        data-wd="900"
-                      />
-                      <!-- U -->
-                      <rect
-                        class="wl wtb"
-                        x="72.5"
-                        y="12.8"
-                        width="4.5"
-                        height="18"
-                        data-wt="0"
-                        data-wd="840"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="72.5"
-                        y="30.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="480"
-                        data-wd="840"
-                      />
-                      <rect
-                        class="wl wbt"
-                        x="86"
-                        y="12.8"
-                        width="4.5"
-                        height="18"
-                        data-wt="960"
-                        data-wd="840"
-                      />
-                      <!-- S -->
-                      <rect
-                        class="wl wrl"
-                        x="95"
-                        y="12.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="0"
-                        data-wd="600"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="95"
-                        y="17.3"
-                        width="4.5"
-                        height="4.5"
-                        data-wt="360"
-                        data-wd="300"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="95"
-                        y="21.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="540"
-                        data-wd="600"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="108.5"
-                        y="26.3"
-                        width="4.5"
-                        height="4.5"
-                        data-wt="900"
-                        data-wd="300"
-                      />
-                      <rect
-                        class="wl wrl"
-                        x="95"
-                        y="30.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="1080"
-                        data-wd="600"
-                      />
-                      <!-- I -->
-                      <rect
-                        class="wl wtb"
-                        x="117.5"
-                        y="12.8"
-                        width="4.5"
-                        height="22.5"
-                        data-wt="0"
-                        data-wd="840"
-                      />
-                      <!-- X: / then \ -->
-                      <polygon
-                        class="wl wtb"
-                        points="144.7 12.8 139.3 12.8 124.5 35.3 129.9 35.3"
-                        data-wt="0"
-                        data-wd="700"
-                      />
-                      <polygon
-                        class="wl wtb"
-                        points="124.5 12.8 129.9 12.8 144.7 35.3 139.3 35.3"
-                        data-wt="400"
-                        data-wd="700"
-                      />
-                      <!-- Q -->
-                      <rect
-                        class="wl wrl"
-                        x="147.2"
-                        y="12.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="0"
-                        data-wd="600"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="147.2"
-                        y="17.3"
-                        width="4.5"
-                        height="13.5"
-                        data-wt="360"
-                        data-wd="600"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="147.2"
-                        y="30.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="780"
-                        data-wd="600"
-                      />
-                      <rect
-                        class="wl wbt"
-                        x="160.7"
-                        y="17.3"
-                        width="4.5"
-                        height="13.5"
-                        data-wt="1200"
-                        data-wd="600"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="153.95"
-                        y="28.55"
-                        width="4.5"
-                        height="2.25"
-                        data-wt="1560"
-                        data-wd="180"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="153.95"
-                        y="35.3"
-                        width="4.5"
-                        height="2.7"
-                        data-wt="1660"
-                        data-wd="300"
-                      />
-                      <!-- U -->
-                      <rect
-                        class="wl wtb"
-                        x="169.7"
-                        y="12.8"
-                        width="4.5"
-                        height="18"
-                        data-wt="0"
-                        data-wd="840"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="169.7"
-                        y="30.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="480"
-                        data-wd="840"
-                      />
-                      <rect
-                        class="wl wbt"
-                        x="183.2"
-                        y="12.8"
-                        width="4.5"
-                        height="18"
-                        data-wt="960"
-                        data-wd="840"
-                      />
-                      <!-- A -->
-                      <rect
-                        class="wl wbt"
-                        x="192.2"
-                        y="17.3"
-                        width="4.5"
-                        height="18"
-                        data-wt="0"
-                        data-wd="840"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="192.2"
-                        y="12.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="480"
-                        data-wd="600"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="205.7"
-                        y="17.3"
-                        width="4.5"
-                        height="18"
-                        data-wt="840"
-                        data-wd="840"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="196.7"
-                        y="21.8"
-                        width="9"
-                        height="4.5"
-                        data-wt="1380"
-                        data-wd="480"
-                      />
-                      <!-- R -->
-                      <rect
-                        class="wl wtb"
-                        x="214.7"
-                        y="12.8"
-                        width="4.5"
-                        height="22.5"
-                        data-wt="0"
-                        data-wd="1020"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="219.2"
-                        y="12.8"
-                        width="13.5"
-                        height="4.5"
-                        data-wt="600"
-                        data-wd="540"
-                      />
-                      <rect
-                        class="wl wtb"
-                        x="228.2"
-                        y="17.3"
-                        width="4.5"
-                        height="4.5"
-                        data-wt="960"
-                        data-wd="240"
-                      />
-                      <rect
-                        class="wl wrl"
-                        x="219.2"
-                        y="21.8"
-                        width="13.5"
-                        height="4.5"
-                        data-wt="1080"
-                        data-wd="540"
-                      />
-                      <polygon
-                        class="wl wdiag"
-                        points="223.8 26.3 229.6 36.4 233.5 34.1 229 26.3"
-                        data-wt="1440"
-                        data-wd="600"
-                      />
-                      <!-- E -->
-                      <rect
-                        class="wl wlr"
-                        x="237.2"
-                        y="12.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="0"
-                        data-wd="600"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="237.2"
-                        y="21.8"
-                        width="13.5"
-                        height="4.5"
-                        data-wt="480"
-                        data-wd="480"
-                      />
-                      <rect
-                        class="wl wlr"
-                        x="237.2"
-                        y="30.8"
-                        width="18"
-                        height="4.5"
-                        data-wt="960"
-                        data-wd="600"
-                      />
-                    </g>
-                  </defs>
                 </svg>
-                <div class="setup-greeting-row" aria-hidden="true">
+                <div class="setup-greeting-row is-visible">
                   <h2 class="setup-greeting-heading">
                     <button
                       type="button"
@@ -2973,7 +3330,10 @@
       </div>
     </div>
 
-    <!-- Blocks every interaction as soon as an app-owned hard reset is scheduled. -->
+    <!-- Blocks every interaction as soon as an app-owned hard reset is scheduled.
+         It shows the boot splash's wordmark and loader, which
+         src/core/session-reset.ts copies in before the first show; its
+         message is for screen readers only. -->
     <div
       id="session-reset-overlay"
       class="session-reset-overlay"
@@ -2984,7 +3344,9 @@
       tabindex="-1"
       hidden
     >
-      <p id="session-reset-message" class="session-reset-message"></p>
+      <div class="session-reset-mark">
+        <p id="session-reset-message" class="session-reset-message sr-only"></p>
+      </div>
     </div>
 
     <!-- App-owned dialog keeps session flows non-blocking. -->

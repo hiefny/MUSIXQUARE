@@ -206,8 +206,10 @@ const I: UiKitIcons = {
 };
 
 function Wordmark(): JSX.Element {
+  // Sized by the letters' box like the app's .logo-svg; the Q's tail and the
+  // R's leg hang below it, so overflow stays visible (wordmark-q-tail test).
   return (
-    <svg viewBox="43 12 214 24" fill="currentColor">
+    <svg viewBox="43 12 214 24" fill="currentColor" overflow="visible">
       <polygon points="45.47 17.32 45.47 35.32 49.97 35.32 49.97 17.32 54.47 17.31 54.47 35.31 58.97 35.31 58.97 17.31 63.47 17.31 63.47 35.31 67.97 35.31 67.97 17.31 67.97 12.81 45.47 12.82" />
       <polygon points="85.97 30.81 76.97 30.81 76.97 12.81 72.47 12.81 72.47 30.81 72.47 35.31 90.47 35.30 90.47 30.80 90.47 12.80 85.97 12.81" />
       <polygon points="94.97 17.30 94.97 21.80 94.97 26.30 108.47 26.30 108.47 30.80 94.97 30.80 94.97 35.30 112.97 35.30 112.97 30.80 112.97 26.30 112.97 21.80 99.47 21.80 99.47 17.30 112.97 17.30 112.97 12.80 94.97 12.80" />

@@ -169,6 +169,12 @@
     ) {
     text-align: start;
   }
+
+  /* The skip link appears at the top corner where reading starts. */
+  html[dir='rtl'] .skip-link {
+    left: auto;
+    right: 16px;
+  }
 }
 
 /* Explicit sides avoid the legacy CSS compiler expanding logical inset into

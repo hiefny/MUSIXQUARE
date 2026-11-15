@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { BOOT_PREFLIGHT_SCRIPT_SHA256 } from '../../core/boot-preflight.ts';
 import {
   CLASSIC_RUNTIME_ASSETS,
   compileClassicRuntimeAsset,
@@ -269,6 +271,20 @@ describe('localized static HTML materialization', () => {
     expect(englishApp).not.toMatch(/\n{2,}/u);
     for (const svg of englishApp.matchAll(/<svg\b[\s\S]*?<\/svg>/gu)) {
       expect(svg[0]).not.toMatch(/>\s+</u);
+    }
+  });
+
+  it("keeps the boot preflight's bytes in every locale's app shell, so its CSP hash still allows it", () => {
+    // The app documents' CSP allows this one inline script by the sha256 of
+    // its body (src/core/boot-preflight.ts): any byte the materialization
+    // changes (it strips leading indentation and blank lines) blocks it.
+    for (const option of LANGUAGE_OPTIONS) {
+      const bodies = [
+        ...materializedApp(option.code).matchAll(
+          /<script data-boot-preflight(?:="")?>([\s\S]*?)<\/script>/gu,
+        ),
+      ].map(([, body]) => createHash('sha256').update(body ?? '').digest('base64'));
+      expect(bodies, option.code).toEqual([BOOT_PREFLIGHT_SCRIPT_SHA256]);
     }
   });
 

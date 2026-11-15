@@ -931,7 +931,6 @@ const ro: Record<I18nKey, string> = {
   'chat.empty_html': 'Nu există încă mesaje.<br>Trimite primul mesaj!',
   'chat.msg_truncated': 'Mesaj limitat la {{max}} de caractere',
   'chat.scroll_to_bottom': 'Derulează până jos',
-  'setup.brand_tagline_html': 'Ascultă împreună, oriunde<br>Experiența sonoră desăvârșită',
   'setup.invite_share_desc_html':
     'Conectează wireless mai multe dispozitive<br>pentru a crea un sistem audio impresionant.<br>Folosește un cod de invitație din 6 cifre.',
   'setup.play_together_desc_html':

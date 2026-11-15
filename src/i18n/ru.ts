@@ -923,7 +923,6 @@ const ru: Record<I18nKey, string> = {
   'chat.empty_html': 'Сообщений пока нет.<br>Напишите первое сообщение!',
   'chat.msg_truncated': 'Сообщение сокращено до {{max}} символов',
   'chat.scroll_to_bottom': 'Прокрутить вниз',
-  'setup.brand_tagline_html': 'Слушайте вместе, где бы вы ни были.<br>Идеальное звучание.',
   'setup.invite_share_desc_html':
     'Подключите несколько устройств по беспроводной сети,<br>чтобы создать мощную аудиосистему.<br>Используйте 6-значный код приглашения для подключения.',
   'setup.play_together_desc_html':

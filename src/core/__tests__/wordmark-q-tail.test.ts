@@ -88,7 +88,6 @@ describe('MUSIXQUARE wordmark Q tail', () => {
       'class="boot-splash-logo"',
       'id="header-standard-wordmark"',
       'id="header-pro-wordmark"',
-      'class="logo-svg logo-brand"',
       'class="logo-svg logo-welcome"',
     ]) {
       expect(

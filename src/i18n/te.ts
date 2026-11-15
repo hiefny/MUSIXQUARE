@@ -917,7 +917,6 @@ const te: Record<I18nKey, string> = {
   'chat.empty_html': 'ఇంకా సందేశాలు లేవు.<br>మొదటి సందేశాన్ని పంపండి!',
   'chat.msg_truncated': 'సందేశం {{max}} అక్షరాలకు కుదించబడింది',
   'chat.scroll_to_bottom': 'కిందికి వెళ్లు',
-  'setup.brand_tagline_html': 'ఎక్కడి నుంచైనా కలిసి వినండి<br>అద్భుతమైన సౌండ్ అనుభవం',
   'setup.invite_share_desc_html':
     'అనేక పరికరాలను వైర్‌లెస్‌గా కనెక్ట్ చేసి<br>భారీ ఆడియో సిస్టమ్‌ను రూపొందించండి.<br>కనెక్ట్ కావడానికి 6 అంకెల ఆహ్వాన కోడ్‌ను ఉపయోగించండి.',
   'setup.play_together_desc_html':

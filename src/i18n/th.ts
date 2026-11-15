@@ -886,7 +886,6 @@ const th: Record<I18nKey, string> = {
   'chat.empty_html': 'ยังไม่มีข้อความ<br>ส่งข้อความแรกเลย!',
   'chat.msg_truncated': 'ข้อความถูกตัดเหลือ {{max}} ตัวอักษร',
   'chat.scroll_to_bottom': 'เลื่อนไปด้านล่าง',
-  'setup.brand_tagline_html': 'ฟังด้วยกันได้ทุกที่<br>ประสบการณ์เสียงที่สมบูรณ์แบบ',
   'setup.invite_share_desc_html':
     'เชื่อมต่ออุปกรณ์หลายเครื่องแบบไร้สาย<br>เพื่อสร้างระบบเสียงขนาดใหญ่<br>ใช้รหัสเชิญ 6 หลักเพื่อเชื่อมต่อ',
   'setup.play_together_desc_html':

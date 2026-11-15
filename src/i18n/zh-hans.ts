@@ -865,7 +865,6 @@ const zhHans: Record<I18nKey, string> = {
     '房主有 3 个选项。<ul class="help-list"><li><strong>加载本地文件：</strong>从设备中选择音乐。支持精确同步</li><li><strong>一起看 YouTube：</strong>支持视频和播放列表。不支持声道分离和音频效果</li><li><strong>系统音频共享：</strong>房主使用电脑上的 Chromium 内核浏览器（Chrome、Edge 等）时可用</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>输入邀请码但无法连接：</strong>请检查邀请码，稍后重试。公司、学校或 VPN 网络可能限制连接。</li><li><strong>连接不稳定：</strong>本地参与者请靠近路由器，远程参与者请使用稳定的网络连接。</li><li><strong>其他问题：</strong>请检查网络状态，并在所有设备上重启应用。如有疑问，请查看 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>，或通过页面底部的邮箱联系我们。</li></ul>',
-  'setup.brand_tagline_html': '随时随地一起聆听<br>完美的声音体验',
   'setup.invite_share_desc_html':
     '无线连接多台设备<br>打造强大的音频系统。<br>使用 6 位邀请码即可连接。',
   'setup.play_together_desc_html':

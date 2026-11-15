@@ -928,7 +928,6 @@ const ml: Record<I18nKey, string> = {
   'chat.empty_html': 'ഇതുവരെ സന്ദേശങ്ങളില്ല.<br>ആദ്യ സന്ദേശം അയയ്ക്കൂ!',
   'chat.msg_truncated': 'സന്ദേശം {{max}} അക്ഷരങ്ങളായി ചുരുക്കി',
   'chat.scroll_to_bottom': 'താഴേക്ക് സ്ക്രോൾ ചെയ്യുക',
-  'setup.brand_tagline_html': 'എവിടെയായാലും ഒരുമിച്ച് കേൾക്കൂ<br>മികച്ച ശബ്ദാനുഭവം',
   'setup.invite_share_desc_html':
     'ഒട്ടേറെ ഡിവൈസുകൾ വയർലെസായി ബന്ധിപ്പിച്ച്<br>ഒരു വലിയ ഓഡിയോ സിസ്റ്റം സൃഷ്ടിക്കൂ.<br>ബന്ധിപ്പിക്കാൻ 6 അക്ക ക്ഷണ കോഡ് ഉപയോഗിക്കുക.',
   'setup.play_together_desc_html':

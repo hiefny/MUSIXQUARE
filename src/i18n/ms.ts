@@ -931,8 +931,6 @@ const ms: Record<I18nKey, string> = {
   'chat.empty_html': 'Belum ada mesej.<br>Hantar mesej pertama!',
   'chat.msg_truncated': 'Mesej dipendekkan kepada {{max}} aksara',
   'chat.scroll_to_bottom': 'Tatal ke bawah',
-  'setup.brand_tagline_html':
-    'Dengar bersama, di mana-mana sahaja<br>Pengalaman bunyi yang sempurna',
   'setup.invite_share_desc_html':
     'Sambungkan berbilang peranti secara wayarles<br>untuk membina sistem audio yang hebat.<br>Gunakan kod jemputan 6 digit untuk menyambung.',
   'setup.play_together_desc_html':

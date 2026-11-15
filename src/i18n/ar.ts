@@ -888,7 +888,6 @@ const ar: Record<I18nKey, string> = {
   'chat.empty_html': 'لا توجد رسائل بعد.<br>أرسل الرسالة الأولى!',
   'chat.msg_truncated': 'اختُصرت الرسالة (الحد الأقصى {{max}} حرفًا)',
   'chat.scroll_to_bottom': 'التمرير إلى الأسفل',
-  'setup.brand_tagline_html': 'الاستماع معًا أينما كنت<br>تجربة صوت مثالية',
   'setup.invite_share_desc_html':
     'صِل أجهزة متعددة لاسلكيًا<br>لإنشاء نظام صوتي ضخم.<br>استخدم رمز دعوة من 6 أرقام للاتصال.',
   'setup.play_together_desc_html':

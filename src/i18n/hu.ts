@@ -923,7 +923,6 @@ const hu: Record<I18nKey, string> = {
   'chat.empty_html': 'Még nincs üzenet.<br>Küldd el az elsőt!',
   'chat.msg_truncated': 'Az üzenet {{max}} karakterre lett rövidítve',
   'chat.scroll_to_bottom': 'Görgetés alulra',
-  'setup.brand_tagline_html': 'Hallgassátok együtt, bárhol<br>A tökéletes hangélmény',
   'setup.invite_share_desc_html':
     'Kapcsolj össze vezeték nélkül több eszközt,<br>és hozz létre egy nagyszabású hangrendszert.<br>A kapcsolódáshoz használj hatjegyű meghívókódot.',
   'setup.play_together_desc_html':

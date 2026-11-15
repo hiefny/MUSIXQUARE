@@ -906,7 +906,6 @@ const ur: Record<I18nKey, string> = {
   'chat.empty_html': 'ابھی کوئی پیغام نہیں۔<br>پہلا پیغام بھیجیں!',
   'chat.msg_truncated': 'پیغام {{max}} حروف تک مختصر کر دیا گیا',
   'chat.scroll_to_bottom': 'نیچے جائیں',
-  'setup.brand_tagline_html': 'کہیں بھی، ساتھ سنیں<br>بہترین صوتی تجربہ',
   'setup.invite_share_desc_html':
     'متعدد آلات کو وائرلیس طور پر جوڑیں<br>اور ایک بڑا آڈیو سسٹم بنائیں۔<br>کنیکٹ ہونے کے لیے 6 ہندسوں کا دعوتی کوڈ استعمال کریں۔',
   'setup.play_together_desc_html':

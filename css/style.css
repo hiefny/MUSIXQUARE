@@ -1231,11 +1231,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: none !important;
   }
 
-  .logo-brand {
-    height: 28px;
-    width: auto;
-  }
-
   .logo-welcome {
     height: 22px;
     width: auto;
@@ -12768,10 +12763,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       color: var(--text-main);
       position: relative;
       overflow: hidden;
-    }
-
-    #setup-desktop-brand .brand-content {
-      display: none;
     }
 
     .desktop-step-header {

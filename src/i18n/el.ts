@@ -940,7 +940,6 @@ const el: Record<I18nKey, string> = {
   'chat.empty_html': 'Δεν υπάρχουν ακόμα μηνύματα.<br>Στείλτε το πρώτο μήνυμα!',
   'chat.msg_truncated': 'Το μήνυμα περιορίστηκε σε {{max}} χαρακτήρες',
   'chat.scroll_to_bottom': 'Κύλιση στο τέλος',
-  'setup.brand_tagline_html': 'Ακούστε μαζί, όπου κι αν βρίσκεστε<br>Η ιδανική εμπειρία ήχου',
   'setup.invite_share_desc_html':
     'Συνδέστε ασύρματα πολλές συσκευές<br>και δημιουργήστε ένα ισχυρό ηχοσύστημα.<br>Χρησιμοποιήστε εξαψήφιο κωδικό πρόσκλησης.',
   'setup.play_together_desc_html':

@@ -924,7 +924,6 @@ const kn: Record<I18nKey, string> = {
   'chat.empty_html': 'ಇನ್ನೂ ಯಾವುದೇ ಸಂದೇಶಗಳಿಲ್ಲ.<br>ಮೊದಲ ಸಂದೇಶವನ್ನು ಕಳುಹಿಸಿ!',
   'chat.msg_truncated': 'ಸಂದೇಶವನ್ನು {{max}} ಅಕ್ಷರಗಳಿಗೆ ಮೊಟಕುಗೊಳಿಸಲಾಗಿದೆ',
   'chat.scroll_to_bottom': 'ಕೆಳಕ್ಕೆ ಸ್ಕ್ರೋಲ್ ಮಾಡಿ',
-  'setup.brand_tagline_html': 'ಎಲ್ಲಿದ್ದರೂ ಒಟ್ಟಿಗೆ ಆಲಿಸಿ<br>ಪರಿಪೂರ್ಣ ಧ್ವನಿ ಅನುಭವ',
   'setup.invite_share_desc_html':
     'ಹಲವಾರು ಸಾಧನಗಳನ್ನು ವೈರ್‌ಲೆಸ್ ಆಗಿ ಸಂಪರ್ಕಿಸಿ<br>ಮತ್ತು ಬೃಹತ್ ಆಡಿಯೊ ಸಿಸ್ಟಮ್ ರಚಿಸಿ.<br>ಸಂಪರ್ಕಿಸಲು 6-ಅಂಕಿಯ ಆಮಂತ್ರಣ ಕೋಡ್ ಬಳಸಿ.',
   'setup.play_together_desc_html':

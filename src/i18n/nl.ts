@@ -920,7 +920,6 @@ const nl: Record<I18nKey, string> = {
     'De host heeft 3 opties.<ul class="help-list"><li><strong>Lokaal bestand laden:</strong> kies muziek op je apparaat. Nauwkeurige synchronisatie wordt ondersteund</li><li><strong>Samen YouTube kijken:</strong> video’s en afspeellijsten worden ondersteund. Geen kanaalsplitsing of audio-effecten</li><li><strong>Systeemaudio delen:</strong> beschikbaar wanneer de host een computer met een Chromium-browser gebruikt (Chrome, Edge enz.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Code ingevoerd maar geen verbinding:</strong> controleer de code en probeer het zo opnieuw. Bedrijfs-, school- of VPN-netwerken kunnen de verbinding beperken.</li><li><strong>Instabiele verbinding:</strong> lokale deelnemers kunnen het best dicht bij de router blijven; deelnemers op afstand kunnen het best een stabiele internetverbinding gebruiken.</li><li><strong>Andere problemen:</strong> controleer de netwerkstatus en start de app op alle apparaten opnieuw. Lees de <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> of neem contact op via het e-mailadres onderaan.</li></ul>',
-  'setup.brand_tagline_html': 'Luister samen, overal<br>De perfecte geluidservaring',
   'setup.invite_share_desc_html':
     'Verbind meerdere apparaten draadloos<br>en bouw een groot audiosysteem.<br>Gebruik een 6-cijferige uitnodigingscode om verbinding te maken.',
   'setup.play_together_desc_html':

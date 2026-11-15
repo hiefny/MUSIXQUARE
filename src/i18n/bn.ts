@@ -909,7 +909,6 @@ const bn: Record<I18nKey, string> = {
   'chat.empty_html': 'এখনো কোনো বার্তা নেই।<br>প্রথম বার্তাটি পাঠান!',
   'chat.msg_truncated': 'বার্তাটি {{max}} অক্ষরে ছোট করা হয়েছে',
   'chat.scroll_to_bottom': 'একেবারে নিচে যান',
-  'setup.brand_tagline_html': 'যেকোনো জায়গা থেকে একসঙ্গে শুনুন<br>নিখুঁত শব্দের অভিজ্ঞতা',
   'setup.invite_share_desc_html':
     'একাধিক ডিভাইস তার ছাড়াই সংযুক্ত করে<br>একটি বিশাল অডিও সিস্টেম তৈরি করুন।<br>সংযোগ করতে 6 সংখ্যার আমন্ত্রণ কোড ব্যবহার করুন।',
   'setup.play_together_desc_html':

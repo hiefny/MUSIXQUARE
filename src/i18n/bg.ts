@@ -924,7 +924,6 @@ const bg: Record<I18nKey, string> = {
   'chat.empty_html': 'Все още няма съобщения.<br>Изпрати първото!',
   'chat.msg_truncated': 'Съобщението е съкратено до {{max}} знака',
   'chat.scroll_to_bottom': 'Превъртане до края',
-  'setup.brand_tagline_html': 'Слушайте заедно навсякъде<br>Съвършеното звуково изживяване',
   'setup.invite_share_desc_html':
     'Свържи безжично няколко устройства,<br>за да създадеш мощна аудиосистема.<br>Използвай 6-цифрен код за покана.',
   'setup.play_together_desc_html':

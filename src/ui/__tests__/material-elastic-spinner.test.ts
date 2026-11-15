@@ -178,7 +178,7 @@ describe('shared loader (material elastic spinner)', () => {
     expect(css).not.toContain(`@keyframes ${prefix}-dash`);
   });
 
-  it.each(SHEETS)('draws the arc the dash drew, in $name', ({ css, root, prefix }) => {
+  it.each(SHEETS)('draws the arc the dash drew, in $name', ({ name, css, root, prefix }) => {
     expect(keyframeSteps(css, `${prefix}-spin`)).toEqual([
       { offsets: ['100%'], properties: ['transform'], rotation: 360 },
     ]);
@@ -214,6 +214,30 @@ describe('shared loader (material elastic spinner)', () => {
       expect(declaration(css, parts[part], 'animation')).toBe(
         `${prefix}-${part} 1.45s ease-in-out infinite`,
       );
+    }
+
+    // The app's loaders take their phase from two variables (playlist-view.ts
+    // sets them on a rebuilt upload row): the turn its own, the arc's three
+    // parts one they share, or the arc would come apart. Each delay comes
+    // after the shorthand, which would otherwise reset it.
+    if (name === 'css/style.css') {
+      for (const [part, variable] of [
+        ['spin', '--material-elastic-spin-delay'],
+        ['arc', '--material-elastic-dash-delay'],
+        ['tail', '--material-elastic-dash-delay'],
+        ['head', '--material-elastic-dash-delay'],
+      ] as const) {
+        const rule = rules(css).find(
+          (candidate) =>
+            !reduced(candidate) &&
+            candidate.selectors.includes(parts[part]) &&
+            /(?:^|[\s;])animation:/u.test(candidate.declarations),
+        );
+        const declarations = rule?.declarations ?? '';
+        expect(declarations, parts[part]).toMatch(
+          new RegExp(`animation:[^;]+;[\\s\\S]*animation-delay: var\\(${variable}, 0ms\\);`, 'u'),
+        );
+      }
     }
 
     // Reduced motion holds the same static arc the dash held (58 of 100 from 18).
@@ -293,10 +317,10 @@ describe('shared loader (material elastic spinner)', () => {
     const sources = readdirSync('src', { recursive: true, encoding: 'utf8' })
       .filter((path) => path.endsWith('.ts') && !path.split(/[\\/]/u).includes('__tests__'))
       .map((path) => [path, readFileSync(join('src', path), 'utf8')] as const);
+    // A source that gives an element the loader's class, in markup or by className.
     const builders = sources
-      .filter(
-        ([, source]) =>
-          /material-elastic-spinner/u.test(source) && /innerHTML|`\s*<span/u.test(source),
+      .filter(([, source]) =>
+        /class(?:Name)?\s*=\s*["'`][^"'`]*\bmaterial-elastic-spinner\b/u.test(source),
       )
       .map(([path]) => path.replace(/\\/gu, '/'));
     expect(builders.sort()).toEqual(['ui/connect.ts', 'ui/playlist-view.ts']);

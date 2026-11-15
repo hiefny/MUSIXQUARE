@@ -87,9 +87,9 @@ function mountQrSvg(container: HTMLElement, svgString: string): boolean {
   return true;
 }
 
-// Opacity and visibility hide the spinner but keep its rotation and its
-// main-thread dash animation running while the host waits. Pause both once
-// the fade-out ends. display:none would skip the fade-in and restart the loop.
+// Opacity and visibility hide the spinner but keep its four turning parts
+// (src/ui/material-elastic-spinner.ts) running while the host waits. Pause them
+// once the fade-out ends. display:none would skip the fade-in and restart the loop.
 function pauseHostInviteSpinnerAfterHide(spinner: HTMLElement): () => void {
   const pause = (): void => {
     cancel();

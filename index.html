@@ -83,8 +83,8 @@
 
       /* The loader keeps turning through the fade. Once the fade has ended,
          wordmark-anim.js takes the splash out of rendering ([hidden]), which
-         ends every animation inside it (the loader's two infinite ones, and the
-         mark's fade-in when the app opens within 0.5 s) so the hidden splash
+         ends every animation inside it (the loader's four infinite turns, and
+         the mark's fade-in when the app opens within 0.5 s) so the hidden splash
          costs no frame for the rest of the session. Without that runtime the
          splash freezes them at release instead. Every no-runtime rule keys on
          data-boot-splash-runtime, which only this release's runtime sets: on
@@ -124,9 +124,10 @@
          says so itself (overflow="visible"). Both sizes are fixed (214px is
          the viewBox's 214 units, what auto would give): WebKit paints nothing
          until the page holds over 32x32 px of fixed-size SVG (or 200 text
-         characters), and the splash's only other SVG, the 24px loader, is 576
-         px; with an auto width a slow first visit stayed blank in WebKit until
-         the app stylesheet arrived (WebKit bugs 208482 and 208663). */
+         characters), and the fixed wordmark clears that on its own, so the
+         first paint never depends on the loader (three 24px SVGs, two of them
+         clipped to half); with an auto width a slow first visit stayed blank in
+         WebKit until the app stylesheet arrived (WebKit bugs 208482 and 208663). */
       .boot-splash-logo {
         display: block;
         width: 214px;

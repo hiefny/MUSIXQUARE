@@ -132,6 +132,71 @@ describe('session reset coordinator', () => {
     expect(unloadPrompts()).toBe(false);
   });
 
+  /** The screen's own fade-in, as style.css gives `.session-reset-overlay.show` (0.2 s). */
+  function stubResetFadeIn(): void {
+    const computed = window.getComputedStyle.bind(window);
+    const fadeIn: Record<string, string> = {
+      transitionProperty: 'opacity, visibility',
+      transitionDuration: '0.2s, 0s',
+      transitionDelay: '0s, 0s',
+    };
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
+      const style = computed(element, pseudo);
+      if (!(element instanceof HTMLElement) || element.id !== 'session-reset-overlay') return style;
+      return new Proxy(style, {
+        get(target, property) {
+          if (typeof property === 'string' && property in fadeIn) return fadeIn[property];
+          const value: unknown = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    });
+  }
+
+  it("starts the action only once the screen's fade-in has run, so the next page continues a whole screen", async () => {
+    const frames: FrameRequestCallback[] = [];
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      }),
+    });
+    stubResetFadeIn();
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    frames.shift()?.(0);
+    frames.shift()?.(16);
+    // Painted, but still fading in: the next page would replace a half-shown screen.
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(199);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(false);
+  });
+
+  it('waits out the fade-in in the timeout fallback too, and runs the action once', async () => {
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: undefined,
+    });
+    stubResetFadeIn();
+    const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+    expect(action).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(1_000);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
   it('restores interaction and releases its unload exemption when the action throws', async () => {
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,

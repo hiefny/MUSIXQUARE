@@ -13503,6 +13503,33 @@ describe('Cloudflare app worker invite route', () => {
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
   });
 
+  it("allows the page file's boot preflight, and only it, on every app document", async () => {
+    const page = await readFile(new URL('../../../index.html', import.meta.url), 'utf8');
+    const preflight = page.match(/<script data-boot-preflight>([\s\S]*?)<\/script>/u)?.[1];
+    expect(preflight, 'index.html has no <script data-boot-preflight>').toBeTruthy();
+    const source = `'sha256-${createHash('sha256')
+      .update(preflight ?? '', 'utf8')
+      .digest('base64')}'`;
+    const scriptSrc = (response: Response) =>
+      (response.headers.get('Content-Security-Policy') || '')
+        .split(';')
+        .map((value) => value.trim().split(/\s+/u))
+        .find(([name]) => name === 'script-src') ?? [];
+    const env = createAssetEnv();
+    for (const pathname of ['/', '/index.html', '/ko/', '/123456']) {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${pathname}`), env);
+      expect(response.status, pathname).toBe(200);
+      expect(scriptSrc(response), pathname).toContain(source);
+      expect(scriptSrc(response), pathname).not.toContain("'unsafe-inline'");
+    }
+    // Every other response keeps the shared policy, which equals the static assets' _headers.
+    const shared = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config'),
+      {},
+    );
+    expect(scriptSrc(shared)).not.toContain(source);
+  });
+
   it('keeps the direct service-worker app shell request out of browser and CDN caches', async () => {
     const env = createAssetEnv();
     const response = await appWorker.fetch(new Request('https://musixquare.com/index.html'), env);

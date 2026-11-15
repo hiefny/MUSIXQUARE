@@ -176,6 +176,16 @@ test.describe('session reset screen', () => {
       await route.fallback();
     });
 
+    // Where the screen's fade-in stood when this page started to leave.
+    await page.evaluate(() => {
+      window.addEventListener('beforeunload', () => {
+        const overlay = document.getElementById('session-reset-overlay');
+        if (overlay) {
+          sessionStorage.setItem('e2e-reset-opacity-at-leave', getComputedStyle(overlay).opacity);
+        }
+      });
+    });
+
     const leave = page.locator('#desktop-btn-leave-session:visible, #btn-leave-session:visible');
     if (!(await leave.first().isVisible())) {
       await page.locator('.nav-item[data-tab="connect"]:visible').click();
@@ -238,5 +248,69 @@ test.describe('session reset screen', () => {
     await expect(page.locator('#setup-overlay.active')).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.boot-splash')).toHaveAttribute('data-phase', 'settled');
     expect(await page.evaluate(() => sessionStorage.getItem('mxqr-boot-continuity'))).toBeNull();
+    // It left only once the screen had faded in (0.2 s), so the next page took
+    // over a whole screen rather than a half-shown one.
+    expect(
+      Number(await page.evaluate(() => sessionStorage.getItem('e2e-reset-opacity-at-leave'))),
+    ).toBeGreaterThanOrEqual(0.95);
+  });
+
+  test('a page a reset opens shows the stored theme and the settled splash from its first frame', async ({
+    page,
+  }) => {
+    // The device is light and the app dark: bootstrap.js applies the stored
+    // theme, but the splash can paint before it runs.
+    await page.emulateMedia({ colorScheme: 'light' });
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    await page.evaluate(() => {
+      localStorage.setItem('musixquare-theme', 'dark');
+      // What a reset stamps just before it navigates (session-reset.ts).
+      sessionStorage.setItem('mxqr-boot-continuity', String(Date.now()));
+    });
+    type Frame = { bg: string; mark: string; loader: string };
+    await page.addInitScript(() => {
+      const frames: Frame[] = [];
+      (window as typeof window & { __firstFrames: Frame[] }).__firstFrames = frames;
+      const sample = () => {
+        const splash = document.querySelector('.boot-splash');
+        const mark = splash?.querySelector('.boot-splash-mark');
+        const loader = splash?.querySelector('.boot-splash-spinner');
+        if (splash && mark && loader) {
+          frames.push({
+            bg: getComputedStyle(splash).backgroundColor,
+            mark: getComputedStyle(mark).opacity,
+            loader: getComputedStyle(loader).opacity,
+          });
+        }
+        if (frames.length < 3) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    // Hold the next page's bootstrap.js, so its first frames come before it.
+    let releaseBootstrap = (): void => undefined;
+    const bootstrapHeld = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    await page.route(/\/bootstrap\.js(?:\?.*)?$/u, async (route) => {
+      await bootstrapHeld;
+      await route.fallback();
+    });
+    await page.reload({ waitUntil: 'commit' });
+    await page.waitForFunction(
+      () => ((window as typeof window & { __firstFrames?: Frame[] }).__firstFrames?.length ?? 0) >= 2,
+      null,
+      { timeout: 10_000, polling: 20 },
+    );
+    const frames = await page.evaluate(
+      () => (window as typeof window & { __firstFrames: Frame[] }).__firstFrames,
+    );
+    releaseBootstrap();
+    // Dark from the first frame, with the wordmark and loader where the reset screen showed them.
+    expect(frames.slice(0, 2)).toEqual([
+      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1' },
+      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1' },
+    ]);
   });
 });

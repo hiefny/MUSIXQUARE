@@ -13022,8 +13022,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transform: translateY(20px);
   }
   @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
-    body:has(#setup-overlay.active) header,
-    body.overlay-open:has(#setup-overlay.active) header {
+    body:has(#setup-overlay.active) header {
       pointer-events: none;
       opacity: 0;
     }
@@ -13032,8 +13031,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       opacity: 1;
     }
     body:has(#setup-overlay.active) .bottom-nav,
-    body:has(#media-source-overlay.active) .bottom-nav,
-    body:has(#youtube-url-overlay.active) .bottom-nav,
     body.overlay-open .bottom-nav {
       opacity: 0;
       pointer-events: none;

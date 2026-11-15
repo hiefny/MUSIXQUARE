@@ -85,7 +85,7 @@ import {
   PUBLIC_FONT_SHEET_URLS,
   PUBLIC_HAN_ORDER_SCRIPT_URL,
 } from '../src/i18n/public-font-urls.ts';
-import { BOOT_PREFLIGHT_CSP_SOURCE } from '../src/core/boot-preflight.ts';
+import { BOOT_PREFLIGHT_SCRIPT_SHA256 } from '../src/core/boot-preflight.ts';
 import {
   abortProRoomOwnershipTransferEntitlement,
   authorizeProGrantActivation,
@@ -607,7 +607,7 @@ const SECURITY_HEADERS = {
 const APP_DOCUMENT_SECURITY_HEADERS = {
   'Content-Security-Policy': SECURITY_HEADERS['Content-Security-Policy']
     .replace('frame-src ', "frame-src 'self' ")
-    .replace("script-src 'self' ", `script-src 'self' ${BOOT_PREFLIGHT_CSP_SOURCE} `),
+    .replace("script-src 'self' ", `script-src 'self' 'sha256-${BOOT_PREFLIGHT_SCRIPT_SHA256}' `),
 };
 
 const SCREENSAVER_SECURITY_HEADERS = {

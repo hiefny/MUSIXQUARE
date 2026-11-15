@@ -686,7 +686,12 @@
   // can straddle the 15 s edge) and owns removing the stamp.
   const continuityKey = 'mxqr-boot-continuity';
   const continuityWindowMs = 15_000;
-  const marked = document.documentElement.hasAttribute('data-boot-continued');
+  let marked = false;
+  try {
+    marked = document.documentElement.hasAttribute('data-boot-continued');
+  } catch {
+    /* A document without the DOM API: only a fresh stamp can continue. */
+  }
   let fresh = false;
   try {
     const stamp = Number(sessionStorage.getItem(continuityKey));

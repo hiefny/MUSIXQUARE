@@ -21,6 +21,3 @@ export const BOOT_PREFLIGHT_SCRIPT_ATTRIBUTE = 'data-boot-preflight';
  * stripping leaves it alone).
  */
 export const BOOT_PREFLIGHT_SCRIPT_SHA256 = 'Q9LmBkrzhBSdGSkQ0UbfBz3xEEU6afdXjoQc/Z1lJWY=';
-
-/** The CSP source that allows the preflight on app documents. */
-export const BOOT_PREFLIGHT_CSP_SOURCE = `'sha256-${BOOT_PREFLIGHT_SCRIPT_SHA256}'`;

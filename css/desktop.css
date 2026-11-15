@@ -502,7 +502,6 @@
       --setup-head-px: clamp(48px, 5vw, 80px);
       --setup-logo-h: clamp(22px, calc(-34px + 4.375vw), 29px);
       --setup-logo-mt: clamp(3px, calc(-18px + 1.625vw), 5px);
-      --setup-logo-mb: 12px;
       --setup-h2: clamp(24px, calc(-40px + 5vw), 32px);
       --setup-h2-mb: 8px;
       --setup-p: clamp(16px, 1.25vw, 18px);

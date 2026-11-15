@@ -10910,7 +10910,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
          greeting that replaces it (0–1px below at 18–26px). Unnudged, it sat
          2–3px above; a size-scaled nudge dropped the 26px tablet mark too far. */
       --setup-logo-mt: 3px;
-      --setup-logo-mb: clamp(6px, 1.5vh, 12px);
       --setup-h2: clamp(20px, 5vh, 28px);
       --setup-h2-mb: clamp(4px, 1vh, 8px);
       --setup-p: clamp(13px, 3vh, 16px);

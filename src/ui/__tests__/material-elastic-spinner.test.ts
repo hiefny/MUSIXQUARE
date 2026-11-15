@@ -347,11 +347,51 @@ describe('shared loader (material elastic spinner)', () => {
         .join(' ');
     const shortest = half(DASH_KEYFRAMES[0]);
     expect(seam).toBe(`M${point(270 - shortest)}A18 18 0 0 1 ${point(270 + shortest)}`);
-    // Each half ring: the ring's bottom half, from 3 o'clock to 9 o'clock.
-    for (const side of ['tail', 'head']) {
-      expect(
-        document.querySelector(`.material-elastic-${side} > svg > path`)?.getAttribute('d'),
-      ).toBe('M40 22a18 18 0 0 1-36 0');
+  });
+
+  it("draws each ring only where it can show, its hidden end well away from the halves' shared edge", () => {
+    const document = new JSDOM(`<span>${MATERIAL_ELASTIC_SPINNER_PARTS}</span>`).window.document;
+    // A clockwise arc of the r = 18 ring as drawn: its start and end angles
+    // (degrees clockwise from 3 o'clock, in the ring's own unturned frame).
+    const span = (side: 'tail' | 'head') => {
+      const d =
+        document.querySelector(`.material-elastic-${side} > svg > path`)?.getAttribute('d') ?? '';
+      // One move and one clockwise arc of radius 18, the arc absolute (A) or relative (a).
+      const arc = d.match(
+        /^M(-?[\d.]+)[ ,](-?[\d.]+)([Aa])18[ ,]18[ ,]0[ ,]0[ ,]1[ ,]?(-?[\d.]+)[ ,]?(-?[\d.]+)$/u,
+      );
+      expect(arc, `${side}: ${d}`).not.toBeNull();
+      const [x0 = 0, y0 = 0, x = 0, y = 0] = [arc?.[1], arc?.[2], arc?.[4], arc?.[5]].map(Number);
+      const [x1, y1] = arc?.[3] === 'a' ? [x0 + x, y0 + y] : [x, y];
+      const angle = (px: number, py: number) =>
+        ((((Math.atan2(py - 22, px - 22) * 180) / Math.PI) % 360) + 360) % 360;
+      expect(Math.hypot(x0 - 22, y0 - 22), side).toBeCloseTo(18, 3);
+      expect(Math.hypot(x1 - 22, y1 - 22), side).toBeCloseTo(18, 3);
+      const start = angle(x0, y0);
+      const end = angle(x1, y1) || 360;
+      return { start, end: end < start ? end + 360 : end };
+    };
+    const tail = span('tail');
+    const head = span('head');
+    // Every half arc the loader shows: the animation's range and the still arc.
+    const halves = [half(DASH_KEYFRAMES[0]), half(DASH_KEYFRAMES[1]), half(REDUCED_DASH)];
+    const longest = Math.max(...halves);
+    const shortestHalf = Math.min(...halves);
+    // The tail ring turns by -(90 + h) and shows its first h degrees; the head
+    // ring turns by 90 + h and shows its last h degrees.
+    expect(tail.start).toBeCloseTo(0, 3);
+    expect(head.end).toBeCloseTo(180, 3);
+    expect(tail.end - tail.start).toBeGreaterThanOrEqual(longest + 10);
+    expect(head.end - head.start).toBeGreaterThanOrEqual(longest + 10);
+    // Where each ring's far end sits in the frame, for every half arc in range:
+    // well away from 6 o'clock (90), where no ink covers the halves' shared edge,
+    // and clear of 12 o'clock (270), where the other ring's ink lies over it.
+    const distance = (a: number, b: number) => Math.abs(((((a - b) % 360) + 540) % 360) - 180);
+    for (let h = shortestHalf; h <= longest + 1e-9; h += 0.1) {
+      for (const farEnd of [tail.end - 90 - h, head.start + 90 + h]) {
+        expect(distance(farEnd, 90), `far end ${farEnd} at h ${h}`).toBeGreaterThanOrEqual(30);
+        expect(distance(farEnd, 270), `far end ${farEnd} at h ${h}`).toBeGreaterThanOrEqual(15);
+      }
     }
   });
 });

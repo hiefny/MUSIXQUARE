@@ -220,7 +220,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      one condition. Its own rule still reads --button-label-size, so the label
      keeps the CTA weight, line height and tracking.
      button-label-contract.test.ts names every member with its reason. */
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     .btn-label-compact {
       --button-label-size: var(--button-label-chip-size);
     }
@@ -1441,7 +1441,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Keep loader status visually stable on phones. Long translated messages
      and file names stay on one line and use the base ellipsis treatment. */
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     .header-loading-text {
       overflow-wrap: normal;
       line-height: 18px;
@@ -1990,7 +1990,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Level 1's narrow, bottom-navigation UI uses a full-bleed square-cornered
      YouTube frame. Level 2's sidebar UI and desktop keep the rounded,
      constrained presentation regardless of the viewport's orientation. */
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     #tab-play {
       padding-top: var(--header-height);
     }
@@ -2850,7 +2850,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      sub-row when an expanded YouTube playlist exposes it; otherwise animate the
      current top-level row. Wide desktop layouts remain static until hover or
      keyboard focus, even on touch or TV-style hardware. */
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     :where(html:not([data-hover-pointer]))
       .playlist-entry:not(:has(.sub-track-item.active))
       > .track-item:has(.playlist-current-leading.is-current-playing)
@@ -5081,7 +5081,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       bottom 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     body:has(#tab-playlist.active .playlist-selection-bar:not([hidden]):not([data-state='leaving']))
       .toast {
       bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 98px);
@@ -7598,7 +7598,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-sub);
   }
 
-  @media (max-width: 719px) and (orientation: portrait) {
+  @media (max-width: 719.98px) and (orientation: portrait) {
     .setup-host-invite-stage,
     .setup-guest-qr-stage {
       margin-bottom: 0;
@@ -8500,7 +8500,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       visibility 0s 0s;
   }
 
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     .chat-drawer {
       z-index: 3000;
     }
@@ -8550,7 +8550,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     outline: none;
   }
 
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     .chat-drawer-header {
       justify-content: center;
       background: transparent;
@@ -8578,7 +8578,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* The sheet's handle row shows the drag handle, not the drawer title. */
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     .chat-drawer-title {
       display: none;
     }
@@ -8729,7 +8729,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Mobile chat grows upward from the input like a native messenger. Desktop
      keeps the conventional panel flow and starts its first message at the top. */
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     .chat-drawer-messages > .chat-group:first-child {
       margin-top: auto;
     }
@@ -12129,7 +12129,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       display: none;
     }
   }
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     html:not(.standalone) header,
     html:not(.standalone) .bottom-nav {
       background: var(--surface-1);
@@ -12164,7 +12164,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      actions' 16px top padding, the carousel nav row's 8px margin, and on
      방 만들기 about 17.5px under the code digits. A screen too short for the
      content still scrolls as before. */
-  @media (max-width: 719px) and (orientation: portrait) {
+  @media (max-width: 719.98px) and (orientation: portrait) {
     #setup-code-area > .setup-host-invite-stage,
     #setup-join-area > .setup-guest-qr-stage {
       margin-top: auto;
@@ -12195,7 +12195,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
   }
   /* Compact sidebar geometry: 720–1279px wide, or wider but under 720px tall. */
-  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
+  @media (min-width: 720px) and (max-width: 1279.98px), (min-width: 1280px) and (max-height: 719.98px) {
     /* ── Sidebar (header) — right side ── */
     header {
       width: calc(200px + var(--safe-physical-right));
@@ -13071,7 +13071,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   body.mode-demo .bottom-nav {
     transform: translateY(20px);
   }
-  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
+  @media (min-width: 720px) and (max-width: 1279.98px), (min-width: 1280px) and (max-height: 719.98px) {
     body:has(#setup-overlay.active) header {
       pointer-events: none;
       opacity: 0;

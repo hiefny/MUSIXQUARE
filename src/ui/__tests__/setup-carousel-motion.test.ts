@@ -725,9 +725,9 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toMatch(/\.setup-qr-join-spinner\s*{[^}]*color:\s*var\(--text-main\);/s);
     expect(stylesheet).toContain(".setup-qr-scan-button[aria-busy='true'] .setup-qr-join-spinner");
     expect(stylesheet).toContain('transition: none !important;');
-    expect(stylesheet).toContain('@media (max-width: 719px) and (orientation: portrait)');
+    expect(stylesheet).toContain('@media (max-width: 719.98px) and (orientation: portrait)');
     expect(
-      stylesheet.indexOf('@media (max-width: 719px) and (orientation: portrait)'),
+      stylesheet.indexOf('@media (max-width: 719.98px) and (orientation: portrait)'),
     ).toBeGreaterThan(stylesheet.indexOf('.setup-code-area-bottom {\n    margin-top: 40px;'));
     expect(stylesheet).toContain('margin-top: 14px;');
     expect(stylesheet).toContain('padding-top: 6px;');

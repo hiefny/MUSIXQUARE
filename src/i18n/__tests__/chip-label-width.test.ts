@@ -254,10 +254,10 @@ interface BoxSource {
 }
 
 const PHONES = '@media (max-width: 420px)';
-const ONE_COLUMN = '@media (max-width: 719px)';
+const ONE_COLUMN = '@media (max-width: 719.98px)';
 const TWO_COLUMNS = '@media (min-width: 720px)';
 const SIDE_RAIL =
-  '@media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px)';
+  '@media (min-width: 720px) and (max-width: 1279.98px), (min-width: 1280px) and (max-height: 719.98px)';
 const DESKTOP = '@media (min-width: 1280px) and (min-height: 720px)';
 
 const source = (

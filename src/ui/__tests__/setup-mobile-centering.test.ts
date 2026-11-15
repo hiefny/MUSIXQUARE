@@ -16,7 +16,7 @@ describe('phone portrait setup centering', () => {
     const responsive = await stylesheetLayer('responsive');
     const blocks = [
       ...responsive.matchAll(
-        /@media \(max-width: 719px\) and \(orientation: portrait\) \{\n([\s\S]*?)\n {2}\}/g,
+        /@media \(max-width: 719\.98px\) and \(orientation: portrait\) \{\n([\s\S]*?)\n {2}\}/g,
       ),
     ].map((match) => match[1] ?? '');
     const block = blocks.find((body) => body.includes('#setup-welcome-area > .ob-slider-block'));

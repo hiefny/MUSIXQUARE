@@ -134,7 +134,7 @@ describe('layout breakpoint contract', () => {
 
     const desktop = readFileSync(resolve('css/desktop.css'), 'utf8');
     expect(desktop).toMatch(
-      /@media \(min-width: 1280px\) and \(min-height: 720px\) and \(max-height: 899px\)\s*\{\s*body\s*\{[^}]*grid-template-areas:\s*'header tab-playlist tab-settings'\s*'tab-play tab-playlist tab-settings'\s*'tab-play tab-chat tab-settings';/u,
+      /@media \(min-width: 1280px\) and \(min-height: 720px\) and \(max-height: 899\.98px\)\s*\{\s*body\s*\{[^}]*grid-template-areas:\s*'header tab-playlist tab-settings'\s*'tab-play tab-playlist tab-settings'\s*'tab-play tab-chat tab-settings';/u,
     );
   });
 });

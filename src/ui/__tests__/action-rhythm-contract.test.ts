@@ -41,7 +41,7 @@ const CONDITIONAL_EXCEPTIONS: ReadonlyArray<{
 }> = [
   {
     condition:
-      '@media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px)',
+      '@media (min-width: 720px) and (max-width: 1279.98px), (min-width: 1280px) and (max-height: 719.98px)',
     element: '#btn-close-media-popup',
     declaration: 'height: 40px',
     reason:

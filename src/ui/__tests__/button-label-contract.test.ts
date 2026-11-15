@@ -221,7 +221,7 @@ const NESTED_EXCEPTIONS: Readonly<Record<string, string>> = {
 // The compact members: their markup carries .btn-label-compact, which takes
 // the chip role's 14px under the one shared narrow condition.
 const COMPACT_CLASS = 'btn-label-compact';
-const COMPACT_CONDITION = '@media (max-width: 719px)';
+const COMPACT_CONDITION = '@media (max-width: 719.98px)';
 const COMPACT_MEMBERS: Readonly<Record<string, string>> = {
   '#btn-local-file':
     'The media source options: at 15px with normal tracking the local file and system ' +
@@ -270,7 +270,7 @@ const NARROW_OVERRIDES: ReadonlyArray<{
   },
   {
     condition:
-      '@media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px)',
+      '@media (min-width: 720px) and (max-width: 1279.98px), (min-width: 1280px) and (max-height: 719.98px)',
     selector: '#btn-close-media-popup',
     declaration: 'font-size: 0',
     reason:
@@ -2448,8 +2448,8 @@ describe('action button label contract', () => {
     // side of it, portrait and landscape, before reduction to distinct
     // condition sets.
     const boundaries = mediaBoundaries(sheets);
-    expect(boundaries.width).toEqual(expect.arrayContaining([420, 719, 720, 1279, 1280]));
-    expect(boundaries.height).toEqual(expect.arrayContaining([300, 480, 719, 720]));
+    expect(boundaries.width).toEqual(expect.arrayContaining([420, 719.98, 720, 1279.98, 1280]));
+    expect(boundaries.height).toEqual(expect.arrayContaining([300, 480, 719.98, 720]));
     const viewports = resolverViewports(sheets);
     const sampled = (axis: 0 | 1, value: number, orientation: 'portrait' | 'landscape'): boolean =>
       viewports.some(

@@ -107,7 +107,7 @@ describe('playlist title marquee', () => {
       /:where\(html\[data-hover-pointer\]\)\s+\.track-item:hover\s+\.track-name-text\.is-playlist-title-overflowing\s+> \.playlist-title-marquee-content/u,
     );
     expect(stylesheet).toMatch(
-      /@media \(max-width: 1279px\), \(max-height: 719px\) \{\s*:where\(html:not\(\[data-hover-pointer\]\)\)\s+\.playlist-entry:not\(:has\(\.sub-track-item\.active\)\)/u,
+      /@media \(max-width: 1279\.98px\), \(max-height: 719\.98px\) \{\s*:where\(html:not\(\[data-hover-pointer\]\)\)\s+\.playlist-entry:not\(:has\(\.sub-track-item\.active\)\)/u,
     );
     expect(stylesheet).not.toMatch(/@media[^{]*\((?:any-)?(?:hover|pointer):/u);
     expect(stylesheet).toContain('.playlist-entry:not(:has(.sub-track-item.active))');

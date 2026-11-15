@@ -27,7 +27,7 @@ describe('visualizer layout contract', () => {
       /\.video-wrapper\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;[\s\S]*?border-radius:\s*16px;[\s\S]*?position:\s*absolute;/u,
     );
     expect(stylesheet).toMatch(
-      /@media \(max-width: 719px\)\s*\{[\s\S]*?#tab-play\s*\{[\s\S]*?padding-top:\s*var\(--header-height\);[\s\S]*?#tab-play \.tab-body\s*\{[\s\S]*?padding-top:\s*0;[\s\S]*?#tab-play \.play-secondary-area\s*\{[\s\S]*?margin-bottom:\s*auto;[\s\S]*?\.playback-stage\s*\{[\s\S]*?max-width:\s*none;[\s\S]*?\.video-wrapper\s*\{[\s\S]*?border-radius:\s*0;/u,
+      /@media \(max-width: 719\.98px\)\s*\{[\s\S]*?#tab-play\s*\{[\s\S]*?padding-top:\s*var\(--header-height\);[\s\S]*?#tab-play \.tab-body\s*\{[\s\S]*?padding-top:\s*0;[\s\S]*?#tab-play \.play-secondary-area\s*\{[\s\S]*?margin-bottom:\s*auto;[\s\S]*?\.playback-stage\s*\{[\s\S]*?max-width:\s*none;[\s\S]*?\.video-wrapper\s*\{[\s\S]*?border-radius:\s*0;/u,
     );
     expect(stylesheet).not.toContain('@media (orientation: portrait) and (max-width: 1279px)');
   });

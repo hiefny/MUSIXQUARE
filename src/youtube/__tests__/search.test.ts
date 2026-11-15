@@ -509,16 +509,15 @@ describe('YouTube primary button and status line states', () => {
   // while a search or a link lookup runs, and Add to Playlist once a result is
   // chosen or a link previews; it is off on an empty box. Enter and the
   // magnifier keep searching. One setter in src/youtube/search.ts writes the
-  // button: disabled, opacity, label, data-mode (the click routing reads it)
-  // and aria-busy. The line under the box takes .error for a failed search, an
-  // invalid link or a failed lookup, never an inline colour, and only an
-  // invalid link marks the box itself invalid.
+  // button: disabled (the stylesheet dims a disabled button), label, data-mode
+  // (the click routing reads it) and aria-busy. The line under the box takes
+  // .error for a failed search, an invalid link or a failed lookup, never an
+  // inline colour, and only an invalid link marks the box itself invalid.
   type Mode = 'off' | 'search' | 'busy' | 'add';
   const BUTTON: Record<Mode, Record<string, unknown>> = {
     off: {
       mode: 'off',
       disabled: true,
-      opacity: '0.5',
       i18n: 'player.play_start',
       text: 'Add to Playlist',
       busy: null,
@@ -526,7 +525,6 @@ describe('YouTube primary button and status line states', () => {
     search: {
       mode: 'search',
       disabled: false,
-      opacity: '1',
       i18n: 'youtube.search_button',
       text: 'Search',
       busy: null,
@@ -534,7 +532,6 @@ describe('YouTube primary button and status line states', () => {
     busy: {
       mode: 'busy',
       disabled: true,
-      opacity: '0.5',
       i18n: 'common.wait',
       text: 'Please wait...',
       busy: 'true',
@@ -542,7 +539,6 @@ describe('YouTube primary button and status line states', () => {
     add: {
       mode: 'add',
       disabled: false,
-      opacity: '1',
       i18n: 'player.play_start',
       text: 'Add to Playlist',
       busy: null,
@@ -609,7 +605,6 @@ describe('YouTube primary button and status line states', () => {
       button: {
         mode: play.getAttribute('data-mode'),
         disabled: play.disabled,
-        opacity: play.style.opacity,
         i18n: play.getAttribute('data-i18n'),
         text: play.textContent,
         busy: play.getAttribute('aria-busy'),
@@ -663,6 +658,17 @@ describe('YouTube primary button and status line states', () => {
       i18n: play.getAttribute('data-i18n'),
       mode: play.getAttribute('data-mode'),
     }).toEqual({ disabled: true, i18n: 'player.play_start', mode: 'off' });
+  });
+
+  it('is dimmed while disabled and at full strength otherwise', () => {
+    // The stylesheet dims the button through its disabled state; the setter
+    // writes no opacity of its own.
+    const css = readFileSync(resolve('css/style.css'), 'utf8');
+    const button = css.match(/\n\s*\.yt-play-btn-flex15\s*\{([^}]*)\}/)?.[1] ?? '';
+    const disabled = css.match(/\n\s*\.yt-play-btn-flex15:disabled\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(button).toContain('flex: 1.5;');
+    expect(button).not.toContain('opacity');
+    expect(disabled).toContain('opacity: 0.5;');
   });
 
   it('is off with the resting prompt on an empty or cleared box', () => {
@@ -756,7 +762,7 @@ describe('YouTube primary button and status line states', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(sheet().button).toEqual(BUTTON.add);
     expect(document.getElementById('youtube-preview')!.hidden).toBe(false);
-    expect(document.getElementById('youtube-preview-status')!.style.display).toBe('none');
+    expect(document.getElementById('youtube-preview-status')!.hidden).toBe(true);
   });
 
   it('stays off for an invalid link; the line and the field turn red until the next edit', () => {

@@ -11741,6 +11741,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* "Watch together" button: 1.5x flex grow, dimmed while disabled */
   .yt-play-btn-flex15 {
     flex: 1.5;
+  }
+
+  .yt-play-btn-flex15:disabled {
     opacity: 0.5;
   }
 

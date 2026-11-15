@@ -1093,6 +1093,31 @@ describe('session reset coordinator', () => {
         expect(navigate.mock.results[0]?.value).toBe('390x850');
       });
 
+      it('is not left while the whole document is fullscreen (the screensaver)', async () => {
+        const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+        const { scheduleSessionReset } = await loadCoordinator();
+        // No element host: the screen stays in the page's body, but the
+        // navigation still ends this fullscreen.
+        Object.defineProperty(document, 'fullscreenElement', {
+          configurable: true,
+          get: () => document.documentElement,
+        });
+        try {
+          const navigate = vi.fn(() => sessionStorage.getItem(BOX_KEY));
+          scheduleSessionReset('Refreshing session...', navigate);
+          expect(document.getElementById('session-reset-overlay')?.parentElement).toBe(
+            document.body,
+          );
+          expect(sessionStorage.getItem(CONTINUITY_KEY)).toBe('1000000');
+          expect(sessionStorage.getItem(BOX_KEY)).toBeNull();
+          vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+          expect(navigate).toHaveBeenCalledOnce();
+          expect(navigate.mock.results[0]?.value).toBeNull();
+        } finally {
+          Reflect.deleteProperty(document, 'fullscreenElement');
+        }
+      });
+
       it('is taken again just before the page leaves, after the screen changed size', async () => {
         const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
         const { scheduleSessionReset } = await loadCoordinator();

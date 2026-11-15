@@ -435,9 +435,10 @@ test.describe('session reset screen', () => {
     );
     releaseBootstrap();
     await page.setViewportSize({ width, height });
-    // On the turned screen, within half the kept height's window of its centre.
+    // On the turned screen, within half the kept height's 64 px window of its
+    // centre (and half a pixel of rounding).
     expect(turned.screen).toBe(width);
-    expect(Math.abs(turned.mark - turned.screen / 2)).toBeLessThanOrEqual(32);
+    expect(Math.abs(turned.mark - turned.screen / 2)).toBeLessThanOrEqual(32.5);
   });
 
   test('a continued splash fills the page wherever the desktop layout scales it', async ({
@@ -450,8 +451,8 @@ test.describe('session reset screen', () => {
     await useAnonymousAccountSession(page);
     await page.goto('/');
     await waitForBootstrapReady(page);
-    // A box as tall as the window, as a reset screen in a fullscreen host or
-    // in the fake fullscreen (which unscales body) measures it.
+    // A box as tall as the window, as a reset screen in the fake fullscreen
+    // (which unscales body) measures it.
     await page.evaluate(() => {
       sessionStorage.setItem('mxqr-boot-continuity', String(Date.now()));
       sessionStorage.setItem('mxqr-boot-continuity-box', `${innerWidth}x${innerHeight}`);

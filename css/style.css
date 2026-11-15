@@ -11887,6 +11887,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     pointer-events: none;
   }
 
+  /* Security check (Turnstile) overlay, created by src/core/capability.ts,
+     whose injected sheet keeps the fade. It covers the whole viewport above
+     everything else; the build writes inset as four sides for Chromium 79. */
+  #mxqr-turnstile-container {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(6, 10, 18, 0.42);
+    z-index: 2147483647;
+  }
+
   /* --------------------------------------------------------------------------
    OS contrast preferences
 

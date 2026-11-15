@@ -127,12 +127,6 @@ a {
   line-height: 1.6;
 }
 
-.policy-hero .policy-date {
-  margin-top: 18px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
 .policy-doc {
   padding-top: 64px;
 }

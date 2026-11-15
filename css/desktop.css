@@ -79,7 +79,6 @@
       gap: 0;
       padding: 0;
       background: var(--bg);
-      overflow: hidden;
       /* Use JS-measured visible viewport height when available.
            Prevents clipping on Android tablets where 100vh may include the
            area behind the system navigation bar (esp. landscape / PWA). */
@@ -98,11 +97,6 @@
       grid-area: header;
       position: relative;
       width: 100%;
-      padding: 0;
-      box-shadow: none;
-      background: var(--surface-1);
-      border-bottom: none;
-      margin-bottom: 0;
     }
 
     /* ---------------------------------------------------
@@ -211,9 +205,7 @@
       flex: none;
       padding: 32px 32px 16px;
       position: relative;
-      background: transparent;
       z-index: 10;
-      border-bottom: none;
       margin-bottom: 0;
     }
 
@@ -230,7 +222,6 @@
     .track-title {
       font-size: 24px;
       font-weight: var(--font-weight-title);
-      color: var(--text-main);
       /* Lock line-box to 36px (24 × 1.5) so the title's own height matches
            the 36px right-side content (buttons / invite wrapper) in tab
            headers. Without this, chat-header's lone title renders at 29px
@@ -277,9 +268,6 @@
       background: transparent;
       box-shadow: none;
       /* Reset the mobile slide-up drawer into a grid panel. */
-      position: relative;
-      visibility: visible;
-      height: 100%;
       max-height: 100%;
       overflow: hidden;
       border-radius: 0;
@@ -798,7 +786,6 @@
     /* Symmetric padding is safe because the overlay scrollbar does not consume
        content width. */
     .chat-drawer-messages {
-      overflow-y: auto;
       overflow-x: hidden;
       padding-top: 12px;
       padding-inline-start: 16px;

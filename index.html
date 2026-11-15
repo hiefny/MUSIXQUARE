@@ -299,6 +299,15 @@
         animation: boot-splash-head 1.45s ease-in-out infinite;
       }
 
+      /* Each turning part turns about the loader's centre in px (WebKit takes
+         a percentage origin of its box snapped to device pixels). */
+      .boot-splash-spinner .material-elastic-turn,
+      .boot-splash-spinner .material-elastic-arc,
+      .boot-splash-spinner .material-elastic-tail > svg,
+      .boot-splash-spinner .material-elastic-head > svg {
+        transform-origin: 12px 12px;
+      }
+
       .boot-splash-spinner path {
         fill: none;
         stroke: currentColor;

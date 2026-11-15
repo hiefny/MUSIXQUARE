@@ -2534,6 +2534,15 @@
   animation: material-elastic-head 1.45s ease-in-out infinite;
 }
 
+/* Each turning part turns about the loader's centre in px (WebKit takes a
+   percentage origin of its box snapped to device pixels). */
+.material-elastic-spinner .material-elastic-turn,
+.material-elastic-spinner .material-elastic-arc,
+.material-elastic-spinner .material-elastic-tail > svg,
+.material-elastic-spinner .material-elastic-head > svg {
+  transform-origin: calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2);
+}
+
 .material-elastic-spinner path {
   fill: none;
   stroke: currentColor;

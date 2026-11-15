@@ -950,6 +950,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     animation-delay: var(--material-elastic-dash-delay, 0ms);
   }
 
+  /* Every turning part turns about the loader's centre, given in px: WebKit
+     takes a percentage origin of its box snapped to device pixels, which at
+     sizes such as 13.444 or 13.778 px put the nested parts' centres up to
+     0.3 px apart and the half rings off each other at the seam. */
+  .material-elastic-spinner .material-elastic-turn,
+  .material-elastic-spinner .material-elastic-arc,
+  .material-elastic-spinner .material-elastic-tail > svg,
+  .material-elastic-spinner .material-elastic-head > svg {
+    transform-origin: calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2);
+  }
+
   .material-elastic-spinner path {
     fill: none;
     stroke: currentColor;

@@ -220,6 +220,17 @@ describe('shared loader (material elastic spinner)', () => {
     expect(staticRotation(css, parts.arc)).toBeCloseTo(middle(REDUCED_DASH) + 90, 6);
     expect(staticRotation(css, parts.tail)).toBeCloseTo(-(90 + half(REDUCED_DASH)), 6);
     expect(staticRotation(css, parts.head)).toBeCloseTo(90 + half(REDUCED_DASH), 6);
+
+    // Every turning part turns about the loader's centre in px: WebKit takes a
+    // percentage origin of a box snapped to device pixels, which set nested
+    // parts on different centres at sizes such as 13.444 px.
+    const centre =
+      root === '.boot-splash-spinner'
+        ? '12px 12px'
+        : 'calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2)';
+    for (const selector of Object.values(parts)) {
+      expect(declaration(css, selector, 'transform-origin'), selector).toBe(centre);
+    }
   });
 
   it.each(SHEETS)('clips each half ring to its half of the frame, in $name', ({ css, root }) => {

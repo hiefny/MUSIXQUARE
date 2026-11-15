@@ -142,7 +142,10 @@ test.describe('YouTube Integration', () => {
         return await pair.hostPage.evaluate(() => {
           const preview = document.getElementById('youtube-preview');
           const status = document.getElementById('youtube-preview-status');
-          return preview?.hidden === false || (status?.textContent?.trim().length ?? 0) > 0;
+          return (
+            preview?.hidden === false ||
+            status?.getAttribute('data-i18n') === 'youtube.fetch_failed'
+          );
         });
       })
       .toBe(true);

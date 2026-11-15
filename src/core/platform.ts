@@ -617,7 +617,7 @@ function scheduleIOSStandaloneHeightSettles(allowFocusedOrientationReconcile = f
 
 /**
  * Remove the is-booting guard class after viewport calculations stabilize.
- * This re-enables CSS transitions and backdrop-filter.
+ * This re-enables CSS transitions and the tab content animation.
  */
 function endBootingPhase(): void {
   try {

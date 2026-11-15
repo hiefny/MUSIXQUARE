@@ -6850,7 +6850,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Dark theme toast */
   [data-theme='dark'] .toast > span {
-    color: #fff;
+    color: var(--text-main);
   }
 
   .onboarding-overlay {

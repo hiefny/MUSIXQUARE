@@ -358,29 +358,14 @@ a {
   flex-wrap: wrap;
 }
 
-.policy-footer a,
-.policy-footer button {
+.policy-footer a {
   color: var(--text-sub);
   font: inherit;
   text-decoration: none;
 }
 
-.policy-footer button {
-  appearance: none;
-  border: 0;
-  padding: 0;
-  background: none;
-  cursor: pointer;
-}
-
-.policy-footer a:hover,
-.policy-footer button:hover,
-.policy-footer button.is-active {
+.policy-footer a:hover {
   color: var(--text-main);
-}
-
-.policy-footer button.is-active {
-  font-weight: 700;
 }
 
 :lang(ko) .policy-hero h1,

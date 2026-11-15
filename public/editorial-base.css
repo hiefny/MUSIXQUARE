@@ -773,32 +773,6 @@ code {
   word-break: normal;
 }
 
-.lp-lang-divider {
-  color: var(--text-muted);
-  user-select: none;
-}
-
-.lp-lang-btn {
-  background: none;
-  border: 0;
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  font-size: 12px;
-  color: var(--text-sub);
-  cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out);
-}
-
-.lp-lang-btn:hover,
-.lp-lang-btn.is-active {
-  color: var(--text-main);
-}
-
-.lp-lang-btn.is-active {
-  font-weight: 600;
-}
-
 @media (max-width: 1023px) {
   .editorial-page .hero {
     grid-template-columns: 1fr;
@@ -885,13 +859,8 @@ code {
     row-gap: 14px;
   }
 
-  .lp-footer__nav a,
-  .lp-lang-btn {
+  .lp-footer__nav a {
     white-space: nowrap;
-  }
-
-  .lp-lang-divider {
-    display: none;
   }
 }
 

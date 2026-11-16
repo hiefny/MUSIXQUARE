@@ -474,9 +474,11 @@ describe('shared loader (material elastic spinner)', () => {
     // Each host's stroke lives in its ring mask alone: the app's default, the
     // current row's, the upload row's, and the public pages' default and large.
     const masks = files.flatMap((path) =>
-      [...readFileSync(path, 'utf8').matchAll(/--material-elastic-mask:\s*([^;]+);/gu)].map(
-        ([, value]) => [path, value!.trim()] as const,
-      ),
+      [
+        ...readFileSync(path, 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//gu, '')
+          .matchAll(/--material-elastic-mask:\s*([^;]+);/gu),
+      ].map(([, value]) => [path, value!.trim()] as const),
     );
     expect(masks.map(([path, mask]) => `${path} ${maskStroke(mask)}`).sort()).toEqual([
       `${join('css', 'style.css')} 4.75`,

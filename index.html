@@ -324,12 +324,21 @@
         justify-content: center;
         width: 24px;
         height: 48px;
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.75'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.75'/%3E%3C/svg%3E");
+        -webkit-mask-size: 24px 24px;
+        mask-size: 24px 24px;
+        -webkit-mask-position: center bottom;
+        mask-position: center bottom;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
       }
 
       /* The app's loader (css/style.css .material-elastic-spinner, Google's
-         Material circular progress) at its 24px, in fixed lengths: every part
-         turns by a transform alone, which the compositor keeps running while
-         iOS freezes a page it leaves. */
+         Material circular progress) at its 24px, in fixed lengths: its ring
+         one still mask on the box above, the loader at its bottom, and every
+         part inside turning by a transform alone, which the compositor keeps
+         running while iOS freezes a page it leaves. */
       .boot-splash-spinner .material-elastic-turn {
         position: relative;
         display: block;
@@ -339,26 +348,24 @@
         animation: boot-splash-spin 1.568s linear infinite;
       }
 
-      .boot-splash-spinner .material-elastic-arc,
-      .boot-splash-spinner .material-elastic-seam {
+      .boot-splash-spinner .material-elastic-arc {
         position: absolute;
         top: 0;
         left: 0;
         display: block;
         width: 24px;
         height: 24px;
-      }
-
-      .boot-splash-spinner .material-elastic-arc {
         animation: boot-splash-arc 5.332s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
       }
 
+      /* Each half reaches 1px past the middle, so both wedges' ink covers the
+         line where they meet. */
       .boot-splash-spinner .material-elastic-tail,
       .boot-splash-spinner .material-elastic-head {
         position: absolute;
         top: 0;
         display: block;
-        width: 12px;
+        width: 13px;
         height: 24px;
         overflow: hidden;
       }
@@ -368,7 +375,7 @@
       }
 
       .boot-splash-spinner .material-elastic-head {
-        left: 12px;
+        left: 11px;
       }
 
       .boot-splash-spinner .material-elastic-tail > .material-elastic-ring,
@@ -386,11 +393,11 @@
       }
 
       .boot-splash-spinner .material-elastic-head > .material-elastic-ring {
-        left: -12px;
+        left: -11px;
         animation: boot-splash-head 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
       }
 
-      /* Each ring's drawing sits still inside the box that turns it: Chromium
+      /* Each wedge's drawing sits still inside the box that turns it: Chromium
          runs an svg element's own transform animation on the main thread
          whenever the device scale is not 1. */
       .boot-splash-spinner .material-elastic-ring > svg {
@@ -411,15 +418,8 @@
       }
 
       .boot-splash-spinner path {
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 4.75;
-        stroke-linecap: butt;
-        shape-rendering: geometricPrecision;
-      }
-
-      .boot-splash-spinner .material-elastic-seam path {
-        stroke-width: 3.8;
+        fill: currentColor;
+        stroke: none;
       }
 
       @keyframes boot-splash-mark-in {
@@ -1065,14 +1065,11 @@
         <span class="boot-splash-spinner" aria-hidden="true">
           <span class="material-elastic-turn">
             <span class="material-elastic-arc">
-              <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-              </svg>
               <span class="material-elastic-tail">
-                <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg></span>
+                <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
               </span>
               <span class="material-elastic-head">
-                <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg></span>
+                <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
               </span>
             </span>
           </span>
@@ -1318,14 +1315,11 @@
               >
                 <span class="material-elastic-turn">
                   <span class="material-elastic-arc">
-                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                    </svg>
                     <span class="material-elastic-tail">
-                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg></span>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                     </span>
                     <span class="material-elastic-head">
-                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg></span>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                     </span>
                   </span>
                 </span>
@@ -1407,14 +1401,11 @@
                 <span class="material-elastic-spinner play-loading-spinner" aria-hidden="true">
                   <span class="material-elastic-turn">
                     <span class="material-elastic-arc">
-                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                      </svg>
                       <span class="material-elastic-tail">
-                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg></span>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                       </span>
                       <span class="material-elastic-head">
-                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg></span>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                       </span>
                     </span>
                   </span>
@@ -3305,14 +3296,11 @@
               >
                 <span class="material-elastic-turn">
                   <span class="material-elastic-arc">
-                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                    </svg>
                     <span class="material-elastic-tail">
-                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg></span>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                     </span>
                     <span class="material-elastic-head">
-                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg></span>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                     </span>
                   </span>
                 </span>
@@ -3373,14 +3361,11 @@
                 <span class="material-elastic-spinner setup-qr-join-spinner" aria-hidden="true">
                   <span class="material-elastic-turn">
                     <span class="material-elastic-arc">
-                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                      </svg>
                       <span class="material-elastic-tail">
-                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg></span>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                       </span>
                       <span class="material-elastic-head">
-                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg></span>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                       </span>
                     </span>
                   </span>
@@ -4138,14 +4123,11 @@
                 <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
                   <span class="material-elastic-turn">
                     <span class="material-elastic-arc">
-                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                      </svg>
                       <span class="material-elastic-tail">
-                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg></span>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                       </span>
                       <span class="material-elastic-head">
-                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg></span>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                       </span>
                     </span>
                   </span>
@@ -4166,14 +4148,11 @@
                     <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
                       <span class="material-elastic-turn">
                         <span class="material-elastic-arc">
-                          <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                            <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                          </svg>
                           <span class="material-elastic-tail">
-                            <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg></span>
+                            <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                           </span>
                           <span class="material-elastic-head">
-                            <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg></span>
+                            <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                           </span>
                         </span>
                       </span>
@@ -4581,14 +4560,11 @@
               >
                 <span class="material-elastic-turn">
                   <span class="material-elastic-arc">
-                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                    </svg>
                     <span class="material-elastic-tail">
-                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg></span>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                     </span>
                     <span class="material-elastic-head">
-                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg></span>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                     </span>
                   </span>
                 </span>

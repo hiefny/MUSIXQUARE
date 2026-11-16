@@ -157,9 +157,9 @@ without modifying either source.
   https://github.com/material-components/material-components-web/tree/v14.0.0/packages/mdc-circular-progress
 - **Use**: The shared loader follows the indeterminate circular progress of
   Material Components Web 14: its container turn, its spinner layer's 135
-  degree steps, its two clippers' swings and its gap patch at 80 % of the
-  stroke, with their durations and easing. MUSIXQUARE draws its own ring and
-  ships no file from the package.
+  degree steps and its two clippers' swings, with their durations and easing.
+  MUSIXQUARE draws its own ring (one still ring mask over two turning wedges)
+  and ships no file from the package.
 
 ### License Summaries
 

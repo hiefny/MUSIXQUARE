@@ -2443,19 +2443,27 @@
   margin-top: 32px;
 }
 
+/* The app's loader (css/style.css .material-elastic-spinner, Google's Material
+   circular progress): its ring one still mask on the loader itself, and every
+   part inside turning by a transform alone (src/ui/material-elastic-spinner.ts). */
 .material-elastic-spinner {
   --material-elastic-size: 24px;
-  --material-elastic-stroke: 4.75;
+  --material-elastic-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.75'/%3E%3C/svg%3E");
   width: var(--material-elastic-size);
   height: var(--material-elastic-size);
   flex: 0 0 var(--material-elastic-size);
   display: block;
   color: currentColor;
+  -webkit-mask-image: var(--material-elastic-mask);
+  mask-image: var(--material-elastic-mask);
+  -webkit-mask-size: var(--material-elastic-ring-size, 100%) var(--material-elastic-ring-size, 100%);
+  mask-size: var(--material-elastic-ring-size, 100%) var(--material-elastic-ring-size, 100%);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
-/* The app's loader (css/style.css .material-elastic-spinner, Google's Material
-   circular progress): every part turns by a transform alone
-   (src/ui/material-elastic-spinner.ts). */
 .material-elastic-spinner .material-elastic-turn {
   position: relative;
   display: block;
@@ -2474,12 +2482,14 @@
   animation: material-elastic-arc 5.332s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
+/* Each half reaches 1px past the middle, so both wedges' ink covers the line
+   where they meet. */
 .material-elastic-spinner .material-elastic-tail,
 .material-elastic-spinner .material-elastic-head {
   position: absolute;
   top: 0;
   display: block;
-  width: 50%;
+  width: calc(50% + 1px);
   height: 100%;
   overflow: hidden;
 }
@@ -2489,7 +2499,7 @@
 }
 
 .material-elastic-spinner .material-elastic-head {
-  left: 50%;
+  left: calc(50% - 1px);
 }
 
 .material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
@@ -2497,8 +2507,8 @@
   position: absolute;
   top: 0;
   display: block;
-  width: 200%;
-  height: 100%;
+  width: var(--material-elastic-size);
+  height: var(--material-elastic-size);
 }
 
 .material-elastic-spinner .material-elastic-tail > .material-elastic-ring {
@@ -2507,7 +2517,7 @@
 }
 
 .material-elastic-spinner .material-elastic-head > .material-elastic-ring {
-  left: -100%;
+  left: calc(1px - var(--material-elastic-size) / 2);
   animation: material-elastic-head 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
@@ -2522,29 +2532,18 @@
   transform-origin: calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2);
 }
 
-/* Each drawing sits still inside the box that turns it, at the ring's drawn
-   size (by default the whole box): Chromium runs an <svg>'s own transform
-   animation on the main thread whenever the device scale is not 1. */
-.material-elastic-spinner .material-elastic-seam,
+/* Each wedge's drawing fills the box that turns it and sits still in it:
+   Chromium runs an <svg>'s own transform animation on the main thread
+   whenever the device scale is not 1. The mask alone draws the ring's edges. */
 .material-elastic-spinner .material-elastic-ring > svg {
-  position: absolute;
-  top: calc((100% - var(--material-elastic-ring-size, 100%)) / 2);
-  left: calc((100% - var(--material-elastic-ring-size, 100%)) / 2);
   display: block;
-  width: var(--material-elastic-ring-size, 100%);
-  height: var(--material-elastic-ring-size, 100%);
+  width: 100%;
+  height: 100%;
 }
 
 .material-elastic-spinner path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: var(--material-elastic-stroke);
-  stroke-linecap: butt;
-  shape-rendering: geometricPrecision;
-}
-
-.material-elastic-spinner .material-elastic-seam path {
-  stroke-width: calc(var(--material-elastic-stroke) * 0.8px);
+  fill: currentColor;
+  stroke: none;
 }
 
 @keyframes material-elastic-spin {
@@ -2636,7 +2635,7 @@
 
 .material-elastic-spinner--large {
   --material-elastic-size: 36px;
-  --material-elastic-stroke: 4.25;
+  --material-elastic-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.25'/%3E%3C/svg%3E");
   color: #fff;
 }
 

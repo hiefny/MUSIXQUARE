@@ -837,36 +837,52 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      ring: radius 18 in a 44 unit box, each host's stroke. Determinate
      progress surfaces keep their monotonic width/value behavior.
 
+     The ring is one still mask on the loader itself, which never turns
+     (--material-elastic-mask: the r = 18 circle at the host's stroke, drawn
+     at the ring's drawn size), and inside it two filled wedges turn as
+     Google's two half rings do (the owner's idea, chosen in the spinner lab
+     on 2026-11-16). Two ring pieces drawn and turned apart, Google's as ours,
+     met a fraction of a device pixel apart at some sizes and scales, the
+     smaller the worse; the mask draws the ring's inner and outer edges once,
+     and the wedges only decide where the arc starts and ends.
+
      Every part moves by a transform alone, on an HTML box, which the
      compositor runs without the page: iOS stops painting a page it is
      leaving, and the stroke dash this loader once animated froze there while
      its turn ran on (App 9.0.50); Chromium runs an <svg>'s own transform
      animation on the main thread whenever the device scale is not 1, so the
-     rings turn on spans holding their drawings (parts in
+     wedges turn on spans holding their drawings (parts in
      src/ui/material-elastic-spinner.ts). Each part is Google's:
      - turn (its container): the whole loader, one turn per 1.568 s, its
        1568.2352941176 ms to the whole ms so every copy reads the same.
      - arc (its spinner layer): a frame whose 12 o'clock is the arc's middle,
        stepping 135 degrees on at each eighth of 5.332 s, eased.
-     - tail, head (its left and right clippers): the frame's halves. Each
-       shows the part of a ring piece turning inside it (.material-elastic-
-       ring), the tail ring by 265 -> 130 -> 265 degrees every 1.333 s and the
-       head ring the mirror, so the arc runs from one ring's end through 12
-       o'clock to the other's, 5 to 140 degrees each side. Each piece is 150
-       degrees: at most 140 show, and the other 10 keep its hidden end under
-       the other ring's ink, far from the line the halves share at 6 o'clock
-       (Google's whole half rings come within 5 degrees of it).
-     - seam (its gap patch): a 7.2 degree arc at 12 o'clock, under the line
-       where the halves meet, at 80 % of the stroke, so at 2x and 3x its edges
-       sit inside the halves' and the arc's middle no longer reads heavier. */
+     - tail, head (its left and right clippers): the frame's halves, each
+       reaching 1px past the middle so both wedges' ink covers the line where
+       they meet (Google lays a gap patch over it). Each shows the part of a
+       wedge turning inside it (.material-elastic-ring), the tail wedge by
+       265 -> 130 -> 265 degrees every 1.333 s and the head wedge the mirror,
+       so the arc runs from one wedge's side through 12 o'clock to the
+       other's, 5 to 140 degrees each side. Each wedge is 150 degrees: at most
+       140 show, and the other 10 keep its hidden side under the other wedge's
+       ink, far from the line the halves share at 6 o'clock (Google's whole
+       half rings come within 5 degrees of it). */
   .material-elastic-spinner {
     --material-elastic-size: 24px;
-    --material-elastic-stroke: 4.75;
+    --material-elastic-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.75'/%3E%3C/svg%3E");
     display: block;
     width: var(--material-elastic-size);
     height: var(--material-elastic-size);
     flex: 0 0 var(--material-elastic-size);
     color: currentColor;
+    -webkit-mask-image: var(--material-elastic-mask);
+    mask-image: var(--material-elastic-mask);
+    -webkit-mask-size: var(--material-elastic-ring-size, 100%) var(--material-elastic-ring-size, 100%);
+    mask-size: var(--material-elastic-ring-size, 100%) var(--material-elastic-ring-size, 100%);
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 
   .material-elastic-spinner .material-elastic-turn {
@@ -878,7 +894,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     animation-delay: var(--material-elastic-spin-delay, 0ms);
   }
 
-  /* The layer and its two rings share one phase, the rings swinging four
+  /* The layer and its two wedges share one phase, the wedges swinging four
      times per layer cycle; its variable keeps the name of the dash they
      replaced (src/ui/playlist-view.ts sets it). */
   .material-elastic-spinner .material-elastic-arc {
@@ -892,12 +908,15 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     animation-delay: var(--material-elastic-dash-delay, 0ms);
   }
 
+  /* Each half reaches 1px past the frame's middle: two edges each drawn soft
+     on that line let the background through as a faint line, and the arc
+     always covers it (its middle). */
   .material-elastic-spinner .material-elastic-tail,
   .material-elastic-spinner .material-elastic-head {
     position: absolute;
     top: 0;
     display: block;
-    width: 50%;
+    width: calc(50% + 1px);
     height: 100%;
     overflow: hidden;
   }
@@ -907,16 +926,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .material-elastic-spinner .material-elastic-head {
-    left: 50%;
+    left: calc(50% - 1px);
   }
 
+  /* Each wedge turns in a box of the whole loader's size and place. */
   .material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
   .material-elastic-spinner .material-elastic-head > .material-elastic-ring {
     position: absolute;
     top: 0;
     display: block;
-    width: 200%;
-    height: 100%;
+    width: var(--material-elastic-size);
+    height: var(--material-elastic-size);
   }
 
   .material-elastic-spinner .material-elastic-tail > .material-elastic-ring {
@@ -926,7 +946,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   .material-elastic-spinner .material-elastic-head > .material-elastic-ring {
-    left: -100%;
+    left: calc(1px - var(--material-elastic-size) / 2);
     animation: material-elastic-head 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
     animation-delay: var(--material-elastic-dash-delay, 0ms);
   }
@@ -936,8 +956,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      draws on the main thread. On the compositor it rounds every part's pivot
      to a device pixel in px or %, while drawing the ring about the exact
      centre, so every loader box is an even whole px (half of it whole at 1x,
-     2x and 3x, at 100 % page zoom); a ring drawn smaller sits inside its
-     even box (--material-elastic-ring-size). */
+     2x and 3x, at 100 % page zoom); a ring drawn smaller is a smaller mask
+     inside its even box (--material-elastic-ring-size). */
   .material-elastic-spinner .material-elastic-turn,
   .material-elastic-spinner .material-elastic-arc,
   .material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
@@ -945,29 +965,18 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transform-origin: calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2);
   }
 
-  /* Each drawing sits still inside the box that turns it, at the ring's
-     drawn size: by default the whole box, smaller where a ring keeps an even
-     box larger than itself. */
-  .material-elastic-spinner .material-elastic-seam,
+  /* Each wedge's drawing fills the box that turns it and sits still in it:
+     its straight sides run from the ring's centre, so their angles hold at
+     any drawn size. The mask alone draws the ring's edges. */
   .material-elastic-spinner .material-elastic-ring > svg {
-    position: absolute;
-    top: calc((100% - var(--material-elastic-ring-size, 100%)) / 2);
-    left: calc((100% - var(--material-elastic-ring-size, 100%)) / 2);
     display: block;
-    width: var(--material-elastic-ring-size, 100%);
-    height: var(--material-elastic-ring-size, 100%);
+    width: 100%;
+    height: 100%;
   }
 
   .material-elastic-spinner path {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: var(--material-elastic-stroke);
-    stroke-linecap: butt;
-    shape-rendering: geometricPrecision;
-  }
-
-  .material-elastic-spinner .material-elastic-seam path {
-    stroke-width: calc(var(--material-elastic-stroke) * 0.8px);
+    fill: currentColor;
+    stroke: none;
   }
 
   @keyframes material-elastic-spin {
@@ -1045,7 +1054,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Reduced motion holds the still arc the loader has held since 9.0.49: 58
      of 100 units from 18 units on, its middle 169.2 degrees clockwise from 3
      o'clock (the layer's 12 o'clock turned 259.2) and half of it 104.4 (the
-     tail ring turned 270 - 104.4, the head ring the mirror). */
+     tail wedge turned 270 - 104.4, the head wedge the mirror). */
   @media (prefers-reduced-motion: reduce) {
     .material-elastic-spinner .material-elastic-turn,
     .material-elastic-spinner .material-elastic-arc,
@@ -2603,7 +2612,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .track-playback-loading-indicator {
     --material-elastic-size: 16px;
-    --material-elastic-stroke: 4.75;
     width: var(--material-elastic-size);
     height: var(--material-elastic-size);
   }
@@ -2628,7 +2636,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .track-type-slot.playlist-current-leading .track-playback-loading-indicator {
     --material-elastic-ring-size: 13.444px;
-    --material-elastic-stroke: 6.545;
+    --material-elastic-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='6.545'/%3E%3C/svg%3E");
   }
 
   .track-playback-loading-indicator > .material-elastic-turn {
@@ -2913,7 +2921,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .pro-upload-spinner {
     --material-elastic-size: 16px;
     --material-elastic-ring-size: 13.778px;
-    --material-elastic-stroke: 5.516;
+    --material-elastic-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='5.516'/%3E%3C/svg%3E");
   }
 
   .pro-upload-cancel:disabled {
@@ -4805,7 +4813,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .signaling-recovery-spinner {
     --material-elastic-size: 20px;
-    --material-elastic-stroke: 4.75;
     display: none;
     flex: 0 0 20px;
   }
@@ -9561,7 +9568,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .demo-loading-spinner {
     --material-elastic-size: 20px;
-    --material-elastic-stroke: 4.75;
     display: none;
   }
 

@@ -681,16 +681,21 @@ test.describe('installed iOS app', () => {
         });
         const log: HoldLog = { held: false, fades: 0, fadeWhileHeld: false };
         (window as typeof window & { __holdLog: HoldLog }).__holdLog = log;
-        const root = document.documentElement;
+        // The document has no root yet when this runs: watch the document itself.
+        const held = () => document.documentElement?.hasAttribute('data-boot-hold') === true;
         new MutationObserver(() => {
-          if (root.hasAttribute('data-boot-hold')) log.held = true;
-        }).observe(root, { attributes: true, attributeFilter: ['data-boot-hold'] });
+          if (held()) log.held = true;
+        }).observe(document, {
+          attributes: true,
+          subtree: true,
+          attributeFilter: ['data-boot-hold'],
+        });
         document.addEventListener(
           'animationstart',
           (event) => {
             if ((event as AnimationEvent).animationName !== 'boot-splash-out') return;
             log.fades += 1;
-            if (root.hasAttribute('data-boot-hold')) log.fadeWhileHeld = true;
+            if (held()) log.fadeWhileHeld = true;
           },
           true,
         );

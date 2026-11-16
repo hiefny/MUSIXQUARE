@@ -373,3 +373,56 @@ test.describe('phone setup scroll area', () => {
     });
   }
 });
+
+/**
+ * The phone start screen's language button (owner decision 2026-11-17): the
+ * 44px button sits centred on the greeting title at the top of the welcome
+ * area, its pill 7.6px above the title and its keyboard focus outline 11.6px,
+ * while both scroll boxes there (.setup-mobile-view and the welcome area)
+ * clipped at their top edge, so the top of the hover pill and the outline was
+ * cut off and that strip of the button took no taps. Both clip edges sit 16px
+ * higher, in the card's empty top padding, and the content keeps its place.
+ */
+test.describe('phone start screen language button', () => {
+  for (const viewport of [{ width: 390, height: 844 }, ...PHONE_VIEWPORTS]) {
+    test(`shows the whole button and keeps the content in place at ${viewport.width}x${viewport.height}`, async ({
+      page,
+    }) => {
+      await openSetup(page, viewport);
+      await settleViewTransitions(page);
+      const read = await page.evaluate(() => {
+        const round = (value: number): number => Math.round(value * 100) / 100;
+        const button = document.querySelector('#setup-welcome-header .setup-language-button')!;
+        const heading = button.closest('h2')!;
+        const area = document.getElementById('setup-welcome-area')!;
+        const view = area.parentElement!;
+        const card = view.parentElement!;
+        const box = button.getBoundingClientRect();
+        const cardBox = card.getBoundingClientRect();
+        const cardStyle = getComputedStyle(card);
+        const actions = view.querySelector(':scope > .ob-actions')!.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + 1);
+        return {
+          // How far above the button each clip edge sits (the outline needs 4px).
+          areaClear: round(box.top - area.getBoundingClientRect().top),
+          viewClear: round(box.top - view.getBoundingClientRect().top),
+          topHitsButton: hit !== null && button.contains(hit),
+          // The title starts where the card's padding ends, and the view still
+          // reaches the card's bottom padding, with the actions at its end.
+          titleTop: round(heading.getBoundingClientRect().top),
+          cardContentTop: round(cardBox.top + Number.parseFloat(cardStyle.paddingTop)),
+          viewBottom: round(view.getBoundingClientRect().bottom),
+          cardContentBottom: round(cardBox.bottom - Number.parseFloat(cardStyle.paddingBottom)),
+          actionsBottom: round(actions.bottom),
+        };
+      });
+      const label = `${viewport.width}x${viewport.height}`;
+      expect(read.areaClear, label).toBeGreaterThanOrEqual(4);
+      expect(read.viewClear, label).toBeGreaterThanOrEqual(4);
+      expect(read.topHitsButton, label).toBe(true);
+      expect(read.titleTop, label).toBe(read.cardContentTop);
+      expect(read.viewBottom, label).toBe(read.cardContentBottom);
+      expect(read.actionsBottom, label).toBe(read.cardContentBottom);
+    });
+  }
+});

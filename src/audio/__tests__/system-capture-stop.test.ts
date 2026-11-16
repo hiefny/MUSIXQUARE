@@ -2178,6 +2178,95 @@ describe('capture start pending and settlement', () => {
     expect(isSystemAudioActive()).toBe(false);
   });
 
+  // The room holds the lease the press asked for as preparing until it hears
+  // the release. A press on an option that already read ready again would
+  // only meet that lease (the "Preparing to share system audio" toast) and
+  // open nothing, so the start lasts until the room has answered.
+  it.each([
+    {
+      ending: 'the share window is cancelled',
+      stub: () =>
+        stubDisplayMedia(() =>
+          Promise.reject(new DOMException('Permission denied', 'NotAllowedError')),
+        ),
+      toast: 'system_audio.capture_denied' as const,
+    },
+    {
+      ending: 'the picked surface has no audio',
+      stub: () => stubDisplayMedia(undefined, undefined, { withoutAudio: true }),
+      toast: 'system_audio.no_audio_track' as const,
+    },
+    {
+      ending: 'the shared audio ends before the start',
+      stub: () =>
+        stubDisplayMedia((stream) => {
+          lastDisplayCapture!.dispatchEnded();
+          return Promise.resolve(stream);
+        }),
+      toast: null,
+    },
+  ])(
+    'keeps a PRO start pending until the room answers its lease release when $ending',
+    async ({ stub, toast }) => {
+      setProRoom();
+      let answerRelease!: () => void;
+      proAudio.release.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answerRelease = () => resolve(null);
+          }),
+      );
+      stub();
+      const settled = observeSettlements();
+      const toasts = observeToasts();
+
+      const startPromise = startSystemAudioCapture();
+      await vi.waitFor(() => expect(proAudio.release).toHaveBeenCalledTimes(1));
+
+      // The message is already up; the start is not over yet.
+      if (toast) expect(toasts).toHaveBeenCalledWith(t(toast));
+      else expect(toasts).not.toHaveBeenCalled();
+      expect(isSystemAudioCaptureStartPending()).toBe(true);
+      expect(settled).not.toHaveBeenCalled();
+
+      answerRelease();
+      await startPromise;
+
+      expect(settled).toHaveBeenCalledTimes(1);
+      expect(settled).toHaveBeenCalledWith({ started: false });
+      expect(isSystemAudioCaptureStartPending()).toBe(false);
+      expect(isSystemAudioActive()).toBe(false);
+    },
+  );
+
+  it('settles a PRO start that waits for its lease release once when a stop arrives meanwhile', async () => {
+    setProRoom();
+    let answerRelease!: () => void;
+    proAudio.release.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerRelease = () => resolve(null);
+        }),
+    );
+    stubDisplayMedia(() =>
+      Promise.reject(new DOMException('Permission denied', 'NotAllowedError')),
+    );
+    const settled = observeSettlements();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(proAudio.release).toHaveBeenCalledTimes(1));
+    bus.emit('system-audio:force-stop');
+
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(settled).toHaveBeenCalledWith({ started: false });
+    expect(isSystemAudioCaptureStartPending()).toBe(false);
+
+    answerRelease();
+    await startPromise;
+
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
   it('settles once as not started when a stop supersedes the pending picker', async () => {
     let resolvePicker!: () => void;
     stubDisplayMedia(

@@ -650,7 +650,7 @@ test('a cancelled share dialog keeps the picker open and the option ready again'
   expect((await readHeldSystemAudioPicker(page)).activations).toEqual([true, true]);
 });
 
-test('a PRO owner sees the preparing label for the whole start and keeps the picker on cancel', async ({
+test('a PRO owner sees the preparing label for the whole start and, after a cancel, until the room releases the lease', async ({
   page,
 }) => {
   // The local harness has no PRO Worker or Realtime SFU, so the PRO API is
@@ -685,7 +685,10 @@ test('a PRO owner sees the preparing label for the whole start and keeps the pic
     publication: null,
   });
   let systemAudio: Record<string, unknown> = idle(0);
+  let generation = 0;
   const calls = { acquire: 0, acquired: 0, release: 0 };
+  // Each release is answered only when the test lets it through.
+  const releaseAnswers: Array<() => void> = [];
   const snapshot = ownerSnapshot();
   await page.route('**/api/pro-room/**', async (route) => {
     const request = route.request();
@@ -720,8 +723,9 @@ test('a PRO owner sees the preparing label for the whole start and keeps the pic
       await fulfillProJson(page, route, { systemAudio });
     } else if (pathname.endsWith(`${room}/system-audio/acquire`)) {
       calls.acquire += 1;
+      generation += 1;
       systemAudio = {
-        generation: 1,
+        generation,
         status: 'preparing',
         ownerParticipantId: PARTICIPANT_ID,
         claimExpiresAt: Date.now() + 45_000,
@@ -732,7 +736,8 @@ test('a PRO owner sees the preparing label for the whole start and keeps the pic
       calls.acquired += 1;
     } else if (pathname.endsWith(`${room}/system-audio/release`)) {
       calls.release += 1;
-      systemAudio = idle(1);
+      await new Promise<void>((resolve) => releaseAnswers.push(resolve));
+      systemAudio = idle(generation);
       await fulfillProJson(page, route, { systemAudio });
     } else {
       await fulfillProJson(page, route, { error: 'TEST_ADJUNCT_UNAVAILABLE' }, 503);
@@ -778,10 +783,23 @@ test('a PRO owner sees the preparing label for the whole start and keeps the pic
   await expect(overlay).toHaveClass(/\bactive\b/);
 
   await cancelHeldSystemAudioPicker(page);
+  await expect(page.locator('#toast')).toContainText('Audio sharing was cancelled');
+  await expect.poll(() => calls.release).toBe(1);
+  // The room holds the lease as preparing until it answers the release, so the
+  // option keeps preparing, and a press meanwhile opens nothing and shows no
+  // "Preparing to share system audio" toast.
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button_preparing');
+  await expect(option).toHaveAttribute('aria-busy', 'true');
+  await expect(overlay).toHaveClass(/\bactive\b/);
+  await expect(option).toBeFocused();
+  await page.keyboard.press('Enter');
+  expect((await readHeldSystemAudioPicker(page)).calls).toBe(1);
+  await expect(page.locator('#toast')).toContainText('Audio sharing was cancelled');
+
+  releaseAnswers.shift()!();
   await expect(label).toHaveAttribute('data-i18n', 'system_audio.button');
   await expect(option).toHaveAttribute('aria-busy', 'false');
   await expect(overlay).toHaveClass(/\bactive\b/);
-  await expect.poll(() => calls.release).toBe(1);
   const record = await page.evaluate(
     () => (window as PickerRecordWindow).__systemAudioPickerRecord ?? [],
   );
@@ -790,11 +808,22 @@ test('a PRO owner sees the preparing label for the whole start and keeps the pic
     (entry, index) => index > firstBusy && entry.key === 'system_audio.button',
   );
   expect(firstBusy).toBeGreaterThanOrEqual(0);
-  // Between the press and the cancel the option read only the preparing label.
+  // From the press until the room answered the release the option read only
+  // the preparing label.
   expect(
     record
       .slice(firstBusy, firstReady)
       .filter(({ key }) => key !== 'system_audio.button_preparing'),
   ).toEqual([]);
-  expect(calls.acquire).toBe(1);
+
+  // The room is idle again: the next press opens the share window.
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await readHeldSystemAudioPicker(page)).calls).toBe(2);
+  expect((await readHeldSystemAudioPicker(page)).activations).toEqual([true, true]);
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button_preparing');
+  await cancelHeldSystemAudioPicker(page);
+  await expect.poll(() => calls.release).toBe(2);
+  releaseAnswers.shift()!();
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button');
+  expect(calls.acquire).toBe(2);
 });

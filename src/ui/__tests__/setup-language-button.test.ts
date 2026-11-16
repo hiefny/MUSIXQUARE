@@ -9,7 +9,23 @@ import { describe, expect, it } from 'vitest';
  * clipped at their top edge: the top of the hover pill and of the outline was
  * cut off. Both clip edges now sit 16px higher, in the card's empty top
  * padding, and the content keeps its place (e2e/setup-scroll-edge.test.ts).
+ * Every other step area starts there too (owner decision the same day), so
+ * scrolled content leaves the screen at the same line on every step.
  */
+
+/** The step areas: the setup view's scrolling children in index.html. */
+async function setupStepAreas(): Promise<string[]> {
+  const html = await readFile('index.html', 'utf8');
+  const start = html.indexOf('<div class="setup-mobile-view" data-custom-scroll>');
+  const end = html.indexOf('<div class="ob-actions" id="setup-actions">', start);
+  expect(start).toBeGreaterThan(0);
+  expect(end).toBeGreaterThan(start);
+  return [
+    ...html
+      .slice(start, end)
+      .matchAll(/<div\s+id="(setup-[a-z-]+-area)"\s+class="[^"]*"\s+data-custom-scroll/gu),
+  ].map((match) => match[1]!);
+}
 
 async function stylesheetLayer(name: string): Promise<string> {
   const css = await readFile('css/style.css', 'utf8');
@@ -34,19 +50,33 @@ function px(body: string, property: string): number {
 }
 
 describe('phone start screen language button', () => {
-  it('raises both phone setup clip edges 16px and keeps the content where it was', async () => {
+  it('raises every phone setup clip edge 16px and keeps the content where it was', async () => {
+    const areas = await setupStepAreas();
+    expect(areas).toEqual([
+      'setup-welcome-area',
+      'setup-code-area',
+      'setup-join-area',
+      'setup-auto-join-area',
+      'setup-role-area',
+    ]);
     const responsive = await stylesheetLayer('responsive');
     const phone = [
       ...responsive.matchAll(/@media \(max-width: 719\.98px\) \{\n([\s\S]*?)\n {2}\}/gu),
     ].map((match) => match[1] ?? '');
-    const block = phone.find((body) => body.includes('#setup-welcome-area {'));
+    const block = phone.find((body) => body.includes('#setup-overlay .setup-mobile-view {'));
     expect(block).toBeDefined();
     // The view's height is fixed (100% of the card), so it grows by the same
-    // 16px it reaches up; the welcome area is a flex item that grows on its own.
+    // 16px it reaches up; each step area is a flex item that grows on its own.
     expect(block).toMatch(
       /#setup-overlay \.setup-mobile-view \{\s*margin-top: -16px;\s*padding-top: 16px;\s*height: calc\(100% \+ 16px\);\s*\}/u,
     );
-    expect(block).toMatch(/#setup-welcome-area \{\s*margin-top: -16px;\s*padding-top: 16px;\s*\}/u);
+    // One rule for every step area, so a scrolled step leaves the screen at the
+    // same line whichever step it is.
+    const rule = block!.match(
+      /\n {4}(#setup-[a-z-]+-area(?:,\s*#setup-[a-z-]+-area)*) \{([^}]*)\}/u,
+    );
+    expect(rule?.[1]?.split(/,\s*/u)).toEqual(areas.map((id) => `#${id}`));
+    expect(rule?.[2]).toMatch(/^\s*margin-top: -16px;\s*padding-top: 16px;\s*$/u);
   });
 
   it("covers the button's reach above the title, with its focus outline, with room to spare", async () => {

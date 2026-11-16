@@ -425,4 +425,35 @@ test.describe('phone start screen language button', () => {
       expect(read.actionsBottom, label).toBe(read.cardContentBottom);
     });
   }
+
+  // Every step clips where the welcome step does (owner decision the same
+  // day), so scrolled content leaves the screen at the same line on each.
+  for (const viewport of [{ width: 390, height: 844 }, ...PHONE_VIEWPORTS]) {
+    for (const step of ['welcome', 'join', 'host'] as const) {
+      test(`clips the ${step} step 16px above its title at ${viewport.width}x${viewport.height}`, async ({
+        page,
+      }) => {
+        await openSetup(page, viewport);
+        const area = await enterStep(page, step);
+        const read = await area.evaluate((element) => {
+          const round = (value: number): number => Math.round(value * 100) / 100;
+          const view = element.parentElement!;
+          const card = view.parentElement!;
+          return {
+            areaTop: round(element.getBoundingClientRect().top),
+            viewTop: round(view.getBoundingClientRect().top),
+            titleTop: round(element.querySelector('h2')!.getBoundingClientRect().top),
+            cardContentTop: round(
+              card.getBoundingClientRect().top +
+                Number.parseFloat(getComputedStyle(card).paddingTop),
+            ),
+          };
+        });
+        const label = `${step} at ${viewport.width}x${viewport.height}`;
+        expect(read.titleTop, label).toBe(read.cardContentTop);
+        expect(read.areaTop, label).toBe(read.cardContentTop - 16);
+        expect(read.viewTop, label).toBe(read.cardContentTop - 16);
+      });
+    }
+  }
 });

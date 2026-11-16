@@ -786,11 +786,16 @@ test.describe('Playlist delete slide-out', () => {
           };
           const loading = slot.querySelector('.track-playback-loading-indicator');
           const loadingStyle = loading ? getComputedStyle(loading) : null;
+          // The ring's drawn size: its own box, or a smaller ring in an even box.
           const ringSize = parseFloat(
-            loadingStyle?.getPropertyValue('--material-elastic-size') ?? '',
+            loadingStyle?.getPropertyValue('--material-elastic-ring-size') ||
+              (loadingStyle?.getPropertyValue('--material-elastic-size') ?? ''),
           );
-          const ringStroke = parseFloat(
-            loadingStyle?.getPropertyValue('--material-elastic-stroke') ?? '',
+          // Its line: the stroke its ring mask draws.
+          const ringStroke = Number(
+            loadingStyle
+              ?.getPropertyValue('--material-elastic-mask')
+              .match(/stroke-width='([\d.]+)'/u)?.[1],
           );
           const round = (value: number) => Math.round(value * 100) / 100;
           return {

@@ -326,9 +326,16 @@ test('PRO upload rows number on from the playlist and keep their ring in the ico
         const title = entry.querySelector('.track-name-text')!.getBoundingClientRect();
         const spinner = entry.querySelector<HTMLElement>('.track-type-slot > .pro-upload-spinner');
         const spinnerStyle = spinner ? getComputedStyle(spinner) : null;
-        const size = parseFloat(spinnerStyle?.getPropertyValue('--material-elastic-size') ?? '');
-        const stroke = parseFloat(
-          spinnerStyle?.getPropertyValue('--material-elastic-stroke') ?? '',
+        // The ring's drawn size: its own box, or a smaller ring in an even box.
+        const size = parseFloat(
+          spinnerStyle?.getPropertyValue('--material-elastic-ring-size') ||
+            (spinnerStyle?.getPropertyValue('--material-elastic-size') ?? ''),
+        );
+        // Its line: the stroke its ring mask draws.
+        const stroke = Number(
+          spinnerStyle
+            ?.getPropertyValue('--material-elastic-mask')
+            .match(/stroke-width='([\d.]+)'/u)?.[1],
         );
         return {
           upload: entry.classList.contains('pro-upload-entry'),

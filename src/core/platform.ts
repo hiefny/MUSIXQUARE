@@ -155,6 +155,19 @@ const KB_DETECTION_LOCK_MS = 1200;
 const IOS_STANDALONE_BOOT_SETTLE_MS = [300, 1300] as const;
 const IOS_STANDALONE_SAFE_AREA_DELTA_MAX = 64;
 
+/**
+ * The boot splash's hold over an installed iOS app's first screen that iOS
+ * gives short by the home indicator strip: index.html's head preflight marks
+ * the root with it and keeps the splash's height in --boot-splash-height, and
+ * the splash stays over the app while it lasts (owner decision 2026-11-16), so
+ * the app never shows on that screen and never jumps when it grows. This
+ * module owns that screen's height, so it ends the hold: once the screen has
+ * grown to that height, at the latest with the boot window's end
+ * (endBootingPhase), and at once outside the installed iOS app.
+ */
+const BOOT_SPLASH_HOLD_ATTRIBUTE = 'data-boot-hold';
+const BOOT_SPLASH_HEIGHT_PROPERTY = '--boot-splash-height';
+
 let _appHeightRaf = 0;
 let _lastSoftKeyHeight = 0;
 let _platformClassesApplied = false;
@@ -341,6 +354,23 @@ function resetKeyboardViewportTransitionState(): void {
   const root = document.documentElement;
   root.classList.remove('keyboard-open');
   root.style.setProperty('--keyboard-overlap', '0px');
+}
+
+function endBootSplashHold(root: HTMLElement): void {
+  try {
+    root.removeAttribute(BOOT_SPLASH_HOLD_ATTRIBUTE);
+  } catch (e) {
+    log.debug('[Platform] boot splash hold release failed:', e);
+  }
+}
+
+function endBootSplashHoldOnceGrown(root: HTMLElement): void {
+  if (!root.hasAttribute(BOOT_SPLASH_HOLD_ATTRIBUTE)) return;
+  const kept = Number.parseFloat(root.style.getPropertyValue(BOOT_SPLASH_HEIGHT_PROPERTY));
+  // Within a pixel of the kept height: iOS may round the grown screen down.
+  if (!(kept > 0) || roundedPositive(window.innerHeight) >= Math.round(kept) - 1) {
+    endBootSplashHold(root);
+  }
 }
 
 function resetMobileViewportTransitionState(): void {
@@ -555,6 +585,7 @@ function updateAppHeightNow(): void {
         log.debug('[Platform] iOS standalone height set failed:', e);
       }
     }
+    endBootSplashHoldOnceGrown(root);
   } else {
     // Clear any iOS standalone inline height override (e.g. after rotation)
     try {
@@ -622,6 +653,8 @@ function scheduleIOSStandaloneHeightSettles(allowFocusedOrientationReconcile = f
 function endBootingPhase(): void {
   try {
     const root = document.documentElement;
+    // The boot splash's hold ends with the boot window at the latest.
+    endBootSplashHold(root);
     if (!root.classList.contains('is-booting')) return;
     // Use rAF to ensure the final layout has been painted before enabling transitions
     requestAnimationFrame(() => {
@@ -648,6 +681,8 @@ export function initPlatform(): void {
     // Apply the same bounded keyboard-inference lock up front so transient
     // visualViewport values cannot hide the side navigation on first paint.
     if (IS_IOS && isStandaloneDisplayMode()) resetMobileViewportTransitionState();
+    // Only the installed iOS app's height settles below end the splash's hold.
+    else endBootSplashHold(root);
   } catch (e) {
     log.debug('[Platform] is-booting class failed:', e);
   }

@@ -279,7 +279,7 @@ test.describe('session reset screen', () => {
       // What a reset stamps just before it navigates (session-reset.ts).
       sessionStorage.setItem('mxqr-boot-continuity', String(Date.now()));
     });
-    type Frame = { bg: string; mark: string; loader: string };
+    type Frame = { bg: string; mark: string; loader: string; ring: string };
     await page.addInitScript(() => {
       const frames: Frame[] = [];
       (window as typeof window & { __firstFrames: Frame[] }).__firstFrames = frames;
@@ -288,10 +288,19 @@ test.describe('session reset screen', () => {
         const mark = splash?.querySelector('.boot-splash-mark');
         const loader = splash?.querySelector('.boot-splash-spinner');
         if (splash && mark && loader) {
+          const loaderStyle = getComputedStyle(loader);
+          // The loader's ring needs no image: a clip path, drawn in the same
+          // frame (a mask image's data URL decodes on a later task in WebKit,
+          // which paints nothing of a masked element until it has loaded).
+          const clip = loaderStyle.clipPath || loaderStyle.getPropertyValue('-webkit-clip-path');
+          const mask =
+            loaderStyle.getPropertyValue('mask-image') ||
+            loaderStyle.getPropertyValue('-webkit-mask-image');
           frames.push({
             bg: getComputedStyle(splash).backgroundColor,
             mark: getComputedStyle(mark).opacity,
-            loader: getComputedStyle(loader).opacity,
+            loader: loaderStyle.opacity,
+            ring: `${clip.startsWith('path(') ? 'clip' : clip} ${mask}`,
           });
         }
         if (frames.length < 3) requestAnimationFrame(sample);
@@ -318,10 +327,11 @@ test.describe('session reset screen', () => {
       () => (window as typeof window & { __firstFrames: Frame[] }).__firstFrames,
     );
     releaseBootstrap();
-    // Dark from the first frame, with the wordmark and loader where the reset screen showed them.
+    // Dark from the first frame, with the wordmark and loader where the reset
+    // screen showed them, the loader's ring a clip.
     expect(frames.slice(0, 2)).toEqual([
-      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1' },
-      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1' },
+      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1', ring: 'clip none' },
+      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1', ring: 'clip none' },
     ]);
   });
 
@@ -388,6 +398,201 @@ test.describe('session reset screen', () => {
       { screen: height - 34, mark: height / 2 },
       { screen: height - 34, mark: height / 2 },
     ]);
+  });
+
+  // Owner report 2026-11-16, after 9.0.51: opening the installed app for the
+  // first time, the first screen stopped short by the strip and the wordmark,
+  // centred in it, came down when it went. No reset leaves a box there; the
+  // installed app fills the screen iOS reports, so the splash takes that height.
+  test("an installed app's first open keeps the wordmark where the full screen centres it while its first screen is shorter", async ({
+    page,
+  }) => {
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    const { width, height } = page.viewportSize()!;
+    type Frame = { screen: number; wordmark: number; installed: boolean };
+    // Opened from the iOS home screen (WebKit's navigator.standalone), on a
+    // screen the size of this window.
+    await page.addInitScript(
+      ({ screenWidth, screenHeight }) => {
+        Object.defineProperty(Navigator.prototype, 'standalone', {
+          configurable: true,
+          get: () => true,
+        });
+        // An iPhone's touch screen (Chromium and desktop WebKit report none).
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+          configurable: true,
+          get: () => 5,
+        });
+        Object.defineProperty(Screen.prototype, 'width', {
+          configurable: true,
+          get: () => screenWidth,
+        });
+        Object.defineProperty(Screen.prototype, 'height', {
+          configurable: true,
+          get: () => screenHeight,
+        });
+        const frames: Frame[] = [];
+        (window as typeof window & { __firstFrames: Frame[] }).__firstFrames = frames;
+        const sample = () => {
+          // The wordmark itself: on a first open it stands alone at the centre (its
+          // mark box also holds the loader's place below it).
+          const wordmark = document.querySelector('.boot-splash .boot-splash-logo');
+          if (wordmark) {
+            const box = wordmark.getBoundingClientRect();
+            frames.push({
+              screen: innerHeight,
+              wordmark: box.top + box.height / 2,
+              installed: document.documentElement.hasAttribute('data-boot-installed'),
+            });
+          }
+          if (frames.length < 3) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      },
+      { screenWidth: width, screenHeight: height },
+    );
+    // Hold bootstrap.js, so the first frames come before it.
+    let releaseBootstrap = (): void => undefined;
+    const bootstrapHeld = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    await page.route(/\/bootstrap\.js(?:\?.*)?$/u, async (route) => {
+      await bootstrapHeld;
+      await route.fallback();
+    });
+    // A first open (no reset stamp), on a first screen 34 px short, as an
+    // iPhone's is by its home indicator strip.
+    await page.evaluate(() => sessionStorage.clear());
+    await page.setViewportSize({ width, height: height - 34 });
+    await page.goto('/', { waitUntil: 'commit' });
+    await page.waitForFunction(
+      () =>
+        ((window as typeof window & { __firstFrames?: Frame[] }).__firstFrames?.length ?? 0) >= 2,
+      null,
+      { timeout: 10_000, polling: 20 },
+    );
+    const frames = await page.evaluate(
+      () => (window as typeof window & { __firstFrames: Frame[] }).__firstFrames,
+    );
+    releaseBootstrap();
+    await page.setViewportSize({ width, height });
+    // The wordmark sits where the full screen centres it: half the full screen down.
+    expect(
+      frames.slice(0, 2).map((frame) => ({
+        screen: frame.screen,
+        wordmark: Math.round(frame.wordmark * 2) / 2,
+        installed: frame.installed,
+      })),
+    ).toEqual([
+      { screen: height - 34, wordmark: height / 2, installed: true },
+      { screen: height - 34, wordmark: height / 2, installed: true },
+    ]);
+  });
+
+  // The strip iOS paints there is pure black in the dark theme and pure white
+  // in the light one (owner report, 2026-11-16): an installed app's splash
+  // starts on that colour, its refresh screen ends on it, and elsewhere both
+  // keep the app's palette.
+  test("an installed app's splash starts on the strip's colour, rises to the app's once the strip is gone, and its refresh screen ends on it", async ({
+    page,
+  }) => {
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    const { width, height } = page.viewportSize()!;
+    await page.addInitScript(
+      ({ screenWidth, screenHeight }) => {
+        Object.defineProperty(Navigator.prototype, 'standalone', {
+          configurable: true,
+          get: () => true,
+        });
+        // An iPhone's touch screen (Chromium and desktop WebKit report none).
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+          configurable: true,
+          get: () => 5,
+        });
+        Object.defineProperty(Screen.prototype, 'width', {
+          configurable: true,
+          get: () => screenWidth,
+        });
+        Object.defineProperty(Screen.prototype, 'height', {
+          configurable: true,
+          get: () => screenHeight,
+        });
+      },
+      { screenWidth: width, screenHeight: height },
+    );
+    // Hold bootstrap.js, so the app never takes the screen while this reads it.
+    let releaseBootstrap = (): void => undefined;
+    const bootstrapHeld = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    await page.route(/\/bootstrap\.js(?:\?.*)?$/u, async (route) => {
+      await bootstrapHeld;
+      await route.fallback();
+    });
+    // A first open on a first screen 34 px short: the strip shows, so the
+    // preflight holds the splash.
+    await page.evaluate(() => sessionStorage.clear());
+    await page.setViewportSize({ width, height: height - 34 });
+    await page.goto('/', { waitUntil: 'commit' });
+    await page.waitForFunction(
+      () => document.documentElement.hasAttribute('data-boot-hold'),
+      null,
+      { timeout: 10_000, polling: 20 },
+    );
+    const read = () =>
+      page.evaluate(() => {
+        const splash = document.querySelector('.boot-splash') as HTMLElement;
+        return {
+          theme: document.documentElement.getAttribute('data-theme'),
+          background: getComputedStyle(splash).backgroundColor,
+          up: !splash.hidden && getComputedStyle(splash).opacity === '1',
+        };
+      });
+    const held = await read();
+    expect(held.background).toBe(held.theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
+    expect(held.up).toBe(true);
+    // The strip goes: the screen grows and platform.ts ends the hold (its own
+    // part, src/core/__tests__/platform.test.ts); the app still loads.
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => document.documentElement.removeAttribute('data-boot-hold'));
+    await page.waitForTimeout(500);
+    const risen = await read();
+    expect(risen.background).toBe(
+      risen.theme === 'dark' ? 'rgb(18, 18, 18)' : 'rgb(248, 249, 250)',
+    );
+    expect(risen.up).toBe(true);
+    releaseBootstrap();
+    await waitForBootstrapReady(page);
+    // The refresh screen with the app stylesheet (its layer and palette) loaded.
+    const overlay = await page.evaluate(() => {
+      const root = document.documentElement;
+      const screen = document.createElement('div');
+      screen.className = 'session-reset-overlay';
+      document.body.append(screen);
+      const read = (theme: string, installed: boolean) => {
+        root.setAttribute('data-theme', theme);
+        root.toggleAttribute('data-boot-installed', installed);
+        return getComputedStyle(screen).backgroundColor;
+      };
+      const colours = {
+        installedDark: read('dark', true),
+        installedLight: read('light', true),
+        browserDark: read('dark', false),
+        browserLight: read('light', false),
+      };
+      screen.remove();
+      return colours;
+    });
+    expect(overlay).toEqual({
+      installedDark: 'rgb(0, 0, 0)',
+      installedLight: 'rgb(255, 255, 255)',
+      browserDark: 'rgb(18, 18, 18)',
+      browserLight: 'rgb(248, 249, 250)',
+    });
   });
 
   test('a continued splash keeps the wordmark and loader on a screen turned after its first frame', async ({
@@ -475,5 +680,119 @@ test.describe('session reset screen', () => {
     releaseApp();
     await page.setViewportSize({ width: 1280, height: 720 });
     expect(placed).toEqual({ screen: 1440, mark: 720 });
+  });
+});
+
+// Owner decision 2026-11-16: over an installed iOS app's first screen that iOS
+// gives short by the home indicator strip, the splash stays over the app until
+// the screen has grown (index.html's head preflight marks data-boot-hold,
+// src/core/platform.ts ends it, at the latest when its boot window ends), so the
+// app never shows on that screen and never jumps as it grows.
+test.describe('installed iOS app', () => {
+  // platform.ts reads iOS from the user agent (the WebKit lane's iPhone has it).
+  test.use({
+    serviceWorkers: 'block',
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1',
+  });
+
+  type HoldLog = { held: boolean; fades: number; fadeWhileHeld: boolean };
+
+  async function openInstalledOnShortScreen(
+    page: Page,
+  ): Promise<{ width: number; height: number }> {
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    const { width, height } = page.viewportSize()!;
+    await page.addInitScript(
+      ({ screenWidth, screenHeight }) => {
+        Object.defineProperty(Navigator.prototype, 'standalone', {
+          configurable: true,
+          get: () => true,
+        });
+        // An iPhone's touch screen (Chromium and desktop WebKit report none).
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+          configurable: true,
+          get: () => 5,
+        });
+        Object.defineProperty(Screen.prototype, 'width', {
+          configurable: true,
+          get: () => screenWidth,
+        });
+        Object.defineProperty(Screen.prototype, 'height', {
+          configurable: true,
+          get: () => screenHeight,
+        });
+        const log: HoldLog = { held: false, fades: 0, fadeWhileHeld: false };
+        (window as typeof window & { __holdLog: HoldLog }).__holdLog = log;
+        // The document has no root yet when this runs: watch the document itself.
+        const held = () => document.documentElement?.hasAttribute('data-boot-hold') === true;
+        new MutationObserver(() => {
+          if (held()) log.held = true;
+        }).observe(document, {
+          attributes: true,
+          subtree: true,
+          attributeFilter: ['data-boot-hold'],
+        });
+        document.addEventListener(
+          'animationstart',
+          (event) => {
+            if ((event as AnimationEvent).animationName !== 'boot-splash-out') return;
+            log.fades += 1;
+            if (held()) log.fadeWhileHeld = true;
+          },
+          true,
+        );
+      },
+      { screenWidth: width, screenHeight: height },
+    );
+    // A first open (no reset stamp) on a first screen 34 px short.
+    await page.evaluate(() => sessionStorage.clear());
+    await page.setViewportSize({ width, height: height - 34 });
+    await page.goto('/');
+    await page.waitForFunction(
+      () => !document.documentElement.classList.contains('setup-boot-block'),
+      null,
+      { timeout: 30_000, polling: 50 },
+    );
+    return { width, height };
+  }
+
+  const splashRetired = (page: Page) =>
+    page.waitForFunction(
+      () => (document.querySelector('.boot-splash') as HTMLElement | null)?.hidden === true,
+      null,
+      { timeout: 5_000, polling: 50 },
+    );
+
+  test('keeps the splash over the app while the first screen is short, and fades it only once the hold ends', async ({
+    page,
+  }) => {
+    const { width, height } = await openInstalledOnShortScreen(page);
+    await page.setViewportSize({ width, height });
+    await splashRetired(page);
+    const log = await page.evaluate(
+      () => (window as typeof window & { __holdLog: HoldLog }).__holdLog,
+    );
+    expect(log.held).toBe(true);
+    expect(log.fades).toBeGreaterThan(0);
+    expect(log.fadeWhileHeld).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.hasAttribute('data-boot-hold'))).toBe(
+      false,
+    );
+  });
+
+  test('ends the hold with the boot window when the first screen never grows', async ({ page }) => {
+    await openInstalledOnShortScreen(page);
+    await splashRetired(page);
+    const log = await page.evaluate(
+      () => (window as typeof window & { __holdLog: HoldLog }).__holdLog,
+    );
+    expect(log.held).toBe(true);
+    expect(log.fadeWhileHeld).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.hasAttribute('data-boot-hold'))).toBe(
+      false,
+    );
   });
 });

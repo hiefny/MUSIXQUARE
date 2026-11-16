@@ -7,6 +7,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { APP_RENDER_ASSETS_SLOT, prioritizeActiveStylesheetsInHtml } from '../../../vite.config.ts';
 import {
+  MATERIAL_ELASTIC_ARC_PERIOD_MS,
+  MATERIAL_ELASTIC_TURN_PERIOD_MS,
+} from '../../ui/material-elastic-spinner.ts';
+import {
   BOOT_SPLASH_CONTINUITY_BOX_KEY,
   BOOT_SPLASH_CONTINUITY_KEY,
 } from '../navigation-contract.ts';
@@ -222,6 +226,83 @@ describe('boot splash', () => {
     );
   });
 
+  // Owner report 2026-11-16: in the installed iPhone app the strip iOS paints
+  // under a short first screen is pure black in the dark theme and pure white
+  // in the light one. There the splash starts on that colour and the refresh
+  // screen ends on it, so the strip blends in; the app's own background shows
+  // through the splash's fade over the app (owner decision, same day).
+  it("starts an installed app's splash on the strip's colour, and its refresh screen ends on it", () => {
+    expect(
+      ownDeclaration(SPLASH_CSS, '      html[data-boot-installed] .boot-splash {', 'background'),
+    ).toBe('#000000');
+    const systemLight = SPLASH_CSS.slice(
+      SPLASH_CSS.indexOf(
+        '@media (prefers-color-scheme: light) {\n        html[data-boot-installed] .boot-splash {',
+      ),
+    );
+    expect(declaration(systemLight, 'html[data-boot-installed] .boot-splash {', 'background')).toBe(
+      '#ffffff',
+    );
+    expect(
+      declaration(
+        SPLASH_CSS,
+        "      html[data-boot-installed][data-theme='dark'] .boot-splash {",
+        'background',
+      ),
+    ).toBe('#000000');
+    expect(
+      declaration(
+        SPLASH_CSS,
+        "      html[data-boot-installed][data-theme='light'] .boot-splash {",
+        'background',
+      ),
+    ).toBe('#ffffff');
+    // The background itself, not --boot-splash-bg: once style.css loads, its
+    // --bg would take over that fallback in the middle of the boot.
+    expect(SPLASH_CSS).not.toMatch(/data-boot-installed[^{]*\{[^}]*--boot-splash-bg/u);
+    expect(
+      declaration(STYLE, '  html[data-boot-installed] .session-reset-overlay {', 'background'),
+    ).toBe('#000000');
+    expect(
+      declaration(
+        STYLE,
+        "  html[data-boot-installed][data-theme='light'] .session-reset-overlay {",
+        'background',
+      ),
+    ).toBe('#ffffff');
+    // Owner suggestion, same day: once nothing holds it (the strip is gone, or
+    // there never was one) the splash rises from that colour to the app's own
+    // background in 0.3 s, and keeps rising through its fade over the app.
+    expect(keyframes(SPLASH_CSS, 'boot-splash-rise')).toBe(
+      'to { background-color: var(--bg, var(--boot-splash-bg)); }',
+    );
+    const animation = (opener: string) =>
+      declaration(SPLASH_CSS, opener, 'animation').replace(/\s+/gu, ' ');
+    const rising = '      html[data-boot-installed]:not([data-boot-hold]) .boot-splash {';
+    expect(animation(rising)).toBe(
+      'boot-splash-rise 0.3s ease-out forwards, boot-splash-fail-open 0s linear calc(var(--setup-boot-failure-delay, 15s) + 5s) forwards',
+    );
+    const leaving = [
+      '      html[data-boot-installed]:not(.setup-boot-block):not([data-boot-hold]) .boot-splash,',
+      '      html[data-boot-installed].boot-splash-released:not([data-boot-hold]) .boot-splash,',
+      '      html[data-boot-installed].setup-boot-failed .boot-splash {',
+    ].join('\n');
+    expect(animation(leaving)).toBe(
+      'boot-splash-out 0.3s ease-out forwards, boot-splash-rise 0.3s ease-out forwards',
+    );
+    // The failure selector weighs as much as the rising rule, so it comes later.
+    expect(SPLASH_CSS.indexOf(leaving)).toBeGreaterThan(SPLASH_CSS.indexOf(rising));
+    expect(SPLASH_CSS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[^}]*html\[data-boot-installed\]:not\(\[data-boot-hold\]\) \.boot-splash,/u,
+    );
+    // Everywhere else the refresh screen keeps the app's palette.
+    expect(declaration(STYLE, '  .session-reset-overlay {', 'background')).toBe('var(--bg)');
+    // Both colours are the palette's already: the dark contrast palette's
+    // background and the light palette's first surface.
+    expect(declaration(STYLE, "  html[data-contrast='more'] {", '--bg')).toBe('#000000');
+    expect(declaration(STYLE, "  html[data-theme='light'] {", '--surface-1')).toBe('#ffffff');
+  });
+
   it('keeps the app wordmark shapes in the loading screen logo, glyph for glyph', () => {
     const dom = new JSDOM(INDEX);
     const splashLogo = dom.window.document.querySelector('.boot-splash-logo');
@@ -280,16 +361,11 @@ describe('boot splash', () => {
         return Number.parseFloat(value);
       });
     const [logoWidth = 0, logoHeight = 0] = fixedSize('      .boot-splash-logo {');
-    // The loader's three SVGs: the seam patch and the two half rings.
-    const [seamWidth = 0, seamHeight = 0] = fixedSize(
-      '      .boot-splash-spinner .material-elastic-arc,\n      .boot-splash-spinner .material-elastic-seam {',
-    );
+    // The loader's two SVGs: its two wedges.
     const [ringWidth = 0, ringHeight = 0] = fixedSize(
-      '      .boot-splash-spinner .material-elastic-tail > svg,\n      .boot-splash-spinner .material-elastic-head > svg {',
+      '      .boot-splash-spinner .material-elastic-ring > svg {',
     );
-    expect(
-      logoWidth * logoHeight + seamWidth * seamHeight + 2 * ringWidth * ringHeight,
-    ).toBeGreaterThan(32 * 32);
+    expect(logoWidth * logoHeight + 2 * ringWidth * ringHeight).toBeGreaterThan(32 * 32);
     // Exactly what the viewBox gives at that height, as auto would.
     const [, , boxWidth = 0, boxHeight = 0] = (
       new JSDOM(INDEX).window.document
@@ -322,18 +398,38 @@ describe('boot splash', () => {
     expect(declaration(STYLE, '  * {', 'margin')).toBe('0');
     expect(declaration(STYLE, '  * {', 'padding')).toBe('0');
     expect(SPLASH_CSS).not.toMatch(/(?:^|[\s;{])(?:margin|padding)(?:-[a-z]+)?\s*:/u);
-    expect(declaration(STYLE, '  .material-elastic-spinner {', '--material-elastic-stroke')).toBe(
-      declaration(SPLASH_CSS, '      .boot-splash-spinner path {', 'stroke-width'),
-    );
+    // The same ring: the app's default ring mask, as the splash loader's own.
+    for (const property of ['mask-image', '-webkit-mask-image']) {
+      expect(declaration(SPLASH_CSS, '      .boot-splash-spinner {', property)).toBe(
+        declaration(STYLE, '  .material-elastic-spinner {', '--material-elastic-mask'),
+      );
+    }
 
     // Each moving part runs on the app's clock, under the splash's own name
     // (the app sheet may load beside it); material-elastic-spinner.test.ts
-    // pins the arc itself to the dash it replaces.
+    // pins the motion itself to Google's Material circular progress.
+    const curve = 'cubic-bezier(0.4, 0, 0.2, 1)';
     const parts = [
-      ['.material-elastic-turn {', 'spin', '1.85s linear infinite'],
-      ['.material-elastic-arc {', 'arc', '1.45s ease-in-out infinite'],
-      ['.material-elastic-tail > svg {', 'tail', '1.45s ease-in-out infinite'],
-      ['.material-elastic-head > svg {', 'head', '1.45s ease-in-out infinite'],
+      [
+        '.material-elastic-turn {',
+        'spin',
+        `${MATERIAL_ELASTIC_TURN_PERIOD_MS / 1000}s linear infinite`,
+      ],
+      [
+        '.material-elastic-arc {',
+        'arc',
+        `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 1000}s ${curve} infinite both`,
+      ],
+      [
+        '.material-elastic-tail > .material-elastic-ring {',
+        'tail',
+        `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 4000}s ${curve} infinite both`,
+      ],
+      [
+        '.material-elastic-head > .material-elastic-ring {',
+        'head',
+        `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 4000}s ${curve} infinite both`,
+      ],
     ] as const;
     for (const [part, name, clock] of parts) {
       expect(ownDeclaration(STYLE, `  .material-elastic-spinner ${part}`, 'animation')).toBe(
@@ -346,7 +442,7 @@ describe('boot splash', () => {
         keyframes(STYLE, `material-elastic-${name}`),
       );
     }
-    for (const property of ['fill', 'stroke', 'stroke-linecap', 'shape-rendering']) {
+    for (const property of ['fill', 'stroke']) {
       expect(declaration(SPLASH_CSS, '      .boot-splash-spinner path {', property)).toBe(
         declaration(STYLE, '  .material-elastic-spinner path {', property),
       );
@@ -358,34 +454,37 @@ describe('boot splash', () => {
           `      .boot-splash-spinner .material-elastic-${side} {`,
           'left',
         ),
-      ).toBe(side === 'tail' ? '0' : '12px');
+      ).toBe(side === 'tail' ? '0' : '11px');
       expect(
         ownDeclaration(STYLE, `  .material-elastic-spinner .material-elastic-${side} {`, 'left'),
-      ).toBe(side === 'tail' ? '0' : '50%');
+      ).toBe(side === 'tail' ? '0' : 'calc(50% - 1px)');
     }
 
     // Reduced motion holds both on the same static arc: a rule of its own per
     // part, after the one that stops their animations.
     const staticArc = (css: string, root: string) =>
-      ['.material-elastic-arc', '.material-elastic-tail > svg', '.material-elastic-head > svg'].map(
-        (part) => {
-          const reduced = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce) {'));
-          const selector = `${root} ${part}`.replace(/\./gu, '\\.');
-          return reduced.match(
-            new RegExp(`\\n\\s*${selector} \\{\\s*transform: ([^;]+);`, 'u'),
-          )?.[1];
-        },
-      );
+      [
+        '.material-elastic-arc',
+        '.material-elastic-tail > .material-elastic-ring',
+        '.material-elastic-head > .material-elastic-ring',
+      ].map((part) => {
+        const reduced = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce) {'));
+        const selector = `${root} ${part}`.replace(/\./gu, '\\.');
+        return reduced.match(new RegExp(`\\n\\s*${selector} \\{\\s*transform: ([^;]+);`, 'u'))?.[1];
+      });
     const staticSplash = staticArc(SPLASH_CSS, '.boot-splash-spinner');
-    expect(staticSplash).toEqual(['rotate(259.2deg)', 'rotate(-194.4deg)', 'rotate(194.4deg)']);
+    expect(staticSplash).toEqual(['rotate(259.2deg)', 'rotate(165.6deg)', 'rotate(-165.6deg)']);
     const appSheet = STYLE.slice(0, STYLE.indexOf('.header-safe-content {'));
     expect(staticArc(appSheet, '.material-elastic-spinner')).toEqual(staticSplash);
   });
 
   it('steps aside once the app takes the screen or boot fails, and never comes back', () => {
     expect(INDEX).toMatch(/<html lang="en" class="setup-boot-block">/u);
+    // An installed iOS app's short first screen holds the app's release (the
+    // head preflight's data-boot-hold, ended by platform.ts once the screen
+    // grows), never boot failure's.
     expect(SPLASH_CSS).toMatch(
-      /html:not\(\.setup-boot-block\) \.boot-splash,\s*html\.boot-splash-released \.boot-splash,\s*html\.setup-boot-failed \.boot-splash \{\s*pointer-events: none;\s*animation: boot-splash-out 0\.3s ease-out forwards;\s*\}/u,
+      /html:not\(\.setup-boot-block\):not\(\[data-boot-hold\]\) \.boot-splash,\s*html\.boot-splash-released:not\(\[data-boot-hold\]\) \.boot-splash,\s*html\.setup-boot-failed \.boot-splash \{\s*pointer-events: none;\s*animation: boot-splash-out 0\.3s ease-out forwards;\s*\}/u,
     );
     expect(keyframes(SPLASH_CSS, 'boot-splash-out')).toBe('to { opacity: 0; visibility: hidden; }');
     // style.css switches transitions off while the app boots, which is exactly
@@ -402,8 +501,17 @@ describe('boot splash', () => {
     // Without the runtime nothing hides it, so everything inside freezes at
     // release instead (WebKit also keeps an unfinished fade-in running).
     expect(SPLASH_CSS).toMatch(
-      /html:not\(\[data-boot-splash-runtime\]\):not\(\.setup-boot-block\) \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.boot-splash-released \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
+      /html:not\(\[data-boot-splash-runtime\]\):not\(\.setup-boot-block\):not\(\[data-boot-hold\]\) \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.boot-splash-released:not\(\[data-boot-hold\]\) \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
     );
+    // The reduced-motion release follows the same three selectors.
+    expect(SPLASH_CSS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*html:not\(\.setup-boot-block\):not\(\[data-boot-hold\]\) \.boot-splash,\s*html\.boot-splash-released:not\(\[data-boot-hold\]\) \.boot-splash,\s*html\.setup-boot-failed \.boot-splash,/u,
+    );
+    // No other rule releases or freezes the splash without the hold.
+    expect(
+      SPLASH_CSS.match(/:not\(\.setup-boot-block\)(?!:not\(\[data-boot-hold\]\))/gu),
+    ).toBeNull();
+    expect(SPLASH_CSS.match(/\.boot-splash-released(?!:not\(\[data-boot-hold\]\))/gu)).toBeNull();
     expect(SPLASH_CSS).not.toMatch(/html:not\(\.setup-boot-block\) \.boot-splash \*/u);
     // Only this release's runtime turns the no-runtime rules off: the one an
     // older release's service worker still serves on the update's first load
@@ -601,16 +709,19 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     );
     const { window } = dom;
     Object.defineProperty(window.Date, 'now', { value: () => NOW });
-    // The loader's moving parts: one turn per 1.85 s, the arc's three parts 1.45 s.
+    // The loader's moving parts: one turn per 1.568 s, the layer's eight steps
+    // per 5.332 s, and its two rings' swings every 1.333 s.
     Object.defineProperty(window, 'getComputedStyle', {
       value: (element: Element) => ({
         animationDuration: element.matches('.material-elastic-turn')
-          ? '1.85s'
-          : element.matches(
-                '.material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
-              )
-            ? '1.45s'
-            : '0s',
+          ? '1.568s'
+          : element.matches('.material-elastic-arc')
+            ? '5.332s'
+            : element.matches(
+                  '.material-elastic-tail > .material-elastic-ring, .material-elastic-head > .material-elastic-ring',
+                )
+              ? '1.333s'
+              : '0s',
       }),
     });
     if (stamp !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_KEY, stamp);
@@ -628,8 +739,8 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
         [
           '.material-elastic-turn',
           '.material-elastic-arc',
-          '.material-elastic-tail > svg',
-          '.material-elastic-head > svg',
+          '.material-elastic-tail > .material-elastic-ring',
+          '.material-elastic-head > .material-elastic-ring',
         ].map((part) => delay(`.boot-splash-spinner ${part}`)),
       // Every other part of the loader keeps no delay.
       stillParts: () =>
@@ -637,7 +748,7 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
           .filter(
             (element) =>
               !element.matches(
-                '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
+                '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > .material-elastic-ring, .material-elastic-head > .material-elastic-ring',
               ),
           )
           .map((element) => element.style.animationDelay)
@@ -651,8 +762,9 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     app.run();
     expect(app.phase()).toBe('settled');
     expect(app.stamp()).toBeNull();
-    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and the 1 450 ms arc 950 ms in.
-    expect(app.delays()).toEqual(['-1000ms', '-950ms', '-950ms', '-950ms']);
+    // At 1 000 000 ms a 1 568 ms turn is 1 184 ms in, the 5 332 ms layer
+    // 2 916 ms in and its 1 333 ms rings 250 ms in (2 916 less two swings).
+    expect(app.delays()).toEqual(['-1184ms', '-2916ms', '-250ms', '-250ms']);
     expect(app.stillParts()).toEqual([]);
   });
 
@@ -719,6 +831,14 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   // splash, a frame of the wrong colour or without the wordmark after a refresh.
   const NOW = 1_000_000;
   const PREFLIGHT = INDEX.match(/<script data-boot-preflight>([\s\S]*?)<\/script>/u)?.[1] ?? '';
+  // The installed iOS app's largest safe-area difference (src/core/platform.ts).
+  // The boundary rows below are built from it, so each of the preflight's two
+  // copies is checked against it by what it does.
+  const D = Number(
+    readFileSync('src/core/platform.ts', 'utf8').match(
+      /const IOS_STANDALONE_SAFE_AREA_DELTA_MAX = (\d+);/u,
+    )?.[1],
+  );
 
   function page({
     theme,
@@ -727,6 +847,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     width,
     height,
     deviceDark = false,
+    installed = false,
+    screen,
   }: {
     theme?: string;
     stamp?: string;
@@ -734,6 +856,14 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     width?: number;
     height?: number;
     deviceDark?: boolean;
+    /**
+     * Opened as an installed web app, where WebKit's navigator.standalone is
+     * true: from the iOS home screen (true), or from the macOS Dock ('mac',
+     * Safari 17 and later), which reports no touch points.
+     */
+    installed?: boolean | 'mac';
+    /** The screen as iOS reports it (in either orientation's order). */
+    screen?: { width: number; height: number };
   } = {}) {
     const dom = new JSDOM('<!doctype html><html class="setup-boot-block"><head></head></html>', {
       runScripts: 'outside-only',
@@ -747,6 +877,24 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     }
     if (height !== undefined) {
       Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+    }
+    if (installed) {
+      Object.defineProperty(window.navigator, 'standalone', { configurable: true, value: true });
+      const mac = installed === 'mac';
+      Object.defineProperty(window.navigator, 'userAgent', {
+        configurable: true,
+        value: mac
+          ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)'
+          : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+      });
+      Object.defineProperty(window.navigator, 'maxTouchPoints', {
+        configurable: true,
+        value: mac ? 0 : 5,
+      });
+    }
+    if (screen !== undefined) {
+      Object.defineProperty(window.screen, 'width', { configurable: true, value: screen.width });
+      Object.defineProperty(window.screen, 'height', { configurable: true, value: screen.height });
     }
     if (box !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_BOX_KEY, box);
     Object.defineProperty(window, 'matchMedia', {
@@ -770,7 +918,9 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       }),
       stamp: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_KEY),
       box: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_BOX_KEY),
-      height: () => root.style.getPropertyValue('--boot-continued-height'),
+      height: () => root.style.getPropertyValue('--boot-splash-height'),
+      installed: () => root.hasAttribute('data-boot-installed'),
+      hold: () => root.hasAttribute('data-boot-hold'),
       window,
     };
   }
@@ -815,12 +965,13 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   it("marks a splash an app reset under 15 s ago continues, its loader on the wall clock's phase, and leaves the stamp to bootstrap.js", () => {
     const app = page({ theme: 'dark', stamp: String(NOW - 14_999) });
     app.run();
-    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
+    // At 1 000 000 ms a 1 568 ms turn is 1 184 ms in and the 5 332 ms layer,
+    // which its 1 333 ms rings follow, 2 916 ms in.
     expect(app.state()).toEqual({
       theme: 'dark',
       scheme: 'dark',
       continued: true,
-      delays: ['-1000ms', '-950ms'],
+      delays: ['-1184ms', '-2916ms'],
     });
     expect(app.stamp()).toBe(String(NOW - 14_999));
   });
@@ -846,8 +997,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   it.each([
     ['as tall', 844],
     ['34 px shorter (an iPhone home indicator strip)', 810],
-    ['64 px shorter', 780],
-    ['64 px taller', 908],
+    [`${D} px shorter`, 844 - D],
+    [`${D} px taller`, 844 + D],
   ])(
     "hands the sheet the reset screen's height for a first screen %s at the same width, and leaves its box to bootstrap.js",
     (_label, height) => {
@@ -856,13 +1007,15 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       expect(app.state().continued).toBe(true);
       expect(app.height()).toBe('844px');
       expect(app.box()).toBe('390x844');
+      // A browser tab draws no strip under its first screen: nothing holds.
+      expect(app.hold()).toBe(false);
     },
   );
 
   it.each([
     ['another width (the device turned)', '844x390', 390, 810],
-    ['more than 64 px shorter', '390x844', 390, 779],
-    ['more than 64 px taller', '390x844', 390, 909],
+    [`more than ${D} px shorter`, '390x844', 390, 844 - D - 1],
+    [`more than ${D} px taller`, '390x844', 390, 844 + D + 1],
     ['an unreadable box', 'tall', 390, 844],
     ['a box without a height', '390x', 390, 844],
     ['a zero height', '390x0', 390, 30],
@@ -884,10 +1037,105 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect(app.height()).toBe('');
   });
 
+  // Owner report 2026-11-16, after 9.0.51: opening the installed app for the
+  // first time showed the strip too, and the wordmark came down when it went.
+  // No reset left a box there, but the installed app fills its whole screen
+  // (the app's own height already reads the screen there, src/core/platform.ts),
+  // so the screen iOS reports gives the same height from the first frame.
+  it.each([
+    ['an iPhone held upright, 34 px short', { width: 390, height: 844 }, 390, 810, '844px'],
+    ['an iPhone turned, 21 px short', { width: 390, height: 844 }, 844, 369, '390px'],
+    [
+      'an iPhone turned, the screen read in that order',
+      { width: 844, height: 390 },
+      844,
+      369,
+      '390px',
+    ],
+    ['an iPad held upright, 20 px short', { width: 820, height: 1180 }, 820, 1160, '1180px'],
+    [`an iPhone held upright, ${D} px short`, { width: 390, height: 844 }, 390, 844 - D, '844px'],
+  ] as const)(
+    "gives an installed app's first screen the screen's height: %s",
+    (_label, screen, width, height, expected) => {
+      const app = page({ installed: true, screen, width, height });
+      app.run();
+      expect(app.installed()).toBe(true);
+      expect(app.state().continued).toBe(false);
+      expect(app.height()).toBe(expected);
+      // The splash holds over the app until that screen has grown (platform.ts).
+      expect(app.hold()).toBe(true);
+    },
+  );
+
+  it.each([
+    ['in a browser tab (not installed)', false, { width: 390, height: 844 }, 390, 810],
+    ['as tall as the screen', true, { width: 390, height: 844 }, 390, 844],
+    [`more than ${D} px short`, true, { width: 390, height: 844 }, 390, 844 - D - 1],
+    ['narrower than the screen (Split View)', true, { width: 820, height: 1180 }, 507, 1160],
+    ['taller than the screen', true, { width: 390, height: 844 }, 390, 850],
+    ['with no screen to read', true, { width: 0, height: 0 }, 390, 810],
+  ] as const)(
+    'lets the splash fill its own first screen %s',
+    (_label, installed, screen, width, height) => {
+      const app = page({ installed, screen, width, height });
+      app.run();
+      expect(app.installed()).toBe(installed);
+      expect(app.height()).toBe('');
+      expect(app.hold()).toBe(false);
+    },
+  );
+
+  // Safari 17 and later report navigator.standalone in a macOS Dock web app
+  // too, where no strip shows and the app's own height never reads the screen:
+  // only the iOS home-screen app (an iPhone, iPad or iPod user agent, or a touch
+  // screen, as src/core/platform.ts's IS_IOS) counts as installed here.
+  it.each([
+    ['full screen below a notch', { width: 1512, height: 982 }, 1512, 944],
+    ['a zoomed window under the menu bar', { width: 1920, height: 1080 }, 1920, 1028],
+    ['a smaller window', { width: 1512, height: 982 }, 1200, 800],
+  ] as const)(
+    'leaves a macOS Dock web app to its own first screen: %s',
+    (_label, screen, width, height) => {
+      const app = page({ installed: 'mac', screen, width, height });
+      app.run();
+      expect(app.installed()).toBe(false);
+      expect(app.height()).toBe('');
+      expect(app.hold()).toBe(false);
+    },
+  );
+
+  it("keeps the reset screen's height over the screen's in an installed app, and falls back to the screen's without a box", () => {
+    const kept = page({
+      installed: true,
+      screen: { width: 390, height: 852 },
+      stamp: String(NOW - 1000),
+      box: '390x844',
+      width: 390,
+      height: 810,
+    });
+    kept.run();
+    expect(kept.height()).toBe('844px');
+    expect(kept.hold()).toBe(true);
+    const unkept = page({
+      installed: true,
+      screen: { width: 390, height: 844 },
+      stamp: String(NOW - 1000),
+      width: 390,
+      height: 810,
+    });
+    unkept.run();
+    expect(unkept.state().continued).toBe(true);
+    expect(unkept.height()).toBe('844px');
+    expect(unkept.hold()).toBe(true);
+  });
+
   it("keeps a continued splash in the reset screen's box: from the top, as tall as the screen it left", () => {
-    const opener = '        html[data-boot-continued] .boot-splash {';
+    const opener = [
+      '        html[data-boot-continued] .boot-splash,',
+      '        html[data-boot-installed] .boot-splash {',
+    ].join('\n');
     expect(declaration(SPLASH_CSS, opener, 'bottom')).toBe('auto');
-    expect(declaration(SPLASH_CSS, opener, 'height')).toBe('var(--boot-continued-height, 100%)');
+    expect(declaration(SPLASH_CSS, opener, 'height')).toBe('var(--boot-splash-height, 100%)');
     // Never shorter than its own screen (a box left short by a size change
     // leaves no band under it), and never more than the preflight's window
     // taller (a screen turned after the first frame keeps the wordmark and
@@ -928,11 +1176,14 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     const guard = `      @media not all and (min-width: ${smallest.width}px) and (min-height: ${smallest.height}px) {`;
     const start = SPLASH_CSS.indexOf(guard);
     expect(start, guard).toBeGreaterThan(-1);
-    const rule = SPLASH_CSS.indexOf('        html[data-boot-continued] .boot-splash {', start);
+    const opener =
+      '        html[data-boot-continued] .boot-splash,\n        html[data-boot-installed] .boot-splash {';
+    const rule = SPLASH_CSS.indexOf(opener, start);
     expect(rule).toBeGreaterThan(start);
-    // The rule is the guard's only content.
+    // The rule is the guard's only content, and the kept height is set nowhere else.
     expect(SPLASH_CSS.slice(start + guard.length, rule).trim()).toBe('');
-    expect(SPLASH_CSS.indexOf('html[data-boot-continued] .boot-splash {')).toBe(rule + 8);
+    expect(SPLASH_CSS.indexOf(opener)).toBe(rule);
+    expect(SPLASH_CSS.split('var(--boot-splash-height')).toHaveLength(2);
   });
 
   it('changes nothing it cannot read when storage is blocked', () => {
@@ -978,8 +1229,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
         SPLASH_CSS,
         [
           '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-arc,',
-          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-tail > svg,',
-          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-head > svg {',
+          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-tail > .material-elastic-ring,',
+          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-head > .material-elastic-ring {',
         ].join('\n'),
         'animation-delay',
       ),
@@ -992,6 +1243,12 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect(bootstrap).toContain(`localStorage.getItem('musixquare-theme')`);
     expect(PREFLIGHT).toContain(`sessionStorage.getItem('${BOOT_SPLASH_CONTINUITY_KEY}')`);
     expect(PREFLIGHT).toContain(`sessionStorage.getItem('${BOOT_SPLASH_CONTINUITY_BOX_KEY}')`);
+    // The hold the preflight marks, which platform.ts ends and the drawing runtime honours.
+    expect(PREFLIGHT).toContain("root.setAttribute('data-boot-hold', '')");
+    expect(readFileSync('src/core/platform.ts', 'utf8')).toContain("'data-boot-hold'");
+    expect(readFileSync('browser/classic-runtime/wordmark-anim.ts', 'utf8')).toContain(
+      "'data-boot-hold'",
+    );
     // A kept height counts only within the largest safe-area difference the
     // installed iOS app shows between its height readings (src/core/platform.ts).
     const safeAreaDelta = Number(
@@ -1000,7 +1257,9 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       )?.[1],
     );
     expect(safeAreaDelta).toBe(64);
-    expect(PREFLIGHT).toContain(`<= ${safeAreaDelta}`);
+    expect(PREFLIGHT).toContain(`Math.abs(height - innerHeight) <= ${safeAreaDelta})`);
+    expect(PREFLIGHT).toContain(`full - innerHeight <= ${safeAreaDelta})`);
+    expect(PREFLIGHT.match(new RegExp(`<= ${safeAreaDelta}(?!\\d)`, 'gu'))).toHaveLength(2);
     const window = Number(
       bootstrap.match(/const continuityWindowMs = ([\d_]+);/u)?.[1]?.replace(/_/gu, ''),
     );
@@ -1016,11 +1275,12 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       );
     const spin = period('.material-elastic-turn');
     const dash = period('.material-elastic-arc');
-    expect([spin, dash]).toEqual([1850, 1450]);
+    expect([spin, dash]).toEqual([MATERIAL_ELASTIC_TURN_PERIOD_MS, MATERIAL_ELASTIC_ARC_PERIOD_MS]);
+    // The rings swing four times per layer cycle, so the layer's phase is theirs.
     expect([
-      period('.material-elastic-tail > svg'),
-      period('.material-elastic-head > svg'),
-    ]).toEqual([dash, dash]);
+      period('.material-elastic-tail > .material-elastic-ring'),
+      period('.material-elastic-head > .material-elastic-ring'),
+    ]).toEqual([dash / 4, dash / 4]);
     expect(PREFLIGHT).toContain(`now % ${spin}`);
     expect(PREFLIGHT).toContain(`now % ${dash}`);
   });

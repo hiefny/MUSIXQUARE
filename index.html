@@ -18,12 +18,22 @@
          first screen is as wide as the reset screen and within 64px of its
          height, keeps that height (iOS gives this page a first screen short by
          the home indicator strip); bootstrap.js still owns and removes the stamp
-         and the box. The app document CSP allows exactly
+         and the box. In the installed iOS app (navigator.standalone with an
+         iPhone, iPad or iPod user agent or a touch screen, as IS_IOS in
+         src/core/platform.ts: Safari 17 and later also report standalone in a
+         macOS Dock web app, where no strip shows) it marks the root
+         data-boot-installed and, without a kept height, gives the splash the
+         screen's height while this first screen is as wide as the screen and up
+         to 64px shorter: iOS gives an installed app's first open the same short
+         first screen, and that app fills the screen it reports (its own height
+         reads the screen there). While the kept height is taller than this
+         first screen it also marks the root data-boot-hold, which
+         src/core/platform.ts ends. The app document CSP allows exactly
          this text by its SHA-256 and the inline-JS guard exempts exactly this
          block (src/core/boot-preflight.ts): editing it means a new hash. Its body
          stays on one line: the localized build strips every line's leading
          indentation and blank lines, which would change those bytes. -->
-    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms'); var box = String(sessionStorage.getItem('mxqr-boot-continuity-box')).split('x'); var height = Number(box[1]); if (Number(box[0]) === innerWidth && height > 0 && Math.abs(height - innerHeight) <= 64) { root.style.setProperty('--boot-continued-height', height + 'px'); } } } catch (error) {} })();</script>
+    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1568) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 5332) + 'ms'); var box = String(sessionStorage.getItem('mxqr-boot-continuity-box')).split('x'); var height = Number(box[1]); if (Number(box[0]) === innerWidth && height > 0 && Math.abs(height - innerHeight) <= 64) { root.style.setProperty('--boot-splash-height', height + 'px'); } } } catch (error) {} try { if (navigator.standalone === true && (/iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.maxTouchPoints > 1)) { root.setAttribute('data-boot-installed', ''); var wide = Math.max(screen.width, screen.height); var narrow = Math.min(screen.width, screen.height); var turned = innerWidth > innerHeight; var full = turned ? narrow : wide; if (!root.style.getPropertyValue('--boot-splash-height') && Math.abs(innerWidth - (turned ? wide : narrow)) <= 1 && full > innerHeight && full - innerHeight <= 64) { root.style.setProperty('--boot-splash-height', full + 'px'); } if (parseFloat(root.style.getPropertyValue('--boot-splash-height')) > innerHeight) { root.setAttribute('data-boot-hold', ''); } } } catch (error) {} })();</script>
     <!-- Boot splash: the wordmark and the shared loader paint from this
          document alone, before any script or stylesheet arrives, so a slow
          first visit never shows a blank page. Nothing in <head> before this
@@ -33,7 +43,12 @@
          and loader values below mirror its tokens (boot-splash test). The
          splash steps aside once setup-boot-block leaves the root (the app
          surface took the screen) or boot fails; setup latches
-         boot-splash-released before it ever re-adds the guard. -->
+         boot-splash-released before it ever re-adds the guard. In the
+         installed iOS app, over a first screen iOS gives short, the head
+         preflight's data-boot-hold makes that release wait until
+         src/core/platform.ts ends the hold (once the screen has grown, at the
+         latest when its boot window ends); boot failure and the last-resort
+         fade are never held. -->
     <style data-boot-splash>
       .boot-splash {
         --boot-splash-bg: #121212;
@@ -74,11 +89,63 @@
         --boot-splash-fg: #303540;
       }
 
+      /* The installed iOS app (data-boot-installed, from the preflight): iOS
+         paints the strip under a short first screen in its own background,
+         pure black in the dark theme and pure white in the light one (the
+         owner's report, 2026-11-16), so there the splash starts on that colour
+         and the strip blends in; the app's own background shows through the
+         splash's 0.3 s fade over the app (owner decision, same day). This sets
+         the background itself: the app stylesheet's --bg would replace the
+         --boot-splash-bg fallback in the middle of the boot. */
+      html[data-boot-installed] .boot-splash {
+        background: #000000;
+      }
+
+      @media (prefers-color-scheme: light) {
+        html[data-boot-installed] .boot-splash {
+          background: #ffffff;
+        }
+      }
+
+      html[data-boot-installed][data-theme='dark'] .boot-splash {
+        background: #000000;
+      }
+
+      html[data-boot-installed][data-theme='light'] .boot-splash {
+        background: #ffffff;
+      }
+
+      /* Once nothing holds it (the strip is gone, or there never was one), the
+         installed app's splash rises from that colour to the app's own
+         background in 0.3 s (owner suggestion, 2026-11-16) and keeps rising
+         through its fade over the app; the last-resort fade stays in its list.
+         The failure selector weighs as much as the rising rule, so it comes
+         after it. */
+      html[data-boot-installed]:not([data-boot-hold]) .boot-splash {
+        animation:
+          boot-splash-rise 0.3s ease-out forwards,
+          boot-splash-fail-open 0s linear calc(var(--setup-boot-failure-delay, 15s) + 5s) forwards;
+      }
+
+      html[data-boot-installed]:not(.setup-boot-block):not([data-boot-hold]) .boot-splash,
+      html[data-boot-installed].boot-splash-released:not([data-boot-hold]) .boot-splash,
+      html[data-boot-installed].setup-boot-failed .boot-splash {
+        animation:
+          boot-splash-out 0.3s ease-out forwards,
+          boot-splash-rise 0.3s ease-out forwards;
+      }
+
       /* Fades over the app as it takes the screen. This is an animation
          rather than a transition because style.css switches transitions off
-         while the app boots (html.is-booting). */
-      html:not(.setup-boot-block) .boot-splash,
-      html.boot-splash-released .boot-splash,
+         while the app boots (html.is-booting). Over an installed iOS app's
+         first screen that iOS gives short by the home indicator strip the
+         head preflight marks data-boot-hold, and the app's release waits
+         until src/core/platform.ts ends it (once that screen has grown, at the
+         latest when the boot window ends), so the app never shows on the short
+         screen and never jumps as it grows (owner decision 2026-11-16). Boot
+         failure is never held. */
+      html:not(.setup-boot-block):not([data-boot-hold]) .boot-splash,
+      html.boot-splash-released:not([data-boot-hold]) .boot-splash,
       html.setup-boot-failed .boot-splash {
         pointer-events: none;
         animation: boot-splash-out 0.3s ease-out forwards;
@@ -98,8 +165,8 @@
         display: none;
       }
 
-      html:not([data-boot-splash-runtime]):not(.setup-boot-block) .boot-splash *,
-      html:not([data-boot-splash-runtime]).boot-splash-released .boot-splash *,
+      html:not([data-boot-splash-runtime]):not(.setup-boot-block):not([data-boot-hold]) .boot-splash *,
+      html:not([data-boot-splash-runtime]).boot-splash-released:not([data-boot-hold]) .boot-splash *,
       html:not([data-boot-splash-runtime]).setup-boot-failed .boot-splash * {
         animation-play-state: paused;
       }
@@ -128,8 +195,8 @@
          the viewBox's 214 units, what auto would give): WebKit paints nothing
          until the page holds over 32x32 px of fixed-size SVG (or 200 text
          characters), and the fixed wordmark clears that on its own, so the
-         first paint never depends on the loader (three 24px SVGs, two of them
-         clipped to half); with an auto width a slow first visit stayed blank in
+         first paint never depends on the loader (two 24px SVGs, each in a half
+         of it); with an auto width a slow first visit stayed blank in
          WebKit until the app stylesheet arrived (WebKit bugs 208482 and 208663). */
       .boot-splash-logo {
         display: block;
@@ -219,21 +286,25 @@
         animation: none;
       }
 
-      /* The reset screen's box as well. iOS gives the page a reset opens a
+      /* The reset screen's box as well, and the installed app's screen. iOS
+         gives the page a reset opens, and an installed app's first open, a
          first screen short by the home indicator strip (inferred from the
-         owner's report, 2026-11-16), and centred in that the wordmark and
+         owner's reports, 2026-11-16), and centred in that the wordmark and
          loader stood half the strip higher until the screen grew. The
          preflight keeps the reset screen's height while this screen is as wide
-         and within 64px of it; without that the splash fills this screen as
-         before. It never falls short of its screen (no band under it) nor
-         grows past that window (a screen turned after the first frame keeps
-         the mark on it). From these sizes css/desktop.css scales body, the
-         splash's containing block once the app stylesheet loads, so a px
-         height there is left to the plain fill. */
+         and within 64px of it, or else, in the installed iOS app, the screen's
+         height while this screen is as wide as the screen and up to 64px
+         shorter; without either the splash fills this screen as before. It
+         never falls short of its screen (no band under it) nor grows past that
+         window (a screen turned after the first frame keeps the mark on it).
+         From these sizes css/desktop.css scales body, the splash's containing
+         block once the app stylesheet loads, so a px height there is left to
+         the plain fill. */
       @media not all and (min-width: 2560px) and (min-height: 1280px) {
-        html[data-boot-continued] .boot-splash {
+        html[data-boot-continued] .boot-splash,
+        html[data-boot-installed] .boot-splash {
           bottom: auto;
-          height: var(--boot-continued-height, 100%);
+          height: var(--boot-splash-height, 100%);
           min-height: 100%;
           max-height: calc(100% + 64px);
         }
@@ -244,8 +315,8 @@
       }
 
       html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-arc,
-      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-tail > svg,
-      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-head > svg {
+      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-tail > .material-elastic-ring,
+      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-head > .material-elastic-ring {
         animation-delay: var(--boot-splash-dash-delay, 0ms);
       }
 
@@ -258,40 +329,68 @@
         justify-content: center;
         width: 24px;
         height: 48px;
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.75'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.75'/%3E%3C/svg%3E");
+        -webkit-mask-size: 24px 24px;
+        mask-size: 24px 24px;
+        -webkit-mask-position: center bottom;
+        mask-position: center bottom;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
       }
 
-      /* The app's loader (css/style.css .material-elastic-spinner) at its
-         24px, in fixed lengths: every part turns by a transform alone, which
-         the compositor keeps running while iOS freezes a page it leaves. */
+      /* Where the browser clips to a path, the ring is that clip instead of
+         the mask. The page a session refresh opens shows this loader from its
+         first frame, and a clip is geometry, drawn in the same frame as the
+         rest, while a mask image comes from its data URL, which WebKit decodes
+         on a later task, painting nothing of a masked element until it has
+         loaded. Chromium before 88, which decodes data URLs at once, keeps the
+         mask. The path is the mask's ring: the r = 18 circle at the 4.75
+         stroke, 24/44 of it, centred in the loader at the bottom of this box
+         (12, 36); the outer circle turns clockwise and the inner one back, so
+         the inner disc is a hole whatever the fill rule. */
+      @supports (clip-path: path("M0 0")) or (-webkit-clip-path: path("M0 0")) {
+        .boot-splash-spinner {
+          -webkit-mask-image: none;
+          mask-image: none;
+          -webkit-clip-path: path("M23.1136 36A11.1136 11.1136 0 1 1 0.8864 36A11.1136 11.1136 0 1 1 23.1136 36ZM20.5227 36A8.5227 8.5227 0 1 0 3.4773 36A8.5227 8.5227 0 1 0 20.5227 36Z");
+          clip-path: path("M23.1136 36A11.1136 11.1136 0 1 1 0.8864 36A11.1136 11.1136 0 1 1 23.1136 36ZM20.5227 36A8.5227 8.5227 0 1 0 3.4773 36A8.5227 8.5227 0 1 0 20.5227 36Z");
+        }
+      }
+
+      /* The app's loader (css/style.css .material-elastic-spinner, Google's
+         Material circular progress) at its 24px, in fixed lengths: its ring
+         one still clip on the box above (a mask where the browser cannot clip
+         to a path), the loader at its bottom, and every part inside turning
+         by a transform alone, which the compositor keeps running while iOS
+         freezes a page it leaves. */
       .boot-splash-spinner .material-elastic-turn {
         position: relative;
         display: block;
         flex: none;
         width: 24px;
         height: 24px;
-        animation: boot-splash-spin 1.85s linear infinite;
+        animation: boot-splash-spin 1.568s linear infinite;
       }
 
-      .boot-splash-spinner .material-elastic-arc,
-      .boot-splash-spinner .material-elastic-seam {
+      .boot-splash-spinner .material-elastic-arc {
         position: absolute;
         top: 0;
         left: 0;
         display: block;
         width: 24px;
         height: 24px;
+        animation: boot-splash-arc 5.332s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
       }
 
-      .boot-splash-spinner .material-elastic-arc {
-        animation: boot-splash-arc 1.45s ease-in-out infinite;
-      }
-
+      /* Each half reaches 1px past the middle, so both wedges' ink covers the
+         line where they meet. */
       .boot-splash-spinner .material-elastic-tail,
       .boot-splash-spinner .material-elastic-head {
         position: absolute;
         top: 0;
         display: block;
-        width: 12px;
+        width: 13px;
         height: 24px;
         overflow: hidden;
       }
@@ -301,11 +400,11 @@
       }
 
       .boot-splash-spinner .material-elastic-head {
-        left: 12px;
+        left: 11px;
       }
 
-      .boot-splash-spinner .material-elastic-tail > svg,
-      .boot-splash-spinner .material-elastic-head > svg {
+      .boot-splash-spinner .material-elastic-tail > .material-elastic-ring,
+      .boot-splash-spinner .material-elastic-head > .material-elastic-ring {
         position: absolute;
         top: 0;
         display: block;
@@ -313,31 +412,39 @@
         height: 24px;
       }
 
-      .boot-splash-spinner .material-elastic-tail > svg {
+      .boot-splash-spinner .material-elastic-tail > .material-elastic-ring {
         left: 0;
-        animation: boot-splash-tail 1.45s ease-in-out infinite;
+        animation: boot-splash-tail 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
       }
 
-      .boot-splash-spinner .material-elastic-head > svg {
-        left: -12px;
-        animation: boot-splash-head 1.45s ease-in-out infinite;
+      .boot-splash-spinner .material-elastic-head > .material-elastic-ring {
+        left: -11px;
+        animation: boot-splash-head 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+      }
+
+      /* Each wedge's drawing sits still inside the box that turns it: Chromium
+         runs an svg element's own transform animation on the main thread
+         whenever the device scale is not 1. */
+      .boot-splash-spinner .material-elastic-ring > svg {
+        display: block;
+        width: 24px;
+        height: 24px;
       }
 
       /* Each turning part turns about the loader's centre in px (WebKit takes
-         a percentage origin of its box snapped to device pixels). */
+         a percentage origin of its box snapped to device pixels); its 24px
+         box keeps that centre on a whole device pixel, where the compositor
+         rounds each part's pivot. */
       .boot-splash-spinner .material-elastic-turn,
       .boot-splash-spinner .material-elastic-arc,
-      .boot-splash-spinner .material-elastic-tail > svg,
-      .boot-splash-spinner .material-elastic-head > svg {
+      .boot-splash-spinner .material-elastic-tail > .material-elastic-ring,
+      .boot-splash-spinner .material-elastic-head > .material-elastic-ring {
         transform-origin: 12px 12px;
       }
 
       .boot-splash-spinner path {
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 4.75;
-        stroke-linecap: butt;
-        shape-rendering: geometricPrecision;
+        fill: currentColor;
+        stroke: none;
       }
 
       @keyframes boot-splash-mark-in {
@@ -357,6 +464,12 @@
         to {
           opacity: 0;
           visibility: hidden;
+        }
+      }
+
+      @keyframes boot-splash-rise {
+        to {
+          background-color: var(--bg, var(--boot-splash-bg));
         }
       }
 
@@ -386,50 +499,78 @@
 
       @keyframes boot-splash-arc {
         0% {
-          transform: rotate(93.6deg);
+          transform: rotate(0deg);
         }
 
-        48% {
-          transform: rotate(266.4deg);
+        12.5% {
+          transform: rotate(135deg);
+        }
+
+        25% {
+          transform: rotate(270deg);
+        }
+
+        37.5% {
+          transform: rotate(405deg);
+        }
+
+        50% {
+          transform: rotate(540deg);
+        }
+
+        62.5% {
+          transform: rotate(675deg);
+        }
+
+        75% {
+          transform: rotate(810deg);
+        }
+
+        87.5% {
+          transform: rotate(945deg);
         }
 
         100% {
-          transform: rotate(453.6deg);
+          transform: rotate(1080deg);
         }
       }
 
       @keyframes boot-splash-tail {
         0% {
-          transform: rotate(-93.6deg);
+          transform: rotate(265deg);
         }
 
-        48% {
-          transform: rotate(-223.2deg);
+        50% {
+          transform: rotate(130deg);
         }
 
         100% {
-          transform: rotate(-93.6deg);
+          transform: rotate(265deg);
         }
       }
 
       @keyframes boot-splash-head {
         0% {
-          transform: rotate(93.6deg);
+          transform: rotate(-265deg);
         }
 
-        48% {
-          transform: rotate(223.2deg);
+        50% {
+          transform: rotate(-130deg);
         }
 
         100% {
-          transform: rotate(93.6deg);
+          transform: rotate(-265deg);
         }
       }
 
       @media (prefers-reduced-motion: reduce) {
-        html:not(.setup-boot-block) .boot-splash,
-        html.boot-splash-released .boot-splash,
+        html:not(.setup-boot-block):not([data-boot-hold]) .boot-splash,
+        html.boot-splash-released:not([data-boot-hold]) .boot-splash,
         html.setup-boot-failed .boot-splash,
+        html[data-boot-installed]:not([data-boot-hold]) .boot-splash,
+        html[data-boot-installed]:not(.setup-boot-block):not([data-boot-hold]) .boot-splash,
+        html[data-boot-installed].boot-splash-released:not([data-boot-hold]) .boot-splash,
+        html[data-boot-installed].setup-boot-failed .boot-splash,
         .boot-splash-mark,
         .boot-splash[data-phase='loader'] .boot-splash-mark,
         html:not([data-boot-splash-runtime]) .boot-splash-mark,
@@ -441,8 +582,8 @@
 
         .boot-splash-spinner .material-elastic-turn,
         .boot-splash-spinner .material-elastic-arc,
-        .boot-splash-spinner .material-elastic-tail > svg,
-        .boot-splash-spinner .material-elastic-head > svg {
+        .boot-splash-spinner .material-elastic-tail > .material-elastic-ring,
+        .boot-splash-spinner .material-elastic-head > .material-elastic-ring {
           animation: none;
         }
 
@@ -450,12 +591,12 @@
           transform: rotate(259.2deg);
         }
 
-        .boot-splash-spinner .material-elastic-tail > svg {
-          transform: rotate(-194.4deg);
+        .boot-splash-spinner .material-elastic-tail > .material-elastic-ring {
+          transform: rotate(165.6deg);
         }
 
-        .boot-splash-spinner .material-elastic-head > svg {
-          transform: rotate(194.4deg);
+        .boot-splash-spinner .material-elastic-head > .material-elastic-ring {
+          transform: rotate(-165.6deg);
         }
       }
     </style>
@@ -949,14 +1090,11 @@
         <span class="boot-splash-spinner" aria-hidden="true">
           <span class="material-elastic-turn">
             <span class="material-elastic-arc">
-              <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-              </svg>
               <span class="material-elastic-tail">
-                <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg>
+                <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
               </span>
               <span class="material-elastic-head">
-                <svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg>
+                <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
               </span>
             </span>
           </span>
@@ -969,7 +1107,7 @@
          stylesheet. It runs after the boot splash so the splash never waits
          for it. The main SPA deliberately does not load third-party
          analytics. Source: browser/classic-runtime/bootstrap.ts -->
-    <script src="/bootstrap.js?cache=v827"></script>
+    <script src="/bootstrap.js?cache=v828"></script>
 
     <!-- Reveal body (toggles body.fouc-loaded) once style.css has parsed.
          Source: browser/classic-runtime/fouc-cleanup.ts -->
@@ -1202,14 +1340,11 @@
               >
                 <span class="material-elastic-turn">
                   <span class="material-elastic-arc">
-                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                    </svg>
                     <span class="material-elastic-tail">
-                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                     </span>
                     <span class="material-elastic-head">
-                      <svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                     </span>
                   </span>
                 </span>
@@ -1291,14 +1426,11 @@
                 <span class="material-elastic-spinner play-loading-spinner" aria-hidden="true">
                   <span class="material-elastic-turn">
                     <span class="material-elastic-arc">
-                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                      </svg>
                       <span class="material-elastic-tail">
-                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                       </span>
                       <span class="material-elastic-head">
-                        <svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                       </span>
                     </span>
                   </span>
@@ -3189,14 +3321,11 @@
               >
                 <span class="material-elastic-turn">
                   <span class="material-elastic-arc">
-                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                    </svg>
                     <span class="material-elastic-tail">
-                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                     </span>
                     <span class="material-elastic-head">
-                      <svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                     </span>
                   </span>
                 </span>
@@ -3257,14 +3386,11 @@
                 <span class="material-elastic-spinner setup-qr-join-spinner" aria-hidden="true">
                   <span class="material-elastic-turn">
                     <span class="material-elastic-arc">
-                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                      </svg>
                       <span class="material-elastic-tail">
-                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                       </span>
                       <span class="material-elastic-head">
-                        <svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                       </span>
                     </span>
                   </span>
@@ -4022,14 +4148,11 @@
                 <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
                   <span class="material-elastic-turn">
                     <span class="material-elastic-arc">
-                      <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                        <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                      </svg>
                       <span class="material-elastic-tail">
-                        <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                       </span>
                       <span class="material-elastic-head">
-                        <svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg>
+                        <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                       </span>
                     </span>
                   </span>
@@ -4050,14 +4173,11 @@
                     <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
                       <span class="material-elastic-turn">
                         <span class="material-elastic-arc">
-                          <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                            <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                          </svg>
                           <span class="material-elastic-tail">
-                            <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg>
+                            <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                           </span>
                           <span class="material-elastic-head">
-                            <svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg>
+                            <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                           </span>
                         </span>
                       </span>
@@ -4465,14 +4585,11 @@
               >
                 <span class="material-elastic-turn">
                   <span class="material-elastic-arc">
-                    <svg class="material-elastic-seam" viewBox="0 0 44 44" focusable="false">
-                      <path d="M20.8698 4.0355A18 18 0 0 1 23.1302 4.0355"></path>
-                    </svg>
                     <span class="material-elastic-tail">
-                      <svg viewBox="0 0 44 44" focusable="false"><path d="M40 22A18 18 0 0 1 6.4115 31"></path></svg>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L55 22A33 33 0 0 1 -6.5789 38.5Z"></path></svg></span>
                     </span>
                     <span class="material-elastic-head">
-                      <svg viewBox="0 0 44 44" focusable="false"><path d="M37.5885 31A18 18 0 0 1 4 22"></path></svg>
+                      <span class="material-elastic-ring"><svg viewBox="0 0 44 44" focusable="false"><path d="M22 22L50.5789 38.5A33 33 0 0 1 -11 22Z"></path></svg></span>
                     </span>
                   </span>
                 </span>

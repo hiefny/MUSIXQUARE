@@ -93,7 +93,7 @@ function fixture({
   Object.defineProperty(window, 'getComputedStyle', {
     value: (element: Element) => ({
       animationDuration:
-        element.localName === 'svg' ? '1.85s' : element.localName === 'circle' ? '1.45s' : '0s',
+        element.localName === 'svg' ? '1.568s' : element.localName === 'circle' ? '5.332s' : '0s',
     }),
   });
   window.requestAnimationFrame = (callback) => {
@@ -289,6 +289,43 @@ describe('boot splash wordmark reveal', () => {
     },
   );
 
+  // Owner decision 2026-11-16: over an installed iOS app's first screen that
+  // iOS gives short by the home indicator strip, the splash stays over the app
+  // (the head preflight marks data-boot-hold; platform.ts ends it once the
+  // screen grows), so the drawing goes on through the hold.
+  it('keeps drawing while a short first screen holds the splash over the app, and stops where it is once the hold ends', async () => {
+    const app = fixture();
+    const root = app.document.documentElement;
+    root.setAttribute('data-boot-hold', '');
+    app.advance(400);
+    app.advance(1050);
+    root.classList.remove('setup-boot-block');
+    await app.settle();
+    const atRelease = revealedPath(app.logo);
+    app.advance(1300);
+    expect(revealedPath(app.logo)).not.toBe(atRelease);
+    expect(app.frames.size).toBeGreaterThan(0);
+
+    root.removeAttribute('data-boot-hold');
+    await app.settle();
+    expect(app.frames.size).toBe(0);
+    const atHoldEnd = revealedPath(app.logo);
+    app.advance(10_000);
+    expect(revealedPath(app.logo)).toBe(atHoldEnd);
+    expect(app.logo.dataset.wordmarkDrawComplete).toBeUndefined();
+  });
+
+  it('never holds a splash boot failure releases', async () => {
+    const app = fixture();
+    const root = app.document.documentElement;
+    root.setAttribute('data-boot-hold', '');
+    app.advance(400);
+    app.advance(1050);
+    root.classList.add('setup-boot-failed');
+    await app.settle();
+    expect(app.frames.size).toBe(0);
+  });
+
   it('retires the splash after its last-resort fade', () => {
     const app = fixture();
     app.animationEnd(app.splash, 'boot-splash-fail-open');
@@ -452,7 +489,7 @@ describe('boot splash wordmark reveal', () => {
     // None of the loader's moving parts (src/ui/material-elastic-spinner.ts) is phased here.
     const parts = [
       ...loader.querySelectorAll<HTMLElement | SVGElement>(
-        '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
+        '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > .material-elastic-ring, .material-elastic-head > .material-elastic-ring',
       ),
     ];
     expect(parts).toHaveLength(4);

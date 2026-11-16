@@ -1,8 +1,11 @@
 /**
  * The one inline script the app documents run: index.html's
- * `<script data-boot-preflight>` applies the stored theme and marks a session
- * reset's continuation before the boot splash first paints (bootstrap.js runs
- * later, from the top of `<body>`). The app document CSP allows exactly this
+ * `<script data-boot-preflight>` applies the stored theme, marks a session
+ * reset's continuation and, in the installed iOS app, keeps the boot splash's
+ * height and holds it over a first screen iOS gives short by the home indicator
+ * strip (data-boot-installed, --boot-splash-height, data-boot-hold, which
+ * src/core/platform.ts ends), all before the boot splash first paints
+ * (bootstrap.js runs later, from the top of `<body>`). The app document CSP allows exactly this
  * text by its SHA-256 (cloudflare/app-worker.ts), and the shrink-only inline
  * JavaScript guard exempts exactly this block in index.html
  * (scripts/check-authored-inline-js-inventory.mts). Any edit of the script's
@@ -20,4 +23,4 @@ export const BOOT_PREFLIGHT_SCRIPT_ATTRIBUTE = 'data-boot-preflight';
  * every built app shell carry it (one line, so the build's indentation
  * stripping leaves it alone).
  */
-export const BOOT_PREFLIGHT_SCRIPT_SHA256 = 'qJ88pWCjIa4ZqOtfFZBL01nI3V6xjjidsZA8qGgqj7U=';
+export const BOOT_PREFLIGHT_SCRIPT_SHA256 = 'fEshNMQNC1a95YKeTuMuzt4BfgJPbxjq1AdERjrQxHY=';

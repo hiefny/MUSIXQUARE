@@ -2443,46 +2443,53 @@
   margin-top: 32px;
 }
 
+/* The app's loader (css/style.css .material-elastic-spinner, Google's Material
+   circular progress): its ring one still mask on the loader itself, and every
+   part inside turning by a transform alone (src/ui/material-elastic-spinner.ts). */
 .material-elastic-spinner {
   --material-elastic-size: 24px;
-  --material-elastic-stroke: 4.75;
+  --material-elastic-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.75'/%3E%3C/svg%3E");
   width: var(--material-elastic-size);
   height: var(--material-elastic-size);
   flex: 0 0 var(--material-elastic-size);
   display: block;
   color: currentColor;
+  -webkit-mask-image: var(--material-elastic-mask);
+  mask-image: var(--material-elastic-mask);
+  -webkit-mask-size: var(--material-elastic-ring-size, 100%) var(--material-elastic-ring-size, 100%);
+  mask-size: var(--material-elastic-ring-size, 100%) var(--material-elastic-ring-size, 100%);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
-/* The app's loader (css/style.css .material-elastic-spinner): every part turns
-   by a transform alone (src/ui/material-elastic-spinner.ts). */
 .material-elastic-spinner .material-elastic-turn {
   position: relative;
   display: block;
   width: 100%;
   height: 100%;
-  animation: material-elastic-spin 1.85s linear infinite;
+  animation: material-elastic-spin 1.568s linear infinite;
 }
 
-.material-elastic-spinner .material-elastic-arc,
-.material-elastic-spinner .material-elastic-seam {
+.material-elastic-spinner .material-elastic-arc {
   position: absolute;
   top: 0;
   left: 0;
   display: block;
   width: 100%;
   height: 100%;
+  animation: material-elastic-arc 5.332s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
-.material-elastic-spinner .material-elastic-arc {
-  animation: material-elastic-arc 1.45s ease-in-out infinite;
-}
-
+/* Each half reaches 1px past the middle, so both wedges' ink covers the line
+   where they meet. */
 .material-elastic-spinner .material-elastic-tail,
 .material-elastic-spinner .material-elastic-head {
   position: absolute;
   top: 0;
   display: block;
-  width: 50%;
+  width: calc(50% + 1px);
   height: 100%;
   overflow: hidden;
 }
@@ -2492,43 +2499,51 @@
 }
 
 .material-elastic-spinner .material-elastic-head {
-  left: 50%;
+  left: calc(50% - 1px);
 }
 
-.material-elastic-spinner .material-elastic-tail > svg,
-.material-elastic-spinner .material-elastic-head > svg {
+.material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
+.material-elastic-spinner .material-elastic-head > .material-elastic-ring {
   position: absolute;
   top: 0;
   display: block;
-  width: 200%;
-  height: 100%;
+  width: var(--material-elastic-size);
+  height: var(--material-elastic-size);
 }
 
-.material-elastic-spinner .material-elastic-tail > svg {
+.material-elastic-spinner .material-elastic-tail > .material-elastic-ring {
   left: 0;
-  animation: material-elastic-tail 1.45s ease-in-out infinite;
+  animation: material-elastic-tail 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
-.material-elastic-spinner .material-elastic-head > svg {
-  left: -100%;
-  animation: material-elastic-head 1.45s ease-in-out infinite;
+.material-elastic-spinner .material-elastic-head > .material-elastic-ring {
+  left: calc(1px - var(--material-elastic-size) / 2);
+  animation: material-elastic-head 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 /* Each turning part turns about the loader's centre in px (WebKit takes a
-   percentage origin of its box snapped to device pixels). */
+   percentage origin of its box snapped to device pixels on its main thread);
+   on the compositor it rounds every pivot to a device pixel, so the loader's
+   sizes here are even whole px. */
 .material-elastic-spinner .material-elastic-turn,
 .material-elastic-spinner .material-elastic-arc,
-.material-elastic-spinner .material-elastic-tail > svg,
-.material-elastic-spinner .material-elastic-head > svg {
+.material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
+.material-elastic-spinner .material-elastic-head > .material-elastic-ring {
   transform-origin: calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2);
 }
 
+/* Each wedge's drawing fills the box that turns it and sits still in it:
+   Chromium runs an <svg>'s own transform animation on the main thread
+   whenever the device scale is not 1. The mask alone draws the ring's edges. */
+.material-elastic-spinner .material-elastic-ring > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .material-elastic-spinner path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: var(--material-elastic-stroke);
-  stroke-linecap: butt;
-  shape-rendering: geometricPrecision;
+  fill: currentColor;
+  stroke: none;
 }
 
 @keyframes material-elastic-spin {
@@ -2539,43 +2554,67 @@
 
 @keyframes material-elastic-arc {
   0% {
-    transform: rotate(93.6deg);
+    transform: rotate(0deg);
   }
 
-  48% {
-    transform: rotate(266.4deg);
+  12.5% {
+    transform: rotate(135deg);
+  }
+
+  25% {
+    transform: rotate(270deg);
+  }
+
+  37.5% {
+    transform: rotate(405deg);
+  }
+
+  50% {
+    transform: rotate(540deg);
+  }
+
+  62.5% {
+    transform: rotate(675deg);
+  }
+
+  75% {
+    transform: rotate(810deg);
+  }
+
+  87.5% {
+    transform: rotate(945deg);
   }
 
   100% {
-    transform: rotate(453.6deg);
+    transform: rotate(1080deg);
   }
 }
 
 @keyframes material-elastic-tail {
   0% {
-    transform: rotate(-93.6deg);
+    transform: rotate(265deg);
   }
 
-  48% {
-    transform: rotate(-223.2deg);
+  50% {
+    transform: rotate(130deg);
   }
 
   100% {
-    transform: rotate(-93.6deg);
+    transform: rotate(265deg);
   }
 }
 
 @keyframes material-elastic-head {
   0% {
-    transform: rotate(93.6deg);
+    transform: rotate(-265deg);
   }
 
-  48% {
-    transform: rotate(223.2deg);
+  50% {
+    transform: rotate(-130deg);
   }
 
   100% {
-    transform: rotate(93.6deg);
+    transform: rotate(-265deg);
   }
 }
 
@@ -2596,7 +2635,7 @@
 
 .material-elastic-spinner--large {
   --material-elastic-size: 36px;
-  --material-elastic-stroke: 4.25;
+  --material-elastic-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='4.25'/%3E%3C/svg%3E");
   color: #fff;
 }
 
@@ -3438,8 +3477,8 @@
 @media (prefers-reduced-motion: reduce) {
   .material-elastic-spinner .material-elastic-turn,
   .material-elastic-spinner .material-elastic-arc,
-  .material-elastic-spinner .material-elastic-tail > svg,
-  .material-elastic-spinner .material-elastic-head > svg,
+  .material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
+  .material-elastic-spinner .material-elastic-head > .material-elastic-ring,
   .app-loading-header-progress,
   .app-loading-header-logo,
   .app-loading-header-status,
@@ -3458,12 +3497,12 @@
     transform: rotate(259.2deg);
   }
 
-  .material-elastic-spinner .material-elastic-tail > svg {
-    transform: rotate(-194.4deg);
+  .material-elastic-spinner .material-elastic-tail > .material-elastic-ring {
+    transform: rotate(165.6deg);
   }
 
-  .material-elastic-spinner .material-elastic-head > svg {
-    transform: rotate(194.4deg);
+  .material-elastic-spinner .material-elastic-head > .material-elastic-ring {
+    transform: rotate(-165.6deg);
   }
 
   .app-loading-header-progress {

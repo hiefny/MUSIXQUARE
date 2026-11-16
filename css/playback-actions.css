@@ -71,7 +71,6 @@
 
   .system-audio-loading-spinner {
     --material-elastic-size: 16px;
-    --material-elastic-stroke: 4.75;
     display: none;
   }
 

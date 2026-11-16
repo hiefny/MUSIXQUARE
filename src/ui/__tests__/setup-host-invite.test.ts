@@ -177,7 +177,7 @@ describe('host setup invitation QR', () => {
     it('holds every moving part of a paused spinner', () => {
       // The turn, the arc's frame and both half rings (src/ui/material-elastic-spinner.ts).
       expect(readFileSync('css/style.css', 'utf8')).toMatch(
-        /\.setup-host-qr-loading-spinner\.is-paused \.material-elastic-turn,\s*\.setup-host-qr-loading-spinner\.is-paused \.material-elastic-arc,\s*\.setup-host-qr-loading-spinner\.is-paused \.material-elastic-tail > svg,\s*\.setup-host-qr-loading-spinner\.is-paused \.material-elastic-head > svg \{\s*animation-play-state: paused;/u,
+        /\.setup-host-qr-loading-spinner\.is-paused \.material-elastic-turn,\s*\.setup-host-qr-loading-spinner\.is-paused \.material-elastic-arc,\s*\.setup-host-qr-loading-spinner\.is-paused \.material-elastic-tail > \.material-elastic-ring,\s*\.setup-host-qr-loading-spinner\.is-paused \.material-elastic-head > \.material-elastic-ring \{\s*animation-play-state: paused;/u,
       );
     });
 

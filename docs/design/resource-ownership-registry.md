@@ -4502,9 +4502,13 @@ entry needs the owner's acceptance and is not implied by this registry.
   ([App 9.0.48 train report](app-9-0-48-train-2026-11-15.md)), with the box that screen centres
   them in (`mxqr-boot-continuity-box`, the window's width and the screen's height), which keeps
   their place on a first screen iOS gives short by the home indicator strip
-  ([App 9.0.51 train report](app-9-0-51-train-2026-11-16.md)).
-- **Current owners/flows:** two machines on the drawing and the phase, kept on purpose, and two
-  start-up steps that show and settle the splash after a reset:
+  ([App 9.0.51 train report](app-9-0-51-train-2026-11-16.md)), and, in the installed iOS app,
+  the first open's marks: `data-boot-installed`, the splash's kept height
+  `--boot-splash-height` and the hold `data-boot-hold` that keeps the splash over the app while
+  iOS gives that first screen short ([App 9.0.53 train report](app-9-0-53-train-2026-11-16.md)).
+- **Current owners/flows:** two machines on the drawing and the phase, kept on purpose, two
+  start-up steps that show and settle the splash after a reset, and the viewport owner that ends
+  the installed app's hold:
   - the sheet `<style data-boot-splash>` in `index.html`: the mark's fade-in 0.3 s after the
     splash first styles, and without this release's runtime the whole wordmark at 1.8 s, the rise
     at 3.2 s and the loader's fade-in at 3.35 s; the 0.3 s fade over the app once
@@ -4540,10 +4544,27 @@ entry needs the owner's acceptance and is not implied by this registry.
     9.0.51 it also reads the reset screen's box and, while this first screen is as wide and within
     64 px of its height (the installed iOS app's largest safe-area difference,
     `IOS_STANDALONE_SAFE_AREA_DELTA_MAX` in `src/core/platform.ts`, whose copy `boot-splash.test.ts`
-    pins), sets `--boot-continued-height`, by which the sheet sizes a marked splash from the top,
-    never shorter than its screen nor more than that window taller, and not where
-    `css/desktop.css` scales body (from 2560 x 1280). It never removes the stamp or the box and
-    never sets `data-phase`;
+    pins), sets `--boot-splash-height` (named `--boot-continued-height` until App 9.0.53), by
+    which the sheet sizes a marked splash from the top, never shorter than its screen nor more
+    than that window taller, and not where `css/desktop.css` scales body (from 2560 x 1280). From
+    App 9.0.53, in the installed iOS app (`navigator.standalone` with an iPhone, iPad or iPod user
+    agent or a touch screen, as `IS_IOS`: Safari 17 also reports standalone in a macOS Dock web
+    app, where no strip shows), it marks the root `data-boot-installed`, which starts the splash
+    on the strip's colour (#000000 dark, #ffffff light) and raises its background to the app's in
+    0.3 s (`boot-splash-rise`) once nothing holds it, whether or not setup has released the splash
+    yet (from the first frame when the preflight sets no hold), keeping that rise through the fade
+    over the app;
+    without a kept box it sets `--boot-splash-height` to the screen's height while this first
+    screen is as wide as the screen and up to that 64 px shorter (that app's first open gets the
+    same short first screen); and while the kept height is taller than this first screen it marks
+    the root `data-boot-hold`, which keeps the sheet's release, fade and freeze rules from firing
+    (a boot failure still releases) and keeps the runtime drawing. It never removes the stamp or
+    the box, never ends the hold and never sets `data-phase`;
+  - the viewport owner `src/core/platform.ts`, which reads and sets the installed app's heights,
+    ends the hold (`endBootSplashHold`): in its installed-iOS height update once the first screen has
+    grown to the kept height (`endBootSplashHoldOnceGrown`), at the latest with the boot window's
+    end (`endBootingPhase`, the existing `boot-end` timer), and at once outside the installed iOS
+    app. It owns that screen's height, so no other flow removes the attribute;
   - the start-up step `browser/classic-runtime/bootstrap.ts` (its fifth preflight, in order before
     the runtime and the app module): it removes the reset screen's box unread, and reads and
     removes the reset's stamp once (0 to 15 s old)
@@ -4568,25 +4589,34 @@ entry needs the owner's acceptance and is not implied by this registry.
   `boot-splash-released`, `setup-boot-failed`) release the splash; the reset screen writes and
   removes the stamp and the box.
 - **Lifecycle operations:** mark the root continued and keep the reset screen's height (head
-  preflight, before the first paint); set the phase (start-up step after a reset, else the
+  preflight, before the first paint); in the installed iOS app, mark it installed, keep the
+  screen's height and hold the splash over the app (head preflight), and end the hold
+  (`src/core/platform.ts`); set the phase (start-up step after a reset, else the
   runtime, once); stop or finish the drawing (runtime); fade (sheet); `hidden` after the fade
   (runtime); write and remove the stamp and the box (reset screen); read them (head preflight);
   read and remove the stamp, remove the box (start-up step).
 - **Deadline owner:** the sheet for its fallback times and the last-resort fade; the runtime for
   the drawing's start on the sheet's clock, for the loader's rise 0.3 s after the drawing's end
   from its real start when no frame reports that end (a hidden tab), and for `hidden`
-  `SPLASH_FADE + 100` ms after a runtime that arrives once the splash was already released.
+  `SPLASH_FADE + 100` ms after a runtime that arrives once the splash was already released;
+  `src/core/platform.ts` for the hold's end, at the latest its boot window's end.
 - **Timing-constant home:** the sheet's animation times. The runtime's `SPLASH_MARK_DELAY` (300),
   `SPLASH_INK_FALLBACK` (1800), `SPLASH_RISE_FALLBACK` (3200) and `SPLASH_FADE` (300) copy them,
   because a classic runtime cannot import the page's sheet; the start-up step's `continuityKey`
   copies `BOOT_SPLASH_CONTINUITY_KEY` in `src/core/navigation-contract.ts`, the home of the
   next-document keys (RO-23), and its 15 s window is its own. The head preflight runs before any
   module and copies the stored theme's key from the theme step of `bootstrap.js`, the stamp's key,
-  that 15 s window and the sheet's loader periods (1.85 s turn, 1.45 s arc; the arc's variable
-  keeps the name `--boot-splash-dash-delay` of the dash its turning parts replaced in App 9.0.50).
+  that 15 s window and the sheet's loader periods (1.568 s turn; 5.332 s arc layer, whose two
+  wedges swing four times in it, so one phase serves the layer and both; the arc's variable keeps
+  the name `--boot-splash-dash-delay` of the dash its turning parts replaced in App 9.0.50). The
+  same two periods are exported by `src/ui/material-elastic-spinner.ts`
+  (`MATERIAL_ELASTIC_TURN_PERIOD_MS`, `MATERIAL_ELASTIC_ARC_PERIOD_MS`), whose upload-row phase
+  in `src/ui/playlist-view.ts` imports them; `material-elastic-spinner.test.ts` "keeps the
+  periods the app phases its loaders by equal to the sheets" pins them to the app sheet.
   `src/core/__tests__/boot-splash.test.ts` "keeps the timings the runtime copies equal to the
   splash sheet" pins the four times and the key copy, and "keeps the copies it carries equal to
-  their homes" pins the preflight's; `navigation-contract.test.ts` pins the key string.
+  their homes" pins the preflight's, among them both copies of the 64 px window and the hold's
+  attribute in `platform.ts` and the runtime; `navigation-contract.test.ts` pins the key string.
 - **Anchor tests:**
   - Supersession (the first release wins; a stamp counts once; this release's runtime only):
     `src/core/__tests__/wordmark-reveal-runtime.test.ts` "stops the drawing where it is when %s
@@ -4607,6 +4637,19 @@ entry needs the owner's acceptance and is not implied by this registry.
     no box without a fresh stamp" and "removes the reset screen's box with %s (the head preflight
     already read it)"; `session-reset.test.ts` "the reset screen's box" (travels with the stamp,
     none from a fullscreen host, taken again just before the page leaves).
+  - The installed app's first open (App 9.0.53): `boot-splash.test.ts` "gives an installed app's
+    first screen the screen's height: %s", "lets the splash fill its own first screen %s", "leaves
+    a macOS Dock web app to its own first screen: %s", "keeps the reset screen's height over the
+    screen's in an installed app, and falls back to the screen's without a box" and "starts an
+    installed app's splash on the strip's colour, and its refresh screen ends on it";
+    `src/core/__tests__/platform.test.ts` "ends the boot splash's hold once the first screen has
+    grown to its kept height", "ends the boot splash's hold at the boot end when the first screen
+    never grows, on its existing timers" and "ends the boot splash's hold at once outside the
+    installed iOS app"; `wordmark-reveal-runtime.test.ts` "keeps drawing while a short first
+    screen holds the splash over the app, and stops where it is once the hold ends" and "never
+    holds a splash boot failure releases"; `e2e/boot-splash.test.ts` "installed iOS app" (keeps
+    the splash over the app while the first screen is short and fades it only once the hold ends;
+    ends the hold with the boot window when the first screen never grows).
   - User pause/stop: n/a (the splash has no control); reduced motion: "settles safely on %s
     motion interruption" and "lets the loader join when %s before the drawing starts".
   - Teardown: "retires the splash after its last-resort fade"; `session-reset.test.ts` "takes the
@@ -4625,7 +4668,9 @@ entry needs the owner's acceptance and is not implied by this registry.
     default suite and WebKit lane.
 - **Status:** `accepted-exception`. Added with the App 9.0.48 train, when the drawing runtime
   became a second machine on the splash beside its sheet. The App 9.0.49 train added the head
-  preflight ahead of the start-up step, which still owns the stamp and the phase.
+  preflight ahead of the start-up step, which still owns the stamp and the phase. The App 9.0.53
+  train added the installed app's hold, which the head preflight marks and `platform.ts` alone
+  ends.
 
 ## Checked side flows without a record
 

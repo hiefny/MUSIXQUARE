@@ -1753,7 +1753,7 @@ runbooks. Neither belongs in a general setup document.
   moved from the 9.0.27 section, the post-deploy check and the open owner questions, with the
   playlist follow-up updated in place), its §4 the 9.0.28 entry and current boundary line (5), and
   the hotfix procedure's 9.0.25 bullet names 9.0.28's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.52 / v827 or later now that 9.0.29 to 9.0.50
+  rollback boundary is a forward revert at 9.0.52 / v827 or later now that 9.0.29 to 9.0.51
   shipped, or the checkpoint's 9.0.27 App without `lower` with the PRO Worker left in place, which
   now also removes the 9.0.29 font switch, 6A, the line box train, 6B, the Hangul faces, 6C with the two light-theme changes, 6D, the public-page font train, the 9.0.37 train, the 9.0.38 train and the 9.0.39 train and restores a lower service-worker epoch, so until the owner or
   release owner decides the open rule in the 9.0.29 entry above, only as an explicitly reviewed CLI
@@ -1879,7 +1879,7 @@ runbooks. Neither belongs in a general setup document.
   pointer to the 9.0.28 section, and the chat Tab cycle follow-up, now closed), its §4 the 9.0.27 entry and
   current boundary line (5) (checkpoint artifact 13005387697, App 9.0.26 `b8dc4281`), and the
   hotfix procedure's 9.0.25 bullet names 9.0.27's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.52 / v827 or later now that 9.0.28 to 9.0.50
+  rollback boundary is a forward revert at 9.0.52 / v827 or later now that 9.0.28 to 9.0.51
   shipped, or the checkpoint's 9.0.26 App without `lower` with the PRO Worker left in place, which
   now also removes 9.0.28, the 9.0.29 font switch and 9.0.30 to 9.0.41 and restores a lower service-worker epoch
   (the same open rule as in the 9.0.28 entry).

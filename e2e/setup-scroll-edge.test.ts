@@ -432,7 +432,12 @@ test.describe('phone start screen language button', () => {
     for (const step of ['welcome', 'join', 'host'] as const) {
       test(`clips the ${step} step 16px above its title at ${viewport.width}x${viewport.height}`, async ({
         page,
+        browserName,
       }) => {
+        test.skip(
+          browserName === 'webkit' && step === 'host',
+          'The WebKit lane opens no PeerJS room (component-cascade.test.ts)',
+        );
         await openSetup(page, viewport);
         const area = await enterStep(page, step);
         const read = await area.evaluate((element) => {

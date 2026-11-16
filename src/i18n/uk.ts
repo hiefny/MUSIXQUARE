@@ -916,7 +916,6 @@ const uk: Record<I18nKey, string> = {
   'chat.empty_html': 'Повідомлень ще немає.<br>Надішліть перше!',
   'chat.msg_truncated': 'Повідомлення скорочено до {{max}} символів',
   'chat.scroll_to_bottom': 'Прокрутити вниз',
-  'setup.brand_tagline_html': 'Слухайте разом будь-де<br>Досконале звучання',
   'setup.invite_share_desc_html':
     'Об’єднайте кілька пристроїв без дротів,<br>щоб створити потужну аудіосистему.<br>Для підключення використовуйте 6-значний код запрошення.',
   'setup.play_together_desc_html':

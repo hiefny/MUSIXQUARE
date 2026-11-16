@@ -965,8 +965,6 @@ const es: Record<I18nKey, string> = {
     'El anfitrión tiene 3 opciones.<ul class="help-list"><li><strong>Cargar archivo local:</strong> elige música del dispositivo. Admite sincronización precisa</li><li><strong>YouTube juntos:</strong> videos y listas de reproducción compatibles. Sin separación de canales ni efectos de audio</li><li><strong>Compartir audio del sistema:</strong> disponible cuando el anfitrión usa una computadora con un navegador basado en Chromium (Chrome, Edge, etc.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Has introducido el código, pero no se conecta:</strong> revisa el código e inténtalo de nuevo en un momento. Las redes de empresas, centros educativos o VPN pueden restringir la conexión.</li><li><strong>Conexión inestable:</strong> los participantes locales deberían acercarse al router y los remotos usar una conexión estable.</li><li><strong>Otros problemas:</strong> revisa el estado de la red y reinicia la aplicación en todos los dispositivos. Si tienes preguntas, consulta las <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o contáctanos mediante el correo al final de la página.</li></ul>',
-  'setup.brand_tagline_html':
-    'Escucha en compañía, estés donde estés<br>La experiencia de sonido perfecta',
   'setup.invite_share_desc_html':
     'Conecta varios dispositivos de forma inalámbrica<br>para crear un gran sistema de audio.<br>Usa un código de invitación de 6 dígitos para conectarte.',
   'setup.play_together_desc_html':

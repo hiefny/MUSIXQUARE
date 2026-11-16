@@ -915,7 +915,6 @@ const da: Record<I18nKey, string> = {
   'chat.empty_html': 'Ingen beskeder endnu.<br>Send den første besked!',
   'chat.msg_truncated': 'Beskeden blev forkortet til {{max}} tegn',
   'chat.scroll_to_bottom': 'Rul til bunden',
-  'setup.brand_tagline_html': 'Lyt sammen, uanset hvor I er<br>Den fuldendte lydoplevelse',
   'setup.invite_share_desc_html':
     'Forbind flere enheder trådløst<br>for at skabe et kraftfuldt lydsystem.<br>Brug en 6-cifret invitationskode til at oprette forbindelse.',
   'setup.play_together_desc_html':

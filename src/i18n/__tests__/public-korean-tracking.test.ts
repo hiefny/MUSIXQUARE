@@ -89,8 +89,6 @@ const KEPT_IN_EVERY_LANGUAGE: Readonly<Record<string, string>> = {
   'public/editorial-design.css .palette-text strong, .palette-text code':
     'token names and hex values',
   'public/editorial-design.css .palette-band strong': 'token names',
-  'public/editorial-design.css .embed h3':
-    'the design system (an English-only page); no markup uses it',
   'public/designsystem/preview/type-weights.html <style> .sp': 'the weight specimens: Aa',
   'public/404.html <style> .headline': 'the not-found headline: an English-only page',
   'public/account-complete.css .brand': 'the MUSIXQUARE wordmark: the Latin brand',

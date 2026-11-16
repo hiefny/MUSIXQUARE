@@ -895,7 +895,6 @@ const gu: Record<I18nKey, string> = {
   'chat.empty_html': 'હજી કોઈ સંદેશ નથી.<br>પહેલો સંદેશ મોકલો!',
   'chat.msg_truncated': 'સંદેશ {{max}} અક્ષર સુધી ટૂંકાવ્યો',
   'chat.scroll_to_bottom': 'નીચે સુધી સ્ક્રોલ કરો',
-  'setup.brand_tagline_html': 'ગમે ત્યાં, સાથે સાંભળો<br>સંપૂર્ણ ધ્વનિ અનુભવ',
   'setup.invite_share_desc_html':
     'ઘણાં ડિવાઇસ વાયરલેસ રીતે જોડો<br>અને વિશાળ ઑડિયો સિસ્ટમ બનાવો.<br>જોડાવા માટે 6-અંકનો આમંત્રણ કોડ વાપરો.',
   'setup.play_together_desc_html':

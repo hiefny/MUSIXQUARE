@@ -654,6 +654,7 @@ describe('setup greeting reveal', () => {
     const shared = await readFile('src/ui/setup-shared.ts', 'utf8');
     const runtime = await readFile('browser/classic-runtime/wordmark-anim.ts', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');
+    const markup = await readFile('index.html', 'utf8');
 
     // No wait for a drawing (owner decision 2026-11-15: the language could
     // only change once the welcome wordmark had drawn). The markup is authored
@@ -666,37 +667,19 @@ describe('setup greeting reveal', () => {
         /mxqr:wordmark-(?:start|refresh|draw-complete)|data-wordmark-start-requested/u,
       );
     }
-    // The welcome wordmark stays out of sight under the greeting.
-    const hidden = stylesheet.slice(
-      stylesheet.indexOf('.setup-brand-greeting-stage.is-greeting-visible > .logo-welcome {'),
+    // The start screen has no wordmark of its own.
+    const headerStart = markup.indexOf('<div id="setup-welcome-header"');
+    expect(headerStart).toBeGreaterThan(-1);
+    const header = markup.slice(
+      headerStart,
+      markup.indexOf('<div id="ob-slider-area"', headerStart),
     );
-    expect(hidden).toMatch(/^[^}]*opacity: 0;[^}]*visibility: hidden;/u);
+    expect(header).not.toContain('logo-welcome');
+    expect(stylesheet).not.toContain('.logo-welcome');
     expect(stylesheet).toContain('.setup-greeting-row.is-visible');
   });
 
-  it('lowers the wordmark in every layout so its top meets the greeting', async () => {
-    const stylesheet = await readFile('css/style.css', 'utf8');
-    const desktop = await readFile('css/desktop.css', 'utf8');
-    const twoColumnStart = stylesheet.indexOf('@media (min-width: 720px) {\n    #setup-overlay {');
-    expect(twoColumnStart).toBeGreaterThan(-1);
-    const twoColumn = stylesheet.slice(
-      twoColumnStart,
-      stylesheet.indexOf('\n    }\n', twoColumnStart),
-    );
-
-    // Phone: a fixed 3px. Desktop: 3–5px with its wordmark. The 720–1279px
-    // two-column layout (landscape phones, tablets) takes the phone's 3px
-    // instead of leaving the mark 2–3px above the greeting.
-    expect(stylesheet).toMatch(
-      /\.setup-brand-greeting-stage > \.logo-welcome \{[^}]*transform: translateY\(3px\);/,
-    );
-    expect(desktop).toContain('--setup-logo-mt: clamp(3px, calc(-18px + 1.625vw), 5px);');
-    expect(twoColumn).toContain('--setup-logo-mt: 3px;');
-    expect(twoColumn).not.toContain('--setup-logo-mt: 0px');
-    expect(stylesheet).toContain('transform: translateY(var(--setup-logo-mt));');
-  });
-
-  it('reuses the welcome crossfade timing when the host guide becomes an invitation QR', async () => {
+  it('crossfades the host placeholder QR into the invitation QR at 0.36s out and 0.48s in', async () => {
     const markup = await readFile('index.html', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');
     const setupShared = await readFile('src/ui/setup-shared.ts', 'utf8');
@@ -725,9 +708,9 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toMatch(/\.setup-qr-join-spinner\s*{[^}]*color:\s*var\(--text-main\);/s);
     expect(stylesheet).toContain(".setup-qr-scan-button[aria-busy='true'] .setup-qr-join-spinner");
     expect(stylesheet).toContain('transition: none !important;');
-    expect(stylesheet).toContain('@media (max-width: 719px) and (orientation: portrait)');
+    expect(stylesheet).toContain('@media (max-width: 719.98px) and (orientation: portrait)');
     expect(
-      stylesheet.indexOf('@media (max-width: 719px) and (orientation: portrait)'),
+      stylesheet.indexOf('@media (max-width: 719.98px) and (orientation: portrait)'),
     ).toBeGreaterThan(stylesheet.indexOf('.setup-code-area-bottom {\n    margin-top: 40px;'));
     expect(stylesheet).toContain('margin-top: 14px;');
     expect(stylesheet).toContain('padding-top: 6px;');
@@ -938,7 +921,7 @@ describe('setup recovery accessibility', () => {
     expect(desktopSetupEnd).toBeGreaterThan(desktopSetupStart);
 
     const centeredAreaRules = stylesheet.slice(desktopSetupStart, desktopSetupEnd);
-    expect(centeredAreaRules).toContain('#setup-overlay #setup-auto-join-area');
+    expect(centeredAreaRules).toContain('#setup-auto-join-area');
     expect(centeredAreaRules).toContain('justify-content: center;');
   });
 });

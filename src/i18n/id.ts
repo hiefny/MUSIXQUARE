@@ -941,7 +941,6 @@ const id: Record<I18nKey, string> = {
     'Host memiliki 3 opsi.<ul class="help-list"><li><strong>Muat file lokal:</strong> Pilih musik dari perangkat Anda. Sinkronisasi presisi didukung</li><li><strong>YouTube Bersama:</strong> Video dan daftar putar didukung. Tidak ada pemisahan kanal atau efek audio</li><li><strong>Berbagi Audio Sistem:</strong> Tersedia saat host menggunakan browser berbasis Chromium di komputer</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Kode sudah dimasukkan tetapi tidak bisa terhubung:</strong> Periksa kode lalu coba lagi sebentar lagi. Jaringan perusahaan, sekolah, atau VPN dapat membatasi koneksi.</li><li><strong>Koneksi tidak stabil:</strong> Peserta lokal sebaiknya lebih dekat ke router, dan peserta jarak jauh sebaiknya memakai koneksi internet yang stabil.</li><li><strong>Masalah lain:</strong> Periksa status jaringan dan mulai ulang aplikasi di semua perangkat. Jika ada pertanyaan, lihat <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> atau hubungi kami lewat email di bagian paling bawah.</li></ul>',
-  'setup.brand_tagline_html': 'Dengarkan bersama, di mana saja<br>Pengalaman suara yang sempurna',
   'setup.invite_share_desc_html':
     'Hubungkan beberapa perangkat secara nirkabel<br>untuk membuat sistem audio berskala besar.<br>Gunakan kode undangan 6 digit untuk terhubung.',
   'setup.play_together_desc_html':

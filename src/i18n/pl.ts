@@ -928,7 +928,6 @@ const pl: Record<I18nKey, string> = {
   'chat.empty_html': 'Brak wiadomości.<br>Napisz pierwszą wiadomość!',
   'chat.msg_truncated': 'Wiadomość została skrócona do {{max}} znaków',
   'chat.scroll_to_bottom': 'Przewiń na dół',
-  'setup.brand_tagline_html': 'Słuchaj razem, gdziekolwiek jesteś.<br>Doskonałe brzmienie.',
   'setup.invite_share_desc_html':
     'Połącz bezprzewodowo wiele urządzeń,<br>aby stworzyć potężny system audio.<br>Użyj 6-cyfrowego kodu zaproszenia, aby się połączyć.',
   'setup.play_together_desc_html':

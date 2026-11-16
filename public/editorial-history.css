@@ -5,18 +5,11 @@
 
 .editorial-history .hero > .history-hero-stats {
   width: min(560px, 42vw);
-  min-height: auto;
   align-self: center;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   place-items: stretch;
   gap: 12px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  transform: none;
 }
 
 .editorial-history .hero > .history-hero-stats::before {
@@ -126,13 +119,11 @@
 @media (max-width: 1023px) {
   .editorial-history .hero > .history-hero-stats {
     width: min(100%, 640px);
-    min-height: auto;
   }
 }
 
 @media (max-width: 720px) {
   .editorial-history .hero > .history-hero-stats {
-    min-height: auto;
     gap: 10px;
   }
 

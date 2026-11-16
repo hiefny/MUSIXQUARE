@@ -110,11 +110,6 @@
 .translation-doc a.translation-button--primary {
   color: #121212;
 }
-.translation-draft-link span {
-  margin-left: 5px;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-}
 .translation-filters {
   display: grid;
   grid-template-columns: 3fr 2fr;
@@ -266,9 +261,6 @@
   font-size: 12px;
   line-height: 1.65;
 }
-.translation-pagination + .translation-note {
-  margin-top: 14px;
-}
 .translation-keyline {
   display: flex;
   align-items: baseline;
@@ -306,9 +298,6 @@
   width: fit-content;
   color: var(--text-muted);
   font-size: 12px;
-}
-.translation-reference--current + .translation-note {
-  margin-top: 12px;
 }
 .translation-proposal {
   margin-top: 24px;
@@ -426,14 +415,6 @@
 }
 .translation-doc #submit-status {
   margin-top: 12px;
-}
-.translation-drafts > summary span {
-  margin-left: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-.translation-drafts > .translation-section-heading {
-  margin-top: 18px;
 }
 .translation-community-list {
   list-style: none;

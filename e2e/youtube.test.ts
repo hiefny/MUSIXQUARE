@@ -143,9 +143,8 @@ test.describe('YouTube Integration', () => {
           const preview = document.getElementById('youtube-preview');
           const status = document.getElementById('youtube-preview-status');
           return (
-            preview?.style.display === 'block' ||
-            preview?.style.display === 'flex' ||
-            (status?.textContent?.trim().length ?? 0) > 0
+            preview?.hidden === false ||
+            status?.getAttribute('data-i18n') === 'youtube.fetch_failed'
           );
         });
       })

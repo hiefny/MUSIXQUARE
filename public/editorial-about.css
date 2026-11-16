@@ -345,8 +345,6 @@ main {
 
 .lp-toast > span {
   background: var(--surface-1);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   color: var(--text-main);
   padding: 14px 28px;
   border-radius: 100px;
@@ -383,14 +381,6 @@ main {
 
 .lp-code em.is-lit {
   color: var(--primary);
-}
-
-.lp-code__caption {
-  font-size: 12px;
-  color: var(--text-muted);
-  letter-spacing: 0.03em;
-  margin: 0;
-  font-variant-numeric: tabular-nums;
 }
 
 .lp-sync {
@@ -475,17 +465,6 @@ main {
 .lp-sync__delta {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.lp-sync__meta {
-  margin: 0;
-  padding-top: 22px;
-  border-top: 1px dashed var(--surface-2);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -590,12 +569,6 @@ main {
   text-anchor: middle;
   fill: var(--primary);
   text-transform: uppercase;
-}
-
-.lp-standin__caption--muted {
-  fill: var(--text-muted);
-  opacity: 0.55;
-  letter-spacing: 0.22em;
 }
 
 .lp-cta {
@@ -1163,11 +1136,6 @@ main {
 }
 
 @media (max-width: 720px) {
-  :root {
-    --pad-x: 24px;
-    --tabs-h: 44px;
-  }
-
   .lp-section {
     padding: 96px var(--pad-x);
   }
@@ -1175,10 +1143,6 @@ main {
   .lp-hero {
     padding-top: 36px;
     padding-bottom: 56px;
-  }
-
-  .lp-lead {
-    font-size: 16px;
   }
 
   .lp-array {
@@ -1248,10 +1212,6 @@ main {
     gap: 16px;
   }
 
-  .lp-sync__meta {
-    padding-top: 16px;
-  }
-
   .lp-sync__label {
     margin: 0 0 8px;
   }
@@ -1260,24 +1220,5 @@ main {
     grid-template-columns: 1fr;
     gap: 6px;
     padding: 14px 0;
-  }
-
-  .lp-footer__inner {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .lp-footer__nav {
-    flex-wrap: wrap;
-    row-gap: 14px;
-  }
-
-  .lp-footer__nav a,
-  .lp-lang-btn {
-    white-space: nowrap;
-  }
-
-  .lp-lang-divider {
-    display: none;
   }
 }

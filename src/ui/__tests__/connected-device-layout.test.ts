@@ -14,7 +14,22 @@ describe('connected-device list layout', () => {
     expect(memberRowRules).toContain('padding: 12px 16px');
     expect(memberRowRules).toContain('min-height: var(--list-row-height)');
     expect(deviceSubrowRules).toContain('min-height: 44px');
-    expect(deviceSubrowRules).toContain('box-sizing: border-box');
+    // The 44px is a border box: the first universal rule gives every element
+    // border-box sizing, and no rule in the app sheets picks another box.
+    const universalRules = stylesheet.match(/^\s*\*\s*\{([^}]*)\}/m)?.[1] ?? '';
+    expect(universalRules).toContain('box-sizing: border-box');
+    for (const path of [
+      'css/style.css',
+      'css/desktop.css',
+      'css/rtl.css',
+      'css/playback-actions.css',
+    ]) {
+      const sheet = await readFile(path, 'utf8');
+      const otherBoxes = [...sheet.matchAll(/box-sizing:\s*([^;}]+)/gu)]
+        .map((match) => match[1]!.trim())
+        .filter((value) => value !== 'border-box');
+      expect(otherBoxes, path).toEqual([]);
+    }
   });
 
   it('keeps authorized physical-device removal visible before hover', async () => {

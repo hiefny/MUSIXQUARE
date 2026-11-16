@@ -902,7 +902,6 @@ const en: Record<I18nKey, string> = {
   'chat.empty_html': 'No messages yet.<br>Send the first message!',
   'chat.msg_truncated': 'Message truncated to {{max}} characters',
   'chat.scroll_to_bottom': 'Scroll to bottom',
-  'setup.brand_tagline_html': 'Listen together, anywhere<br>The perfect sound experience',
   'setup.invite_share_desc_html':
     'Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit invitation code to connect.',
   'setup.play_together_desc_html':

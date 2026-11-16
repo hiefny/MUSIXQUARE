@@ -963,7 +963,6 @@ const de: Record<I18nKey, string> = {
     'Der Host hat 3 Optionen.<ul class="help-list"><li><strong>Lokale Datei laden:</strong> Musik vom Gerät auswählen. Präzise Synchronisierung wird unterstützt</li><li><strong>YouTube gemeinsam ansehen:</strong> Videos und Playlists werden unterstützt. Keine Kanaltrennung oder Audioeffekte</li><li><strong>Systemaudio-Freigabe:</strong> verfügbar, wenn der Host einen Computer mit einem Chromium-basierten Browser verwendet (Chrome, Edge usw.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Code eingegeben, aber keine Verbindung:</strong> Prüfe den Code und versuche es gleich erneut. Firmen-, Schul- oder VPN-Netzwerke können die Verbindung einschränken.</li><li><strong>Instabile Verbindung:</strong> Lokale Teilnehmer sollten näher am Router bleiben. Teilnehmer aus anderen Netzwerken sollten eine stabile Internetverbindung nutzen.</li><li><strong>Andere Probleme:</strong> Prüfe den Netzwerkstatus und starte die App auf allen Geräten neu. Bei Fragen lies die <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> oder kontaktiere uns über die E-Mail ganz unten.</li></ul>',
-  'setup.brand_tagline_html': 'Gemeinsam hören, überall<br>Das perfekte Klangerlebnis',
   'setup.invite_share_desc_html':
     'Verbinde mehrere Geräte kabellos<br>und erschaffe ein leistungsstarkes Audiosystem.<br>Nutze zum Verbinden einen 6-stelligen Einladungscode.',
   'setup.play_together_desc_html':

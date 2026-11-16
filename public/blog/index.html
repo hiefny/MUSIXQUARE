@@ -41,18 +41,11 @@
 
     .blog-hero-index {
       width: min(560px, 42vw);
-      min-height: auto;
       align-self: center;
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       place-items: stretch;
       gap: 12px;
-      padding: 0;
-      border: 0;
-      border-radius: 0;
-      background: transparent;
-      box-shadow: none;
-      transform: none;
     }
 
     .editorial-blog .hero[data-animate] > .blog-hero-index {
@@ -131,7 +124,7 @@
       gap: 22px;
       align-items: center;
       border: 0;
-      border-radius: 20px;
+      border-radius: var(--radius-m);
       background: rgba(255, 255, 255, 0.045);
       box-shadow: none;
       color: var(--text-main);

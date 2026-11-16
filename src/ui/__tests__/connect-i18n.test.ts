@@ -3563,6 +3563,23 @@ describe('PRO optional entry password controls', () => {
     expect(document.getElementById('room-password-toggle')?.getAttribute('aria-checked')).toBe(
       'true',
     );
+    // The on look comes from the class and aria-checked rules in the
+    // stylesheet, never from inline styles: an inline knob travel would not
+    // mirror in a right-to-left page.
+    const onToggle = document.getElementById('room-password-toggle') as HTMLButtonElement;
+    const onKnob = onToggle.querySelector<HTMLElement>('.room-password-toggle-knob')!;
+    expect(onToggle.classList.contains('active')).toBe(true);
+    expect({
+      toggleBackground: onToggle.style.background,
+      toggleTransform: onToggle.style.transform,
+      knobBackground: onKnob.style.background,
+      knobTransform: onKnob.style.transform,
+    }).toEqual({
+      toggleBackground: '',
+      toggleTransform: '',
+      knobBackground: '',
+      knobTransform: '',
+    });
     expect(document.getElementById('room-password-code')?.textContent).toBe('••••-••••');
     expect(showToast).toHaveBeenCalledWith(t('pro.pin_enabled'));
   });

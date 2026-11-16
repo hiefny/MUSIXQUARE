@@ -865,7 +865,6 @@ const zhHant: Record<I18nKey, string> = {
     '房主有 3 個選項。<ul class="help-list"><li><strong>載入本機檔案：</strong>從裝置中選擇音樂。支援精確同步</li><li><strong>一起看 YouTube：</strong>支援影片和播放清單。不支援聲道分離和音訊效果</li><li><strong>系統音訊分享：</strong>房主使用電腦上以 Chromium 為核心的瀏覽器（Chrome、Edge 等）時可用</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>輸入邀請碼但無法連線：</strong>請檢查邀請碼，稍後再試。公司、學校或 VPN 網路可能限制連線。</li><li><strong>連線不穩定：</strong>同一網路的參與者請靠近路由器，遠端參與者請使用穩定的網路連線。</li><li><strong>其他問題：</strong>請檢查網路狀態，並在所有裝置上重新啟動應用程式。如有疑問，請查看 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>，或透過頁面底部的電子郵件聯絡我們。</li></ul>',
-  'setup.brand_tagline_html': '隨時隨地一起聆聽<br>完美的聲音體驗',
   'setup.invite_share_desc_html':
     '無線連接多台裝置<br>打造強大的音訊系統。<br>使用 6 位邀請碼即可連線。',
   'setup.play_together_desc_html':

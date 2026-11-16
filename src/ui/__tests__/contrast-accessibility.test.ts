@@ -45,6 +45,29 @@ const styleRules = (source: string): { selectors: string[]; body: string }[] =>
     body: body!,
   }));
 
+/** Expands each top-level :is() once: `a :is(b, c)` becomes `a b` and `a c`. */
+const expandIs = (selector: string): string[] => {
+  let depth = 0;
+  for (let index = 0; index < selector.length; index += 1) {
+    const char = selector[index];
+    if (depth === 0 && selector.startsWith(':is(', index)) {
+      let end = index + ':is('.length;
+      for (let inner = 1; inner > 0 && end < selector.length; end += 1) {
+        if (selector[end] === '(') inner += 1;
+        if (selector[end] === ')') inner -= 1;
+      }
+      const head = selector.slice(0, index);
+      const options = splitSelectors(selector.slice(index + ':is('.length, end - 1));
+      return expandIs(selector.slice(end)).flatMap((tail) =>
+        options.map((option) => `${head}${option}${tail}`),
+      );
+    }
+    if (char === '(') depth += 1;
+    if (char === ')') depth -= 1;
+  }
+  return [selector];
+};
+
 describe('OS contrast accessibility styles', () => {
   it('keeps authored high contrast opt-in scoped to the contrast contract', async () => {
     const css = await readFile('css/style.css', 'utf8');
@@ -144,6 +167,51 @@ describe('OS contrast accessibility styles', () => {
     expect(prefersCss).toContain('--text-main: #000000;');
   });
 
+  it('pairs every manual contrast rule with the same OS preference rule', async () => {
+    const css = await readFile('css/style.css', 'utf8');
+    const prefersStart = css.indexOf('@media (prefers-contrast: more)');
+    const manualCss = css.slice(css.indexOf("html[data-contrast='more']"), prefersStart);
+    const contrastMedia: string[] = [];
+    parseCss(css).walkAtRules('media', (rule) => {
+      if (rule.params === '(prefers-contrast: more)') contrastMedia.push(rule.toString());
+    });
+    // The two paths differ only in how they select the root.
+    const osSelector = (selector: string): string =>
+      selector
+        .replace(
+          "html[data-theme='light'][data-contrast='more']",
+          "html[data-theme='light']:not([data-contrast='normal'])",
+        )
+        .replace("html[data-contrast='more']", "html:not([data-contrast='normal'])");
+    const declarations = (body: string): string[] =>
+      body
+        .replace(/\/\*[\s\S]*?\*\//gu, '')
+        .split(';')
+        .map((declaration) => declaration.replace(/\s+/gu, ' ').trim())
+        .filter(Boolean);
+    const manualRules = styleRules(manualCss).map((rule) => ({
+      selectors: rule.selectors.map(osSelector),
+      declarations: declarations(rule.body),
+    }));
+    const osRules = styleRules(contrastMedia.join('\n')).map((rule) => ({
+      selectors: rule.selectors,
+      declarations: declarations(rule.body),
+    }));
+
+    expect(manualRules.length).toBeGreaterThan(2);
+    expect(osRules).toEqual(manualRules);
+    expect(osRules).toContainEqual({
+      selectors: ["html:not([data-contrast='normal']) .accent-action-btn svg"],
+      declarations: ['fill: var(--primary)'],
+    });
+    expect(osRules).toContainEqual({
+      selectors: [
+        "html[data-theme='light']:not([data-contrast='normal']) :is(.chat-pinned-notice-label, .chat-pinned-notice-time, .chat-pinned-notice-close)",
+      ],
+      declarations: ['color: var(--warning-foreground)'],
+    });
+  });
+
   it('keeps authored palette contrasts above their required ratios', () => {
     expect(contrastRatio('#8ab4ff', '#1f1f1f')).toBeGreaterThanOrEqual(4.5);
     expect('#8ab4ff').not.toBe('#0047a8');
@@ -211,13 +279,20 @@ describe('OS contrast accessibility styles', () => {
     expect(forcedCss).not.toMatch(/\.language-option\.active\s*\)\s*\*\s*\{/u);
   });
 
-  it('keeps base-layer important colors from outranking the forced-colors rules', async () => {
-    const css = await readFile('css/style.css', 'utf8');
-    const baseCss = css.slice(0, css.indexOf('/* end @layer base */'));
+  it('keeps base-layer important colors and opacity from outranking the forced-colors rules', async () => {
+    const [css, playbackCss] = await Promise.all([
+      readFile('css/style.css', 'utf8'),
+      readFile('css/playback-actions.css', 'utf8'),
+    ]);
+    const baseSources = [css.slice(0, css.indexOf('/* end @layer base */'))];
+    // css/playback-actions.css has no end marker; read its @layer base block.
+    parseCss(playbackCss).walkAtRules('layer', (layer) => {
+      if (layer.params === 'base') baseSources.push(layer.toString());
+    });
     const forcedCss = css.slice(css.lastIndexOf('@media (forced-colors: active) {'));
     // An important declaration inside @layer base outranks an unlayered
     // important one, so it would silently defeat the forced-colors rule.
-    const importantColorFamilies = (body: string): Set<string> =>
+    const importantFamilies = (body: string): Set<string> =>
       new Set(
         body
           .split(';')
@@ -225,28 +300,38 @@ describe('OS contrast accessibility styles', () => {
           .filter((declaration) => /!important$/u.test(declaration))
           .map((declaration) => declaration.slice(0, declaration.indexOf(':')).trim())
           .map((property) =>
-            property.match(/^(color|background|border|outline|fill|stroke)(?:-color)?$/u),
+            property.match(/^(color|background|border|outline|fill|stroke|opacity)(?:-color)?$/u),
           )
           .filter((match): match is RegExpMatchArray => match !== null)
           .map((match) => match[1]!),
       );
+    // A forced rule written as `a :is(b, c)` still meets base rules for `a b`.
+    const expandedRules = (source: string) =>
+      styleRules(source).map((rule) => ({
+        selectors: rule.selectors.flatMap(expandIs),
+        body: rule.body,
+      }));
     const forced = new Map<string, Set<string>>();
-    for (const rule of styleRules(forcedCss)) {
-      const families = importantColorFamilies(rule.body);
+    for (const rule of expandedRules(forcedCss)) {
+      const families = importantFamilies(rule.body);
       for (const selector of rule.selectors) {
         forced.set(selector, new Set([...(forced.get(selector) ?? []), ...families]));
       }
     }
-    const conflicts = styleRules(baseCss).flatMap((rule) =>
-      [...importantColorFamilies(rule.body)].flatMap((family) =>
-        rule.selectors
-          .filter((selector) => forced.get(selector)?.has(family))
-          .map((selector) => `${selector} { ${family} }`),
+    const conflicts = baseSources.flatMap((baseCss) =>
+      expandedRules(baseCss).flatMap((rule) =>
+        [...importantFamilies(rule.body)].flatMap((family) =>
+          rule.selectors
+            .filter((selector) => forced.get(selector)?.has(family))
+            .map((selector) => `${selector} { ${family} }`),
+        ),
       ),
     );
 
+    expect(baseSources).toHaveLength(2);
     expect(forced.get(".room-password-toggle[aria-checked='true']")).toContain('background');
     expect(forced.get('.qr-svg path')).toContain('stroke');
+    expect(forced.get('body.mode-system-audio #play-btn')).toContain('opacity');
     expect(conflicts).toEqual([]);
   });
 

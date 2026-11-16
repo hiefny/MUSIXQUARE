@@ -117,6 +117,67 @@ test.describe('About page closing divider', () => {
   }
 });
 
+// The header and its loading line sit on physical edges, so each edge clears
+// its own safe-area inset in both directions: a right-to-left page is the
+// mirror of the left-to-right one, as in the app. The insets come from
+// Chromium's DevTools emulation of env(safe-area-inset-*).
+const HEADER_CUTOUTS = [
+  {
+    name: 'a left cutout',
+    insets: { top: 0, right: 0, bottom: 21, left: 48 },
+    left: 72,
+    right: 24,
+  },
+  {
+    name: 'a right cutout',
+    insets: { top: 0, right: 48, bottom: 21, left: 0 },
+    left: 24,
+    right: 72,
+  },
+] as const;
+
+test.describe('About header in the safe area', () => {
+  test.skip(
+    ({ browserName }) => browserName !== 'chromium',
+    'The safe-area emulation is a Chromium DevTools command.',
+  );
+
+  for (const { path, dir } of [
+    { path: '/ar/about.html', dir: 'rtl' },
+    { path: '/about.html', dir: 'ltr' },
+  ] as const) {
+    for (const cutout of HEADER_CUTOUTS) {
+      test(`clears each physical edge by its own inset in ${dir} with ${cutout.name}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width: 844, height: 390 });
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        const devtools = await page.context().newCDPSession(page);
+        await devtools.send('Emulation.setSafeAreaInsetsOverride', { insets: cutout.insets });
+        await page.goto(path);
+        expect(await page.evaluate(() => document.documentElement.dir)).toBe(dir);
+
+        const edges = await page.locator('.lp-header').evaluate((header) => {
+          const box = getComputedStyle(header);
+          const loading = getComputedStyle(header, '::after');
+          return {
+            paddingLeft: box.paddingLeft,
+            paddingRight: box.paddingRight,
+            loadingLeft: loading.left,
+            loadingRight: loading.right,
+          };
+        });
+        expect(edges).toEqual({
+          paddingLeft: `${cutout.left}px`,
+          paddingRight: `${cutout.right}px`,
+          loadingLeft: `${cutout.left}px`,
+          loadingRight: `${cutout.right}px`,
+        });
+      });
+    }
+  }
+});
+
 test.describe('About language route intent', () => {
   test.use({ locale: 'ko-KR' });
 

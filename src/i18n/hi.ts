@@ -910,7 +910,6 @@ const hi: Record<I18nKey, string> = {
   'chat.empty_html': 'अभी कोई संदेश नहीं है।<br>पहला संदेश भेजें!',
   'chat.msg_truncated': 'संदेश को {{max}} अक्षरों तक छोटा कर दिया गया',
   'chat.scroll_to_bottom': 'सबसे नीचे जाएँ',
-  'setup.brand_tagline_html': 'कहीं भी, साथ सुनें<br>बेहतरीन ध्वनि का अनुभव',
   'setup.invite_share_desc_html':
     'कई डिवाइसों को वायरलेस तरीके से कनेक्ट करके<br>एक विशाल ऑडियो सिस्टम बनाएँ।<br>कनेक्ट करने के लिए 6 अंकों का आमंत्रण कोड इस्तेमाल करें।',
   'setup.play_together_desc_html':

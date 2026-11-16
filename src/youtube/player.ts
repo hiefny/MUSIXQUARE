@@ -1805,14 +1805,6 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   const iosOverlay = document.getElementById('youtube-ios-sync-overlay');
   if (iosOverlay) iosOverlay.remove();
 
-  const videoEl = document.getElementById('main-video') as HTMLVideoElement | null;
-  if (videoEl) {
-    videoEl.pause();
-    videoEl.removeAttribute('src');
-    videoEl.style.display = 'none';
-    videoEl.load();
-  }
-
   // Notify guests to stop YouTube (Host only) — only when actually leaving YouTube mode
   if (wasInYouTube) {
     const hostConn = getState('network.hostConn');

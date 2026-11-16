@@ -222,24 +222,35 @@ describe('boot splash', () => {
     );
   });
 
-  it('draws the welcome wordmark whole, glyph for glyph', () => {
+  it('keeps the app wordmark shapes in the loading screen logo, glyph for glyph', () => {
     const dom = new JSDOM(INDEX);
-    const { document } = dom.window;
-    const shapes = (svg: Element | null) =>
-      [...(svg?.querySelectorAll('polygon, path, rect') ?? [])]
-        .filter((shape) => !shape.closest('defs'))
-        .map((shape) =>
-          ['points', 'd', 'x', 'y', 'width', 'height']
-            .map((name) => shape.getAttribute(name))
-            .filter((value) => value !== null)
-            .join(' '),
-        );
-    const splashLogo = document.querySelector('.boot-splash-logo');
-    const welcomeLogo = document.querySelector('.logo-welcome');
-    expect(splashLogo?.getAttribute('viewBox')).toBe(welcomeLogo?.getAttribute('viewBox'));
-    expect(shapes(splashLogo)).toEqual(shapes(welcomeLogo));
-    // M U S I X Q U A R and the three bars of E.
-    expect(shapes(splashLogo)).toHaveLength(12);
+    const splashLogo = dom.window.document.querySelector('.boot-splash-logo');
+    const shapes = [...(splashLogo?.querySelectorAll('polygon, path, rect') ?? [])]
+      .filter((shape) => !shape.closest('defs'))
+      .map((shape) =>
+        ['points', 'd', 'x', 'y', 'width', 'height']
+          .map((name) => shape.getAttribute(name))
+          .filter((value) => value !== null)
+          .join(' '),
+      );
+    expect(splashLogo?.getAttribute('viewBox')).toBe('43 12 214 24');
+    // M U S I X Q U A R and the three bars of E. The header wordmark draws the
+    // same shapes from unrounded coordinates, so these are pinned as text.
+    expect(shapes).toEqual([
+      '45.5 17.3 45.5 35.3 50 35.3 50 17.3 54.5 17.3 54.5 35.3 59 35.3 59 17.3 63.5 17.3 63.5 35.3 68 35.3 68 17.3 68 12.8 45.5 12.8 45.5 17.3',
+      '86 30.8 77 30.8 77 12.8 72.5 12.8 72.5 30.8 72.5 35.3 90.5 35.3 90.5 30.8 90.5 12.8 86 12.8 86 30.8',
+      '95 17.3 95 21.8 95 26.3 108.5 26.3 108.5 30.8 95 30.8 95 35.3 113 35.3 113 30.8 113 26.3 113 21.8 99.5 21.8 99.5 17.3 113 17.3 113 12.8 95 12.8 95 17.3',
+      '117.5 12.8 4.5 22.5',
+      '139.3 12.8 134.6 20.0 129.9 12.8 124.5 12.8 131.9 24.0 124.5 35.3 129.9 35.3 134.6 28.1 139.3 35.3 144.7 35.3 137.3 24.0 144.7 12.8 139.3 12.8',
+      'M147.2,17.3l0,13.5 0,4.5 6.75,0 0,2.7 4.5,0 0-2.7 6.75,0 0-4.5 0-13.5 0-4.5-18,0 0,4.5ZM160.7,17.3l0,13.5-2.25,0 0-2.25-4.5,0 0,2.25-2.25,0 0-13.5 9,0Z',
+      '183.2 30.8 174.2 30.8 174.2 12.8 169.7 12.8 169.7 30.8 169.7 35.3 187.7 35.3 187.7 30.8 187.7 12.8 183.2 12.8 183.2 30.8',
+      'M192.2,17.3l0,18 4.5,0 0-9 9,0 0,9 4.5,0 0-18 0-4.5-18,0 0,4.5ZM205.7,17.3l0,4.5-9,0 0-4.5 9,0Z',
+      'M232.7,26.3l0-13.5-18,0 0,13.5 0,9 4.5,0 0-9 4.6,0 5.8,10.1 3.9-2.3-4.5-7.8 3.7,0ZM219.2,17.3l9,0 0,4.5-9,0 0-4.5Z',
+      '237.2 12.8 18 4.5',
+      '237.2 21.8 13.5 4.5',
+      '237.2 30.8 18 4.5',
+    ]);
+    expect(shapes).toHaveLength(12);
     dom.window.close();
     // The Q's tail (to y 38) and the R's leg (to y 36.4) reach below the
     // viewBox (y 12 to 36); every app wordmark draws them (.logo-svg).

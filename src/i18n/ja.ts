@@ -946,7 +946,6 @@ const ja: Record<I18nKey, string> = {
     'ホストには3つの選択肢があります。<ul class="help-list"><li><strong>ローカルファイルを読み込む:</strong> デバイス内の音楽を選択。高精度同期に対応</li><li><strong>YouTubeを一緒に見る:</strong> 動画とプレイリストに対応。チャンネル分離とオーディオ効果は無効</li><li><strong>システムオーディオ共有:</strong> ホストがパソコン上のChromium系ブラウザ（Chrome、Edgeなど）を使っている場合に利用可能</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>コードを入力しても接続できない:</strong> コードを確認して、しばらくしてからもう一度お試しください。会社、学校、VPNのネットワークでは接続が制限される場合があります。</li><li><strong>接続が不安定:</strong> ローカル参加者はルーターの近くに移動し、リモート参加者は安定したインターネット接続を使用してください。</li><li><strong>その他の問題:</strong> ネットワーク状態を確認し、すべてのデバイスでアプリを再起動してください。質問がある場合は<a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>を確認するか、最下部のメールアドレスからお問い合わせください。</li></ul>',
-  'setup.brand_tagline_html': 'いつでもどこでも一緒に聴く<br>完璧なサウンド体験',
   'setup.invite_share_desc_html':
     '複数のデバイスをワイヤレスで接続し<br>パワフルなオーディオシステムを作れます。<br>6桁の招待コードで接続します。',
   'setup.play_together_desc_html':

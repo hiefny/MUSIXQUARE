@@ -691,12 +691,6 @@ function syncRoomPasswordControls(): void {
     toggle.setAttribute('aria-checked', active ? 'true' : 'false');
     toggle.disabled = locked;
     toggle.setAttribute('aria-disabled', canEdit && !toggle.disabled ? 'false' : 'true');
-    toggle.style.background = active ? 'rgba(var(--primary-rgb), 0.18)' : '';
-    const knob = toggle.querySelector('.room-password-toggle-knob') as HTMLElement | null;
-    if (knob) {
-      knob.style.background = active ? 'var(--primary)' : '';
-      knob.style.transform = active ? 'translateX(20px)' : '';
-    }
   });
 
   ROOM_PASSWORD_CODE_ROW_IDS.forEach((id) => {

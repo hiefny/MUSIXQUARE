@@ -500,9 +500,25 @@ describe('PRO upload rows', () => {
     expect(stylesheet).not.toContain('.pro-upload-cancel:not(:disabled)');
     expect(stylesheet).toContain('.pro-upload-cancel:disabled');
     expect(stylesheet).toContain('opacity: 0.32');
-    expect(stylesheet).toContain(
-      '.track-item:focus-within .btn-playlist-remove:not(.is-selected):not(:disabled)',
-    );
+    // Neither focus nor hover brightens a disabled cancel: in the four app
+    // sheets, the only opacity a rule naming the button sets is the base 1
+    // and the disabled 0.32.
+    const cancelOpacity: string[] = [];
+    for (const path of APP_CSS_SHEETS) {
+      parseCss(await readFile(path, 'utf8')).walkRules((rule) => {
+        if (!/\.(?:btn-playlist-remove|pro-upload-cancel)(?![\w-])/u.test(rule.selector)) return;
+        rule.walkDecls('opacity', (declaration) => {
+          const important = declaration.important ? ' !important' : '';
+          cancelOpacity.push(
+            `${path} ${rule.selector} { opacity: ${declaration.value}${important} }`,
+          );
+        });
+      });
+    }
+    expect(cancelOpacity).toEqual([
+      'css/style.css .pro-upload-cancel:disabled { opacity: 0.32 }',
+      'css/style.css .btn-playlist-remove { opacity: 1 }',
+    ]);
     expect(stylesheet).toContain('.btn-playlist-remove:not(:disabled):hover');
     expect(stylesheet).not.toMatch(/\.btn-playlist-remove:hover\s*\{/);
   });
@@ -1057,6 +1073,21 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.activeElement).toBe(replacement);
   });
 
+  it('draws the YouTube playlist icon without an inline transform', () => {
+    setState('playlist.items', sampleItems());
+    updatePlaylistUI();
+
+    const icon = document.querySelector(`.track-name[data-queue-item-id="${YT_B}"] .type-icon`);
+    expect(icon).not.toBeNull();
+    // The list glyph draws 120% of the other source icons, matching the
+    // YouTube logo's weight. Its viewBox carries that size instead of an
+    // inline transform, so the current row's state rule shrinks it by the
+    // same ratio as the other source icons.
+    expect(icon?.getAttribute('style')).not.toContain('transform');
+    expect(icon?.getAttribute('style')).toBe('fill:#FF0033;');
+    expect(icon?.getAttribute('viewBox')).toBe('2 2 20 20');
+  });
+
   it('does not rebuild every row for play/pause activity changes', async () => {
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', FILE_A);
@@ -1204,8 +1235,10 @@ describe('playlist queue identity rendering and actions', () => {
       /\.material-elastic-spinner\s*\{[^}]*animation:\s*material-elastic-spin/s,
     );
     expect(stylesheet).toMatch(/\.play-loading-spinner\s*\{[^}]*--material-elastic-size:\s*26px;/);
+    // Sharing dims the transport, but its loading play button stays at full
+    // strength: this more specific rule outranks the dim without !important.
     expect(systemAudioStylesheet).toMatch(
-      /body\.mode-system-audio #play-btn\.is-loading\s*\{[^}]*opacity:\s*1\s*!important;/,
+      /body\.mode-system-audio #play-btn\.is-loading\s*\{[^}]*opacity:\s*1;/,
     );
     expect(stylesheet).toMatch(
       /\.track-playback-loading-indicator\s*\{[^}]*--material-elastic-size:\s*16px;/,

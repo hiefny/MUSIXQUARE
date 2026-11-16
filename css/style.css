@@ -220,7 +220,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      one condition. Its own rule still reads --button-label-size, so the label
      keeps the CTA weight, line height and tracking.
      button-label-contract.test.ts names every member with its reason. */
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     .btn-label-compact {
       --button-label-size: var(--button-label-chip-size);
     }
@@ -400,7 +400,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 12px 24px;
     background: var(--primary-filled, #3b82f6);
     color: #fff;
-    border-radius: 0 0 var(--radius-s, 14px) var(--radius-s, 14px);
+    border-radius: 0 0 var(--radius-s) var(--radius-s);
     font-size: 14px;
     font-weight: var(--font-weight-label);
     text-decoration: none;
@@ -473,7 +473,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-muted);
     cursor: pointer;
     opacity: 1;
-    -webkit-tap-highlight-color: transparent;
     transition:
       color 0.15s ease,
       opacity 0.15s ease;
@@ -558,7 +557,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* Pair of the html rule above — both roots must opt out or iOS picks
        the permissive one for the document bounce. */
     overscroll-behavior: none;
-    transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   /* Every UI not listed here, Korean and English included, reads the
@@ -670,18 +668,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
   }
 
-  @keyframes fadeInScale {
-    from {
-      opacity: 0;
-      transform: scale(0.98);
-    }
-
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-
   /* Dialog dimming must stay fixed; the shared fadeIn keyframe also moves 10px. */
   @keyframes dialogBackdropIn {
     from {
@@ -749,12 +735,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: none !important;
   }
 
-  html.is-booting header,
-  html.is-booting .bottom-nav {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
   html.is-booting .tab-content {
     animation: none !important;
   }
@@ -798,8 +778,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     justify-content: space-between;
     align-items: center;
     background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     position: fixed;
     top: 0;
     left: 0;
@@ -809,7 +787,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: background-color 0.3s ease;
     /* Isolate the fixed header from Safari video compositing. */
     transform: translateZ(0);
-    -webkit-transform: translateZ(0);
     will-change: transform;
   }
 
@@ -1254,22 +1231,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: none !important;
   }
 
-  .logo-brand {
-    height: 28px;
-    width: auto;
-  }
-
-  .logo-welcome {
-    height: 22px;
-    width: auto;
-    margin: 0;
-    opacity: 1;
-    visibility: visible;
-    transition:
-      opacity 0.36s ease-in,
-      visibility 0s linear 0s;
-  }
-
   .setup-brand-greeting-stage {
     display: grid;
     justify-items: start;
@@ -1278,24 +1239,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     margin-bottom: 8px;
   }
 
-  .setup-brand-greeting-stage > .logo-welcome {
-    /* Keep the wordmark's optical offset without moving the title/description
-       layout that replaces it. */
-    transform: translateY(3px);
-  }
-
-  .setup-brand-greeting-stage > .logo-welcome,
   .setup-brand-greeting-stage > .setup-greeting-row {
     grid-area: 1 / 1;
-  }
-
-  .setup-brand-greeting-stage.is-greeting-visible > .logo-welcome {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition:
-      opacity 0.36s ease-in,
-      visibility 0s linear 0.36s;
   }
 
   .setup-greeting-row {
@@ -1334,8 +1279,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     width: auto;
     min-width: 0;
     min-height: 44px;
-    padding: 0 10px 0 12px;
-    margin: calc((1.2em - 44px) / 2) -10px calc((1.2em - 44px) / 2) -12px;
+    padding: 0;
+    padding-inline-start: 12px;
+    padding-inline-end: 10px;
+    margin: calc((1.2em - 44px) / 2) 0;
+    margin-inline-start: -12px;
+    margin-inline-end: -10px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1382,18 +1331,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     stroke-linejoin: round;
   }
 
-  /* The wordmark runtime reveals one complete silhouette through an exact
-     union mask. Without that optional runtime, keep the static logo readable. */
-  .logo-welcome > .wg {
-    opacity: 1;
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .logo-welcome > .wg {
-      mask: none !important;
-    }
-
-    .setup-brand-greeting-stage > .logo-welcome,
     .setup-greeting-row,
     .setup-language-button {
       transition: none;
@@ -1465,9 +1403,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Keep loader status visually stable on phones. Long translated messages
      and file names stay on one line and use the base ellipsis treatment. */
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     .header-loading-text {
-      white-space: nowrap;
       overflow-wrap: normal;
       line-height: 18px;
     }
@@ -1492,8 +1429,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 11px;
     font-weight: var(--font-weight-label);
     background: var(--surface-2);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     color: var(--text-sub);
     padding: 6px 14px;
     border-radius: var(--radius-pill);
@@ -1511,15 +1446,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .role-badge.connected {
-    background: var(--primary-filled);
-    color: white;
-  }
-
-  .role-badge.connected.remote {
-    background: var(--warning-filled);
   }
 
   /* PRO has no browser host/coordinator rank. Keep every endpoint equally blue. */
@@ -1761,10 +1687,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     cursor: not-allowed;
   }
 
-  .system-audio-playlist-note {
-    display: none;
-  }
-
   .invite-code-value {
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.1em;
@@ -1845,11 +1767,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Playlist Controls Active States */
-  .tab-action-btn.active {
-    background: transparent;
-    color: white;
-  }
-
+  .tab-action-btn.active,
   .tab-action-btn.active-one {
     background: transparent;
     color: white;
@@ -1882,7 +1800,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   #tab-play {
     justify-content: flex-start;
     padding-top: calc(var(--header-height) + 10px);
-    box-sizing: border-box;
   }
 
   #tab-play .tab-body {
@@ -1933,7 +1850,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: transparent;
     cursor: pointer;
     touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
   }
 
   #visualizerCanvas:focus-visible {
@@ -1953,7 +1869,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     aspect-ratio: auto;
     border-radius: 0;
     padding: 0 24px;
-    box-sizing: border-box;
   }
 
   body.viz-spectrum #visualizerCanvas {
@@ -2012,7 +1927,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-content: center;
     gap: 12px;
     padding: 24px;
-    box-sizing: border-box;
     background: rgba(0, 0, 0, 0.62);
     color: #fff;
     pointer-events: auto;
@@ -2038,7 +1952,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Level 1's narrow, bottom-navigation UI uses a full-bleed square-cornered
      YouTube frame. Level 2's sidebar UI and desktop keep the rounded,
      constrained presentation regardless of the viewport's orientation. */
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     #tab-play {
       padding-top: var(--header-height);
     }
@@ -2099,8 +2013,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     width: auto;
     min-width: 100%;
     text-align: start;
-    padding: 0 24px 0 var(--track-title-bleed);
-    box-sizing: border-box;
+    padding: 0;
+    padding-inline-start: var(--track-title-bleed);
+    padding-inline-end: 24px;
   }
 
   .track-title.marquee {
@@ -2161,7 +2076,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     flex-shrink: 0;
     width: 100%;
     padding: 20px 24px 0;
-    box-sizing: border-box;
     margin-top: 0;
   }
 
@@ -2553,7 +2467,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: transparent;
     padding: 14px 16px;
     min-height: var(--list-row-height);
-    box-sizing: border-box;
     border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
@@ -2703,7 +2616,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-muted);
     cursor: grab;
     touch-action: none;
-    -webkit-tap-highlight-color: transparent;
     transition: color 0.15s ease;
   }
 
@@ -2900,7 +2812,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      sub-row when an expanded YouTube playlist exposes it; otherwise animate the
      current top-level row. Wide desktop layouts remain static until hover or
      keyboard focus, even on touch or TV-style hardware. */
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     :where(html:not([data-hover-pointer]))
       .playlist-entry:not(:has(.sub-track-item.active))
       > .track-item:has(.playlist-current-leading.is-current-playing)
@@ -2981,7 +2893,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .sub-playlist {
     list-style: none;
-    padding: 0 0 8px 48px;
+    padding: 0 0 8px;
+    padding-inline-start: 48px;
     margin: 0 0 8px;
     display: flex;
     flex-direction: column;
@@ -3268,7 +3181,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       color 0.15s;
     color: var(--text-muted);
     padding: 0;
-    -webkit-tap-highlight-color: transparent;
   }
 
   .btn-playlist-remove svg {
@@ -3280,12 +3192,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     stroke-linejoin: round;
   }
 
-  .track-item:focus-within .btn-playlist-remove:not(.is-selected):not(:disabled) {
-    opacity: 1;
-  }
-
   :where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover {
-    opacity: 1;
     color: var(--danger-foreground);
   }
 
@@ -3313,7 +3220,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-muted);
     cursor: pointer;
     touch-action: none;
-    -webkit-tap-highlight-color: transparent;
     transition: color 0.15s ease;
   }
 
@@ -3556,7 +3462,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
        title's baseline never makes the header row taller than outside the
        mode and entering the mode never moves the title or the list. */
     height: 44px;
-    margin: -14px 0 -14px 16px;
+    margin: -14px 0;
+    margin-inline-start: 16px;
     padding: 0 4px;
     display: inline-flex;
     align-items: center;
@@ -3570,7 +3477,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     letter-spacing: var(--button-label-letter-spacing);
     white-space: nowrap;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
     transition: opacity 0.15s ease;
   }
 
@@ -3600,7 +3506,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .tab-header .playlist-header-fade > * {
     position: absolute;
     margin: 0;
-    box-sizing: border-box;
   }
 
   /* Move, Delete (trash) and Cancel (close) are 54px circular icon buttons
@@ -3621,7 +3526,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-self: center;
     width: max-content;
     max-width: calc(100% - var(--safe-left) - var(--safe-right) - 32px);
-    box-sizing: border-box;
     margin: 16px auto 0;
     padding: 6px;
     display: flex;
@@ -3663,14 +3567,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     width: 54px;
     height: 54px;
     flex: 0 0 54px;
-    box-sizing: border-box;
     padding: 0;
     display: inline-grid;
     place-items: center;
     border: 1px solid transparent;
     border-radius: var(--radius-pill);
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
     transition:
       background-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
       border-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -3737,10 +3639,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-bottom: 1px solid var(--divider);
   }
 
-  [data-theme='light'] .section-group {
-    border-bottom: 1px solid var(--divider);
-  }
-
   .section-group:last-of-type,
   #last-setting-section {
     border-bottom: none;
@@ -3771,7 +3669,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition:
       background 0.18s ease,
       opacity 0.18s ease;
-    -webkit-tap-highlight-color: transparent;
     appearance: none;
     -webkit-appearance: none;
   }
@@ -3810,7 +3707,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .room-password-toggle[aria-checked='true'] .room-password-toggle-knob {
     background: var(--primary);
-    transform: translateX(var(--room-password-knob-travel)) !important;
+    transform: translateX(var(--room-password-knob-travel));
   }
 
   .room-password-toggle:disabled,
@@ -3862,7 +3759,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       background 0.15s ease,
       color 0.15s ease,
       transform 0.15s ease;
-    -webkit-tap-highlight-color: transparent;
     appearance: none;
     -webkit-appearance: none;
   }
@@ -3894,7 +3790,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   @media (max-width: 420px) {
     .room-password-code {
-      font-size: 22px;
       min-width: 132px;
     }
   }
@@ -3970,7 +3865,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
-    -webkit-tap-highlight-color: transparent;
     transition:
       color 0.2s ease,
       background-color 0.2s ease;
@@ -4229,7 +4123,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
            get the OS-consistent focus ring. */
     appearance: none;
     -webkit-appearance: none;
-    -webkit-tap-highlight-color: transparent;
   }
 
   .ch-opt svg {
@@ -4296,7 +4189,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* Keep administrator and connected-device rows on the same 56px rail as
        playlist rows while preserving the 32px disclosure/action controls. */
     min-height: var(--list-row-height);
-    box-sizing: border-box;
     border-radius: var(--radius-pill);
     background: transparent;
     transition: background 0.2s;
@@ -4368,7 +4260,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .device-sublist {
     list-style: none;
-    padding: 0 16px 8px 56px;
+    padding: 0 0 8px;
+    padding-inline-start: 56px;
+    padding-inline-end: 16px;
     margin: 0 0 8px;
     display: flex;
     flex-direction: column;
@@ -4383,7 +4277,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .device-subrow {
     padding: 8px 12px;
     min-height: 44px;
-    box-sizing: border-box;
     border-radius: var(--radius-pill);
     font-size: 13px;
     color: var(--text-sub);
@@ -4535,12 +4428,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-muted);
     cursor: pointer;
     transition: all 0.15s;
-  }
-
-  .d-op-btn.active {
-    background: var(--primary-filled);
-    color: white;
-    border-color: rgba(var(--primary-rgb), 0.75);
   }
 
   /* Administrator grant is a compact, intact crown state action. */
@@ -4753,7 +4640,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .qr-container img {
     max-width: 220px;
     max-height: 220px;
-    border-radius: var(--radius-s, 14px);
+    border-radius: var(--radius-s);
   }
 
   .qr-svg {
@@ -4787,7 +4674,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-height: 56px;
     height: auto;
     padding: 10px 16px;
-    box-sizing: border-box;
     margin: 0;
     border: none;
     border-radius: var(--radius-pill);
@@ -4802,7 +4688,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       background 0.2s ease,
       color 0.2s ease,
       transform 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
   }
 
   .btn-copy-invite-link > svg {
@@ -5012,8 +4897,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     padding: 10px 16px calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
 
     /* Match header solid chrome */
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     background: var(--surface-1);
 
     box-shadow: none;
@@ -5021,7 +4904,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
     /* iOS Safari: Force hardware acceleration to isolate from background video layers */
     transform: translateZ(0);
-    -webkit-transform: translateZ(0);
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 
     /* Prevent transparency flicker during View Transition tab switches */
@@ -5039,8 +4921,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Light Mode */
   [data-theme='light'] .bottom-nav {
     background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     box-shadow: none;
     border: none;
   }
@@ -5048,8 +4928,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Dark Mode */
   [data-theme='dark'] .bottom-nav {
     background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     box-shadow: none;
     border: none;
   }
@@ -5117,24 +4995,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Dark mode adaptive colors */
-  [data-theme='dark'] .nav-item {
-    color: #6b7684;
-  }
-
   [data-theme='dark'] .nav-item span {
     color: #8b95a1;
   }
 
-  [data-theme='dark'] .nav-item.active {
-    color: var(--primary);
-  }
-
   [data-theme='dark'] .nav-item.active span {
     color: var(--primary);
-  }
-
-  [data-theme='dark'] .nav-item.active svg {
-    fill: var(--primary);
   }
 
   .toast {
@@ -5157,8 +5023,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .toast > span {
     background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     color: var(--text-main);
     padding: 14px 28px;
     border-radius: 100px;
@@ -5179,7 +5043,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       bottom 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     body:has(#tab-playlist.active .playlist-selection-bar:not([hidden]):not([data-state='leaving']))
       .toast {
       bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 98px);
@@ -5270,8 +5134,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       max(var(--dialog-edge-gap), var(--safe-bottom)) max(24px, var(--safe-physical-left));
     /* Match other overlays (sync/media/setup) for consistency */
     background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     z-index: 6000;
     /* Higher than onboarding-overlay (2000) and desktop overlay (5000) */
     animation: dialogBackdropIn 0.3s ease-out both;
@@ -5555,7 +5417,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     min-height: 44px;
     flex: 0 1 auto;
     margin: 0;
-    padding: 0 10px 0 12px;
+    padding: 0;
+    padding-inline-start: 12px;
+    padding-inline-end: 10px;
     border: 0;
     border-radius: var(--radius-pill);
     display: inline-flex;
@@ -5718,7 +5582,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-size: 14px;
     font-weight: 500;
     text-decoration: none;
-    box-sizing: border-box;
     transition:
       background-color 0.18s ease,
       transform 0.18s ease;
@@ -6113,7 +5976,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-family: inherit;
     outline: none;
     transition: border-bottom-color 0.2s ease;
-    box-sizing: border-box;
   }
 
   .dialog-input:focus {
@@ -6150,7 +6012,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     text-align: center;
     outline: none;
     transition: border-bottom-color 0.2s ease;
-    box-sizing: border-box;
     appearance: none;
     -webkit-appearance: none;
     box-shadow: none;
@@ -6272,7 +6133,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: block;
     flex-shrink: 0;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
   }
 
   /* Focusable and announced, but drawn by the surface that follows it. The
@@ -6306,7 +6166,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: var(--radius-m);
     background: transparent;
     color: var(--text-main);
-    box-sizing: border-box;
     transition:
       background-color 0.18s ease,
       color 0.18s ease;
@@ -6945,8 +6804,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Dark theme toast */
   [data-theme='dark'] .toast > span {
-    background: var(--surface-1);
-    color: #fff;
+    color: var(--text-main);
   }
 
   .onboarding-overlay {
@@ -6954,12 +6812,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     inset: 0;
     /* inset: 0 establishes height without a 100vh override that could extend
        behind Android system navigation. */
-    /* Cap to the actually visible viewport height.
-       On some Android tablets / WebViews, 100vh (or viewport-fit=cover contexts)
-       can include the area behind the system navigation bar, causing the
-       bottom of the setup UI to be clipped.
-       --app-height is maintained by JS using visualViewport/innerHeight. */
-    max-height: var(--app-height, 100dvh);
     background: var(--bg);
     z-index: 2000;
     display: none;
@@ -7215,7 +7067,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .ob-dot.active {
     background: var(--primary);
     width: 24px;
-    border-radius: var(--radius-pill);
   }
 
   /* --- Onboarding nav row: dots + mini arrows --- */
@@ -7249,7 +7100,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border: none;
     outline: none;
     background: none;
-    color: var(--text-sub, #888);
+    color: var(--text-sub);
     width: 20px;
     height: 20px;
     display: flex;
@@ -7271,7 +7122,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   :where(html[data-hover-pointer]) .ob-nav-arrow:hover {
     color: var(--primary);
-    background: rgba(var(--primary-rgb, 0, 122, 255), 0.08);
+    background: rgba(var(--primary-rgb), 0.08);
   }
 
   .ob-nav-arrow:active {
@@ -7456,14 +7307,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Unified Guide Layout (Combined WiFi + Hotspot) */
-  .setup-guide-unified {
-    display: flex;
-    flex-direction: column;
-    gap: 40px;
-    margin-bottom: 24px;
-    width: 100%;
-  }
-
   .setup-host-invite-stage {
     display: grid;
     place-items: center;
@@ -7702,19 +7545,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     cursor: pointer;
   }
 
-  .setup-unified-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    text-align: center;
-    box-shadow: none;
-  }
-
   .setup-code-area-bottom {
     margin-top: 40px;
     padding: 16px 0 32px;
@@ -7730,7 +7560,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-sub);
   }
 
-  @media (max-width: 719px) and (orientation: portrait) {
+  @media (max-width: 719.98px) and (orientation: portrait) {
     .setup-host-invite-stage,
     .setup-guest-qr-stage {
       margin-bottom: 0;
@@ -7776,21 +7606,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     max-width: 280px;
   }
 
-  .graphic-device {
-    fill: #000000;
-    stroke: var(--surface-3);
-    stroke-width: 1;
-  }
-
-  .graphic-text {
-    font-size: 10px;
-    font-weight: var(--font-weight-label);
-    fill: var(--text-sub);
-  }
-
   .setup-join-input {
     width: 100%;
-    box-sizing: border-box;
     text-align: center;
     background: none;
     border: none;
@@ -7853,26 +7670,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* YouTube URL overlay: prevent preview from pushing buttons off-screen (mobile) */
-  #youtube-url-overlay .setup-card.full-screen {
-    height: 100%;
-    max-height: 100%;
-    overflow: hidden;
-  }
-
   #youtube-url-overlay .setup-card.full-screen .setup-join-area {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
   }
 
-  #youtube-url-overlay .setup-card.full-screen .ob-actions {
-    flex-shrink: 0;
-  }
-
-  #youtube-url-overlay #youtube-preview-thumb {
+  #youtube-preview-thumb {
     max-height: 35vh;
-    width: 100%;
-    object-fit: cover;
   }
 
   .setup-slot-list {
@@ -8192,16 +7997,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Notice bubble */
-  .chat-bubble.notice {
-    background: rgba(255, 193, 7, 0.12);
-    border: 1px solid rgba(255, 193, 7, 0.35);
-  }
-
-  .notice-label {
-    color: #ffc107;
-    font-weight: var(--font-weight-label);
-  }
-
   .chat-sender {
     font-size: 11px;
     font-weight: var(--font-weight-label);
@@ -8377,6 +8172,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     font-weight: var(--font-weight-body);
     overflow: hidden;
     white-space: nowrap;
+  }
+
+  .chat-cmd-ghost[hidden] {
+    display: none;
   }
 
   .chat-cmd-ghost-typed {
@@ -8603,7 +8402,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     z-index: 999;
     background: transparent;
     visibility: hidden;
-    -webkit-tap-highlight-color: transparent;
   }
 
   .chat-backdrop.open {
@@ -8626,10 +8424,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     height: var(--chat-live-height, var(--chat-snap-height));
     min-height: 0;
     max-height: calc(var(--app-height, 100dvh) + 22px);
-    box-sizing: border-box;
     background: var(--surface-1);
-    border-top-left-radius: 20px;
-    border-top-right-radius: 20px;
+    border-top-left-radius: var(--radius-m);
+    border-top-right-radius: var(--radius-m);
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
     /* Slightly stronger shadow for depth */
     transform: translateY(100%);
@@ -8665,7 +8462,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       visibility 0s 0s;
   }
 
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     .chat-drawer {
       z-index: 3000;
     }
@@ -8673,8 +8470,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .chat-drawer[data-chat-snap='half'] {
       --chat-snap-height: calc(var(--app-height, 100dvh) * 0.5);
       padding-top: var(--chat-live-safe-top, 0px);
-      border-top-left-radius: 20px;
-      border-top-right-radius: 20px;
+      border-top-left-radius: var(--radius-m);
+      border-top-right-radius: var(--radius-m);
     }
 
     .chat-drawer[data-chat-snap='full'] {
@@ -8715,20 +8512,17 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     outline: none;
   }
 
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     .chat-drawer-header {
       justify-content: center;
-      padding: 16px;
       background: transparent;
       cursor: grab;
       touch-action: none;
       user-select: none;
       -webkit-user-select: none;
     }
-  }
 
   /* Drag handle bar — mobile bottom sheet affordance */
-  @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer-header::before {
       content: '';
       width: 36px;
@@ -8746,7 +8540,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* The sheet's handle row shows the drag handle, not the drawer title. */
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     .chat-drawer-title {
       display: none;
     }
@@ -8897,7 +8691,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* Mobile chat grows upward from the input like a native messenger. Desktop
      keeps the conventional panel flow and starts its first message at the top. */
-  @media (max-width: 1279px), (max-height: 719px) {
+  @media (max-width: 1279.98px), (max-height: 719.98px) {
     .chat-drawer-messages > .chat-group:first-child {
       margin-top: auto;
     }
@@ -9092,7 +8886,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     outline: none;
     text-align: start;
     font-family: inherit;
-    box-sizing: border-box;
   }
 
   /* Match the tail of the bubble depending on who sent it */
@@ -9212,8 +9005,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     z-index: 3000;
     display: flex;
     align-items: center;
@@ -9547,7 +9338,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     position: relative;
     height: var(--app-height, 100dvh);
     min-height: var(--app-height, 100dvh);
-    box-sizing: border-box;
     padding: var(--demo-shell-pad-top) 14px var(--demo-shell-pad-bottom);
     display: grid;
     grid-template-rows: var(--demo-visual-height) minmax(0, 1fr) var(--demo-step-nav-reserve);
@@ -9566,8 +9356,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       var(--demo-shell-pad-top) + var(--demo-visual-height) + var(--demo-panel-start-offset)
     );
     background: var(--surface-1);
-    border-top-left-radius: 20px;
-    border-top-right-radius: 20px;
+    border-top-left-radius: var(--radius-m);
+    border-top-right-radius: var(--radius-m);
     pointer-events: none;
   }
 
@@ -9604,8 +9394,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     z-index: 1;
     pointer-events: none;
     background: linear-gradient(to bottom, rgba(18, 18, 18, 0.52), rgba(18, 18, 18, 0));
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     -webkit-mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 100%);
     mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 100%);
   }
@@ -9988,7 +9776,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     width: 100%;
     max-width: var(--demo-panel-max);
     margin-inline: auto;
-    box-sizing: border-box;
   }
 
   .demo-step-copy p {
@@ -10288,8 +10075,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: var(--radius-pill);
     background: var(--surface-2);
     color: var(--text-sub);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     font: inherit;
     /* The demo step indicator keeps its own sizes and shares the button label
        weight and tracking (button-label-contract.test.ts). */
@@ -10458,8 +10243,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       --demo-panel-max: clamp(340px, 40vw, 640px);
       --demo-step-gap: clamp(14px, 2.6vh, 26px);
       --demo-column-gap: clamp(18px, 3vw, 44px);
-      --demo-row-gap: clamp(12px, 2vh, 24px);
-      --demo-nav-size: clamp(54px, min(7vw, 8vh), 70px);
       --demo-nav-gap: clamp(10px, 1.5vw, 18px);
       --demo-visual-min: 0px;
       --demo-visual-height: auto;
@@ -10484,8 +10267,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
     .demo-visual-stage {
       grid-column: 1;
-      grid-row: 1;
-      min-height: 0;
     }
 
     .demo-control-stage {
@@ -10505,7 +10286,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding-inline: var(--demo-control-pad-inline)
         calc(var(--demo-control-pad-inline) + var(--safe-right));
       background: var(--surface-1);
-      box-sizing: border-box;
     }
 
     /* The panel's scrollbar follows the panel to its outer edge. */
@@ -10663,8 +10443,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding-inline-end: 10px;
       --demo-control-inset: 18px;
       --demo-shell-gap: 22px;
-      --demo-panel-start-offset: 0px;
-      gap: var(--demo-shell-gap);
     }
 
     .demo-step-copy h2 {
@@ -10773,10 +10551,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 0.5;
   }
 
-  .system-audio-loading-spinner {
-    display: none;
-  }
-
   .file-select-btn span {
     flex: 1;
     min-width: 0;
@@ -10881,7 +10655,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   .btn-icon-bg {
     width: 44px;
     height: 44px;
-    border-radius: 14px;
+    border-radius: var(--radius-s);
     background: transparent;
     display: flex;
     align-items: center;
@@ -11090,25 +10864,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     #setup-overlay {
       --setup-panel-w: 320px;
       --setup-px: 28px;
-      --setup-px-end: 28px;
       --setup-head-py: clamp(24px, 6vh, 48px);
       --setup-head-px: clamp(24px, 6vh, 48px);
-      --setup-logo-h: clamp(18px, 4.5vh, 26px);
-      /* Lower the wordmark by the phone layout's 3px so its top meets the
-         greeting that replaces it (0–1px below at 18–26px). Unnudged, it sat
-         2–3px above; a size-scaled nudge dropped the 26px tablet mark too far. */
-      --setup-logo-mt: 3px;
-      --setup-logo-mb: clamp(6px, 1.5vh, 12px);
       --setup-h2: clamp(20px, 5vh, 28px);
       --setup-h2-mb: clamp(4px, 1vh, 8px);
       --setup-p: clamp(13px, 3vh, 16px);
       --setup-p-lh: 1.4;
       --setup-diagram-pad: clamp(12px, 4vh, 32px) 24px;
       --setup-svg-max: clamp(280px, 65vh, 480px);
-      --setup-guide-gap: clamp(12px, 3vh, 24px);
-      --setup-guide-svg-max: clamp(240px, 45vh, 400px);
-      --setup-guide-svg-h: clamp(80px, 15vh, 140px);
-      --setup-guide-mt: -10px;
       --setup-icon: clamp(56px, 12vh, 84px);
       --setup-icon-svg: clamp(28px, 6vh, 40px);
       --setup-slider-w: clamp(260px, 62vh, 500px);
@@ -11137,8 +10900,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     transition: opacity 0.3s;
     opacity: 0;
     /* Hidden by default */
@@ -11264,9 +11025,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
-      calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
-    color: var(--text);
+    padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-physical-right))
+      calc(24px + var(--safe-bottom)) calc(24px + var(--safe-physical-left));
+    color: var(--text-main);
     text-align: center;
     background: var(--bg);
   }
@@ -11354,7 +11115,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    -webkit-tap-highlight-color: transparent;
     border-radius: var(--radius-pill);
   }
 
@@ -11390,11 +11150,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* SVG color utilities used by inline icons */
-  .svg-stroke-primary {
-    stroke: var(--primary);
-    stroke-width: 2;
-  }
-
   .svg-fill-sub-08 {
     fill: var(--text-sub);
     stroke: none;
@@ -11447,14 +11202,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   .flex-1 {
     flex: 1;
-  }
-
-  .h-70 {
-    height: 70px;
-  }
-
-  .text-10 {
-    font-size: 10px;
   }
 
   /* Hidden file input for file picker (kept tabbable but visually offscreen) */
@@ -11942,6 +11689,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* "Watch together" button: 1.5x flex grow, dimmed while disabled */
   .yt-play-btn-flex15 {
     flex: 1.5;
+  }
+
+  .yt-play-btn-flex15:disabled {
     opacity: 0.5;
   }
 
@@ -11953,8 +11703,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     inset: 0;
     z-index: 99999;
     background: rgba(0, 0, 0, 0.88);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
     /* Column layout so live-updating graphs always sit at the bottom of the
        viewport rather than below a long, scrolling text snapshot. */
     display: flex;
@@ -11963,10 +11711,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
        don't render under it. */
     padding: max(env(safe-area-inset-top, 20px), 20px) 12px
       calc(max(env(safe-area-inset-bottom, 20px), 20px) + 22px) 12px;
-    box-sizing: border-box;
     overflow: hidden;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
     user-select: text;
     -webkit-user-select: text;
   }
@@ -12089,6 +11835,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     pointer-events: none;
   }
 
+  /* Security check (Turnstile) overlay, created by src/core/capability.ts,
+     whose injected sheet keeps the fade. It covers the whole viewport above
+     everything else; the build writes inset as four sides for Chromium 79. */
+  #mxqr-turnstile-container {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(6, 10, 18, 0.42);
+    z-index: 2147483647;
+  }
+
   /* --------------------------------------------------------------------------
    OS contrast preferences
 
@@ -12193,6 +11953,23 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--primary-filled);
   }
 
+  /* The accent actions and the light pinned notice paint literals the
+     palettes cannot reach; with more contrast they take the palette's blue
+     and warning brown (owner decision 2026-11-15). The OS path repeats these
+     rules, and the forced-colors block keeps their forced look. */
+  html[data-contrast='more'] .accent-action-btn {
+    color: var(--primary);
+  }
+
+  html[data-contrast='more'] .accent-action-btn svg {
+    fill: var(--primary);
+  }
+
+  html[data-theme='light'][data-contrast='more']
+    :is(.chat-pinned-notice-label, .chat-pinned-notice-time, .chat-pinned-notice-close) {
+    color: var(--warning-foreground);
+  }
+
   @media (prefers-contrast: more) {
     html:not([data-contrast='normal']) {
       --bg: #000000;
@@ -12283,6 +12060,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     html:not([data-contrast='normal']) .tab-action-btn.active-one::after {
       color: var(--primary-filled);
     }
+
+    html:not([data-contrast='normal']) .accent-action-btn {
+      color: var(--primary);
+    }
+
+    html:not([data-contrast='normal']) .accent-action-btn svg {
+      fill: var(--primary);
+    }
+
+    html[data-theme='light']:not([data-contrast='normal'])
+      :is(.chat-pinned-notice-label, .chat-pinned-notice-time, .chat-pinned-notice-close) {
+      color: var(--warning-foreground);
+    }
   }
 }
 
@@ -12291,24 +12081,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 @layer responsive {
   /* Only a short portrait stack needs to sacrifice the subtitle row.
      Landscape has enough horizontal room to keep TRACK / ARTIST visible. */
-  @media (max-width: 1279px) and (max-height: 720px) and (orientation: portrait) {
+  @media (max-height: 720px) and (orientation: portrait) {
     .track-artist {
       display: none;
     }
   }
-  @media (max-width: 719px) {
+  @media (max-width: 719.98px) {
     html:not(.standalone) header,
     html:not(.standalone) .bottom-nav {
       background: var(--surface-1);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
     }
-
-    html[data-theme='light']:not(.standalone) header,
-    html[data-theme='light']:not(.standalone) .bottom-nav {
-      background: #ffffff;
-    }
-  }
   /* Phone setup: the step areas (the elements that scroll) and the actions
      bar span the screen, so a contained area's scrollbar, drawn at the right
      edge of .setup-mobile-view (src/ui/custom-scrollbar.ts), sits at the
@@ -12317,7 +12099,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      so no text or button moves. The scrollbar takes no layout width, so both
      sides stay equal. A width-only query, so phones held sideways under
      720px get it too; the two-column panel from 720px keeps its own. */
-  @media (max-width: 719px) {
     #setup-overlay .setup-card.full-screen,
     #setup-overlay .setup-mobile-view {
       padding-inline: 0;
@@ -12340,7 +12121,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      actions' 16px top padding, the carousel nav row's 8px margin, and on
      방 만들기 about 17.5px under the code digits. A screen too short for the
      content still scrolls as before. */
-  @media (max-width: 719px) and (orientation: portrait) {
+  @media (max-width: 719.98px) and (orientation: portrait) {
     #setup-code-area > .setup-host-invite-stage,
     #setup-join-area > .setup-guest-qr-stage {
       margin-top: auto;
@@ -12364,14 +12145,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     /* 56 + 5 + 4 - 8 - 16 */
-    #setup-welcome-area > #ob-slider-area {
+    #setup-welcome-area > .ob-slider-block {
       flex: none;
       margin-block: auto;
       padding-bottom: 41px;
     }
   }
   /* Compact sidebar geometry: 720–1279px wide, or wider but under 720px tall. */
-  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
+  @media (min-width: 720px) and (max-width: 1279.98px), (min-width: 1280px) and (max-height: 719.98px) {
     /* ── Sidebar (header) — right side ── */
     header {
       width: calc(200px + var(--safe-physical-right));
@@ -12469,8 +12250,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding: 8px 20px;
       padding-right: calc(20px + var(--safe-physical-right));
       background: transparent;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
       border: none;
       z-index: 2502;
       box-shadow: none;
@@ -12535,7 +12314,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       padding: 16px 24px calc(8px + var(--safe-bottom)) 24px;
       padding-left: calc(24px + var(--safe-physical-left));
       scroll-padding-bottom: var(--safe-bottom);
-      box-sizing: border-box;
       border-radius: 0;
       -webkit-overflow-scrolling: touch;
     }
@@ -12628,8 +12406,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     .chat-drawer[data-chat-snap='half'] {
-      border-top-left-radius: 20px;
-      border-top-right-radius: 20px;
+      border-top-left-radius: var(--radius-m);
+      border-top-right-radius: var(--radius-m);
       padding-top: var(--chat-live-safe-top, 0px);
     }
 
@@ -12747,7 +12525,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       overflow-y: auto;
     }
 
-    #media-source-overlay #btn-close-media-popup {
+    #btn-close-media-popup {
       width: 40px;
       height: 40px;
       min-width: 0;
@@ -12765,16 +12543,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
         color 0.15s;
     }
 
-    :where(html[data-hover-pointer]) #media-source-overlay #btn-close-media-popup:hover {
+    :where(html[data-hover-pointer]) #btn-close-media-popup:hover {
       background: var(--surface-3);
       color: var(--text-main);
     }
 
-    #media-source-overlay #btn-close-media-popup > span {
+    #btn-close-media-popup > span {
       display: none;
     }
 
-    #media-source-overlay #btn-close-media-popup > svg {
+    #btn-close-media-popup > svg {
       display: block;
       width: 20px;
       height: 20px;
@@ -12944,10 +12722,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       overflow: hidden;
     }
 
-    #setup-desktop-brand .brand-content {
-      display: none;
-    }
-
     .desktop-step-header {
       display: block;
       padding: var(--setup-head-py) var(--setup-head-px) 0;
@@ -12955,19 +12729,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       z-index: 2;
     }
 
-    .desktop-step-header .logo-svg {
-      height: var(--setup-logo-h);
-      width: auto;
-      margin: 0;
-    }
-
     .desktop-step-header .setup-brand-greeting-stage {
       margin-top: 0;
       margin-bottom: var(--setup-h2-mb);
-    }
-
-    .desktop-step-header .setup-brand-greeting-stage > .logo-welcome {
-      transform: translateY(var(--setup-logo-mt));
     }
 
     .desktop-step-header h2 {
@@ -13019,11 +12783,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     }
 
     /* Content areas: center vertically */
-    #setup-overlay #setup-welcome-area,
-    #setup-overlay #setup-code-area,
-    #setup-overlay #setup-join-area,
-    #setup-overlay #setup-auto-join-area,
-    #setup-overlay #setup-role-area {
+    #setup-welcome-area,
+    #setup-code-area,
+    #setup-join-area,
+    #setup-auto-join-area,
+    #setup-role-area {
       flex: 1;
       flex-direction: column;
       justify-content: center;
@@ -13033,14 +12797,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     /* Content padding inside right panel */
     .setup-mobile-view > div:not(.ob-actions):not(.setup-header-pill):not(.cscroll-track) {
       padding-inline-start: var(--setup-px);
-      padding-inline-end: var(--setup-px-end);
+      padding-inline-end: var(--setup-px);
     }
 
     /* Actions bar at bottom of right column */
     #setup-overlay .setup-mobile-view .ob-actions {
       background: var(--setup-panel-bg);
-      padding: var(--setup-actions-top) var(--setup-px-end) var(--setup-actions-bottom)
-        var(--setup-px);
+      padding: var(--setup-actions-top) var(--setup-px) var(--setup-actions-bottom);
       border-top: none;
       margin-top: auto;
       flex-shrink: 0;
@@ -13065,16 +12828,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       height: auto;
     }
 
-    .desktop-diagram-area .setup-guide-unified {
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: var(--setup-guide-gap);
-      margin: 0;
-      margin-top: var(--setup-guide-mt);
-    }
-
     .desktop-diagram-area .setup-host-invite-stage {
       width: 100%;
       margin: 0;
@@ -13094,11 +12847,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .desktop-diagram-area .setup-qr-scan-button,
     .desktop-diagram-area .setup-qr-camera {
       width: 84%;
-    }
-
-    .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
-      max-width: var(--setup-guide-svg-max);
-      height: var(--setup-guide-svg-h);
     }
 
     /* ── Onboarding slider in left panel ── */
@@ -13154,16 +12902,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     .desktop-diagram-area .ob-dot.active {
       width: 24px;
     }
-  }
 
-  @media (min-width: 720px) {
     body.demo-mobile.viz-spectrum .demo-visualizer-slot .vinyl-wrapper {
       height: clamp(170px, min(62%, 48vh), 440px);
       max-height: 100%;
       margin: 0;
       align-self: center;
     }
-  }
 
   /* The /debug text overlays' one COPY (src/chat/debug-console.ts) keeps the
      350px a 390px phone gives it, in the middle, instead of a pill across
@@ -13171,7 +12916,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
      8px padding, and a tap beside the row lands on the overlay itself.
      Below 720px wide the row is as before. The onboarding diagnostics share
      the row's classes and keep theirs. */
-  @media (min-width: 720px) {
     .debug-memory-overlay:not(.onboarding-diagnostics-overlay) .onboarding-diagnostics-actions {
       width: 100%;
       max-width: 366px;
@@ -13181,6 +12925,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   html:not(.ios-standalone) body {
     max-height: var(--app-height, 100dvh);
   }
+  /* Cap to the actually visible viewport height.
+     On some Android tablets / WebViews, 100vh (or viewport-fit=cover contexts)
+     can include the area behind the system navigation bar, causing the
+     bottom of the setup UI to be clipped.
+     --app-height is maintained by JS using visualViewport/innerHeight. */
   .onboarding-overlay {
     max-height: var(--app-height, 100dvh);
   }
@@ -13232,6 +12981,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transform: translateX(30px);
   }
 
+  /* In right-to-left the settings column sits at the left edge, so its parts
+     wait out on that side until they enter. */
+  html[dir='rtl'] .app-entrance.app-entrance-left:not(.app-entered) {
+    transform: translateX(-30px);
+  }
+
   .app-entrance.app-entered {
     opacity: 1;
     transform: var(--app-entered-transform, none);
@@ -13263,9 +13018,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   body.mode-demo .bottom-nav {
     transform: translateY(20px);
   }
-  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
-    body:has(#setup-overlay.active) header,
-    body.overlay-open:has(#setup-overlay.active) header {
+  @media (min-width: 720px) and (max-width: 1279.98px), (min-width: 1280px) and (max-height: 719.98px) {
+    body:has(#setup-overlay.active) header {
       pointer-events: none;
       opacity: 0;
     }
@@ -13274,8 +13028,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
       opacity: 1;
     }
     body:has(#setup-overlay.active) .bottom-nav,
-    body:has(#media-source-overlay.active) .bottom-nav,
-    body:has(#youtube-url-overlay.active) .bottom-nav,
     body.overlay-open .bottom-nav {
       opacity: 0;
       pointer-events: none;
@@ -13691,7 +13443,33 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   body.mode-system-audio :is(#btn-prev, #btn-next, #play-btn, #seek-slider) {
     color: GrayText !important;
+  }
+
+  /* While sharing, the transport looks like the other buttons that cannot be
+     pressed. The seek bar keeps its sharing dim (owner decision 2026-11-15):
+     its track and thumb take the usable colours here, so at full strength it
+     would look usable. */
+  body.mode-system-audio :is(#btn-prev, #btn-next, #play-btn) {
     opacity: 1 !important;
+  }
+
+  /* More contrast recolours the accent actions and the light pinned notice
+     with tokens that resolve to system colours here. Their own literals come
+     back, so they look as they do without more contrast: the text is forced,
+     while SVG fill and the notice X keep the literal. Track info's text
+     already reads --primary. */
+  .accent-action-btn:not(.demo-link-button) {
+    color: #007aff;
+  }
+
+  .accent-action-btn svg {
+    fill: #007aff;
+  }
+
+  .chat-pinned-notice-label,
+  .chat-pinned-notice-time,
+  .chat-pinned-notice-close {
+    color: #ffc107;
   }
 
   /* QR readability is functional, not decorative. Preserve a deterministic

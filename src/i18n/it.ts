@@ -935,7 +935,6 @@ const it: Record<I18nKey, string> = {
   'chat.empty_html': 'Nessun messaggio presente.<br>Scrivi il primo messaggio!',
   'chat.msg_truncated': 'Il messaggio è stato troncato a {{max}} caratteri',
   'chat.scroll_to_bottom': 'Scorri in fondo',
-  'setup.brand_tagline_html': 'Ascolta insieme, ovunque.<br>L’esperienza sonora perfetta.',
   'setup.invite_share_desc_html':
     'Connetti più dispositivi in modalità wireless<br>per creare un enorme sistema audio.<br>Usa un codice d’invito a 6 cifre per connetterti.',
   'setup.play_together_desc_html':

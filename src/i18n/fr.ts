@@ -957,7 +957,6 @@ const fr: Record<I18nKey, string> = {
     'L’hôte dispose de 3 options.<ul class="help-list"><li><strong>Charger un fichier local :</strong> choisissez de la musique sur votre appareil. Synchronisation précise prise en charge</li><li><strong>YouTube ensemble :</strong> vidéos et playlists prises en charge. Pas de séparation des canaux ni d’effets audio</li><li><strong>Partage de l’audio système :</strong> disponible lorsque l’hôte utilise un navigateur pour ordinateur basé sur Chromium</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Code saisi mais connexion impossible :</strong> Vérifiez le code puis réessayez dans un instant. Les réseaux d’entreprise, d’école ou les VPN peuvent limiter la connexion.</li><li><strong>Connexion instable :</strong> Les participants locaux devraient rester plus près du routeur, et les participants distants utiliser une connexion Internet stable.</li><li><strong>Autres problèmes :</strong> Vérifiez l’état du réseau et redémarrez l’application sur tous les appareils. Pour toute question, consultez la <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> ou contactez-nous via l’e-mail tout en bas.</li></ul>',
-  'setup.brand_tagline_html': 'Écouter ensemble, partout<br>L’expérience sonore parfaite',
   'setup.invite_share_desc_html':
     'Connectez plusieurs appareils sans fil<br>pour créer un grand système audio.<br>Utilisez un code d’invitation à 6 chiffres pour vous connecter.',
   'setup.play_together_desc_html':

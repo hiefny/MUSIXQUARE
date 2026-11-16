@@ -961,7 +961,6 @@ const ptBr: Record<I18nKey, string> = {
     'O anfitrião tem 3 opções.<ul class="help-list"><li><strong>Carregar arquivo local:</strong> escolha músicas do dispositivo. Compatível com sincronização precisa</li><li><strong>YouTube juntos:</strong> compatível com vídeos e playlists. Sem divisão de canais nem efeitos de áudio</li><li><strong>Compartilhar áudio do sistema:</strong> disponível quando o anfitrião usa um computador com navegador baseado no Chromium (Chrome, Edge etc.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Digitou o código, mas não consegue se conectar:</strong> confira o código e tente novamente em instantes. Redes de empresas, escolas ou VPNs podem restringir a conexão.</li><li><strong>Conexão instável:</strong> os participantes locais devem ficar mais perto do roteador, e os remotos devem usar uma conexão estável.</li><li><strong>Outros problemas:</strong> confira a rede e reinicie o app em todos os dispositivos. Se tiver dúvidas, consulte o <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> ou fale conosco pelo e-mail no final da página.</li></ul>',
-  'setup.brand_tagline_html': 'Ouça junto, onde estiver<br>A experiência sonora perfeita',
   'setup.invite_share_desc_html':
     'Conecte vários dispositivos sem fio<br>para criar um grande sistema de áudio.<br>Use um código de convite de 6 dígitos para se conectar.',
   'setup.play_together_desc_html':

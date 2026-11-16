@@ -928,7 +928,6 @@ const vi: Record<I18nKey, string> = {
     'Chủ phòng có 3 tùy chọn.<ul class="help-list"><li><strong>Mở tệp trên thiết bị:</strong> Chọn nhạc từ thiết bị của bạn. Hỗ trợ đồng bộ chính xác</li><li><strong>YouTube cùng nhau:</strong> Hỗ trợ video và danh sách phát. Không hỗ trợ tách kênh và hiệu ứng âm thanh</li><li><strong>Chia sẻ âm thanh hệ thống:</strong> Khả dụng khi chủ phòng dùng trình duyệt dựa trên Chromium trên máy tính (Chrome, Edge, v.v.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Đã nhập mã nhưng không kết nối được:</strong> Kiểm tra mã rồi thử lại sau giây lát. Mạng công ty, trường học hoặc VPN có thể hạn chế kết nối.</li><li><strong>Kết nối không ổn định:</strong> Người tham gia cùng mạng nên ở gần bộ định tuyến hơn, còn người tham gia từ xa nên dùng kết nối Internet ổn định.</li><li><strong>Vấn đề khác:</strong> Kiểm tra trạng thái mạng và khởi động lại ứng dụng trên tất cả thiết bị. Nếu có câu hỏi, hãy xem <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> hoặc liên hệ qua email ở cuối trang.</li></ul>',
-  'setup.brand_tagline_html': 'Nghe cùng nhau, ở mọi nơi<br>Trải nghiệm âm thanh hoàn hảo',
   'setup.invite_share_desc_html':
     'Kết nối không dây nhiều thiết bị<br>để tạo một hệ thống âm thanh mạnh mẽ.<br>Dùng mã mời 6 chữ số để kết nối.',
   'setup.play_together_desc_html':

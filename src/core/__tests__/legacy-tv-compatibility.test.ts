@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { JSDOM } from 'jsdom';
+import { parse as parseCss } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -19,6 +20,28 @@ import {
   prioritizeActiveStylesheetsInHtml,
   transformAppCssForLegacyBrowsers,
 } from '../../../vite.config.ts';
+
+/**
+ * The ids a selector puts into its specificity, counted the way the layer
+ * lowering counts them: a functional pseudo-class adds the ids of its argument
+ * with the most. Ids inside :where() count too, so the count never comes out
+ * below the build's.
+ */
+function idCount(selector: string): number {
+  // Comments, escaped characters, strings and attribute selectors hold no id.
+  let rest = selector
+    .replace(/\/\*[\s\S]*?\*\//gu, '')
+    .replace(/\\[\s\S]/gu, '_')
+    .replace(/(['"])(?:(?!\1)[\s\S])*\1/gu, "''")
+    .replace(/\[[^\]]*\]/gu, '[]');
+  const innermostArguments = /\(([^()]*)\)/u;
+  while (innermostArguments.test(rest)) {
+    rest = rest.replace(innermostArguments, (_match: string, list: string) =>
+      '#'.repeat(Math.max(...list.split(',').map((argument) => argument.split('#').length - 1))),
+    );
+  }
+  return rest.split('#').length - 1;
+}
 
 describe('legacy smart-TV app compatibility', () => {
   it('checks fullscreen physical edges independently of minifier declaration order', () => {
@@ -242,6 +265,30 @@ describe('legacy smart-TV app compatibility', () => {
     // selector above fixes that ordering in real browsers, while this check
     // still exercises normal layered precedence through an actual stylesheet.
     dom.window.close();
+  });
+
+  it('names at most one id in any app selector, so each layer adds two tails', () => {
+    // The layer lowering pads each layered selector with :not(#\#) tails, and
+    // each layer up adds one tail more than the most ids any one selector in
+    // the stylesheet names. A single selector with two ids would lengthen
+    // every lowered selector by a tail per layer, about 30 KB of raw CSS.
+    expect(idCount('#a :is(.b, #c) :not(#d, .e)')).toBe(3);
+    expect(idCount(":where(#a) [href='#b'] .c\\#d")).toBe(1);
+
+    const sheets = [
+      ...readFileSync('css/app.css', 'utf8').matchAll(/@import\s+['"]\.\/([^'"]+)['"]/gu),
+    ].map(([, file]) => `css/${file}`);
+    const crowded: string[] = [];
+    for (const sheet of sheets) {
+      parseCss(readFileSync(sheet, 'utf8')).walkRules((rule) => {
+        for (const selector of rule.selectors) {
+          if (idCount(selector) > 1) crowded.push(`${sheet}: ${selector}`);
+        }
+      });
+    }
+
+    expect(sheets).toHaveLength(4);
+    expect(crowded).toEqual([]);
   });
 
   it('fails closed on layer constructs the compatibility transform cannot preserve', async () => {

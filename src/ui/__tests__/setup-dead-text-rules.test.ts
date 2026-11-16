@@ -14,6 +14,13 @@
  * - The guide description size --setup-guide-desc (12px from 720px, and
  *   clamp(14px, 1.3vw, 18px) in the desktop layout), which only the
  *   .setup-inner-desc rule read.
+ *
+ * The rest of the old Wi-Fi and hotspot connection guide left index.html with
+ * the same markup, and its rules are gone too: .setup-guide-unified (with its
+ * two desktop diagram area rules), .setup-unified-item, .graphic-device,
+ * .graphic-text, .svg-stroke-primary, .h-70 and .text-10, and the
+ * --setup-guide-gap, -svg-max, -svg-h and -mt sizes that only the diagram
+ * area rules read.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -23,7 +30,9 @@ import { describe, expect, it } from 'vitest';
 
 // css/app.css imports these four files; together they are the app stylesheet.
 const SHEETS = ['css/style.css', 'css/desktop.css', 'css/rtl.css', 'css/playback-actions.css'];
-const RETIRED = /\.setup-inner-desc(?![\w-])/u;
+const RETIRED =
+  /\.(?:setup-inner-desc|setup-guide-unified|setup-unified-item|graphic-device|graphic-text|svg-stroke-primary|h-70|text-10)(?![\w-])/u;
+const RETIRED_SIZES = /--setup-guide-/u;
 
 const read = (path: string): string => readFileSync(resolve(path), 'utf8');
 
@@ -82,7 +91,7 @@ function sources(folder: string): string[] {
 describe('start screen text rules that drew nothing', () => {
   const app = parseCss(read('css/style.css'));
 
-  it('keeps no rule or selector for .setup-inner-desc', () => {
+  it('keeps no rule or selector for .setup-inner-desc or the old guide classes', () => {
     const selectors: string[] = [];
     for (const path of SHEETS) {
       parseCss(read(path)).walkRules((rule) => {
@@ -102,19 +111,19 @@ describe('start screen text rules that drew nothing', () => {
     expect(carriers).toEqual([]);
   });
 
-  it('keeps no --setup-guide-desc, which only the .setup-inner-desc rule read', () => {
+  it('keeps no --setup-guide-* size, which only the retired rules read', () => {
     const found: string[] = [];
     for (const path of SHEETS) {
       parseCss(read(path)).walkDecls((declaration) => {
-        if (`${declaration.prop}:${declaration.value}`.includes('--setup-guide-desc')) {
+        if (RETIRED_SIZES.test(`${declaration.prop}:${declaration.value}`)) {
           found.push(`${path}: ${declaration.prop}: ${declaration.value}`);
         }
       });
     }
     expect(found).toEqual([]);
-    expect(read('index.html')).not.toContain('--setup-guide-desc');
+    expect(read('index.html')).not.toMatch(RETIRED_SIZES);
     const carriers = sources(resolve('src')).filter((path) =>
-      readFileSync(path, 'utf8').includes('--setup-guide-desc'),
+      RETIRED_SIZES.test(readFileSync(path, 'utf8')),
     );
     expect(carriers).toEqual([]);
   });

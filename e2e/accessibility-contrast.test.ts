@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
+import { useAnonymousAccountSession } from './helpers/context-factory.ts';
+import { injectPeerServer } from './helpers/peer-server.ts';
+import { setupHostAndStart } from './helpers/setup-flow.ts';
+import {
+  installSyntheticSystemAudio,
+  readSyntheticSystemAudio,
+} from './helpers/system-audio-source.ts';
+import { navigateToTab } from './helpers/wait.ts';
 
 type ContrastPreference = 'auto' | 'on' | 'off';
 
@@ -226,6 +234,45 @@ function controlStructure(styles: ControlStyles): ControlStructure {
     outlineOffset: styles.outlineOffset,
     outlineStyle: styles.outlineStyle,
     outlineWidth: styles.outlineWidth,
+  };
+}
+
+/** Colours the authored literals give outside the palette tokens. */
+interface AccentNoticeColors {
+  /** Text of each accent action except Track info, which reads --primary. */
+  accent: string[];
+  /** Icon fill of every accent action, Track info included. */
+  accentIcons: string[];
+  trackInfo: string;
+  /** Pinned notice label, time and dismiss X. */
+  notice: string[];
+}
+
+async function accentNoticeColors(page: Page): Promise<AccentNoticeColors> {
+  return page.evaluate((): AccentNoticeColors => {
+    const actions = Array.from(document.querySelectorAll<HTMLElement>('.accent-action-btn'));
+    const trackInfo = document.querySelector<HTMLElement>('.accent-action-btn.demo-link-button')!;
+    return {
+      accent: actions
+        .filter((action) => action !== trackInfo)
+        .map((action) => getComputedStyle(action).color),
+      accentIcons: actions.map((action) => getComputedStyle(action.querySelector('svg')!).fill),
+      trackInfo: getComputedStyle(trackInfo).color,
+      notice: [
+        '#chat-pinned-notice-label',
+        '#chat-pinned-notice-time',
+        '.chat-pinned-notice-close',
+      ].map((selector) => getComputedStyle(document.querySelector(selector)!).color),
+    };
+  });
+}
+
+function distinctColors(colors: AccentNoticeColors): AccentNoticeColors {
+  return {
+    accent: [...new Set(colors.accent)],
+    accentIcons: [...new Set(colors.accentIcons)],
+    trackInfo: colors.trackInfo,
+    notice: [...new Set(colors.notice)],
   };
 }
 
@@ -529,4 +576,137 @@ test.describe('OS contrast CSS integration', () => {
     expect(joining.color).toBe(joining.grayText);
     expect(joining.fill).toBe(joining.grayText);
   });
+});
+
+test.describe('Forced colors while sharing system audio', () => {
+  const TRANSPORT = ['#btn-prev', '#play-btn', '#btn-next'] as const;
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`shows the transport at full strength and keeps the seek bar dimmed in ${theme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({
+        colorScheme: theme,
+        contrast: 'no-preference',
+        forcedColors: 'active',
+      });
+      await page.addInitScript((storedTheme) => {
+        try {
+          localStorage.setItem('musixquare-theme', storedTheme);
+        } catch {
+          /* The preview origin provides storage; retain a safe fallback for harness startup. */
+        }
+      }, theme);
+      await injectPeerServer(page);
+      await installSyntheticSystemAudio(page);
+      await useAnonymousAccountSession(page);
+      await setupHostAndStart(page);
+      await navigateToTab(page, 'play');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+
+      await page.locator('#btn-media-source').click();
+      await page.locator('#btn-system-audio').click();
+      await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+      await expect(page.locator('body')).toHaveClass(/\bmode-system-audio\b/);
+      await expect(page.locator('#play-btn')).not.toHaveClass(/\bis-loading\b/);
+
+      const grayText = await page.evaluate(() => {
+        const probe = document.createElement('span');
+        probe.style.color = 'GrayText';
+        document.body.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      for (const selector of [...TRANSPORT, '#seek-slider']) {
+        await expect(page.locator(selector)).toHaveCSS('color', grayText);
+      }
+      // Like the other buttons that cannot be pressed, the transport keeps
+      // its GrayText at full strength. The seek bar's track and thumb take
+      // the usable colours here, so it stays dimmed and does not look usable.
+      for (const selector of TRANSPORT) {
+        await expect(page.locator(selector)).toHaveCSS('opacity', '1');
+      }
+      await expect(page.locator('#seek-slider')).toHaveCSS('opacity', '0.3');
+
+      // The ordinary palette keeps all four dimmed while sharing.
+      await page.emulateMedia({ forcedColors: 'none' });
+      for (const selector of [...TRANSPORT, '#seek-slider']) {
+        await expect(page.locator(selector)).toHaveCSS('opacity', '0.3');
+      }
+    });
+  }
+});
+
+test.describe('More contrast for the accent actions and the pinned notice', () => {
+  // Owner decision (2026-11-15): with more contrast, the accent actions take
+  // the palette's blue in both themes and the light pinned notice its warning
+  // brown. The ordinary palettes keep their colours.
+  const MORE_CONTRAST = {
+    dark: { accent: 'rgb(138, 180, 255)', notice: 'rgb(255, 193, 7)' },
+    light: { accent: 'rgb(0, 71, 168)', notice: 'rgb(107, 65, 0)' },
+  } as const;
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`recolours the accent actions and the pinned notice in ${theme}`, async ({ page }) => {
+      await page.emulateMedia({
+        colorScheme: theme,
+        contrast: 'no-preference',
+        forcedColors: 'none',
+      });
+      await installPreferenceAndFirstPaintProbe(page, 'auto', theme);
+      await openApp(page);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+
+      expect(distinctColors(await accentNoticeColors(page))).toEqual({
+        accent: ['rgb(0, 122, 255)'],
+        accentIcons: ['rgb(0, 122, 255)'],
+        trackInfo: 'rgb(59, 130, 246)',
+        notice: ['rgb(255, 193, 7)'],
+      });
+
+      const { accent, notice } = MORE_CONTRAST[theme];
+      const more = { accent: [accent], accentIcons: [accent], trackInfo: accent, notice: [notice] };
+      await page.locator('html').evaluate((root) => root.setAttribute('data-contrast', 'more'));
+      await expect.poll(async () => distinctColors(await accentNoticeColors(page))).toEqual(more);
+
+      await page.locator('html').evaluate((root) => root.removeAttribute('data-contrast'));
+      await page.emulateMedia({ contrast: 'more' });
+      await expect.poll(async () => distinctColors(await accentNoticeColors(page))).toEqual(more);
+    });
+
+    test(`keeps the forced-colors accent and notice colours with more contrast in ${theme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({
+        colorScheme: theme,
+        contrast: 'no-preference',
+        forcedColors: 'active',
+      });
+      await installPreferenceAndFirstPaintProbe(page, 'auto', theme);
+      await openApp(page);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      await expect(page.locator('html')).not.toHaveAttribute('data-contrast');
+      expect(await page.evaluate(() => matchMedia('(prefers-contrast: more)').matches)).toBe(false);
+
+      const forcedAlone = await accentNoticeColors(page);
+      const linkText = await page.evaluate(() => {
+        const probe = document.createElement('span');
+        probe.style.color = 'LinkText';
+        document.body.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      expect(forcedAlone.trackInfo).toBe(linkText);
+
+      await page.locator('html').evaluate((root) => root.setAttribute('data-contrast', 'more'));
+      expect(await accentNoticeColors(page)).toEqual(forcedAlone);
+
+      await page.locator('html').evaluate((root) => root.removeAttribute('data-contrast'));
+      await page.emulateMedia({ contrast: 'more' });
+      expect(await page.evaluate(() => matchMedia('(prefers-contrast: more)').matches)).toBe(true);
+      expect(await accentNoticeColors(page)).toEqual(forcedAlone);
+    });
+  }
 });

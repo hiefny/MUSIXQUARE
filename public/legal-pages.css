@@ -101,14 +101,6 @@ a {
   border-bottom: 0;
 }
 
-.policy-kicker {
-  margin: 0 0 18px;
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
 .policy-hero h1 {
   margin: 0;
   font-size: clamp(44px, 7vw, 76px);
@@ -125,12 +117,6 @@ a {
   color: var(--text-sub);
   font-size: clamp(16px, 2vw, 20px);
   line-height: 1.6;
-}
-
-.policy-hero .policy-date {
-  margin-top: 18px;
-  color: var(--text-muted);
-  font-size: 13px;
 }
 
 .policy-doc {
@@ -372,29 +358,14 @@ a {
   flex-wrap: wrap;
 }
 
-.policy-footer a,
-.policy-footer button {
+.policy-footer a {
   color: var(--text-sub);
   font: inherit;
   text-decoration: none;
 }
 
-.policy-footer button {
-  appearance: none;
-  border: 0;
-  padding: 0;
-  background: none;
-  cursor: pointer;
-}
-
-.policy-footer a:hover,
-.policy-footer button:hover,
-.policy-footer button.is-active {
+.policy-footer a:hover {
   color: var(--text-main);
-}
-
-.policy-footer button.is-active {
-  font-weight: 700;
 }
 
 :lang(ko) .policy-hero h1,

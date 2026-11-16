@@ -228,7 +228,7 @@ describe('Chat Module', () => {
           expect(input.textContent).toBe('/users ');
           expect(input.getAttribute('aria-expanded')).toBe('false');
           expect(input.hasAttribute('aria-activedescendant')).toBe(false);
-          expect(suggest.style.display).toBe('none');
+          expect(suggest.hidden).toBe(true);
           expect(press.defaultPrevented).toBe(true);
         } else {
           expect(input.textContent).toBe('/');
@@ -236,7 +236,7 @@ describe('Chat Module', () => {
           expect(input.getAttribute('aria-activedescendant')).toBe(options[0].id);
           expect(options[0].getAttribute('aria-selected')).toBe('true');
           expect(options[1].getAttribute('aria-selected')).toBe('false');
-          expect(suggest.style.display).toBe('');
+          expect(suggest.hidden).toBe(false);
           expect(selection.anchorNode).toBe(draftNode);
           expect(selection.anchorOffset).toBe(1);
           expect(press.defaultPrevented).toBe(false);

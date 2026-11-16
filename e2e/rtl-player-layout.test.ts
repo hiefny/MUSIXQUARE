@@ -178,6 +178,7 @@ test.describe('Playback controls in the authored application layout', () => {
             play: play.x,
             next: next.x,
             glyphLeft: bounds('#btn-prev svg path').left,
+            glyphRight: bounds('#btn-next svg path').right,
             scale: prev.width / document.querySelector<HTMLElement>('#btn-prev')!.offsetWidth,
             seekLeft: seek.left,
             seekRight: seek.right,
@@ -230,73 +231,88 @@ test.describe('Playback controls in the authored application layout', () => {
           expect(Math.abs(layout.volumeLeft - layout.seekLeft + layout.scale)).toBeLessThanOrEqual(
             0.75,
           );
+          // The mirror of the left-to-right previous glyph: next ends 3px inside the rail.
+          expect(
+            Math.abs(layout.seekRight - layout.glyphRight - 3 * layout.scale),
+          ).toBeLessThanOrEqual(0.75);
         }
+
+        const expectUnclippedFocusRing = async (selector: string) => {
+          await expect(page.locator(selector)).toBeFocused();
+          const focus = await page.locator(selector).evaluate((element) => {
+            const button = element as HTMLElement;
+            const rect = button.getBoundingClientRect();
+            const style = getComputedStyle(button);
+            // Account for the authored QHD body transform when comparing the
+            // painted outline with each ancestor's actual scrollport.
+            const scale = rect.width / button.offsetWidth;
+            const outset =
+              (parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset)) * scale;
+            const ring = {
+              left: rect.left - outset,
+              right: rect.right + outset,
+              top: rect.top - outset,
+              bottom: rect.bottom + outset,
+            };
+            const clearances: Array<{ ancestor: string; edge: string; space: number }> = [];
+            for (let ancestor = button.parentElement; ancestor; ancestor = ancestor.parentElement) {
+              const ancestorStyle = getComputedStyle(ancestor);
+              const clip = ancestor.getBoundingClientRect();
+              const ancestorScale = ancestor.offsetWidth ? clip.width / ancestor.offsetWidth : 1;
+              const left = clip.left + ancestor.clientLeft * ancestorScale;
+              const top = clip.top + ancestor.clientTop * ancestorScale;
+              const id = ancestor.id || ancestor.className || ancestor.tagName;
+              if (ancestorStyle.overflowX !== 'visible') {
+                clearances.push(
+                  { ancestor: id, edge: 'left', space: ring.left - left },
+                  {
+                    ancestor: id,
+                    edge: 'right',
+                    space: left + ancestor.clientWidth * ancestorScale - ring.right,
+                  },
+                );
+              }
+              if (ancestorStyle.overflowY !== 'visible') {
+                clearances.push(
+                  { ancestor: id, edge: 'top', space: ring.top - top },
+                  {
+                    ancestor: id,
+                    edge: 'bottom',
+                    space: top + ancestor.clientHeight * ancestorScale - ring.bottom,
+                  },
+                );
+              }
+            }
+            clearances.push(
+              { ancestor: 'viewport', edge: 'left', space: ring.left },
+              { ancestor: 'viewport', edge: 'right', space: innerWidth - ring.right },
+              { ancestor: 'viewport', edge: 'top', space: ring.top },
+              { ancestor: 'viewport', edge: 'bottom', space: innerHeight - ring.bottom },
+            );
+            return {
+              visible: button.matches(':focus-visible'),
+              outlineWidth: parseFloat(style.outlineWidth),
+              clearances,
+            };
+          });
+          expect(focus.visible, selector).toBe(true);
+          expect(focus.outlineWidth, selector).toBeGreaterThan(0);
+          for (const clearance of focus.clearances) {
+            expect(
+              clearance.space,
+              `${clearance.ancestor} clips the ${clearance.edge} focus edge of ${selector}`,
+            ).toBeGreaterThanOrEqual(-0.75);
+          }
+        };
 
         await page.locator('#seek-slider').focus();
         await page.keyboard.press('Tab');
-        await expect(page.locator('#btn-prev')).toBeFocused();
-        const focus = await page.locator('#btn-prev').evaluate((element) => {
-          const button = element as HTMLElement;
-          const rect = button.getBoundingClientRect();
-          const style = getComputedStyle(button);
-          // Account for the authored QHD body transform when comparing the
-          // painted outline with each ancestor's actual scrollport.
-          const scale = rect.width / button.offsetWidth;
-          const outset = (parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset)) * scale;
-          const ring = {
-            left: rect.left - outset,
-            right: rect.right + outset,
-            top: rect.top - outset,
-            bottom: rect.bottom + outset,
-          };
-          const clearances: Array<{ ancestor: string; edge: string; space: number }> = [];
-          for (let ancestor = button.parentElement; ancestor; ancestor = ancestor.parentElement) {
-            const ancestorStyle = getComputedStyle(ancestor);
-            const clip = ancestor.getBoundingClientRect();
-            const ancestorScale = ancestor.offsetWidth ? clip.width / ancestor.offsetWidth : 1;
-            const left = clip.left + ancestor.clientLeft * ancestorScale;
-            const top = clip.top + ancestor.clientTop * ancestorScale;
-            const id = ancestor.id || ancestor.className || ancestor.tagName;
-            if (ancestorStyle.overflowX !== 'visible') {
-              clearances.push(
-                { ancestor: id, edge: 'left', space: ring.left - left },
-                {
-                  ancestor: id,
-                  edge: 'right',
-                  space: left + ancestor.clientWidth * ancestorScale - ring.right,
-                },
-              );
-            }
-            if (ancestorStyle.overflowY !== 'visible') {
-              clearances.push(
-                { ancestor: id, edge: 'top', space: ring.top - top },
-                {
-                  ancestor: id,
-                  edge: 'bottom',
-                  space: top + ancestor.clientHeight * ancestorScale - ring.bottom,
-                },
-              );
-            }
-          }
-          clearances.push(
-            { ancestor: 'viewport', edge: 'left', space: ring.left },
-            { ancestor: 'viewport', edge: 'right', space: innerWidth - ring.right },
-            { ancestor: 'viewport', edge: 'top', space: ring.top },
-            { ancestor: 'viewport', edge: 'bottom', space: innerHeight - ring.bottom },
-          );
-          return {
-            visible: button.matches(':focus-visible'),
-            outlineWidth: parseFloat(style.outlineWidth),
-            clearances,
-          };
-        });
-        expect(focus.visible).toBe(true);
-        expect(focus.outlineWidth).toBeGreaterThan(0);
-        for (const clearance of focus.clearances) {
-          expect(
-            clearance.space,
-            `${clearance.ancestor} clips the ${clearance.edge} focus edge`,
-          ).toBeGreaterThanOrEqual(-0.75);
+        await expectUnclippedFocusRing('#btn-prev');
+        if (direction === 'rtl') {
+          // The mirrored row puts next, two stops on, at the outer edge.
+          await page.keyboard.press('Tab');
+          await page.keyboard.press('Tab');
+          await expectUnclippedFocusRing('#btn-next');
         }
 
         await page.evaluate(() => document.body.classList.add('mode-youtube'));

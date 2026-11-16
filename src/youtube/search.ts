@@ -404,7 +404,7 @@ function setStatus(key: I18nKey, tone: 'rest' | 'error' = 'rest'): void {
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   status.setAttribute('aria-atomic', 'true');
-  status.style.display = 'block';
+  status.hidden = false;
   status.setAttribute('data-i18n', key);
   status.textContent = t(key);
   status.classList.toggle('error', tone === 'error');
@@ -454,7 +454,6 @@ export function setYouTubePrimaryButton(mode: YouTubePrimaryMode): void {
   const enabled = mode === 'search' || mode === 'add';
   if (mode === 'busy') setButtonBusyFocus(playBtn, 'busy');
   playBtn.disabled = !enabled;
-  playBtn.style.opacity = enabled ? '1' : '0.5';
   const label = YOUTUBE_PRIMARY_LABELS[mode];
   playBtn.setAttribute('data-i18n', label);
   playBtn.textContent = t(label);
@@ -495,7 +494,6 @@ function hidePreviewCard(): void {
   const preview = getPreviewContainer();
   if (!preview) return;
   preview.hidden = true;
-  preview.style.removeProperty('display');
 }
 
 function clearSearchResults(): void {
@@ -866,12 +864,12 @@ export function fetchYouTubePreview(url: string): void {
             // versions ran an onerror that hid the element, but that
             // turned every transient image-fetch hiccup into a stuck
             // empty card, which is what the launch-day reports caught.
-            thumb.style.display = '';
+            thumb.hidden = false;
             thumb.onerror = null;
             thumb.onload = null;
             thumb.src = data.thumbnail_url;
           } else {
-            thumb.style.display = 'none';
+            thumb.hidden = true;
           }
         }
         if (title) {
@@ -883,9 +881,8 @@ export function fetchYouTubePreview(url: string): void {
           applyUserTextFontFallback(chan, chan.innerText);
         }
 
-        freshPreview.style.removeProperty('display');
         freshPreview.hidden = false;
-        freshStatus.style.display = 'none';
+        freshStatus.hidden = true;
 
         if (manifestPrefetch) {
           const manifestResult = await waitForPreviewManifestBudget(
@@ -906,7 +903,6 @@ export function fetchYouTubePreview(url: string): void {
         if (!isCurrentPreview()) return;
         log.error('[YouTube Preview] Error:', e);
         freshPreview.hidden = true;
-        freshPreview.style.removeProperty('display');
         setStatus('youtube.fetch_failed', 'error');
         setYouTubePrimaryButton('off');
         abort.abort();

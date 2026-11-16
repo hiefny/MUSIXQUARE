@@ -16,10 +16,10 @@ describe('phone portrait setup centering', () => {
     const responsive = await stylesheetLayer('responsive');
     const blocks = [
       ...responsive.matchAll(
-        /@media \(max-width: 719px\) and \(orientation: portrait\) \{\n([\s\S]*?)\n {2}\}/g,
+        /@media \(max-width: 719\.98px\) and \(orientation: portrait\) \{\n([\s\S]*?)\n {2}\}/g,
       ),
     ].map((match) => match[1] ?? '');
-    const block = blocks.find((body) => body.includes('#setup-welcome-area > #ob-slider-area'));
+    const block = blocks.find((body) => body.includes('#setup-welcome-area > .ob-slider-block'));
 
     expect(block).toBeDefined();
     expect(block).toMatch(
@@ -35,7 +35,7 @@ describe('phone portrait setup centering', () => {
       /#setup-join-area > \.setup-code-area-bottom \{\s*padding-bottom: calc\(45px \+ 0\.08 \* min\(272px, 56vw, 36vh\)\);\s*padding-bottom: calc\(45px \+ 0\.08 \* min\(272px, 56vw, 36dvh\)\);\s*\}/,
     );
     expect(block).toMatch(
-      /#setup-welcome-area > #ob-slider-area \{\s*flex: none;\s*margin-block: auto;\s*padding-bottom: 41px;\s*\}/,
+      /#setup-welcome-area > \.ob-slider-block \{\s*flex: none;\s*margin-block: auto;\s*padding-bottom: 41px;\s*\}/,
     );
   });
 

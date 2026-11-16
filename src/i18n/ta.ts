@@ -937,7 +937,6 @@ const ta: Record<I18nKey, string> = {
   'chat.empty_html': 'இன்னும் செய்திகள் இல்லை.<br>முதல் செய்தியை அனுப்புங்கள்!',
   'chat.msg_truncated': 'செய்தி {{max}} எழுத்துகளாகக் குறைக்கப்பட்டது',
   'chat.scroll_to_bottom': 'கீழே செல்',
-  'setup.brand_tagline_html': 'எங்கிருந்தும் ஒன்றாகக் கேளுங்கள்<br>மிகச்சிறந்த ஒலி அனுபவம்',
   'setup.invite_share_desc_html':
     'பல சாதனங்களைக் கம்பியின்றி இணைத்து<br>ஒரு மிகப்பெரிய ஆடியோ சிஸ்டத்தை உருவாக்குங்கள்.<br>இணைக்க 6 இலக்க அழைப்புக் குறியீட்டைப் பயன்படுத்துங்கள்.',
   'setup.play_together_desc_html':

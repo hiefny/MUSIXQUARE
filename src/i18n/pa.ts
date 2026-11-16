@@ -911,7 +911,6 @@ const pa: Record<I18nKey, string> = {
   'chat.empty_html': 'ਹਾਲੇ ਕੋਈ ਸੁਨੇਹਾ ਨਹੀਂ ਹੈ।<br>ਪਹਿਲਾ ਸੁਨੇਹਾ ਭੇਜੋ!',
   'chat.msg_truncated': 'ਸੁਨੇਹਾ {{max}} ਅੱਖਰਾਂ ਤੱਕ ਛੋਟਾ ਕਰ ਦਿੱਤਾ ਗਿਆ',
   'chat.scroll_to_bottom': 'ਹੇਠਾਂ ਤੱਕ ਸਕ੍ਰੋਲ ਕਰੋ',
-  'setup.brand_tagline_html': 'ਕਿਤੇ ਵੀ, ਇਕੱਠੇ ਸੁਣੋ<br>ਬਿਹਤਰੀਨ ਆਵਾਜ਼ ਦਾ ਅਨੁਭਵ',
   'setup.invite_share_desc_html':
     'ਕਈ ਡਿਵਾਈਸਾਂ ਨੂੰ ਵਾਇਰਲੈੱਸ ਤਰੀਕੇ ਨਾਲ ਜੋੜੋ<br>ਅਤੇ ਇੱਕ ਵੱਡਾ ਆਡੀਓ ਸਿਸਟਮ ਬਣਾਓ।<br>ਕਨੈਕਟ ਕਰਨ ਲਈ 6-ਅੰਕਾਂ ਵਾਲਾ ਸੱਦਾ ਕੋਡ ਵਰਤੋ।',
   'setup.play_together_desc_html':

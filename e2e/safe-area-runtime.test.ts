@@ -404,3 +404,54 @@ test.describe('the Playlist pane with a long list in a running room', () => {
     });
   }
 });
+
+// The start-up failure screen covers the app when the app module cannot
+// start. Its padding adds each physical inset to its own physical edge, so a
+// left-only cutout moves the centred title, message and Retry button right in
+// both writing directions.
+const FAILURE_SCREEN_SIZE = { width: 844, height: 390 } as const;
+const LEFT_ONLY_CUTOUT: Insets = { top: 0, right: 0, bottom: 21, left: 47 };
+const APP_ENTRY_MODULE = /\/(?:src\/app\.ts|assets\/main-[^/?]+\.js)(?:\?.*)?$/u;
+
+test.describe('the start-up failure screen', () => {
+  test.skip(
+    ({ browserName }) => browserName !== 'chromium',
+    'The safe-area emulation is a Chromium DevTools command.',
+  );
+
+  for (const locale of ['ar', 'en'] as const) {
+    test(`the failure screen keeps a left-only cutout on its left (${locale} 844x390)`, async ({
+      page,
+    }) => {
+      await page.addInitScript((code) => {
+        try {
+          localStorage.setItem('musixquare-lang', code);
+        } catch {
+          // Opaque documents such as about:blank have no storage.
+        }
+      }, locale);
+      await page.setViewportSize(FAILURE_SCREEN_SIZE);
+      const devtools = await page.context().newCDPSession(page);
+      await devtools.send('Emulation.setSafeAreaInsetsOverride', { insets: LEFT_ONLY_CUTOUT });
+      await page.route(APP_ENTRY_MODULE, async (route) => route.abort('failed'));
+
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+      const html = page.locator('html');
+      await expect(html).toHaveClass(/\bsetup-boot-failed\b/u);
+      await expect(html).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
+      const failure = page.locator('#bootstrap-failure');
+      await expect(failure).toBeVisible();
+      await expect(failure).toHaveCSS('padding-left', `${24 + LEFT_ONLY_CUTOUT.left}px`);
+      await expect(failure).toHaveCSS('padding-right', `${24 + LEFT_ONLY_CUTOUT.right}px`);
+      // The content box runs from 71px to 820px; Retry sits in its middle.
+      const retry = (await page.locator('#bootstrap-retry').boundingBox())!;
+      const contentLeft = 24 + LEFT_ONLY_CUTOUT.left;
+      const contentRight = FAILURE_SCREEN_SIZE.width - 24 - LEFT_ONLY_CUTOUT.right;
+      expect(
+        Math.abs(retry.x + retry.width / 2 - (contentLeft + contentRight) / 2),
+        `${locale} Retry button centre`,
+      ).toBeLessThanOrEqual(TOLERANCE_PX);
+    });
+  }
+});

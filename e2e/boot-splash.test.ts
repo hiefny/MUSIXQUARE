@@ -279,7 +279,7 @@ test.describe('session reset screen', () => {
       // What a reset stamps just before it navigates (session-reset.ts).
       sessionStorage.setItem('mxqr-boot-continuity', String(Date.now()));
     });
-    type Frame = { bg: string; mark: string; loader: string };
+    type Frame = { bg: string; mark: string; loader: string; ring: string };
     await page.addInitScript(() => {
       const frames: Frame[] = [];
       (window as typeof window & { __firstFrames: Frame[] }).__firstFrames = frames;
@@ -288,10 +288,19 @@ test.describe('session reset screen', () => {
         const mark = splash?.querySelector('.boot-splash-mark');
         const loader = splash?.querySelector('.boot-splash-spinner');
         if (splash && mark && loader) {
+          const loaderStyle = getComputedStyle(loader);
+          // The loader's ring needs no image: a clip path, drawn in the same
+          // frame (a mask image's data URL decodes on a later task in WebKit,
+          // which paints nothing of a masked element until it has loaded).
+          const clip = loaderStyle.clipPath || loaderStyle.getPropertyValue('-webkit-clip-path');
+          const mask =
+            loaderStyle.getPropertyValue('mask-image') ||
+            loaderStyle.getPropertyValue('-webkit-mask-image');
           frames.push({
             bg: getComputedStyle(splash).backgroundColor,
             mark: getComputedStyle(mark).opacity,
-            loader: getComputedStyle(loader).opacity,
+            loader: loaderStyle.opacity,
+            ring: `${clip.startsWith('path(') ? 'clip' : clip} ${mask}`,
           });
         }
         if (frames.length < 3) requestAnimationFrame(sample);
@@ -318,10 +327,11 @@ test.describe('session reset screen', () => {
       () => (window as typeof window & { __firstFrames: Frame[] }).__firstFrames,
     );
     releaseBootstrap();
-    // Dark from the first frame, with the wordmark and loader where the reset screen showed them.
+    // Dark from the first frame, with the wordmark and loader where the reset
+    // screen showed them, the loader's ring a clip.
     expect(frames.slice(0, 2)).toEqual([
-      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1' },
-      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1' },
+      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1', ring: 'clip none' },
+      { bg: 'rgb(18, 18, 18)', mark: '1', loader: '1', ring: 'clip none' },
     ]);
   });
 

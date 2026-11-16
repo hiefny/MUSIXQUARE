@@ -113,17 +113,24 @@ function rules(css: string): Rule[] {
 
 const reduced = (rule: Rule) =>
   rule.within.some((prelude) => prelude.includes('prefers-reduced-motion'));
+const supported = (rule: Rule) => rule.within.some((prelude) => prelude.startsWith('@supports'));
 
 /** A property's value for a selector, from the last rule that sets it. */
 function declaration(
   css: string,
   selector: string,
   property: string,
-  { reducedMotion = false } = {},
+  { reducedMotion = false, supports = false } = {},
 ): string | undefined {
   let value: string | undefined;
   for (const rule of rules(css)) {
-    if (reduced(rule) !== reducedMotion || !rule.selectors.includes(selector)) continue;
+    if (
+      reduced(rule) !== reducedMotion ||
+      supported(rule) !== supports ||
+      !rule.selectors.includes(selector)
+    ) {
+      continue;
+    }
     const match = rule.declarations.match(new RegExp(`(?:^|[\\s;])${property}:\\s*([^;]+);`, 'u'));
     if (match?.[1]) value = match[1].trim();
   }
@@ -282,7 +289,10 @@ describe('shared loader (material elastic spinner)', () => {
           })),
         );
       }
-      // From the shortest arc, 5 degrees each side of 12 o'clock, to 140.
+      // As the keyframes turn the wedges: from the shortest arc, 5 degrees each
+      // side of 12 o'clock, to 140. The drawn arc never shows less than the 2px
+      // strip where the halves meet (each reaches 1px past the middle, below),
+      // so a ring under 28px draws its shortest arc a little longer.
       expect(SWING.map(({ left }) => halfArc(left))).toEqual([5, 140, 5]);
 
       const parts = {
@@ -381,6 +391,41 @@ describe('shared loader (material elastic spinner)', () => {
       expect(declaration(css, `${root} path`, 'stroke')).toBe('none');
     },
   );
+
+  it("draws the splash's ring as a clip where the browser clips to a path, so a refreshed page's first frame shows its loader", () => {
+    // The page a session refresh opens shows the splash loader from its first
+    // frame. A mask image comes from its data URL, which WebKit decodes on a
+    // later task, and WebKit paints nothing of a masked element until its mask
+    // has loaded: that first frame would show the wordmark alone. A clip path
+    // is geometry, drawn in the same frame. Older browsers (Chromium before
+    // 88, which decodes data URLs at once) keep the mask.
+    const clip = rules(SPLASH_CSS).filter(
+      (rule) => supported(rule) && rule.selectors.includes('.boot-splash-spinner'),
+    );
+    expect(clip.map((rule) => rule.within)).toEqual([
+      ['@supports (clip-path: path("M0 0")) or (-webkit-clip-path: path("M0 0"))'],
+    ]);
+    const value = (property: string) =>
+      declaration(SPLASH_CSS, '.boot-splash-spinner', property, { supports: true });
+    expect([value('-webkit-mask-image'), value('mask-image')]).toEqual(['none', 'none']);
+    // The same ring as the mask: the r = 18 circle at the app's default
+    // stroke, 24/44 of it, centred in the loader at the bottom of the 48px box
+    // (12, 36). The outer circle turns clockwise and the inner one back, so
+    // the inner disc is a hole whatever the fill rule.
+    const stroke = Number(
+      maskStroke(declaration(STYLE, '.material-elastic-spinner', '--material-elastic-mask')),
+    );
+    const f = (n: number) => String(Math.round(n * 10000) / 10000);
+    const circle = (radius: number, sweep: 0 | 1) =>
+      `M${f(12 + radius)} 36A${f(radius)} ${f(radius)} 0 1 ${sweep} ${f(12 - radius)} 36` +
+      `A${f(radius)} ${f(radius)} 0 1 ${sweep} ${f(12 + radius)} 36Z`;
+    const ring = `path("${circle(((18 + stroke / 2) * 24) / 44, 1)}${circle(((18 - stroke / 2) * 24) / 44, 0)}")`;
+    expect([value('-webkit-clip-path'), value('clip-path')]).toEqual([ring, ring]);
+    // Nothing else of the loader changes there.
+    expect(
+      clip[0]!.declarations.match(/(?:^|[\s;])[a-z-]+(?=\s*:)/gu)?.map((name) => name.trim()),
+    ).toEqual(['-webkit-mask-image', 'mask-image', '-webkit-clip-path', 'clip-path']);
+  });
 
   it('draws every ring mask as one well-formed SVG circle', () => {
     const data = ringMask('4.75').slice('url("data:image/svg+xml,'.length, -'")'.length);

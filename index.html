@@ -4609,6 +4609,17 @@
           </button>
         </div>
 
+        <!-- The page under the picker, the toast included, is inert while the
+             picker is on top; src/ui/toast.ts repeats each toast here. -->
+        <p
+          id="media-source-status"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          data-toast-echo
+        ></p>
+
         <div class="ob-actions">
           <button
             class="btn-ob-secondary flex-1"

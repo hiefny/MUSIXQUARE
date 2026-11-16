@@ -107,7 +107,9 @@ describe('canonical release identity', () => {
 
     expect(identity.productVersion).toBe(manifest.version);
     expect(identity.serviceWorkerCacheEpoch).toBeGreaterThan(0);
-    expect(identity.productVersion.split('.')[2]).toBe(String(identity.serviceWorkerCacheEpoch));
+    expect(/^\d+\.\d+\.(\d+)/u.exec(identity.productVersion)?.[1]).toBe(
+      String(identity.serviceWorkerCacheEpoch),
+    );
     expect(manifest.scripts['guard:release-identity']).toContain('release-identity.mts');
     expect(manifest.scripts['build:checked']).toContain('guard:release-identity');
     expect(manifest.scripts['version:status']).toContain('release-identity.mts');

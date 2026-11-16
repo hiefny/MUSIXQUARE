@@ -12189,17 +12189,23 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
     /* The 44px language button sits centred on the welcome title's 28.8px
        line, so its pill reaches 7.6px above the title and its focus outline
-       11.6px, past the top edge of both scroll boxes (the view and the welcome
+       11.6px, past the top edge of both scroll boxes (the view and the step
        area), which cut them off. Both start 16px higher, in the card's empty
        top padding, and pad the same 16px back, so nothing moves; the view's
-       height is fixed, so it grows by the same 16px. */
+       height is fixed, so it grows by the same 16px. Every step area does
+       the same, so scrolled content leaves the screen at the same line on
+       every step (owner decision 2026-11-17). */
     #setup-overlay .setup-mobile-view {
       margin-top: -16px;
       padding-top: 16px;
       height: calc(100% + 16px);
     }
 
-    #setup-welcome-area {
+    #setup-welcome-area,
+    #setup-code-area,
+    #setup-join-area,
+    #setup-auto-join-area,
+    #setup-role-area {
       margin-top: -16px;
       padding-top: 16px;
     }

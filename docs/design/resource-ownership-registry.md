@@ -4499,7 +4499,10 @@ entry needs the owner's acceptance and is not implied by this registry.
   phase (`data-phase`: none, `loader` or `settled`), its loader, its fade over the app and its exit
   from rendering (`hidden`), and the reset screen's continuity stamp (`sessionStorage`
   `mxqr-boot-continuity`), which hands the reset screen's wordmark and loader to the next page
-  ([App 9.0.48 train report](app-9-0-48-train-2026-11-15.md)).
+  ([App 9.0.48 train report](app-9-0-48-train-2026-11-15.md)), with the box that screen centres
+  them in (`mxqr-boot-continuity-box`, the window's width and the screen's height), which keeps
+  their place on a first screen iOS gives short by the home indicator strip
+  ([App 9.0.51 train report](app-9-0-51-train-2026-11-16.md)).
 - **Current owners/flows:** two machines on the drawing and the phase, kept on purpose, and two
   start-up steps that show and settle the splash after a reset:
   - the sheet `<style data-boot-splash>` in `index.html`: the mark's fade-in 0.3 s after the
@@ -4533,10 +4536,17 @@ entry needs the owner's acceptance and is not implied by this registry.
     paint the preflight applies the stored theme to the root (the theme step of `bootstrap.js`
     applies the same one again) and, after a reset under 15 s ago, marks the root
     `data-boot-continued` and sets the loader's two phase variables from the wall clock; the sheet
-    shows a marked splash in its settled place, loader running, from the first frame. It never
-    removes the stamp and never sets `data-phase`;
+    shows a marked splash in its settled place, loader running, from the first frame. From App
+    9.0.51 it also reads the reset screen's box and, while this first screen is as wide and within
+    64 px of its height (the installed iOS app's largest safe-area difference,
+    `IOS_STANDALONE_SAFE_AREA_DELTA_MAX` in `src/core/platform.ts`, whose copy `boot-splash.test.ts`
+    pins), sets `--boot-continued-height`, by which the sheet sizes a marked splash from the top,
+    never shorter than its screen nor more than that window taller, and not where
+    `css/desktop.css` scales body (from 2560 x 1280). It never removes the stamp or the box and
+    never sets `data-phase`;
   - the start-up step `browser/classic-runtime/bootstrap.ts` (its fifth preflight, in order before
-    the runtime and the app module): it reads and removes the reset's stamp once (0 to 15 s old)
+    the runtime and the app module): it removes the reset screen's box unread, and reads and
+    removes the reset's stamp once (0 to 15 s old)
     and then sets `data-phase="settled"`, also on a root the head preflight marked (the stamp may
     be gone by then), and starts the splash's loader on the wall clock's phase (a negative delay)
     only when the preflight did not already phase it. The async runtime could not do this first in
@@ -4544,7 +4554,10 @@ entry needs the owner's acceptance and is not implied by this registry.
     after the start-up scripts, so it never starts a drawing on a page this step settles.
   - The reset screen of RO-23 (`src/core/session-reset.ts`) copies the splash's wordmark and
     loader into its own overlay (the page's static markup or one it builds), runs that loader on
-    the wall clock's phase, writes the stamp in `showResetOverlay`, removes it in
+    the wall clock's phase, writes the stamp in `showResetOverlay` and the box there and again just
+    before `navigate()` (`rememberResetScreenBox`, only while the screen sits in the page's body and
+    nothing is fullscreen, read through `getFullscreenElement` of RO-26; a fullscreen move forgets
+    it, since a navigation ends element and document fullscreen alike), removes both in
     `releaseResetSurface` when its document stays, and leaves rendering once its own fade-out ends
     (`retireOverlayAfterFade`, on that transition's `finished`, no timer or listener).
 - **Target single owner:** none, by design. The sheet has to show, raise and release the splash
@@ -4553,11 +4566,12 @@ entry needs the owner's acceptance and is not implied by this registry.
   hidden splash out of rendering; the start-up step is the only flow sure to run before the app.
 - **Allowed requesters:** setup's boot guard classes on the root (`setup-boot-block`,
   `boot-splash-released`, `setup-boot-failed`) release the splash; the reset screen writes and
-  removes the stamp.
-- **Lifecycle operations:** mark the root continued (head preflight, before the first paint); set
-  the phase (start-up step after a reset, else the runtime, once); stop or finish the drawing
-  (runtime); fade (sheet); `hidden` after the fade (runtime); write and remove the stamp (reset
-  screen); read it (head preflight); read and remove it (start-up step).
+  removes the stamp and the box.
+- **Lifecycle operations:** mark the root continued and keep the reset screen's height (head
+  preflight, before the first paint); set the phase (start-up step after a reset, else the
+  runtime, once); stop or finish the drawing (runtime); fade (sheet); `hidden` after the fade
+  (runtime); write and remove the stamp and the box (reset screen); read them (head preflight);
+  read and remove the stamp, remove the box (start-up step).
 - **Deadline owner:** the sheet for its fallback times and the last-resort fade; the runtime for
   the drawing's start on the sheet's clock, for the loader's rise 0.3 s after the drawing's end
   from its real start when no frame reports that end (a hidden tab), and for `hidden`
@@ -4587,7 +4601,12 @@ entry needs the owner's acceptance and is not implied by this registry.
     "leaves the splash to draw after a stamp %s"; `src/core/__tests__/session-reset.test.ts`
     "stamps the next page as a
     continuation and clears the stamp when this page stays" and "keeps the stamp for the page a
-    committed navigation opens, until this page returns".
+    committed navigation opens, until this page returns". The box (App 9.0.51): `boot-splash.test.ts`
+    "hands the sheet the reset screen's height for a first screen %s at the same width, and leaves
+    its box to bootstrap.js", "lets a continued splash fill its own first screen after %s", "reads
+    no box without a fresh stamp" and "removes the reset screen's box with %s (the head preflight
+    already read it)"; `session-reset.test.ts` "the reset screen's box" (travels with the stamp,
+    none from a fullscreen host, taken again just before the page leaves).
   - User pause/stop: n/a (the splash has no control); reduced motion: "settles safely on %s
     motion interruption" and "lets the loader join when %s before the drawing starts".
   - Teardown: "retires the splash after its last-resort fade"; `session-reset.test.ts` "takes the

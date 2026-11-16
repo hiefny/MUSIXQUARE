@@ -10,7 +10,7 @@ function sources(
     serviceWorkerSource?: string;
   } = {},
 ) {
-  const productVersion = overrides.productVersion ?? '8.1.2';
+  const productVersion = overrides.productVersion ?? '9.0.829';
   return {
     packageSource: JSON.stringify({ name: 'musixquare', version: productVersion, private: true }),
     lockSource: JSON.stringify({
@@ -21,23 +21,46 @@ function sources(
       },
     }),
     serviceWorkerSource:
-      overrides.serviceWorkerSource ?? "'use strict';\nconst CACHE_VERSION = 'v226';\n",
+      overrides.serviceWorkerSource ?? "'use strict';\nconst CACHE_VERSION = 'v829';\n",
   };
 }
 
 describe('canonical release identity', () => {
-  it('keeps the product SemVer and service-worker cache epoch distinct', () => {
+  it('reads the product SemVer, whose patch is the service-worker cache epoch', () => {
     expect(parseReleaseIdentity(sources())).toEqual({
-      productVersion: '8.1.2',
-      serviceWorkerCacheEpoch: 226,
+      productVersion: '9.0.829',
+      serviceWorkerCacheEpoch: 829,
     });
   });
 
+  // Owner decision 2026-11-17: from App 9.0.829 the patch number is the App
+  // build number, and a minor or major release keeps counting it.
+  it('rejects a patch number that is not the App build number', () => {
+    expect(() =>
+      parseReleaseIdentity(
+        sources({ productVersion: '9.0.53', serviceWorkerSource: "const CACHE_VERSION = 'v828';" }),
+      ),
+    ).toThrow('patch 53 must be the App build number 828');
+    expect(() =>
+      parseReleaseIdentity(
+        sources({ productVersion: '9.1.0', serviceWorkerSource: "const CACHE_VERSION = 'v840';" }),
+      ),
+    ).toThrow('patch 0 must be the App build number 840');
+    expect(
+      parseReleaseIdentity(
+        sources({
+          productVersion: '9.1.840',
+          serviceWorkerSource: "const CACHE_VERSION = 'v840';",
+        }),
+      ),
+    ).toEqual({ productVersion: '9.1.840', serviceWorkerCacheEpoch: 840 });
+  });
+
   it('rejects either package-lock mirror drifting from the canonical product version', () => {
-    expect(() => parseReleaseIdentity(sources({ lockVersion: '8.1.1' }))).toThrow(
+    expect(() => parseReleaseIdentity(sources({ lockVersion: '9.0.828' }))).toThrow(
       'top-level product version',
     );
-    expect(() => parseReleaseIdentity(sources({ rootLockVersion: '8.1.1' }))).toThrow(
+    expect(() => parseReleaseIdentity(sources({ rootLockVersion: '9.0.828' }))).toThrow(
       'root package version',
     );
   });
@@ -45,13 +68,13 @@ describe('canonical release identity', () => {
   it('rejects an ambiguous or nonnumeric cache epoch', () => {
     expect(() =>
       parseReleaseIdentity(
-        sources({ serviceWorkerSource: "const CACHE_VERSION = 'release-8.1.2';" }),
+        sources({ serviceWorkerSource: "const CACHE_VERSION = 'release-9.0.829';" }),
       ),
     ).toThrow('exactly one numeric CACHE_VERSION');
     expect(() =>
       parseReleaseIdentity(
         sources({
-          serviceWorkerSource: "const CACHE_VERSION = 'v225';\nconst CACHE_VERSION = 'v226';\n",
+          serviceWorkerSource: "const CACHE_VERSION = 'v828';\nconst CACHE_VERSION = 'v829';\n",
         }),
       ),
     ).toThrow('exactly one numeric CACHE_VERSION');
@@ -60,17 +83,17 @@ describe('canonical release identity', () => {
   it('keeps both admin shell assets pinned to the product release', () => {
     const versionedSources = {
       ...sources(),
-      appWorkerSource: "const ADMIN_ASSET_VERSION = '8.1.2';",
-      adminScriptSource: "const ADMIN_SCRIPT_VERSION = '8.1.2';",
+      appWorkerSource: "const ADMIN_ASSET_VERSION = '9.0.829';",
+      adminScriptSource: "const ADMIN_SCRIPT_VERSION = '9.0.829';",
     };
     expect(parseReleaseIdentity(versionedSources)).toEqual({
-      productVersion: '8.1.2',
-      serviceWorkerCacheEpoch: 226,
+      productVersion: '9.0.829',
+      serviceWorkerCacheEpoch: 829,
     });
     expect(() =>
       parseReleaseIdentity({
         ...versionedSources,
-        adminScriptSource: "const ADMIN_SCRIPT_VERSION = '8.1.1';",
+        adminScriptSource: "const ADMIN_SCRIPT_VERSION = '9.0.828';",
       }),
     ).toThrow('Admin asset versions must match');
   });
@@ -84,6 +107,7 @@ describe('canonical release identity', () => {
 
     expect(identity.productVersion).toBe(manifest.version);
     expect(identity.serviceWorkerCacheEpoch).toBeGreaterThan(0);
+    expect(identity.productVersion.split('.')[2]).toBe(String(identity.serviceWorkerCacheEpoch));
     expect(manifest.scripts['guard:release-identity']).toContain('release-identity.mts');
     expect(manifest.scripts['build:checked']).toContain('guard:release-identity');
     expect(manifest.scripts['version:status']).toContain('release-identity.mts');

@@ -19,9 +19,23 @@ import {
   waitUntilPressReaches,
 } from './helpers/wait.ts';
 import {
+  cancelHeldSystemAudioPicker,
+  holdSyntheticSystemAudioPicker,
   installSyntheticSystemAudio,
+  readHeldSystemAudioPicker,
   readSyntheticSystemAudio,
+  selectHeldSystemAudioPicker,
 } from './helpers/system-audio-source.ts';
+import {
+  OWNER_RECOVERY_CLAIM,
+  PARTICIPANT_ID,
+  PRESENCE_INCARNATION_ID,
+  PRO_ROOM_CODE,
+  PRO_SIGNALING_ORIGIN,
+  fulfillProJson,
+  ownerSnapshot,
+  proCorsHeaders,
+} from './helpers/pro-room-fixture.ts';
 import {
   installLocalYouTube,
   submitYouTubeSource,
@@ -132,6 +146,8 @@ for (const viewport of [
     await media.click();
     await page.locator('#btn-system-audio').click();
     await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+    // The picker closes once the share is on, a frame or two after the audio.
+    await expect(page.locator('#media-source-overlay')).not.toHaveClass(/\bactive\b/);
     await expect(row).toHaveAttribute('data-sharing', 'true');
     await expect(media).toHaveAccessibleName('Stop Sharing');
     await expect(stopContent.locator('.play-action-label')).toHaveText('Stop Sharing');
@@ -231,6 +247,7 @@ test('sharing surfaces do not acquire hover merely by expanding under a stationa
   await page.mouse.move(leftPoint.x, leftPoint.y);
   await page.keyboard.press('Enter');
   await expect(row).toHaveAttribute('data-sharing', 'true');
+  await expect(page.locator('#media-source-overlay')).not.toHaveClass(/\bactive\b/);
   await expect(row).not.toHaveAttribute('data-morphing', 'true');
   const stopContent = media.locator('.play-action-stop-content');
   await expect(stopContent).toBeVisible();
@@ -281,10 +298,6 @@ test('sharing surfaces do not acquire hover merely by expanding under a stationa
   await expect(media).toHaveCSS('background-color', colors.hover);
 });
 
-type PendingPickerWindow = Window & {
-  __releasePendingSystemAudioPicker?: () => void;
-};
-
 async function readControlAvailability(page: Page) {
   return page.evaluate(
     (ids) =>
@@ -333,6 +346,7 @@ test('system audio disables keyboard transport and restores controls after shari
     await expect
       .poll(async () => (await readSyntheticSystemAudio(guest)).liveAudioReceivers)
       .toBe(1);
+    await expect(host.locator('#media-source-overlay')).not.toHaveClass(/\bactive\b/);
 
     // Only the local publisher owns the merged stop action. A receiver keeps
     // both explanatory controls, including the keyboard-accessible Sync toast.
@@ -468,27 +482,11 @@ test('remote YouTube selection supersedes a pending system audio picker', async 
 
     // Delegate creation to the shared fixture so capture/cleanup still use
     // real MediaStreamTracks; hold only the browser picker promise boundary.
-    await host.evaluate(() => {
-      const selectDisplay = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
-      Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', {
-        configurable: true,
-        value: async (options?: DisplayMediaStreamOptions) => {
-          const stream = await selectDisplay(options);
-          return new Promise<MediaStream>((resolve) => {
-            (window as PendingPickerWindow).__releasePendingSystemAudioPicker = () => {
-              delete (window as PendingPickerWindow).__releasePendingSystemAudioPicker;
-              resolve(stream);
-            };
-          });
-        },
-      });
-    });
+    await holdSyntheticSystemAudioPicker(host);
     await navigateToTab(host, 'play');
     await host.locator('#btn-media-source').click();
     await host.locator('#btn-system-audio').click();
-    await host.waitForFunction(
-      () => typeof (window as PendingPickerWindow).__releasePendingSystemAudioPicker === 'function',
-    );
+    await expect.poll(async () => (await readHeldSystemAudioPicker(host)).open).toBe(1);
 
     await navigateToTab(guest, 'playlist');
     await guest.locator(`.track-item[data-queue-item-id="${successor.queueItemId}"]`).click();
@@ -496,13 +494,18 @@ test('remote YouTube selection supersedes a pending system audio picker', async 
       [host, guest].map((page) => waitForCurrentQueueItemId(page, successor.queueItemId)),
     );
     await Promise.all([host, guest].map((page) => waitForYouTubePlayback(page, 'aaaaaaaaaaa')));
-    await host.evaluate(() => {
-      const release = (window as PendingPickerWindow).__releasePendingSystemAudioPicker;
-      if (!release) throw new Error('System audio picker is not pending');
-      release();
-    });
+    await selectHeldSystemAudioPicker(host);
 
     await expect.poll(async () => (await readSyntheticSystemAudio(host)).activeCaptures).toBe(0);
+    // The replaced share ends quietly: the host's picker stays open with the
+    // option ready again.
+    const hostOption = host.locator('#btn-system-audio');
+    await expect(hostOption).toHaveAttribute('aria-busy', 'false');
+    await expect(hostOption.locator('.media-source-label-text')).toHaveAttribute(
+      'data-i18n',
+      'system_audio.button',
+    );
+    await expect(host.locator('#media-source-overlay')).toHaveClass(/\bactive\b/);
     for (const page of [host, guest]) {
       expect(await readState(page, 'playlist.currentQueueItemId')).toBe(successor.queueItemId);
       expect(await readState(page, 'playback.mode')).toBe('youtube');
@@ -519,4 +522,279 @@ test('remote YouTube selection supersedes a pending system audio picker', async 
   } finally {
     await cleanupContexts(pair);
   }
+});
+
+// Owner proposal 2026-11-03: the media picker stays open until the shared
+// audio arrives, as it stays open until a chosen file arrives, and the option
+// reads "Preparing to share..." the same way in standard and PRO rooms.
+type PickerRecordWindow = Window & {
+  __systemAudioPickerRecord?: Array<{ key: string | null; open: boolean }>;
+};
+
+async function recordSystemAudioPicker(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const option = document.getElementById('btn-system-audio')!;
+    const overlay = document.getElementById('media-source-overlay')!;
+    const label = option.querySelector('.media-source-label-text')!;
+    const record: Array<{ key: string | null; open: boolean }> = [];
+    (window as PickerRecordWindow).__systemAudioPickerRecord = record;
+    // One entry per mutation batch, as a frame would paint it.
+    const observer = new MutationObserver(() => {
+      record.push({
+        key: label.getAttribute('data-i18n'),
+        open: overlay.classList.contains('active'),
+      });
+    });
+    observer.observe(option, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    observer.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+  });
+}
+
+async function openSystemAudioOption(page: Page) {
+  const option = page.locator('#btn-system-audio');
+  await page.locator('#btn-media-source').click();
+  // A pointer open moves focus to the picker surface; wait for that handoff.
+  await expect(page.locator('#media-source-overlay')).toBeFocused();
+  return { option, label: option.locator('.media-source-label-text') };
+}
+
+test('keeps the media picker open with the preparing label until the shared audio arrives', async ({
+  page,
+}) => {
+  await injectPeerServer(page);
+  await installSyntheticSystemAudio(page);
+  await useAnonymousAccountSession(page);
+  await setupHostAndStart(page);
+  await navigateToTab(page, 'play');
+  await holdSyntheticSystemAudioPicker(page);
+  const overlay = page.locator('#media-source-overlay');
+  const { option, label } = await openSystemAudioOption(page);
+  await recordSystemAudioPicker(page);
+
+  await option.click();
+  await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+  // getDisplayMedia still runs inside the click's user activation.
+  expect((await readHeldSystemAudioPicker(page)).activations).toEqual([true]);
+  await expect(overlay).toHaveClass(/\bactive\b/);
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button_preparing');
+  await expect(label).toHaveText('Preparing to share...');
+  await expect(option).toHaveAttribute('aria-busy', 'true');
+  await expect(option).toHaveAttribute('aria-disabled', 'true');
+  await expect(option).toHaveJSProperty('disabled', false);
+  await expect(option).toBeFocused();
+
+  // A second press while it prepares opens nothing.
+  await page.keyboard.press('Enter');
+  expect((await readHeldSystemAudioPicker(page)).calls).toBe(1);
+
+  await selectHeldSystemAudioPicker(page);
+  await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+  await expect(overlay).not.toHaveClass(/\bactive\b/);
+  await expect(page.locator('.play-action-buttons')).toHaveAttribute('data-sharing', 'true');
+  await expect(page.locator('#btn-media-source')).toBeFocused();
+  const record = await page.evaluate(
+    () => (window as PickerRecordWindow).__systemAudioPickerRecord ?? [],
+  );
+  const firstBusy = record.findIndex(({ key }) => key === 'system_audio.button_preparing');
+  expect(firstBusy).toBeGreaterThanOrEqual(0);
+  // From the preparing label until the picker closed, never System Audio.
+  expect(
+    record
+      .slice(firstBusy)
+      .filter(({ key, open }) => open && key !== 'system_audio.button_preparing'),
+  ).toEqual([]);
+
+  await page.locator('#btn-media-source').click();
+  await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(0);
+});
+
+test('a cancelled share dialog keeps the picker open and the option ready again', async ({
+  page,
+}) => {
+  await injectPeerServer(page);
+  await installSyntheticSystemAudio(page);
+  await useAnonymousAccountSession(page);
+  await setupHostAndStart(page);
+  await navigateToTab(page, 'play');
+  await holdSyntheticSystemAudioPicker(page);
+  const overlay = page.locator('#media-source-overlay');
+  const { option, label } = await openSystemAudioOption(page);
+
+  await option.click();
+  await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+  await expect(option).toHaveAttribute('aria-busy', 'true');
+  await cancelHeldSystemAudioPicker(page);
+
+  await expect(option).toHaveAttribute('aria-busy', 'false');
+  await expect(overlay).toHaveClass(/\bactive\b/);
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button');
+  await expect(label).toHaveText('System Audio');
+  await expect(option).not.toHaveAttribute('aria-disabled');
+  await expect(option).toBeFocused();
+  await expect(page.locator('#toast')).toContainText('Audio sharing was cancelled');
+  expect((await readSyntheticSystemAudio(page)).activeCaptures).toBe(0);
+
+  // Ready at once: the next press opens the share window again.
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await readHeldSystemAudioPicker(page)).calls).toBe(2);
+  await expect(option).toHaveAttribute('aria-busy', 'true');
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button_preparing');
+  await cancelHeldSystemAudioPicker(page);
+  await expect(option).toHaveAttribute('aria-busy', 'false');
+  await expect(overlay).toHaveClass(/\bactive\b/);
+  expect((await readHeldSystemAudioPicker(page)).activations).toEqual([true, true]);
+});
+
+test('a PRO owner sees the preparing label for the whole start and keeps the picker on cancel', async ({
+  page,
+}) => {
+  // The local harness has no PRO Worker or Realtime SFU, so the PRO API is
+  // mocked as in critical-browser.test.ts. The PRO success path needs an SFU
+  // publish; the capture's unit tests cover it.
+  await injectPeerServer(page);
+  await installSyntheticSystemAudio(page);
+  await page.addInitScript((signalingUrl) => {
+    (window as unknown as Record<string, unknown>).__MUSIXQUARE_TRANSPORT__ = {
+      provider: 'cloudflare',
+      signalingUrl,
+    };
+  }, `${PRO_SIGNALING_ORIGIN}/api/rooms`);
+  await page.routeWebSocket(
+    (url) => url.pathname.includes('/api/pro-rooms/'),
+    (socket) => {
+      socket.onMessage((raw) => {
+        if (typeof raw !== 'string') return;
+        const frame = JSON.parse(raw) as Record<string, unknown>;
+        if (frame.type === 'pro-clock') {
+          socket.send(JSON.stringify({ ...frame, serverTimeMs: Date.now() }));
+        }
+      });
+    },
+  );
+  const idle = (generation: number) => ({
+    generation,
+    status: 'idle',
+    ownerParticipantId: null,
+    claimExpiresAt: null,
+    liveExpiresAt: null,
+    publication: null,
+  });
+  let systemAudio: Record<string, unknown> = idle(0);
+  const calls = { acquire: 0, acquired: 0, release: 0 };
+  const snapshot = ownerSnapshot();
+  await page.route('**/api/pro-room/**', async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    const room = `/v1/rooms/${PRO_ROOM_CODE}`;
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
+    } else if (pathname.endsWith(`${room}/bootstrap`)) {
+      await fulfillProJson(page, route, {
+        roomCode: PRO_ROOM_CODE,
+        status: 'pin_required',
+        passwordRequired: true,
+      });
+    } else if (
+      pathname.endsWith(`${room}/owner-recovery`) ||
+      pathname.endsWith(`${room}/snapshot`)
+    ) {
+      await fulfillProJson(page, route, { snapshot });
+    } else if (pathname.endsWith(`${room}/signaling-tickets`)) {
+      await fulfillProJson(page, route, {
+        ticket: `${'c'.repeat(32)}.${'D'.repeat(43)}`,
+        expiresAtMs: Date.now() + 60_000,
+        role: 'member',
+        coordinatorEpoch: 2,
+        presenceIncarnationId: PRESENCE_INCARNATION_ID,
+        ticketSequence: 1,
+        pendingPlaybackTransition: null,
+      });
+    } else if (pathname.endsWith(`${room}/presence/heartbeat`)) {
+      await fulfillProJson(page, route, { snapshot, systemAudio });
+    } else if (pathname.endsWith(`${room}/system-audio`)) {
+      await fulfillProJson(page, route, { systemAudio });
+    } else if (pathname.endsWith(`${room}/system-audio/acquire`)) {
+      calls.acquire += 1;
+      systemAudio = {
+        generation: 1,
+        status: 'preparing',
+        ownerParticipantId: PARTICIPANT_ID,
+        claimExpiresAt: Date.now() + 45_000,
+        liveExpiresAt: null,
+        publication: null,
+      };
+      await fulfillProJson(page, route, { systemAudio, leaseId: 'L'.repeat(43) });
+      calls.acquired += 1;
+    } else if (pathname.endsWith(`${room}/system-audio/release`)) {
+      calls.release += 1;
+      systemAudio = idle(1);
+      await fulfillProJson(page, route, { systemAudio });
+    } else {
+      await fulfillProJson(page, route, { error: 'TEST_ADJUNCT_UNAVAILABLE' }, 503);
+    }
+  });
+  await page.goto(`/${PRO_ROOM_CODE}#pro-recovery=${OWNER_RECOVERY_CLAIM}`);
+  await page.locator('#btn-setup-confirm:not([disabled])').click();
+  await expect(page.locator('#setup-overlay')).not.toHaveClass(/active/);
+  // Only the room owner may share system audio (src/pro-room/context.ts).
+  await expect
+    .poll(async () => {
+      const context = (await readState(page, 'room.context')) as {
+        kind?: string;
+        capabilities?: string[];
+      };
+      return context?.kind === 'pro' && context.capabilities?.includes('system-audio.publish');
+    })
+    .toBe(true);
+  await navigateToTab(page, 'play');
+  await holdSyntheticSystemAudioPicker(page);
+  const overlay = page.locator('#media-source-overlay');
+  const { option, label } = await openSystemAudioOption(page);
+  await expect(option).toBeVisible();
+  await recordSystemAudioPicker(page);
+
+  await option.click();
+  await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+  expect((await readHeldSystemAudioPicker(page)).activations).toEqual([true]);
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button_preparing');
+  await expect(label).toHaveText('Preparing to share...');
+  await expect(option).toHaveAttribute('aria-busy', 'true');
+
+  // The server's lease answer is where the old label flashed back after about
+  // 0.1 s. The share window is still open, so the start is still preparing.
+  await expect.poll(() => calls.acquired).toBe(1);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button_preparing');
+  await expect(overlay).toHaveClass(/\bactive\b/);
+
+  await cancelHeldSystemAudioPicker(page);
+  await expect(label).toHaveAttribute('data-i18n', 'system_audio.button');
+  await expect(option).toHaveAttribute('aria-busy', 'false');
+  await expect(overlay).toHaveClass(/\bactive\b/);
+  await expect.poll(() => calls.release).toBe(1);
+  const record = await page.evaluate(
+    () => (window as PickerRecordWindow).__systemAudioPickerRecord ?? [],
+  );
+  const firstBusy = record.findIndex(({ key }) => key === 'system_audio.button_preparing');
+  const firstReady = record.findIndex(
+    (entry, index) => index > firstBusy && entry.key === 'system_audio.button',
+  );
+  expect(firstBusy).toBeGreaterThanOrEqual(0);
+  // Between the press and the cancel the option read only the preparing label.
+  expect(
+    record
+      .slice(firstBusy, firstReady)
+      .filter(({ key }) => key !== 'system_audio.button_preparing'),
+  ).toEqual([]);
+  expect(calls.acquire).toBe(1);
 });

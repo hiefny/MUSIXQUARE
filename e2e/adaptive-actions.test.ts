@@ -65,6 +65,7 @@ const SWEPT_SLOT_KEYS = {
   local: 'help.load_local',
   youtube: 'help.youtube_compat',
   system: 'system_audio.button',
+  systemPreparing: 'system_audio.button_preparing',
   selectAll: 'playlist.select_all',
   deselectAll: 'playlist.deselect_all',
   selectedCount: 'playlist.selected_count',
@@ -1954,16 +1955,25 @@ test.describe('content-based adaptive action groups', () => {
             return [outer];
           },
           'media sources': (locale) =>
-            [true, false].map((supported) => {
+            (
+              [
+                ['system', true],
+                ['system', false],
+                ['systemPreparing', true],
+              ] as const
+            ).map(([label, supported]) => {
               const overlay = authored.getElementById('media-source-overlay')!;
               const outer = overlay.cloneNode(true) as HTMLElement;
               outer.classList.add('active');
               text(outer, '#btn-local-file > span', locale.swept.local);
               text(outer, '#btn-youtube-source > span', locale.swept.youtube);
-              text(outer, '#btn-system-audio .media-source-label-text', locale.swept.system);
+              text(outer, '#btn-system-audio .media-source-label-text', locale.swept[label]);
+              const option = outer.querySelector('#btn-system-audio')!;
               // Phones cannot capture system audio: the option is marked
               // unsupported and its Beta badge hidden.
-              outer.querySelector('#btn-system-audio')!.classList.toggle('unsupported', !supported);
+              option.classList.toggle('unsupported', !supported);
+              // While a share gets ready, as src/ui/player-controls.ts sets it.
+              if (label === 'systemPreparing') option.setAttribute('aria-busy', 'true');
               return outer;
             }),
           'selection toggle': (locale) =>

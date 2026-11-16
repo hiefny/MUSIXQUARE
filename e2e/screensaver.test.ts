@@ -322,6 +322,8 @@ test('allows system audio, interrupts an exit fade for YouTube, and blocks both 
   await page.locator('#btn-media-source').click();
   await page.locator('#btn-system-audio').click();
   await waitForState(page, 'playback.mode', 'system-audio');
+  // The media picker closes once the share is on, just after the mode changes.
+  await expect(page.locator('#media-source-overlay')).not.toHaveClass(/\bactive\b/);
   const child = await openScreensaver(page);
   await expect(child.locator('#musicTitle')).toHaveText('System audio');
   expect((await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import ko from '../ko.ts';
 import en from '../en.ts';
 import de from '../de.ts';
@@ -1283,5 +1284,43 @@ describe('Playlist selection copy', () => {
         expect(dict, `${locale} drops ${key}`).not.toHaveProperty(key);
       }
     }
+  });
+});
+
+describe('System audio option while a share prepares', () => {
+  const dictionaries = APP_DICTIONARIES as Readonly<Record<string, Record<string, string>>>;
+  const KEY = 'system_audio.button_preparing';
+
+  it('pins the owner-approved Korean and the English label', () => {
+    // Owner proposal 2026-11-03, worded as the owner wrote it.
+    expect(ko[KEY]).toBe('공유 준비 중...');
+    expect(en[KEY]).toBe('Preparing to share...');
+  });
+
+  it('labels the preparing system audio option in every locale in its own words and ellipsis', () => {
+    expect(Object.keys(dictionaries)).toHaveLength(42);
+    for (const [locale, dict] of Object.entries(dictionaries)) {
+      // Ten locales spread English and would compile without the key, so only
+      // the locale's own file shows it says this in its own words.
+      expect(readFileSync(`src/i18n/${locale}.ts`, 'utf8'), `${locale} file`).toContain(
+        `'${KEY}':`,
+      );
+      const label = dict[KEY]!;
+      expect(label, locale).toBeTruthy();
+      expect(label.trim(), locale).toBe(label);
+      expect(label, `${locale} one line`).not.toMatch(/[\r\n]/u);
+      expect(label, `${locale} interpolation`).not.toContain('{{');
+      // Each locale keeps the ellipsis its own in-progress labels use.
+      const joining = dict['setup.joining']!;
+      const ellipsis = joining.endsWith('…') ? '…' : '...';
+      expect(joining.endsWith(ellipsis), `${locale} setup.joining`).toBe(true);
+      expect(label.endsWith(ellipsis), `${locale} ends with ${ellipsis}`).toBe(true);
+      expect(label, `${locale} is not the idle label`).not.toBe(dict['system_audio.button']);
+      expect(label, `${locale} is not the PRO toast`).not.toBe(dict['system_audio.pro_preparing']);
+      if (locale !== 'en') {
+        expect(label, `${locale} must not fall back to English`).not.toBe(en[KEY]);
+      }
+    }
+    expect(ko[KEY]).not.toContain('곡');
   });
 });

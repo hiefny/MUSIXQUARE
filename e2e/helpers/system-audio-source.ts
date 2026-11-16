@@ -62,6 +62,76 @@ export async function installSyntheticSystemAudio(page: Page): Promise<void> {
   });
 }
 
+interface HeldSystemAudioPicker {
+  calls: number;
+  /** Whether each call still ran inside the press's user activation. */
+  activations: boolean[];
+  pending: Array<{ select: () => void; cancel: () => void }>;
+}
+
+type HeldPickerWindow = Window & {
+  __MUSIXQUARE_HELD_SYSTEM_AUDIO_PICKER__?: HeldSystemAudioPicker;
+};
+
+/**
+ * Keep every browser share window open until the test chooses for the person:
+ * select delegates to the synthetic capture above, cancel rejects as Chrome
+ * does and creates no capture. Install after installSyntheticSystemAudio.
+ */
+export async function holdSyntheticSystemAudioPicker(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const win = window as HeldPickerWindow;
+    const selectDisplay = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+    const held: HeldSystemAudioPicker = { calls: 0, activations: [], pending: [] };
+    win.__MUSIXQUARE_HELD_SYSTEM_AUDIO_PICKER__ = held;
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', {
+      configurable: true,
+      value: (options?: DisplayMediaStreamOptions) => {
+        held.calls += 1;
+        held.activations.push(navigator.userActivation?.isActive === true);
+        return new Promise<MediaStream>((resolve, reject) => {
+          held.pending.push({
+            select: () => void selectDisplay(options).then(resolve, reject),
+            cancel: () => reject(new DOMException('Permission denied', 'NotAllowedError')),
+          });
+        });
+      },
+    });
+  });
+}
+
+export async function readHeldSystemAudioPicker(page: Page): Promise<{
+  calls: number;
+  activations: boolean[];
+  open: number;
+}> {
+  return page.evaluate(() => {
+    const held = (window as HeldPickerWindow).__MUSIXQUARE_HELD_SYSTEM_AUDIO_PICKER__;
+    if (!held) throw new Error('The system audio picker is not held');
+    return { calls: held.calls, activations: [...held.activations], open: held.pending.length };
+  });
+}
+
+async function answerHeldSystemAudioPicker(page: Page, answer: 'select' | 'cancel') {
+  await page.evaluate((choice) => {
+    const next = (
+      window as HeldPickerWindow
+    ).__MUSIXQUARE_HELD_SYSTEM_AUDIO_PICKER__?.pending.shift();
+    if (!next) throw new Error('No system audio picker is open');
+    next[choice]();
+  }, answer);
+}
+
+/** Choose a surface with its audio in the open share window. */
+export function selectHeldSystemAudioPicker(page: Page): Promise<void> {
+  return answerHeldSystemAudioPicker(page, 'select');
+}
+
+/** Close the open share window with Cancel. */
+export function cancelHeldSystemAudioPicker(page: Page): Promise<void> {
+  return answerHeldSystemAudioPicker(page, 'cancel');
+}
+
 /** Observe capture cleanup and a live, unmuted remote audio track. */
 export async function readSyntheticSystemAudio(page: Page): Promise<{
   activeCaptures: number;

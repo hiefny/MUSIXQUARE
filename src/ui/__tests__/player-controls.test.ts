@@ -39,6 +39,10 @@ import { showToast } from '../toast.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { initSettings } from '../settings.ts';
 import { __resetModalStackForTests } from '../dom.ts';
+import {
+  configureSystemAudioCaptureActivityProbe,
+  configureSystemAudioCaptureStartProbe,
+} from '../../audio/system-audio-policy.ts';
 import { createSharingActionMotion } from '../sharing-action-motion.ts';
 import { registerSharingActionMotion } from '../sharing-action-motion-port.ts';
 import {
@@ -55,7 +59,7 @@ const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 const zeroStartFacade = vi.hoisted(() => ({ fallback: false, active: false, inFlight: false }));
 /** The recovery's pending claim, as the start ledger reads it. */
 const recoveryPending = vi.hoisted(() => vi.fn(() => zeroStartFacade.fallback));
-const platform = vi.hoisted(() => ({ android: false }));
+const platform = vi.hoisted(() => ({ android: false, systemAudioCapture: false }));
 const youtubePrimer = vi.hoisted(() => ({
   prime: vi.fn((_options?: { retryPending?: boolean }) => false),
   wait: vi.fn(async () => true),
@@ -99,6 +103,8 @@ vi.mock('../../core/platform.ts', async (importOriginal) => ({
   get IS_ANDROID() {
     return platform.android;
   },
+  // jsdom is not desktop Chromium; a test opts in to the capture path.
+  canCaptureSystemAudio: () => platform.systemAudioCapture,
 }));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
@@ -163,6 +169,7 @@ beforeEach(() => {
   zeroStartFacade.active = false;
   zeroStartFacade.fallback = false;
   platform.android = false;
+  platform.systemAudioCapture = false;
   zeroStartFacade.inFlight = false;
   // The start ledger reads the run's two exports and the recovery's pending
   // stand-in; this replaces the claims the transitively loaded player.ts
@@ -2071,6 +2078,285 @@ describe('PRO room media-source capabilities', () => {
 
     expect(startSpy).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith(t('toast.system_audio_owner_required'));
+  });
+});
+
+// Owner proposal 2026-11-03: the picker stays open until the shared audio
+// arrives, as it stays open until a chosen file arrives, and the option reads
+// the same preparing label in both room kinds. The picker follows the start
+// attempt the capture owns (system-audio-policy.ts) and its one settlement.
+describe('system audio option while a share prepares', () => {
+  let pending = false;
+  let disposeStartProbe: (() => void) | null = null;
+  let disposeActivityProbe: (() => void) | null = null;
+  let transitionDescriptor: PropertyDescriptor | undefined;
+  let stubbedTransition = false;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    __resetModalStackForTests();
+    platform.systemAudioCapture = true;
+    pending = false;
+    disposeStartProbe = configureSystemAudioCaptureStartProbe(() => pending);
+  });
+
+  afterEach(() => {
+    disposeStartProbe?.();
+    disposeActivityProbe?.();
+    disposeStartProbe = null;
+    disposeActivityProbe = null;
+    if (stubbedTransition) {
+      if (transitionDescriptor)
+        Object.defineProperty(document, 'startViewTransition', transitionDescriptor);
+      else Reflect.deleteProperty(document, 'startViewTransition');
+      stubbedTransition = false;
+    }
+    clearAllManagedTimers();
+    __resetModalStackForTests();
+    vi.useRealTimers();
+  });
+
+  const PICKER_MARKUP = `
+    <button id="btn-media-source">Media</button>
+    <button id="btn-add-media">Add</button>
+    <div id="media-source-overlay" role="dialog" aria-modal="true" tabindex="-1">
+      <button id="btn-local-file">Local file</button>
+      <button id="btn-system-audio">
+        <div class="btn-icon-bg"><svg viewBox="0 0 24 24"></svg></div>
+        <span class="media-source-label-row">
+          <span class="media-source-label-text" data-i18n="system_audio.button">System Audio</span>
+          <span class="feature-badge media-source-beta-badge">BETA</span>
+        </span>
+      </button>
+      <button id="btn-close-media-popup">Close</button>
+    </div>
+  `;
+
+  function setup(room: 'standard' | 'pro' = 'standard') {
+    document.body.innerHTML = PICKER_MARKUP;
+    if (room === 'pro') {
+      setState('network.appRole', 'host');
+      setState('network.hostConn', null);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['media.add', 'asset.upload', 'system-audio.publish'],
+      });
+    } else {
+      setActiveStandardHost();
+    }
+    // Stands in for the capture: a start registers its attempt in the click.
+    const startSpy = vi.fn(() => {
+      pending = true;
+    });
+    bus.on('system-audio:start', startSpy);
+    initPlayerControls();
+    return {
+      startSpy,
+      opener: document.getElementById('btn-media-source') as HTMLButtonElement,
+      addMedia: document.getElementById('btn-add-media') as HTMLButtonElement,
+      overlay: document.getElementById('media-source-overlay') as HTMLElement,
+      option: document.getElementById('btn-system-audio') as HTMLButtonElement,
+      close: document.getElementById('btn-close-media-popup') as HTMLButtonElement,
+    };
+  }
+
+  type Elements = ReturnType<typeof setup>;
+
+  function openPicker(elements: Elements, opener: HTMLButtonElement = elements.opener): void {
+    opener.focus();
+    opener.click();
+    vi.advanceTimersByTime(0);
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+  }
+
+  function pressOption(elements: Elements): void {
+    elements.option.focus();
+    elements.option.click();
+  }
+
+  function expectPreparing(option: HTMLButtonElement): void {
+    const label = option.querySelector<HTMLElement>('.media-source-label-text')!;
+    expect(label.getAttribute('data-i18n')).toBe('system_audio.button_preparing');
+    expect(label.textContent).toBe(t('system_audio.button_preparing'));
+    expect(option.getAttribute('aria-busy')).toBe('true');
+    expect(option.getAttribute('aria-disabled')).toBe('true');
+    // Never natively disabled: focus and the picker's Tab cycle stay on it.
+    expect(option.disabled).toBe(false);
+  }
+
+  function expectReady(option: HTMLButtonElement): void {
+    const label = option.querySelector<HTMLElement>('.media-source-label-text')!;
+    expect(label.getAttribute('data-i18n')).toBe('system_audio.button');
+    expect(label.textContent).toBe(t('system_audio.button'));
+    expect(option.getAttribute('aria-busy')).toBe('false');
+    expect(option.hasAttribute('aria-disabled')).toBe(false);
+    expect(option.disabled).toBe(false);
+  }
+
+  it('keeps the picker open and shows the preparing label in a standard room', () => {
+    const elements = setup();
+    openPicker(elements);
+
+    pressOption(elements);
+
+    expect(elements.startSpy).toHaveBeenCalledTimes(1);
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+    expectPreparing(elements.option);
+    expect(document.activeElement).toBe(elements.option);
+  });
+
+  it('ignores further presses while the share prepares', () => {
+    const elements = setup();
+    openPicker(elements);
+    pressOption(elements);
+    vi.mocked(showToast).mockClear();
+
+    // A pointer press, then the click a native button makes from Enter.
+    elements.option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    elements.option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+
+    expect(elements.startSpy).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalled();
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+    expectPreparing(elements.option);
+  });
+
+  it('returns the option to normal and keeps the picker open when the share does not start', () => {
+    const elements = setup();
+    openPicker(elements);
+    pressOption(elements);
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+
+    // The capture clears its slot, then settles: cancelled, refused, replaced.
+    pending = false;
+    bus.emit('system-audio:start-settled', { started: false });
+
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+    expectReady(elements.option);
+    expect(document.activeElement).toBe(elements.option);
+  });
+
+  it('closes the picker and returns focus to the opener only when the share starts', async () => {
+    const elements = setup();
+    openPicker(elements);
+    pressOption(elements);
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+
+    pending = false;
+    bus.emit('system-audio:start-settled', { started: true });
+
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    await Promise.resolve();
+    expect(document.activeElement).toBe(elements.opener);
+    expectReady(elements.option);
+  });
+
+  it('keeps the preparing label on the closing picker until its close update runs', async () => {
+    const elements = setup();
+    openPicker(elements);
+    pressOption(elements);
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+    const updates: Array<() => void> = [];
+    transitionDescriptor = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+    stubbedTransition = true;
+    Object.defineProperty(document, 'startViewTransition', {
+      configurable: true,
+      // The browser captures the outgoing picker before it runs the update.
+      value: vi.fn((update: () => void) => {
+        updates.push(update);
+        return {};
+      }),
+    });
+
+    pending = false;
+    bus.emit('system-audio:start-settled', { started: true });
+    await Promise.resolve();
+
+    expect(document.startViewTransition).toHaveBeenCalledOnce();
+    // The fading picker never shows the option back at System Audio.
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+    expectPreparing(elements.option);
+
+    updates.forEach((update) => update());
+
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    expectReady(elements.option);
+  });
+
+  it('shows the same preparing label in a PRO room, never for a lease request alone', () => {
+    Object.assign(proSystemAudio.view, { localRequestPending: true });
+    const elements = setup('pro');
+    openPicker(elements, elements.addMedia);
+
+    // A lease request alone (say a publisher recovery) is not this device's
+    // start attempt, so the option does not change.
+    expectReady(elements.option);
+
+    Object.assign(proSystemAudio.view, { localRequestPending: false });
+    pressOption(elements);
+
+    expect(elements.startSpy).toHaveBeenCalledTimes(1);
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+    expectPreparing(elements.option);
+
+    // The controller's acquire request settling does not end the start.
+    bus.emit('pro-system-audio:state-changed', { ...proSystemAudio.view }, null);
+    expectPreparing(elements.option);
+  });
+
+  it('closing the picker while the share prepares leaves the share running', async () => {
+    const stopSpy = vi.fn();
+    const forceStopSpy = vi.fn();
+    bus.on('system-audio:stop', stopSpy);
+    bus.on('system-audio:force-stop', forceStopSpy);
+    const elements = setup();
+    openPicker(elements);
+    pressOption(elements);
+
+    elements.close.click();
+    await Promise.resolve();
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+
+    openPicker(elements, elements.addMedia);
+    expectPreparing(elements.option);
+
+    // Escape (keyboard Back) closes only the picker, the top window.
+    elements.option.focus();
+    elements.option.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await Promise.resolve();
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    const focusAfterClose = document.activeElement;
+    expect(focusAfterClose).toBe(elements.addMedia);
+
+    pending = false;
+    bus.emit('system-audio:start-settled', { started: true });
+    await Promise.resolve();
+
+    // Nothing reopens and focus stays where the person left it.
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    expect(document.activeElement).toBe(focusAfterClose);
+    expectReady(elements.option);
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(forceStopSpy).not.toHaveBeenCalled();
+  });
+
+  it('closes the picker without restarting when this device already shares', () => {
+    disposeActivityProbe = configureSystemAudioCaptureActivityProbe(() => true);
+    const elements = setup();
+    openPicker(elements, elements.addMedia);
+
+    pressOption(elements);
+
+    expect(elements.startSpy).not.toHaveBeenCalled();
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    expectReady(elements.option);
   });
 });
 

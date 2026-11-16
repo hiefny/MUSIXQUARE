@@ -96,6 +96,20 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.53 / v828 train: the installed iPhone and iPad app's first open keeps the wordmark in place and hides the home indicator strip, and every loader turns with Google's Material motion inside a still ring mask (2026-11-16)](design/app-9-0-53-train-2026-11-16.md):
+  in progress on `agent/first-open-place`, not merged or released. The App update after 9.0.52 / v827, on main
+  `71d9f883` (the 9.0.52 release record). Two increments the owner asked for on 2026-11-16. (A) In the home-screen
+  app only, when iOS gives its first open a screen short by the home indicator strip: the head preflight gives the
+  boot splash the screen's height, the splash holds over the app until the screen grows (at the latest when the boot
+  window ends, 1.4 s), and the splash and the session refresh screen start on the strip's colour (#000000 dark,
+  #ffffff light) and rise to the app's background once nothing holds them; Safari, Android, desktops and macOS Dock
+  web apps are unchanged. (B) Every loader keeps its size, line and colour but turns as Material Components Web 14's
+  circular progress does (1.568 s turn, 5.332 s layer, 1.333 s swing; MIT notice 15), every moving part on an HTML
+  box in an even whole-pixel box, and its ring is drawn once by a still mask on the loader with two filled 150 degree
+  wedges turning inside it, the owner's idea from a spinner lab; the boot splash clips to the same ring with a path,
+  so a refreshed page's first frame needs no image. In real Chromium at scales 1 to 3 the app's loaders match the lab
+  the owner approved pixel for pixel. New preflight CSP pin. Not verified on a physical device. Target `app`, one
+  update dialog, floor 795 unchanged.
 - [App 9.0.52 / v827 train: Phase 8 tidies the app CSS, with the right-to-left, layout-band and contrast fixes it found (2026-11-16)](design/app-9-0-52-train-2026-11-16.md):
   released on 2026-11-16 20:16 KST in Release 43856001203 (PR #603, squash `d363de7e`) as App 9.0.52 / v827 (App build
   827, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

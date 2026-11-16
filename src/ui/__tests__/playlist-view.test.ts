@@ -544,15 +544,17 @@ describe('PRO upload rows', () => {
       await nextAnimationFrame();
 
       const first = document.querySelector<HTMLElement>('.pro-upload-spinner');
-      expect(first?.style.getPropertyValue('--material-elastic-spin-delay')).toBe('-150ms');
-      expect(first?.style.getPropertyValue('--material-elastic-dash-delay')).toBe('-550ms');
+      // At 2000 ms a 1568 ms turn is 432 ms in and the 5332 ms layer, which
+      // its two 1333 ms rings follow, 2000 ms in.
+      expect(first?.style.getPropertyValue('--material-elastic-spin-delay')).toBe('-432ms');
+      expect(first?.style.getPropertyValue('--material-elastic-dash-delay')).toBe('-2000ms');
 
       performanceNow.mockReturnValue(2200);
       updatePlaylistUI();
       const replacement = document.querySelector<HTMLElement>('.pro-upload-spinner');
       expect(replacement).not.toBe(first);
-      expect(replacement?.style.getPropertyValue('--material-elastic-spin-delay')).toBe('-350ms');
-      expect(replacement?.style.getPropertyValue('--material-elastic-dash-delay')).toBe('-750ms');
+      expect(replacement?.style.getPropertyValue('--material-elastic-spin-delay')).toBe('-632ms');
+      expect(replacement?.style.getPropertyValue('--material-elastic-dash-delay')).toBe('-2200ms');
     } finally {
       performanceNow.mockRestore();
     }
@@ -777,8 +779,10 @@ const APP_CSS_SHEETS = [
 const RESOLVED_ICON_PROPERTIES = [
   'width',
   'height',
+  'transform',
   '--material-elastic-size',
   '--material-elastic-stroke',
+  '--material-elastic-scale',
 ] as const;
 type CssSpecificity = [number, number, number];
 interface AppCssDeclaration {
@@ -1003,12 +1007,17 @@ describe('playlist state icon and upload ring geometry', () => {
       resolve(element, 'height'),
     ];
     // The visible ring: the 36 viewBox unit circle plus one stroke, scaled
-    // from the 44 unit viewBox to the element size.
+    // from the 44 unit viewBox to the element size, and by the scale a ring
+    // drawn smaller than its even whole-px box takes.
     const ring = (element: Element | null | undefined) => {
       const size = parseFloat(resolve(element, '--material-elastic-size'));
       const stroke = parseFloat(resolve(element, '--material-elastic-stroke'));
+      const scale = parseFloat(resolve(element, '--material-elastic-scale') || '1');
       const round = (value: number) => Math.round(value * 100) / 100;
-      return { outer: round(((36 + stroke) * size) / 44), line: round((stroke * size) / 44) };
+      return {
+        outer: round(((36 + stroke) * size * scale) / 44),
+        line: round((stroke * size * scale) / 44),
+      };
     };
 
     // Owner decision 2026-10-31: beside the current row's title the pause
@@ -1020,10 +1029,18 @@ describe('playlist state icon and upload ring geometry', () => {
     expect(box(rowSlot)).toEqual(['16px', '16px']);
     expect(box(rowSlot?.querySelector('.track-playing-indicator'))).toEqual(['20px', '20px']);
     expect(box(rowSlot?.querySelector('.track-paused-indicator'))).toEqual(['18px', '18px']);
-    expect(ring(rowSlot?.querySelector('.track-playback-loading-indicator'))).toEqual({
-      outer: 13,
-      line: 2,
-    });
+    const rowRing = rowSlot?.querySelector('.track-playback-loading-indicator');
+    expect(ring(rowRing)).toEqual({ outer: 13, line: 2 });
+    // Its box is an even 14px, so the composited parts' pivots land on whole
+    // device pixels (material-elastic-spinner.test.ts), and a scale about its
+    // centre draws the ring at 13: shown, and 0.82 of that while it fades in.
+    expect(resolve(rowRing, '--material-elastic-size')).toBe('14px');
+    const rowScale = parseFloat(resolve(rowRing, '--material-elastic-scale'));
+    expect(rowScale).toBeCloseTo(13.444 / 14, 6);
+    expect(resolve(rowRing, 'transform')).toBe(`scale(${(0.82 * rowScale).toFixed(6)})`);
+    rowSlot?.classList.add('is-current-loading');
+    expect(resolve(rowRing, 'transform')).toBe(`scale(${rowScale})`);
+    rowSlot?.classList.remove('is-current-loading');
 
     // The playing sub-row of an expanded YouTube playlist keeps its icons.
     const subLeading = document.querySelector('.sub-track-item.active .sub-idx');
@@ -1043,6 +1060,11 @@ describe('playlist state icon and upload ring geometry', () => {
       expect(spinner.parentElement?.className).toBe('track-type-slot');
       expect(box(spinner.parentElement)).toEqual(['16px', '16px']);
       expect(ring(spinner)).toEqual({ outer: 13, line: 1.73 });
+      expect(resolve(spinner, '--material-elastic-size')).toBe('14px');
+      expect(parseFloat(resolve(spinner, '--material-elastic-scale'))).toBeCloseTo(13.778 / 14, 6);
+      expect(resolve(spinner, 'transform')).toBe(
+        `scale(${resolve(spinner, '--material-elastic-scale')})`,
+      );
     }
 
     // The shared spinner component keeps its own size everywhere else.
@@ -1215,11 +1237,15 @@ describe('playlist queue identity rendering and actions', () => {
     }
 
     // The arc and its turn are transforms only: material-elastic-spinner.test.ts
-    // pins their keyframes to the dash they replace.
-    expect(stylesheet).toContain('animation: material-elastic-spin 1.85s linear infinite');
-    for (const part of ['arc', 'tail', 'head']) {
+    // pins their keyframes to Google's Material circular progress.
+    expect(stylesheet).toContain('animation: material-elastic-spin 1.568s linear infinite');
+    for (const [part, clock] of [
+      ['arc', '5.332s'],
+      ['tail', '1.333s'],
+      ['head', '1.333s'],
+    ] as const) {
       expect(stylesheet).toContain(
-        `animation: material-elastic-${part} 1.45s ease-in-out infinite`,
+        `animation: material-elastic-${part} ${clock} cubic-bezier(0.4, 0, 0.2, 1) infinite both`,
       );
       expect(stylesheet).toContain(`@keyframes material-elastic-${part}`);
     }

@@ -842,7 +842,7 @@ describe('public design-system page contract', () => {
     // The page's copy of the app loader turns its parts only; the arc's
     // keyframes are pinned to the app's in material-elastic-spinner.test.ts.
     expect(designStylesheet).toMatch(
-      /@keyframes material-elastic-arc\s*\{\s*0%\s*\{\s*transform:\s*rotate\(93\.6deg\);\s*\}\s*48%\s*\{\s*transform:\s*rotate\(266\.4deg\);/su,
+      /@keyframes material-elastic-arc\s*\{\s*0%\s*\{\s*transform:\s*rotate\(0deg\);\s*\}\s*12\.5%\s*\{\s*transform:\s*rotate\(135deg\);/su,
     );
     expect(designStylesheet).not.toMatch(/stroke-dasharray:\s*74 26/u);
 

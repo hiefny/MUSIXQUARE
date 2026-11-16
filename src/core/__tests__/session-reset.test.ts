@@ -651,11 +651,14 @@ describe('session reset coordinator', () => {
   describe('the reset screen continues the boot splash', () => {
     const CONTINUITY_KEY = BOOT_SPLASH_CONTINUITY_KEY;
     // The loader's moving parts (src/ui/material-elastic-spinner.ts): one turn
-    // per 1.85 s, and the arc's frame and half rings every 1.45 s.
+    // per 1.568 s, the layer's eight steps per 5.332 s, and its two rings'
+    // swings every 1.333 s.
     const TURN = '.material-elastic-turn';
-    const ARC_PARTS =
-      '.material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg';
-    const MOVING_PARTS = `${TURN}, ${ARC_PARTS}`;
+    const LAYER = '.material-elastic-arc';
+    const RINGS = '.material-elastic-tail > svg, .material-elastic-head > svg';
+    const MOVING_PARTS = `${TURN}, ${LAYER}, ${RINGS}`;
+    const periodOf = (element: Element) =>
+      element.matches(TURN) ? 1568 : element.matches(LAYER) ? 5332 : 1333;
     // The splash as the reset finds it after boot: drawn, faded out, hidden.
     const SPLASH = `<div class="boot-splash" aria-hidden="true" hidden>
       <div class="boot-splash-mark">
@@ -760,11 +763,8 @@ describe('session reset coordinator', () => {
     it("runs the loader on the wall clock's phase, as the next page's splash does", async () => {
       const original = window.getComputedStyle.bind(window);
       vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
-        if (element.closest('#session-reset-overlay')) {
-          if (element.matches(TURN)) return { animationDuration: '1.85s' } as CSSStyleDeclaration;
-          if (element.matches(ARC_PARTS)) {
-            return { animationDuration: '1.45s' } as CSSStyleDeclaration;
-          }
+        if (element.closest('#session-reset-overlay') && element.matches(MOVING_PARTS)) {
+          return { animationDuration: `${periodOf(element) / 1000}s` } as CSSStyleDeclaration;
         }
         return original(element, pseudo);
       });
@@ -772,12 +772,13 @@ describe('session reset coordinator', () => {
       scheduleSessionReset('Refreshing session...', vi.fn());
       const loader = document.querySelector('#session-reset-overlay .boot-splash-spinner');
       // Without the Web Animations API (jsdom): an equivalent negative delay.
-      // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and the 1 450 ms arc 950 ms in.
+      // At 1 000 000 ms a 1 568 ms turn is 1 184 ms in, the 5 332 ms layer
+      // 2 916 ms in and its 1 333 ms rings 250 ms in.
       expect(
         [...(loader?.querySelectorAll<HTMLElement | SVGElement>(MOVING_PARTS) ?? [])].map(
           (element) => element.style.animationDelay,
         ),
-      ).toEqual(['-1000ms', '-950ms', '-950ms', '-950ms']);
+      ).toEqual(['-1184ms', '-2916ms', '-250ms', '-250ms']);
     });
 
     it("sets the loader's running animations to the wall clock once shown, and again after a move", async () => {
@@ -789,11 +790,11 @@ describe('session reset coordinator', () => {
         configurable: true,
         value(this: Element) {
           if (!this.closest('#session-reset-overlay') || !this.matches(MOVING_PARTS)) return [];
-          const duration = this.matches(TURN) ? 1850 : 1450;
+          const duration = periodOf(this);
           let animation = animations.get(this);
           if (!animation) {
             animation = Object.assign(
-              { animationName: duration === 1850 ? 'boot-splash-spin' : 'boot-splash-arc' },
+              { animationName: this.matches(TURN) ? 'boot-splash-spin' : 'boot-splash-arc' },
               { currentTime: null, effect: { getTiming: () => ({ duration }) } },
             );
             animations.set(this, animation);
@@ -834,8 +835,8 @@ describe('session reset coordinator', () => {
         const phases = () => [...animations.values()].map((animation) => animation.currentTime);
 
         scheduleSessionReset('Refreshing session...', vi.fn());
-        // The turn, then the arc's frame and its two half rings, in document order.
-        const at = (now: number) => [now % 1850, now % 1450, now % 1450, now % 1450];
+        // The turn, then the layer and its two half rings, in document order.
+        const at = (now: number) => [now % 1568, now % 5332, now % 1333, now % 1333];
         expect(phases()).toEqual(at(1_000_000));
         // The copy dropped the splash's delay, and the transition kept its time.
         expect(

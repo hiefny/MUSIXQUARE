@@ -7,6 +7,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { APP_RENDER_ASSETS_SLOT, prioritizeActiveStylesheetsInHtml } from '../../../vite.config.ts';
 import {
+  MATERIAL_ELASTIC_ARC_PERIOD_MS,
+  MATERIAL_ELASTIC_TURN_PERIOD_MS,
+} from '../../ui/material-elastic-spinner.ts';
+import {
   BOOT_SPLASH_CONTINUITY_BOX_KEY,
   BOOT_SPLASH_CONTINUITY_KEY,
 } from '../navigation-contract.ts';
@@ -405,12 +409,29 @@ describe('boot splash', () => {
 
     // Each moving part runs on the app's clock, under the splash's own name
     // (the app sheet may load beside it); material-elastic-spinner.test.ts
-    // pins the arc itself to the dash it replaces.
+    // pins the motion itself to Google's Material circular progress.
+    const curve = 'cubic-bezier(0.4, 0, 0.2, 1)';
     const parts = [
-      ['.material-elastic-turn {', 'spin', '1.85s linear infinite'],
-      ['.material-elastic-arc {', 'arc', '1.45s ease-in-out infinite'],
-      ['.material-elastic-tail > svg {', 'tail', '1.45s ease-in-out infinite'],
-      ['.material-elastic-head > svg {', 'head', '1.45s ease-in-out infinite'],
+      [
+        '.material-elastic-turn {',
+        'spin',
+        `${MATERIAL_ELASTIC_TURN_PERIOD_MS / 1000}s linear infinite`,
+      ],
+      [
+        '.material-elastic-arc {',
+        'arc',
+        `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 1000}s ${curve} infinite both`,
+      ],
+      [
+        '.material-elastic-tail > svg {',
+        'tail',
+        `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 4000}s ${curve} infinite both`,
+      ],
+      [
+        '.material-elastic-head > svg {',
+        'head',
+        `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 4000}s ${curve} infinite both`,
+      ],
     ] as const;
     for (const [part, name, clock] of parts) {
       expect(ownDeclaration(STYLE, `  .material-elastic-spinner ${part}`, 'animation')).toBe(
@@ -454,7 +475,7 @@ describe('boot splash', () => {
         },
       );
     const staticSplash = staticArc(SPLASH_CSS, '.boot-splash-spinner');
-    expect(staticSplash).toEqual(['rotate(259.2deg)', 'rotate(-194.4deg)', 'rotate(194.4deg)']);
+    expect(staticSplash).toEqual(['rotate(259.2deg)', 'rotate(165.6deg)', 'rotate(-165.6deg)']);
     const appSheet = STYLE.slice(0, STYLE.indexOf('.header-safe-content {'));
     expect(staticArc(appSheet, '.material-elastic-spinner')).toEqual(staticSplash);
   });
@@ -690,16 +711,17 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     );
     const { window } = dom;
     Object.defineProperty(window.Date, 'now', { value: () => NOW });
-    // The loader's moving parts: one turn per 1.85 s, the arc's three parts 1.45 s.
+    // The loader's moving parts: one turn per 1.568 s, the layer's eight steps
+    // per 5.332 s, and its two rings' swings every 1.333 s.
     Object.defineProperty(window, 'getComputedStyle', {
       value: (element: Element) => ({
         animationDuration: element.matches('.material-elastic-turn')
-          ? '1.85s'
-          : element.matches(
-                '.material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
-              )
-            ? '1.45s'
-            : '0s',
+          ? '1.568s'
+          : element.matches('.material-elastic-arc')
+            ? '5.332s'
+            : element.matches('.material-elastic-tail > svg, .material-elastic-head > svg')
+              ? '1.333s'
+              : '0s',
       }),
     });
     if (stamp !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_KEY, stamp);
@@ -740,8 +762,9 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
     app.run();
     expect(app.phase()).toBe('settled');
     expect(app.stamp()).toBeNull();
-    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and the 1 450 ms arc 950 ms in.
-    expect(app.delays()).toEqual(['-1000ms', '-950ms', '-950ms', '-950ms']);
+    // At 1 000 000 ms a 1 568 ms turn is 1 184 ms in, the 5 332 ms layer
+    // 2 916 ms in and its 1 333 ms rings 250 ms in (2 916 less two swings).
+    expect(app.delays()).toEqual(['-1184ms', '-2916ms', '-250ms', '-250ms']);
     expect(app.stillParts()).toEqual([]);
   });
 
@@ -942,12 +965,13 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   it("marks a splash an app reset under 15 s ago continues, its loader on the wall clock's phase, and leaves the stamp to bootstrap.js", () => {
     const app = page({ theme: 'dark', stamp: String(NOW - 14_999) });
     app.run();
-    // At 1 000 000 ms a 1 850 ms turn is 1 000 ms in and a 1 450 ms dash 950 ms in.
+    // At 1 000 000 ms a 1 568 ms turn is 1 184 ms in and the 5 332 ms layer,
+    // which its 1 333 ms rings follow, 2 916 ms in.
     expect(app.state()).toEqual({
       theme: 'dark',
       scheme: 'dark',
       continued: true,
-      delays: ['-1000ms', '-950ms'],
+      delays: ['-1184ms', '-2916ms'],
     });
     expect(app.stamp()).toBe(String(NOW - 14_999));
   });
@@ -1251,11 +1275,12 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       );
     const spin = period('.material-elastic-turn');
     const dash = period('.material-elastic-arc');
-    expect([spin, dash]).toEqual([1850, 1450]);
+    expect([spin, dash]).toEqual([MATERIAL_ELASTIC_TURN_PERIOD_MS, MATERIAL_ELASTIC_ARC_PERIOD_MS]);
+    // The rings swing four times per layer cycle, so the layer's phase is theirs.
     expect([
       period('.material-elastic-tail > svg'),
       period('.material-elastic-head > svg'),
-    ]).toEqual([dash, dash]);
+    ]).toEqual([dash / 4, dash / 4]);
     expect(PREFLIGHT).toContain(`now % ${spin}`);
     expect(PREFLIGHT).toContain(`now % ${dash}`);
   });

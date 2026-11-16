@@ -4,14 +4,22 @@ import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
-import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../material-elastic-spinner.ts';
+import {
+  MATERIAL_ELASTIC_ARC_PERIOD_MS,
+  MATERIAL_ELASTIC_SPINNER_PARTS,
+  MATERIAL_ELASTIC_TURN_PERIOD_MS,
+} from '../material-elastic-spinner.ts';
 
 // The shared loader moves by turning layers only (transforms), which the
 // compositor runs without the page. iOS stops painting a page it is leaving:
 // on the session refresh screen the old loader's animated stroke dash froze
 // there while its turn ran on, a short or long arc at one steady speed.
+// Since App 9.0.53 it turns as Google's Material circular progress does
+// (Material Components Web 14, @material/circular-progress, MIT), the owner's
+// choice of 2026-11-16 after seeing the two side by side on real devices.
 const INDEX = readFileSync('index.html', 'utf8');
 const STYLE = readFileSync('css/style.css', 'utf8');
+const PLAYBACK_ACTIONS = readFileSync('css/playback-actions.css', 'utf8');
 const SPLASH_CSS = INDEX.match(/<style data-boot-splash>([\s\S]*?)<\/style>/u)?.[1] ?? '';
 const EDITORIAL = readFileSync('public/editorial-design.css', 'utf8');
 const DESIGN_SYSTEM = readFileSync('public/designsystem/index.html', 'utf8');
@@ -129,18 +137,39 @@ function staticRotation(css: string, selector: string): number {
   return Number(transform?.match(/rotate\((-?[\d.]+)deg\)/u)?.[1]);
 }
 
-// The dash the loader drew before, in its own units (100 per turn): a dash of
-// `length` that starts `-offset` units clockwise from 3 o'clock.
-const DASH_KEYFRAMES = [
-  { offset: '0%', length: 2, dashOffset: 0 },
-  { offset: '48%', length: 74, dashOffset: -12 },
-  { offset: '100%', length: 2, dashOffset: -100 },
+// Google's motion, part for part: our turn is its container, our arc its
+// spinner layer, our tail and head its left and right circle clippers, our
+// seam its gap patch. The container turns once per 1568.2352941176 ms, kept
+// here to the whole ms so the period reads the same wherever it is copied or
+// parsed (a minifier writes the long one as 1.56824s); the layer steps 135
+// degrees eight times per 5332 ms, and the clippers' rings swing every 1333
+// ms, four swings per layer cycle, so one phase serves the layer and both.
+const STANDARD_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
+const CLOCKS = {
+  spin: `${MATERIAL_ELASTIC_TURN_PERIOD_MS / 1000}s linear infinite`,
+  arc: `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 1000}s ${STANDARD_CURVE} infinite both`,
+  tail: `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 4000}s ${STANDARD_CURVE} infinite both`,
+  head: `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 4000}s ${STANDARD_CURVE} infinite both`,
+} as const;
+const LAYER_STEPS = Array.from({ length: 9 }, (_, step) => ({
+  offset: `${step * 12.5}%`,
+  rotation: step * 135,
+}));
+// The left ring swings 265 -> 130 -> 265 degrees, the right one the mirror.
+const SWING = [
+  { offset: '0%', left: 265 },
+  { offset: '50%', left: 130 },
+  { offset: '100%', left: 265 },
 ] as const;
-const REDUCED_DASH = { length: 58, dashOffset: -18 } as const;
-// The arc's middle (degrees clockwise from 3 o'clock) and half its length.
-const middle = (dash: { length: number; dashOffset: number }) =>
-  3.6 * (-dash.dashOffset + dash.length / 2);
-const half = (dash: { length: number }) => 1.8 * dash.length;
+// A left ring turned by L shows the part of its half that falls in the left
+// half of the layer: from L to 12 o'clock (270), so half the arc is 270 - L,
+// and the right ring, turned by -L, shows as much after 12 o'clock.
+const halfArc = (left: number) => 270 - left;
+// Reduced motion holds the still arc the loader has held since 9.0.49: 58 of
+// 100 units from 18 units on, its middle 169.2 degrees clockwise from 3
+// o'clock (the layer's 12 o'clock turned there) and half of it 104.4.
+const STILL = { middle: 3.6 * (18 + 58 / 2), half: 1.8 * 58 } as const;
+const mod360 = (degrees: number) => ((degrees % 360) + 360) % 360;
 
 describe('shared loader (material elastic spinner)', () => {
   it.each(SHEETS)('moves only by transforms and opacity in $name', ({ css, root, prefix }) => {
@@ -178,83 +207,152 @@ describe('shared loader (material elastic spinner)', () => {
     expect(css).not.toContain(`@keyframes ${prefix}-dash`);
   });
 
-  it.each(SHEETS)('draws the arc the dash drew, in $name', ({ name, css, root, prefix }) => {
-    expect(keyframeSteps(css, `${prefix}-spin`)).toEqual([
-      { offsets: ['100%'], properties: ['transform'], rotation: 360 },
-    ]);
-    // The frame turns its 12 o'clock to the arc's middle; the tail ring turns
-    // its end to half the arc before it, the head ring to half the arc after.
-    const expected = {
-      arc: DASH_KEYFRAMES.map((dash) => middle(dash) + 90),
-      tail: DASH_KEYFRAMES.map((dash) => -(90 + half(dash))),
-      head: DASH_KEYFRAMES.map((dash) => 90 + half(dash)),
-    };
-    for (const [part, rotations] of Object.entries(expected)) {
-      const steps = keyframeSteps(css, `${prefix}-${part}`);
-      expect(steps.map((step) => step.offsets)).toEqual(
-        DASH_KEYFRAMES.map((dash) => [dash.offset]),
+  it.each(SHEETS)(
+    "turns as Google's Material circular progress does, in $name",
+    ({ name, css, root, prefix }) => {
+      expect(keyframeSteps(css, `${prefix}-spin`)).toEqual([
+        { offsets: ['100%'], properties: ['transform'], rotation: 360 },
+      ]);
+      // The layer steps 135 degrees at every eighth of its cycle, so its 12
+      // o'clock, the arc's middle, lands three turns on: no jump between cycles.
+      expect(keyframeSteps(css, `${prefix}-arc`)).toEqual(
+        LAYER_STEPS.map(({ offset, rotation }) => ({
+          offsets: [offset],
+          properties: ['transform'],
+          rotation,
+        })),
       );
-      steps.forEach((step, index) => {
-        expect(step.properties, `${part} ${step.offsets[0]}`).toEqual(['transform']);
-        expect(step.rotation, `${part} ${step.offsets[0]}`).toBeCloseTo(rotations[index] ?? NaN, 6);
-      });
-    }
-    // One turn later the arc is where it began: no jump between cycles.
-    expect(expected.arc[2]! - expected.arc[0]!).toBeCloseTo(360, 6);
-
-    // Same clocks as the dash: one turn per 1.85 s, the arc 1.45 s ease-in-out.
-    const parts = {
-      spin: `${root} .material-elastic-turn`,
-      arc: `${root} .material-elastic-arc`,
-      tail: `${root} .material-elastic-tail > svg`,
-      head: `${root} .material-elastic-head > svg`,
-    };
-    expect(declaration(css, parts.spin, 'animation')).toBe(`${prefix}-spin 1.85s linear infinite`);
-    for (const part of ['arc', 'tail', 'head'] as const) {
-      expect(declaration(css, parts[part], 'animation')).toBe(
-        `${prefix}-${part} 1.45s ease-in-out infinite`,
-      );
-    }
-
-    // The app's loaders take their phase from two variables (playlist-view.ts
-    // sets them on a rebuilt upload row): the turn its own, the arc's three
-    // parts one they share, or the arc would come apart. Each delay comes
-    // after the shorthand, which would otherwise reset it.
-    if (name === 'css/style.css') {
-      for (const [part, variable] of [
-        ['spin', '--material-elastic-spin-delay'],
-        ['arc', '--material-elastic-dash-delay'],
-        ['tail', '--material-elastic-dash-delay'],
-        ['head', '--material-elastic-dash-delay'],
+      expect(LAYER_STEPS.at(-1)!.rotation % 360).toBe(0);
+      for (const [part, sign] of [
+        ['tail', 1],
+        ['head', -1],
       ] as const) {
-        const rule = rules(css).find(
-          (candidate) =>
-            !reduced(candidate) &&
-            candidate.selectors.includes(parts[part]) &&
-            /(?:^|[\s;])animation:/u.test(candidate.declarations),
-        );
-        const declarations = rule?.declarations ?? '';
-        expect(declarations, parts[part]).toMatch(
-          new RegExp(`animation:[^;]+;[\\s\\S]*animation-delay: var\\(${variable}, 0ms\\);`, 'u'),
+        expect(keyframeSteps(css, `${prefix}-${part}`)).toEqual(
+          SWING.map(({ offset, left }) => ({
+            offsets: [offset],
+            properties: ['transform'],
+            rotation: sign * left,
+          })),
         );
       }
-    }
+      // From the shortest arc, 5 degrees each side of 12 o'clock, to 140.
+      expect(SWING.map(({ left }) => halfArc(left))).toEqual([5, 140, 5]);
 
-    // Reduced motion holds the same static arc the dash held (58 of 100 from 18).
-    expect(staticRotation(css, parts.arc)).toBeCloseTo(middle(REDUCED_DASH) + 90, 6);
-    expect(staticRotation(css, parts.tail)).toBeCloseTo(-(90 + half(REDUCED_DASH)), 6);
-    expect(staticRotation(css, parts.head)).toBeCloseTo(90 + half(REDUCED_DASH), 6);
+      const parts = {
+        spin: `${root} .material-elastic-turn`,
+        arc: `${root} .material-elastic-arc`,
+        tail: `${root} .material-elastic-tail > svg`,
+        head: `${root} .material-elastic-head > svg`,
+      };
+      for (const part of ['spin', 'arc', 'tail', 'head'] as const) {
+        expect(declaration(css, parts[part], 'animation'), part).toBe(
+          `${prefix}-${part} ${CLOCKS[part]}`,
+        );
+      }
 
-    // Every turning part turns about the loader's centre in px: WebKit takes a
-    // percentage origin of a box snapped to device pixels, which set nested
-    // parts on different centres at sizes such as 13.444 px.
-    const centre =
-      root === '.boot-splash-spinner'
-        ? '12px 12px'
-        : 'calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2)';
-    for (const selector of Object.values(parts)) {
-      expect(declaration(css, selector, 'transform-origin'), selector).toBe(centre);
+      // The app's loaders take their phase from two variables (playlist-view.ts
+      // sets them on a rebuilt upload row): the turn its own, the layer and its
+      // two rings one they share, since four ring swings make one layer cycle;
+      // apart, the arc would leave the layer's 12 o'clock. Each delay comes
+      // after the shorthand, which would otherwise reset it.
+      expect(MATERIAL_ELASTIC_ARC_PERIOD_MS % 4).toBe(0);
+      if (name === 'css/style.css') {
+        for (const [part, variable] of [
+          ['spin', '--material-elastic-spin-delay'],
+          ['arc', '--material-elastic-dash-delay'],
+          ['tail', '--material-elastic-dash-delay'],
+          ['head', '--material-elastic-dash-delay'],
+        ] as const) {
+          const rule = rules(css).find(
+            (candidate) =>
+              !reduced(candidate) &&
+              candidate.selectors.includes(parts[part]) &&
+              /(?:^|[\s;])animation:/u.test(candidate.declarations),
+          );
+          const declarations = rule?.declarations ?? '';
+          expect(declarations, parts[part]).toMatch(
+            new RegExp(`animation:[^;]+;[\\s\\S]*animation-delay: var\\(${variable}, 0ms\\);`, 'u'),
+          );
+        }
+      }
+
+      // Reduced motion holds the still arc: the layer's 12 o'clock (270 degrees)
+      // turned to its middle, each ring turned to show half of it.
+      expect(mod360(270 + staticRotation(css, parts.arc))).toBeCloseTo(STILL.middle, 6);
+      expect(staticRotation(css, parts.tail)).toBeCloseTo(270 - STILL.half, 6);
+      expect(staticRotation(css, parts.head)).toBeCloseTo(-(270 - STILL.half), 6);
+      expect(halfArc(staticRotation(css, parts.tail))).toBeCloseTo(STILL.half, 6);
+
+      // Every turning part turns about the loader's centre in px: WebKit takes a
+      // percentage origin of a box snapped to device pixels on its main thread.
+      const centre =
+        root === '.boot-splash-spinner'
+          ? '12px 12px'
+          : 'calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2)';
+      for (const selector of Object.values(parts)) {
+        expect(declaration(css, selector, 'transform-origin'), selector).toBe(centre);
+      }
+    },
+  );
+
+  it.each(SHEETS)(
+    "draws the seam at 80 % of the ring's stroke, as Google's gap patch, in $name",
+    ({ css, root }) => {
+      const ring = declaration(css, `${root} path`, 'stroke-width');
+      const seam = declaration(css, `${root} .material-elastic-seam path`, 'stroke-width');
+      if (root === '.boot-splash-spinner') {
+        // The splash draws the app's default 24px loader in fixed lengths.
+        expect(ring).toBe(
+          declaration(STYLE, '.material-elastic-spinner', '--material-elastic-stroke'),
+        );
+        expect(Number(seam)).toBeCloseTo(Number(ring) * 0.8, 9);
+      } else {
+        // Every size's own stroke, through the variable each host sets.
+        expect(ring).toBe('var(--material-elastic-stroke)');
+        expect(seam).toBe('calc(var(--material-elastic-stroke) * 0.8px)');
+      }
+    },
+  );
+
+  it('sizes every loader to an even whole number of px', () => {
+    // WebKit rounds each composited part's pivot to a device pixel but draws
+    // its ring about the exact centre, so a loader whose half is not a whole
+    // pixel turns its two half rings about points apart: a step at the arc's
+    // middle that flips sides every cycle, and a wobble. Half an even whole
+    // px is whole at 1x, 2x and 3x. Rings drawn smaller keep their even box
+    // and shrink by a scale (--material-elastic-scale), about the same centre.
+    const sizes = [
+      ...[STYLE, PLAYBACK_ACTIONS, EDITORIAL].flatMap((css) =>
+        [...css.matchAll(/--material-elastic-size:\s*([^;]+);/gu)].map(([, value]) =>
+          value!.trim(),
+        ),
+      ),
+      declaration(SPLASH_CSS, '.boot-splash-spinner .material-elastic-turn', 'width') ?? '',
+    ];
+    expect(sizes.length).toBeGreaterThan(10);
+    for (const size of sizes) {
+      expect(size, size).toMatch(/^\d+px$/u);
+      expect(Number.parseInt(size, 10) % 2, size).toBe(0);
     }
+    // No script gives a loader a size of its own.
+    for (const path of readdirSync('src', { recursive: true, encoding: 'utf8' })) {
+      if (!path.endsWith('.ts') || path.split(/[\\/]/u).includes('__tests__')) continue;
+      expect(readFileSync(join('src', path), 'utf8'), path).not.toContain(
+        '--material-elastic-size',
+      );
+    }
+  });
+
+  it('keeps the periods the app phases its loaders by equal to the sheets', () => {
+    expect(
+      declaration(STYLE, '.material-elastic-spinner .material-elastic-turn', 'animation'),
+    ).toBe(`material-elastic-spin ${MATERIAL_ELASTIC_TURN_PERIOD_MS / 1000}s linear infinite`);
+    expect(declaration(STYLE, '.material-elastic-spinner .material-elastic-arc', 'animation')).toBe(
+      `material-elastic-arc ${MATERIAL_ELASTIC_ARC_PERIOD_MS / 1000}s ${STANDARD_CURVE} infinite both`,
+    );
+    // Whole ms, written exactly in seconds wherever a sheet or minifier puts them.
+    expect(Number.isInteger(MATERIAL_ELASTIC_TURN_PERIOD_MS)).toBe(true);
+    expect(Number.isInteger(MATERIAL_ELASTIC_ARC_PERIOD_MS / 4)).toBe(true);
   });
 
   it.each(SHEETS)('clips each half ring to its half of the frame, in $name', ({ css, root }) => {
@@ -338,15 +436,19 @@ describe('shared loader (material elastic spinner)', () => {
     }
   });
 
-  it("puts the seam patch exactly on the shortest arc, at the frame's 12 o'clock", () => {
+  it("keeps the seam patch inside the shortest arc, at the layer's 12 o'clock", () => {
     const document = new JSDOM(`<span>${MATERIAL_ELASTIC_SPINNER_PARTS}</span>`).window.document;
     const seam = document.querySelector('.material-elastic-seam path')?.getAttribute('d') ?? '';
     const point = (degrees: number) =>
       [22 + 18 * Math.cos((degrees * Math.PI) / 180), 22 + 18 * Math.sin((degrees * Math.PI) / 180)]
         .map((value) => value.toFixed(4).replace(/0+$/u, '').replace(/\.$/u, ''))
         .join(' ');
-    const shortest = half(DASH_KEYFRAMES[0]);
-    expect(seam).toBe(`M${point(270 - shortest)}A18 18 0 0 1 ${point(270 + shortest)}`);
+    // 3.6 degrees each side of 12 o'clock (Google's gap patch covers about
+    // 3.5 at this ring), inside the shortest arc's 5, so the halves' ink
+    // always lies past both of its ends.
+    const seamHalf = 3.6;
+    expect(seam).toBe(`M${point(270 - seamHalf)}A18 18 0 0 1 ${point(270 + seamHalf)}`);
+    expect(seamHalf).toBeLessThan(Math.min(...SWING.map(({ left }) => halfArc(left))));
   });
 
   it("draws each ring only where it can show, its hidden end well away from the halves' shared edge", () => {
@@ -373,24 +475,28 @@ describe('shared loader (material elastic spinner)', () => {
     };
     const tail = span('tail');
     const head = span('head');
-    // Every half arc the loader shows: the animation's range and the still arc.
-    const halves = [half(DASH_KEYFRAMES[0]), half(DASH_KEYFRAMES[1]), half(REDUCED_DASH)];
+    // Every half arc the loader shows: the swing's range and the still arc.
+    const halves = [...SWING.map(({ left }) => halfArc(left)), STILL.half];
     const longest = Math.max(...halves);
     const shortestHalf = Math.min(...halves);
-    // The tail ring turns by -(90 + h) and shows its first h degrees; the head
-    // ring turns by 90 + h and shows its last h degrees.
+    // The tail ring turns by 270 - h and shows its first h degrees; the head
+    // ring turns by h - 270 and shows its last h degrees. Google draws whole
+    // half rings; their hidden ends come within 5 degrees of 6 o'clock at the
+    // shortest arc, where 9.0.50 saw such an end show through as a speck.
     expect(tail.start).toBeCloseTo(0, 3);
     expect(head.end).toBeCloseTo(180, 3);
     expect(tail.end - tail.start).toBeGreaterThanOrEqual(longest + 10);
     expect(head.end - head.start).toBeGreaterThanOrEqual(longest + 10);
-    // Where each ring's far end sits in the frame, for every half arc in range:
-    // well away from 6 o'clock (90), where no ink covers the halves' shared edge,
-    // and clear of 12 o'clock (270), where the other ring's ink lies over it.
+    // Where each ring's far end sits in the layer, for every half arc in range:
+    // well away from 6 o'clock (90), where no ink covers the halves' shared
+    // edge, and clear of 12 o'clock (270) by more than any snapping, though
+    // the other ring's ink lies over it there.
     const distance = (a: number, b: number) => Math.abs(((((a - b) % 360) + 540) % 360) - 180);
-    for (let h = shortestHalf; h <= longest + 1e-9; h += 0.1) {
-      for (const farEnd of [tail.end - 90 - h, head.start + 90 + h]) {
+    for (let tenth = Math.round(shortestHalf * 10); tenth <= Math.round(longest * 10); tenth += 1) {
+      const h = tenth / 10;
+      for (const farEnd of [tail.end + 270 - h, head.start + h - 270]) {
         expect(distance(farEnd, 90), `far end ${farEnd} at h ${h}`).toBeGreaterThanOrEqual(30);
-        expect(distance(farEnd, 270), `far end ${farEnd} at h ${h}`).toBeGreaterThanOrEqual(15);
+        expect(distance(farEnd, 270), `far end ${farEnd} at h ${h}`).toBeGreaterThanOrEqual(10);
       }
     }
   });

@@ -93,7 +93,7 @@ function fixture({
   Object.defineProperty(window, 'getComputedStyle', {
     value: (element: Element) => ({
       animationDuration:
-        element.localName === 'svg' ? '1.85s' : element.localName === 'circle' ? '1.45s' : '0s',
+        element.localName === 'svg' ? '1.568s' : element.localName === 'circle' ? '5.332s' : '0s',
     }),
   });
   window.requestAnimationFrame = (callback) => {

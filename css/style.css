@@ -12186,6 +12186,23 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     #setup-overlay .setup-mobile-view > .ob-actions {
       padding-inline: 84px;
     }
+
+    /* The 44px language button sits centred on the welcome title's 28.8px
+       line, so its pill reaches 7.6px above the title and its focus outline
+       11.6px, past the top edge of both scroll boxes (the view and the welcome
+       area), which cut them off. Both start 16px higher, in the card's empty
+       top padding, and pad the same 16px back, so nothing moves; the view's
+       height is fixed, so it grows by the same 16px. */
+    #setup-overlay .setup-mobile-view {
+      margin-top: -16px;
+      padding-top: 16px;
+      height: calc(100% + 16px);
+    }
+
+    #setup-welcome-area {
+      margin-top: -16px;
+      padding-top: 16px;
+    }
   }
   /* Phone portrait setup: center the middle block (carousel, invite QR, QR
      scanner and code) between the header and the actions by what is visible.

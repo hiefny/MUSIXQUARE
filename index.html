@@ -18,12 +18,18 @@
          first screen is as wide as the reset screen and within 64px of its
          height, keeps that height (iOS gives this page a first screen short by
          the home indicator strip); bootstrap.js still owns and removes the stamp
-         and the box. The app document CSP allows exactly
+         and the box. In the installed iOS app (navigator.standalone) it marks
+         the root data-boot-installed and, without a kept height, gives the
+         splash the screen's height while this first screen is as wide as the
+         screen and up to 64px shorter: iOS gives an installed app's first open
+         the same short first screen, and that app fills the screen it reports
+         (its own height reads the screen there, src/core/platform.ts). The app
+         document CSP allows exactly
          this text by its SHA-256 and the inline-JS guard exempts exactly this
          block (src/core/boot-preflight.ts): editing it means a new hash. Its body
          stays on one line: the localized build strips every line's leading
          indentation and blank lines, which would change those bytes. -->
-    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms'); var box = String(sessionStorage.getItem('mxqr-boot-continuity-box')).split('x'); var height = Number(box[1]); if (Number(box[0]) === innerWidth && height > 0 && Math.abs(height - innerHeight) <= 64) { root.style.setProperty('--boot-continued-height', height + 'px'); } } } catch (error) {} })();</script>
+    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms'); var box = String(sessionStorage.getItem('mxqr-boot-continuity-box')).split('x'); var height = Number(box[1]); if (Number(box[0]) === innerWidth && height > 0 && Math.abs(height - innerHeight) <= 64) { root.style.setProperty('--boot-splash-height', height + 'px'); } } } catch (error) {} try { if (navigator.standalone === true) { root.setAttribute('data-boot-installed', ''); var wide = Math.max(screen.width, screen.height); var narrow = Math.min(screen.width, screen.height); var turned = innerWidth > innerHeight; var full = turned ? narrow : wide; if (!root.style.getPropertyValue('--boot-splash-height') && Math.abs(innerWidth - (turned ? wide : narrow)) <= 1 && full > innerHeight && full - innerHeight <= 64) { root.style.setProperty('--boot-splash-height', full + 'px'); } } } catch (error) {} })();</script>
     <!-- Boot splash: the wordmark and the shared loader paint from this
          document alone, before any script or stylesheet arrives, so a slow
          first visit never shows a blank page. Nothing in <head> before this
@@ -219,21 +225,25 @@
         animation: none;
       }
 
-      /* The reset screen's box as well. iOS gives the page a reset opens a
+      /* The reset screen's box as well, and the installed app's screen. iOS
+         gives the page a reset opens, and an installed app's first open, a
          first screen short by the home indicator strip (inferred from the
-         owner's report, 2026-11-16), and centred in that the wordmark and
+         owner's reports, 2026-11-16), and centred in that the wordmark and
          loader stood half the strip higher until the screen grew. The
          preflight keeps the reset screen's height while this screen is as wide
-         and within 64px of it; without that the splash fills this screen as
-         before. It never falls short of its screen (no band under it) nor
-         grows past that window (a screen turned after the first frame keeps
-         the mark on it). From these sizes css/desktop.css scales body, the
-         splash's containing block once the app stylesheet loads, so a px
-         height there is left to the plain fill. */
+         and within 64px of it, or else, in the installed iOS app, the screen's
+         height while this screen is as wide as the screen and up to 64px
+         shorter; without either the splash fills this screen as before. It
+         never falls short of its screen (no band under it) nor grows past that
+         window (a screen turned after the first frame keeps the mark on it).
+         From these sizes css/desktop.css scales body, the splash's containing
+         block once the app stylesheet loads, so a px height there is left to
+         the plain fill. */
       @media not all and (min-width: 2560px) and (min-height: 1280px) {
-        html[data-boot-continued] .boot-splash {
+        html[data-boot-continued] .boot-splash,
+        html[data-boot-installed] .boot-splash {
           bottom: auto;
-          height: var(--boot-continued-height, 100%);
+          height: var(--boot-splash-height, 100%);
           min-height: 100%;
           max-height: calc(100% + 64px);
         }

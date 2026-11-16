@@ -2464,17 +2464,13 @@
   animation: material-elastic-spin 1.568s linear infinite;
 }
 
-.material-elastic-spinner .material-elastic-arc,
-.material-elastic-spinner .material-elastic-seam {
+.material-elastic-spinner .material-elastic-arc {
   position: absolute;
   top: 0;
   left: 0;
   display: block;
   width: 100%;
   height: 100%;
-}
-
-.material-elastic-spinner .material-elastic-arc {
   animation: material-elastic-arc 5.332s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
@@ -2496,8 +2492,8 @@
   left: 50%;
 }
 
-.material-elastic-spinner .material-elastic-tail > svg,
-.material-elastic-spinner .material-elastic-head > svg {
+.material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
+.material-elastic-spinner .material-elastic-head > .material-elastic-ring {
   position: absolute;
   top: 0;
   display: block;
@@ -2505,23 +2501,38 @@
   height: 100%;
 }
 
-.material-elastic-spinner .material-elastic-tail > svg {
+.material-elastic-spinner .material-elastic-tail > .material-elastic-ring {
   left: 0;
   animation: material-elastic-tail 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
-.material-elastic-spinner .material-elastic-head > svg {
+.material-elastic-spinner .material-elastic-head > .material-elastic-ring {
   left: -100%;
   animation: material-elastic-head 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 /* Each turning part turns about the loader's centre in px (WebKit takes a
-   percentage origin of its box snapped to device pixels). */
+   percentage origin of its box snapped to device pixels on its main thread);
+   on the compositor it rounds every pivot to a device pixel, so the loader's
+   sizes here are even whole px. */
 .material-elastic-spinner .material-elastic-turn,
 .material-elastic-spinner .material-elastic-arc,
-.material-elastic-spinner .material-elastic-tail > svg,
-.material-elastic-spinner .material-elastic-head > svg {
+.material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
+.material-elastic-spinner .material-elastic-head > .material-elastic-ring {
   transform-origin: calc(var(--material-elastic-size) / 2) calc(var(--material-elastic-size) / 2);
+}
+
+/* Each drawing sits still inside the box that turns it, at the ring's drawn
+   size (by default the whole box): Chromium runs an <svg>'s own transform
+   animation on the main thread whenever the device scale is not 1. */
+.material-elastic-spinner .material-elastic-seam,
+.material-elastic-spinner .material-elastic-ring > svg {
+  position: absolute;
+  top: calc((100% - var(--material-elastic-ring-size, 100%)) / 2);
+  left: calc((100% - var(--material-elastic-ring-size, 100%)) / 2);
+  display: block;
+  width: var(--material-elastic-ring-size, 100%);
+  height: var(--material-elastic-ring-size, 100%);
 }
 
 .material-elastic-spinner path {
@@ -3467,8 +3478,8 @@
 @media (prefers-reduced-motion: reduce) {
   .material-elastic-spinner .material-elastic-turn,
   .material-elastic-spinner .material-elastic-arc,
-  .material-elastic-spinner .material-elastic-tail > svg,
-  .material-elastic-spinner .material-elastic-head > svg,
+  .material-elastic-spinner .material-elastic-tail > .material-elastic-ring,
+  .material-elastic-spinner .material-elastic-head > .material-elastic-ring,
   .app-loading-header-progress,
   .app-loading-header-logo,
   .app-loading-header-status,
@@ -3487,11 +3498,11 @@
     transform: rotate(259.2deg);
   }
 
-  .material-elastic-spinner .material-elastic-tail > svg {
+  .material-elastic-spinner .material-elastic-tail > .material-elastic-ring {
     transform: rotate(165.6deg);
   }
 
-  .material-elastic-spinner .material-elastic-head > svg {
+  .material-elastic-spinner .material-elastic-head > .material-elastic-ring {
     transform: rotate(-165.6deg);
   }
 

@@ -19,7 +19,6 @@ import {
 // after seeing the two side by side on Windows.
 const INDEX = readFileSync('index.html', 'utf8');
 const STYLE = readFileSync('css/style.css', 'utf8');
-const PLAYBACK_ACTIONS = readFileSync('css/playback-actions.css', 'utf8');
 const SPLASH_CSS = INDEX.match(/<style data-boot-splash>([\s\S]*?)<\/style>/u)?.[1] ?? '';
 const EDITORIAL = readFileSync('public/editorial-design.css', 'utf8');
 const DESIGN_SYSTEM = readFileSync('public/designsystem/index.html', 'utf8');

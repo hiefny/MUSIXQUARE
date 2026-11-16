@@ -190,8 +190,8 @@
          the viewBox's 214 units, what auto would give): WebKit paints nothing
          until the page holds over 32x32 px of fixed-size SVG (or 200 text
          characters), and the fixed wordmark clears that on its own, so the
-         first paint never depends on the loader (three 24px SVGs, two of them
-         clipped to half); with an auto width a slow first visit stayed blank in
+         first paint never depends on the loader (two 24px SVGs, each in a half
+         of it); with an auto width a slow first visit stayed blank in
          WebKit until the app stylesheet arrived (WebKit bugs 208482 and 208663). */
       .boot-splash-logo {
         display: block;
@@ -332,6 +332,25 @@
         mask-position: center bottom;
         -webkit-mask-repeat: no-repeat;
         mask-repeat: no-repeat;
+      }
+
+      /* Where the browser clips to a path, the ring is that clip instead of
+         the mask. The page a session refresh opens shows this loader from its
+         first frame, and a clip is geometry, drawn in the same frame as the
+         rest, while a mask image comes from its data URL, which WebKit decodes
+         on a later task, painting nothing of a masked element until it has
+         loaded. Chromium before 88, which decodes data URLs at once, keeps the
+         mask. The path is the mask's ring: the r = 18 circle at the 4.75
+         stroke, 24/44 of it, centred in the loader at the bottom of this box
+         (12, 36); the outer circle turns clockwise and the inner one back, so
+         the inner disc is a hole whatever the fill rule. */
+      @supports (clip-path: path("M0 0")) or (-webkit-clip-path: path("M0 0")) {
+        .boot-splash-spinner {
+          -webkit-mask-image: none;
+          mask-image: none;
+          -webkit-clip-path: path("M23.1136 36A11.1136 11.1136 0 1 1 0.8864 36A11.1136 11.1136 0 1 1 23.1136 36ZM20.5227 36A8.5227 8.5227 0 1 0 3.4773 36A8.5227 8.5227 0 1 0 20.5227 36Z");
+          clip-path: path("M23.1136 36A11.1136 11.1136 0 1 1 0.8864 36A11.1136 11.1136 0 1 1 23.1136 36ZM20.5227 36A8.5227 8.5227 0 1 0 3.4773 36A8.5227 8.5227 0 1 0 20.5227 36Z");
+        }
       }
 
       /* The app's loader (css/style.css .material-elastic-spinner, Google's

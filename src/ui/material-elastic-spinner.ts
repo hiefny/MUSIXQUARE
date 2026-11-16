@@ -25,7 +25,10 @@
  *   part of its wedge that falls inside it as its span (ring) turns, so the
  *   arc runs from the tail wedge's side through 12 o'clock to the head
  *   wedge's side; the wedges swing every 1.333 s, the arc 10 to 280 degrees
- *   long. Each wedge is 150 degrees from the ring's centre out past the box's
+ *   long as the keyframes turn them (the 2px strip where the halves meet
+ *   always shows both wedges' ink, so a ring under 28px draws its shortest arc
+ *   a little longer: about 12 degrees at 24px, 21 at the current row's 13.444px
+ *   ring). Each wedge is 150 degrees from the ring's centre out past the box's
  *   corners (the tail from 3 o'clock, the head up to 9 o'clock): at most 140
  *   show, and the other 10 keep its hidden side under the other wedge's ink,
  *   far from the line the two halves share at 6 o'clock (Google's whole half

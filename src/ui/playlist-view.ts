@@ -772,8 +772,8 @@ function createProRoomUploadSpinner(): HTMLSpanElement {
   // Upload rows can be rebuilt when their phase or an authoritative playlist
   // snapshot changes. Anchor new loader instances to the document clock so
   // those renders do not visibly restart the turn or the arc's swing: the
-  // turn on its own period, the layer and its two rings on the layer's (the
-  // rings swing four times in it). The dash variable keeps its old name.
+  // turn on its own period, the layer and its two wedges on the layer's (the
+  // wedges swing four times in it). The dash variable keeps its old name.
   const now = performance.now();
   spinner.style.setProperty(
     '--material-elastic-spin-delay',

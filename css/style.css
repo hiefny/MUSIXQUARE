@@ -863,7 +863,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
        wedge turning inside it (.material-elastic-ring), the tail wedge by
        265 -> 130 -> 265 degrees every 1.333 s and the head wedge the mirror,
        so the arc runs from one wedge's side through 12 o'clock to the
-       other's, 5 to 140 degrees each side. Each wedge is 150 degrees: at most
+       other's, 5 to 140 degrees each side (drawn, never less than the 2px
+       strip where the halves meet: a ring under 28px draws its shortest arc
+       a little longer, about 12 degrees at 24px and 21 at the current row's
+       13.444px ring). Each wedge is 150 degrees: at most
        140 show, and the other 10 keep its hidden side under the other wedge's
        ink, far from the line the halves share at 6 o'clock (Google's whole
        half rings come within 5 degrees of it). */

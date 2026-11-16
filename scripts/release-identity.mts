@@ -62,10 +62,14 @@ export function parseServiceWorkerCacheEpoch(serviceWorkerSource: string): numbe
 }
 
 /**
- * Validate the two deliberately independent release identifiers.
+ * Validate the two release identifiers and the one tie between them.
  *
  * - package.json is the single source of truth for the human product version.
- * - the service-worker compiler manifest owns a monotonic cache epoch, not an app version.
+ * - the service-worker compiler manifest owns the monotonic cache epoch, which
+ *   is the App build number.
+ * - from App 9.0.829 (owner decision 2026-11-17) the product version's patch
+ *   number is that build number, and a minor or major release keeps counting
+ *   it (9.1.840 follows 9.0.839), so the patch never resets.
  */
 export function parseReleaseIdentity({
   packageSource,
@@ -94,6 +98,12 @@ export function parseReleaseIdentity({
   }
 
   const serviceWorkerCacheEpoch = parseServiceWorkerCacheEpoch(serviceWorkerSource);
+  const patch = Number(/^\d+\.\d+\.(\d+)/u.exec(productVersion)?.[1]);
+  if (patch !== serviceWorkerCacheEpoch) {
+    throw new Error(
+      `The product version's patch ${patch} must be the App build number ${serviceWorkerCacheEpoch} (service-worker cache epoch v${serviceWorkerCacheEpoch}).`,
+    );
+  }
 
   if (appWorkerSource !== undefined || adminScriptSource !== undefined) {
     const workerMatches = [

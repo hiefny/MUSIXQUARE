@@ -361,16 +361,11 @@ describe('boot splash', () => {
         return Number.parseFloat(value);
       });
     const [logoWidth = 0, logoHeight = 0] = fixedSize('      .boot-splash-logo {');
-    // The loader's three SVGs: the seam patch and the two half rings.
-    const [seamWidth = 0, seamHeight = 0] = fixedSize(
-      '      .boot-splash-spinner .material-elastic-arc,\n      .boot-splash-spinner .material-elastic-seam {',
-    );
+    // The loader's two SVGs: its two wedges.
     const [ringWidth = 0, ringHeight = 0] = fixedSize(
       '      .boot-splash-spinner .material-elastic-ring > svg {',
     );
-    expect(
-      logoWidth * logoHeight + seamWidth * seamHeight + 2 * ringWidth * ringHeight,
-    ).toBeGreaterThan(32 * 32);
+    expect(logoWidth * logoHeight + 2 * ringWidth * ringHeight).toBeGreaterThan(32 * 32);
     // Exactly what the viewBox gives at that height, as auto would.
     const [, , boxWidth = 0, boxHeight = 0] = (
       new JSDOM(INDEX).window.document
@@ -403,9 +398,12 @@ describe('boot splash', () => {
     expect(declaration(STYLE, '  * {', 'margin')).toBe('0');
     expect(declaration(STYLE, '  * {', 'padding')).toBe('0');
     expect(SPLASH_CSS).not.toMatch(/(?:^|[\s;{])(?:margin|padding)(?:-[a-z]+)?\s*:/u);
-    expect(declaration(STYLE, '  .material-elastic-spinner {', '--material-elastic-stroke')).toBe(
-      declaration(SPLASH_CSS, '      .boot-splash-spinner path {', 'stroke-width'),
-    );
+    // The same ring: the app's default ring mask, as the splash loader's own.
+    for (const property of ['mask-image', '-webkit-mask-image']) {
+      expect(declaration(SPLASH_CSS, '      .boot-splash-spinner {', property)).toBe(
+        declaration(STYLE, '  .material-elastic-spinner {', '--material-elastic-mask'),
+      );
+    }
 
     // Each moving part runs on the app's clock, under the splash's own name
     // (the app sheet may load beside it); material-elastic-spinner.test.ts
@@ -444,7 +442,7 @@ describe('boot splash', () => {
         keyframes(STYLE, `material-elastic-${name}`),
       );
     }
-    for (const property of ['fill', 'stroke', 'stroke-linecap', 'shape-rendering']) {
+    for (const property of ['fill', 'stroke']) {
       expect(declaration(SPLASH_CSS, '      .boot-splash-spinner path {', property)).toBe(
         declaration(STYLE, '  .material-elastic-spinner path {', property),
       );
@@ -456,10 +454,10 @@ describe('boot splash', () => {
           `      .boot-splash-spinner .material-elastic-${side} {`,
           'left',
         ),
-      ).toBe(side === 'tail' ? '0' : '12px');
+      ).toBe(side === 'tail' ? '0' : '11px');
       expect(
         ownDeclaration(STYLE, `  .material-elastic-spinner .material-elastic-${side} {`, 'left'),
-      ).toBe(side === 'tail' ? '0' : '50%');
+      ).toBe(side === 'tail' ? '0' : 'calc(50% - 1px)');
     }
 
     // Reduced motion holds both on the same static arc: a rule of its own per

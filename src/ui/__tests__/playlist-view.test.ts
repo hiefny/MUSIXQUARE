@@ -780,7 +780,7 @@ const RESOLVED_ICON_PROPERTIES = [
   'width',
   'height',
   '--material-elastic-size',
-  '--material-elastic-stroke',
+  '--material-elastic-mask',
   '--material-elastic-ring-size',
 ] as const;
 type CssSpecificity = [number, number, number];
@@ -1005,15 +1005,18 @@ describe('playlist state icon and upload ring geometry', () => {
       resolve(element, 'width'),
       resolve(element, 'height'),
     ];
-    // The visible ring: the 36 viewBox unit circle plus one stroke, scaled
-    // from the 44 unit viewBox to the size the ring is drawn at, which is the
-    // element's own size unless a smaller ring sits in its even whole-px box.
+    // The visible ring: the 36 viewBox unit circle plus the stroke its ring
+    // mask draws, scaled from the 44 unit viewBox to the size the ring is
+    // drawn at, which is the element's own size unless a smaller ring sits in
+    // its even whole-px box.
     const ring = (element: Element | null | undefined) => {
       const drawn = parseFloat(
         resolve(element, '--material-elastic-ring-size') ||
           resolve(element, '--material-elastic-size'),
       );
-      const stroke = parseFloat(resolve(element, '--material-elastic-stroke'));
+      const stroke = Number(
+        resolve(element, '--material-elastic-mask').match(/stroke-width='([\d.]+)'/u)?.[1],
+      );
       const round = (value: number) => Math.round(value * 100) / 100;
       return { outer: round(((36 + stroke) * drawn) / 44), line: round((stroke * drawn) / 44) };
     };

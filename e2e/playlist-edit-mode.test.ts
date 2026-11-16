@@ -791,8 +791,11 @@ test.describe('Playlist delete slide-out', () => {
             loadingStyle?.getPropertyValue('--material-elastic-ring-size') ||
               (loadingStyle?.getPropertyValue('--material-elastic-size') ?? ''),
           );
-          const ringStroke = parseFloat(
-            loadingStyle?.getPropertyValue('--material-elastic-stroke') ?? '',
+          // Its line: the stroke its ring mask draws.
+          const ringStroke = Number(
+            loadingStyle
+              ?.getPropertyValue('--material-elastic-mask')
+              .match(/stroke-width='([\d.]+)'/u)?.[1],
           );
           const round = (value: number) => Math.round(value * 100) / 100;
           return {

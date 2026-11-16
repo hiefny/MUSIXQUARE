@@ -846,7 +846,7 @@ describe('session reset coordinator', () => {
               '#session-reset-overlay .boot-splash-spinner *',
             ),
           ].map((element) => element.style.animationDelay),
-        ).toEqual(Array.from({ length: 12 }, () => ''));
+        ).toEqual(Array.from({ length: 10 }, () => ''));
         expect([...transitions.values()].map((transition) => transition.currentTime)).toEqual([
           null,
           null,

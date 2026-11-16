@@ -331,8 +331,11 @@ test('PRO upload rows number on from the playlist and keep their ring in the ico
           spinnerStyle?.getPropertyValue('--material-elastic-ring-size') ||
             (spinnerStyle?.getPropertyValue('--material-elastic-size') ?? ''),
         );
-        const stroke = parseFloat(
-          spinnerStyle?.getPropertyValue('--material-elastic-stroke') ?? '',
+        // Its line: the stroke its ring mask draws.
+        const stroke = Number(
+          spinnerStyle
+            ?.getPropertyValue('--material-elastic-mask')
+            .match(/stroke-width='([\d.]+)'/u)?.[1],
         );
         return {
           upload: entry.classList.contains('pro-upload-entry'),

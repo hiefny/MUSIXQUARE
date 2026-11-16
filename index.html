@@ -80,6 +80,32 @@
         --boot-splash-fg: #303540;
       }
 
+      /* The installed iOS app (data-boot-installed, from the preflight): iOS
+         paints the strip under a short first screen in its own background,
+         pure black in the dark theme and pure white in the light one (the
+         owner's report, 2026-11-16), so there the splash starts on that colour
+         and the strip blends in; the app's own background shows through the
+         splash's 0.3 s fade over the app (owner decision, same day). This sets
+         the background itself: the app stylesheet's --bg would replace the
+         --boot-splash-bg fallback in the middle of the boot. */
+      html[data-boot-installed] .boot-splash {
+        background: #000000;
+      }
+
+      @media (prefers-color-scheme: light) {
+        html[data-boot-installed] .boot-splash {
+          background: #ffffff;
+        }
+      }
+
+      html[data-boot-installed][data-theme='dark'] .boot-splash {
+        background: #000000;
+      }
+
+      html[data-boot-installed][data-theme='light'] .boot-splash {
+        background: #ffffff;
+      }
+
       /* Fades over the app as it takes the screen. This is an animation
          rather than a transition because style.css switches transitions off
          while the app boots (html.is-booting). */

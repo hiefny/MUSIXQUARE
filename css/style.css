@@ -5088,6 +5088,19 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: none;
   }
 
+  /* In the installed iOS app the refresh screen ends on the colour the next
+     page's boot splash starts on there (index.html, data-boot-installed: pure
+     black in the dark theme, pure white in the light one, the colour iOS
+     paints the strip under a short first screen with), so the strip blends in
+     and the two screens stay one. */
+  html[data-boot-installed] .session-reset-overlay {
+    background: #000000;
+  }
+
+  html[data-boot-installed][data-theme='light'] .session-reset-overlay {
+    background: #ffffff;
+  }
+
   .session-reset-message {
     margin: 0;
     color: var(--text-main);

@@ -283,6 +283,21 @@ describe('app UX markup contract', () => {
     );
   });
 
+  // The media picker stays open while a system audio share gets ready, and
+  // the page under it, the toast included, is inert. Its hidden status
+  // repeats each toast for screen readers (src/ui/toast.ts).
+  it('gives the media picker a hidden status that repeats toasts', () => {
+    const echoes = appDocument.querySelectorAll('[data-toast-echo]');
+    expect(echoes).toHaveLength(1);
+    const status = echoes[0]!;
+    expect(appDocument.getElementById('media-source-overlay')?.contains(status)).toBe(true);
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.getAttribute('aria-atomic')).toBe('true');
+    expect(status.classList.contains('sr-only')).toBe(true);
+    expect(status.textContent).toBe('');
+  });
+
   it('keeps setup and media actions on the compact pre-audit surface', () => {
     const joinInput = appDocument.getElementById('setup-join-code');
     const localFile = appDocument.getElementById('btn-local-file');

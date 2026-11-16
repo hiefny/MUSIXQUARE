@@ -527,8 +527,15 @@ test('remote YouTube selection supersedes a pending system audio picker', async 
 // Owner proposal 2026-11-03: the media picker stays open until the shared
 // audio arrives, as it stays open until a chosen file arrives, and the option
 // reads "Preparing to share..." the same way in standard and PRO rooms.
+type PickerRecord = {
+  key: string | null;
+  open: boolean;
+  /** The picker's hidden status that repeats toasts for screen readers. */
+  status: string | null;
+};
+
 type PickerRecordWindow = Window & {
-  __systemAudioPickerRecord?: Array<{ key: string | null; open: boolean }>;
+  __systemAudioPickerRecord?: PickerRecord[];
 };
 
 async function recordSystemAudioPicker(page: Page): Promise<void> {
@@ -536,13 +543,15 @@ async function recordSystemAudioPicker(page: Page): Promise<void> {
     const option = document.getElementById('btn-system-audio')!;
     const overlay = document.getElementById('media-source-overlay')!;
     const label = option.querySelector('.media-source-label-text')!;
-    const record: Array<{ key: string | null; open: boolean }> = [];
+    const status = overlay.querySelector('[data-toast-echo]');
+    const record: PickerRecord[] = [];
     (window as PickerRecordWindow).__systemAudioPickerRecord = record;
     // One entry per mutation batch, as a frame would paint it.
     const observer = new MutationObserver(() => {
       record.push({
         key: label.getAttribute('data-i18n'),
         open: overlay.classList.contains('active'),
+        status: status?.textContent ?? null,
       });
     });
     observer.observe(option, {
@@ -552,6 +561,9 @@ async function recordSystemAudioPicker(page: Page): Promise<void> {
       subtree: true,
     });
     observer.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+    if (status) {
+      observer.observe(status, { characterData: true, childList: true, subtree: true });
+    }
   });
 }
 
@@ -608,6 +620,14 @@ test('keeps the media picker open with the preparing label until the shared audi
       .slice(firstBusy)
       .filter(({ key, open }) => open && key !== 'system_audio.button_preparing'),
   ).toEqual([]);
+  // The page under the picker, the toast included, is inert while the picker
+  // is on top, so the picker's own status repeated the advice toast for
+  // screen readers before it closed.
+  expect(
+    record.some(
+      ({ open, status }) => open && status?.includes('Lower the source volume as much as possible'),
+    ),
+  ).toBe(true);
 
   await page.locator('#btn-media-source').click();
   await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(0);
@@ -637,6 +657,12 @@ test('a cancelled share dialog keeps the picker open and the option ready again'
   await expect(option).not.toHaveAttribute('aria-disabled');
   await expect(option).toBeFocused();
   await expect(page.locator('#toast')).toContainText('Audio sharing was cancelled');
+  // The picker stays on top, so the page under it, the toast included, is
+  // hidden from screen readers; the picker's own status repeats the message.
+  await expect(overlay.getByRole('status')).toHaveText('Audio sharing was cancelled');
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Audio sharing was cancelled' }),
+  ).toHaveCount(1);
   expect((await readSyntheticSystemAudio(page)).activeCaptures).toBe(0);
 
   // Ready at once: the next press opens the share window again.
@@ -784,6 +810,7 @@ test('a PRO owner sees the preparing label for the whole start and, after a canc
 
   await cancelHeldSystemAudioPicker(page);
   await expect(page.locator('#toast')).toContainText('Audio sharing was cancelled');
+  await expect(overlay.getByRole('status')).toHaveText('Audio sharing was cancelled');
   await expect.poll(() => calls.release).toBe(1);
   // The room holds the lease as preparing until it answers the release, so the
   // option keeps preparing, and a press meanwhile opens nothing and shows no

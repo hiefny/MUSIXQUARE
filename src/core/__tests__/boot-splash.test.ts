@@ -436,8 +436,11 @@ describe('boot splash', () => {
 
   it('steps aside once the app takes the screen or boot fails, and never comes back', () => {
     expect(INDEX).toMatch(/<html lang="en" class="setup-boot-block">/u);
+    // An installed iOS app's short first screen holds the app's release (the
+    // head preflight's data-boot-hold, ended by platform.ts once the screen
+    // grows), never boot failure's.
     expect(SPLASH_CSS).toMatch(
-      /html:not\(\.setup-boot-block\) \.boot-splash,\s*html\.boot-splash-released \.boot-splash,\s*html\.setup-boot-failed \.boot-splash \{\s*pointer-events: none;\s*animation: boot-splash-out 0\.3s ease-out forwards;\s*\}/u,
+      /html:not\(\.setup-boot-block\):not\(\[data-boot-hold\]\) \.boot-splash,\s*html\.boot-splash-released:not\(\[data-boot-hold\]\) \.boot-splash,\s*html\.setup-boot-failed \.boot-splash \{\s*pointer-events: none;\s*animation: boot-splash-out 0\.3s ease-out forwards;\s*\}/u,
     );
     expect(keyframes(SPLASH_CSS, 'boot-splash-out')).toBe('to { opacity: 0; visibility: hidden; }');
     // style.css switches transitions off while the app boots, which is exactly
@@ -454,8 +457,17 @@ describe('boot splash', () => {
     // Without the runtime nothing hides it, so everything inside freezes at
     // release instead (WebKit also keeps an unfinished fade-in running).
     expect(SPLASH_CSS).toMatch(
-      /html:not\(\[data-boot-splash-runtime\]\):not\(\.setup-boot-block\) \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.boot-splash-released \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
+      /html:not\(\[data-boot-splash-runtime\]\):not\(\.setup-boot-block\):not\(\[data-boot-hold\]\) \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.boot-splash-released:not\(\[data-boot-hold\]\) \.boot-splash \*,\s*html:not\(\[data-boot-splash-runtime\]\)\.setup-boot-failed \.boot-splash \* \{\s*animation-play-state: paused;\s*\}/u,
     );
+    // The reduced-motion release follows the same three selectors.
+    expect(SPLASH_CSS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*html:not\(\.setup-boot-block\):not\(\[data-boot-hold\]\) \.boot-splash,\s*html\.boot-splash-released:not\(\[data-boot-hold\]\) \.boot-splash,\s*html\.setup-boot-failed \.boot-splash,/u,
+    );
+    // No other rule releases or freezes the splash without the hold.
+    expect(
+      SPLASH_CSS.match(/:not\(\.setup-boot-block\)(?!:not\(\[data-boot-hold\]\))/gu),
+    ).toBeNull();
+    expect(SPLASH_CSS.match(/\.boot-splash-released(?!:not\(\[data-boot-hold\]\))/gu)).toBeNull();
     expect(SPLASH_CSS).not.toMatch(/html:not\(\.setup-boot-block\) \.boot-splash \*/u);
     // Only this release's runtime turns the no-runtime rules off: the one an
     // older release's service worker still serves on the update's first load
@@ -837,6 +849,7 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       box: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_BOX_KEY),
       height: () => root.style.getPropertyValue('--boot-splash-height'),
       installed: () => root.hasAttribute('data-boot-installed'),
+      hold: () => root.hasAttribute('data-boot-hold'),
       window,
     };
   }
@@ -922,6 +935,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       expect(app.state().continued).toBe(true);
       expect(app.height()).toBe('844px');
       expect(app.box()).toBe('390x844');
+      // A browser tab draws no strip under its first screen: nothing holds.
+      expect(app.hold()).toBe(false);
     },
   );
 
@@ -975,6 +990,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       expect(app.installed()).toBe(true);
       expect(app.state().continued).toBe(false);
       expect(app.height()).toBe(expected);
+      // The splash holds over the app until that screen has grown (platform.ts).
+      expect(app.hold()).toBe(true);
     },
   );
 
@@ -992,6 +1009,7 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       app.run();
       expect(app.installed()).toBe(installed);
       expect(app.height()).toBe('');
+      expect(app.hold()).toBe(false);
     },
   );
 
@@ -1006,6 +1024,7 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     });
     kept.run();
     expect(kept.height()).toBe('844px');
+    expect(kept.hold()).toBe(true);
     const unkept = page({
       installed: true,
       screen: { width: 390, height: 844 },
@@ -1016,6 +1035,7 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     unkept.run();
     expect(unkept.state().continued).toBe(true);
     expect(unkept.height()).toBe('844px');
+    expect(unkept.hold()).toBe(true);
   });
 
   it("keeps a continued splash in the reset screen's box: from the top, as tall as the screen it left", () => {
@@ -1132,6 +1152,12 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect(bootstrap).toContain(`localStorage.getItem('musixquare-theme')`);
     expect(PREFLIGHT).toContain(`sessionStorage.getItem('${BOOT_SPLASH_CONTINUITY_KEY}')`);
     expect(PREFLIGHT).toContain(`sessionStorage.getItem('${BOOT_SPLASH_CONTINUITY_BOX_KEY}')`);
+    // The hold the preflight marks, which platform.ts ends and the drawing runtime honours.
+    expect(PREFLIGHT).toContain("root.setAttribute('data-boot-hold', '')");
+    expect(readFileSync('src/core/platform.ts', 'utf8')).toContain("'data-boot-hold'");
+    expect(readFileSync('browser/classic-runtime/wordmark-anim.ts', 'utf8')).toContain(
+      "'data-boot-hold'",
+    );
     // A kept height counts only within the largest safe-area difference the
     // installed iOS app shows between its height readings (src/core/platform.ts).
     const safeAreaDelta = Number(

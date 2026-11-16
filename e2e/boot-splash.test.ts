@@ -642,3 +642,107 @@ test.describe('session reset screen', () => {
     expect(placed).toEqual({ screen: 1440, mark: 720 });
   });
 });
+
+// Owner decision 2026-11-16: over an installed iOS app's first screen that iOS
+// gives short by the home indicator strip, the splash stays over the app until
+// the screen has grown (index.html's head preflight marks data-boot-hold,
+// src/core/platform.ts ends it, at the latest when its boot window ends), so the
+// app never shows on that screen and never jumps as it grows.
+test.describe('installed iOS app', () => {
+  // platform.ts reads iOS from the user agent (the WebKit lane's iPhone has it).
+  test.use({
+    serviceWorkers: 'block',
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1',
+  });
+
+  type HoldLog = { held: boolean; fades: number; fadeWhileHeld: boolean };
+
+  async function openInstalledOnShortScreen(
+    page: Page,
+  ): Promise<{ width: number; height: number }> {
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    const { width, height } = page.viewportSize()!;
+    await page.addInitScript(
+      ({ screenWidth, screenHeight }) => {
+        Object.defineProperty(Navigator.prototype, 'standalone', {
+          configurable: true,
+          get: () => true,
+        });
+        Object.defineProperty(Screen.prototype, 'width', {
+          configurable: true,
+          get: () => screenWidth,
+        });
+        Object.defineProperty(Screen.prototype, 'height', {
+          configurable: true,
+          get: () => screenHeight,
+        });
+        const log: HoldLog = { held: false, fades: 0, fadeWhileHeld: false };
+        (window as typeof window & { __holdLog: HoldLog }).__holdLog = log;
+        const root = document.documentElement;
+        new MutationObserver(() => {
+          if (root.hasAttribute('data-boot-hold')) log.held = true;
+        }).observe(root, { attributes: true, attributeFilter: ['data-boot-hold'] });
+        document.addEventListener(
+          'animationstart',
+          (event) => {
+            if ((event as AnimationEvent).animationName !== 'boot-splash-out') return;
+            log.fades += 1;
+            if (root.hasAttribute('data-boot-hold')) log.fadeWhileHeld = true;
+          },
+          true,
+        );
+      },
+      { screenWidth: width, screenHeight: height },
+    );
+    // A first open (no reset stamp) on a first screen 34 px short.
+    await page.evaluate(() => sessionStorage.clear());
+    await page.setViewportSize({ width, height: height - 34 });
+    await page.goto('/');
+    await page.waitForFunction(
+      () => !document.documentElement.classList.contains('setup-boot-block'),
+      null,
+      { timeout: 30_000, polling: 50 },
+    );
+    return { width, height };
+  }
+
+  const splashRetired = (page: Page) =>
+    page.waitForFunction(
+      () => (document.querySelector('.boot-splash') as HTMLElement | null)?.hidden === true,
+      null,
+      { timeout: 5_000, polling: 50 },
+    );
+
+  test('keeps the splash over the app while the first screen is short, and fades it only once the hold ends', async ({
+    page,
+  }) => {
+    const { width, height } = await openInstalledOnShortScreen(page);
+    await page.setViewportSize({ width, height });
+    await splashRetired(page);
+    const log = await page.evaluate(
+      () => (window as typeof window & { __holdLog: HoldLog }).__holdLog,
+    );
+    expect(log.held).toBe(true);
+    expect(log.fades).toBeGreaterThan(0);
+    expect(log.fadeWhileHeld).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.hasAttribute('data-boot-hold'))).toBe(
+      false,
+    );
+  });
+
+  test('ends the hold with the boot window when the first screen never grows', async ({ page }) => {
+    await openInstalledOnShortScreen(page);
+    await splashRetired(page);
+    const log = await page.evaluate(
+      () => (window as typeof window & { __holdLog: HoldLog }).__holdLog,
+    );
+    expect(log.held).toBe(true);
+    expect(log.fadeWhileHeld).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.hasAttribute('data-boot-hold'))).toBe(
+      false,
+    );
+  });
+});

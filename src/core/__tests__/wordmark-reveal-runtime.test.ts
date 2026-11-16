@@ -289,6 +289,43 @@ describe('boot splash wordmark reveal', () => {
     },
   );
 
+  // Owner decision 2026-11-16: over an installed iOS app's first screen that
+  // iOS gives short by the home indicator strip, the splash stays over the app
+  // (the head preflight marks data-boot-hold; platform.ts ends it once the
+  // screen grows), so the drawing goes on through the hold.
+  it('keeps drawing while a short first screen holds the splash over the app, and stops where it is once the hold ends', async () => {
+    const app = fixture();
+    const root = app.document.documentElement;
+    root.setAttribute('data-boot-hold', '');
+    app.advance(400);
+    app.advance(1050);
+    root.classList.remove('setup-boot-block');
+    await app.settle();
+    const atRelease = revealedPath(app.logo);
+    app.advance(1300);
+    expect(revealedPath(app.logo)).not.toBe(atRelease);
+    expect(app.frames.size).toBeGreaterThan(0);
+
+    root.removeAttribute('data-boot-hold');
+    await app.settle();
+    expect(app.frames.size).toBe(0);
+    const atHoldEnd = revealedPath(app.logo);
+    app.advance(10_000);
+    expect(revealedPath(app.logo)).toBe(atHoldEnd);
+    expect(app.logo.dataset.wordmarkDrawComplete).toBeUndefined();
+  });
+
+  it('never holds a splash boot failure releases', async () => {
+    const app = fixture();
+    const root = app.document.documentElement;
+    root.setAttribute('data-boot-hold', '');
+    app.advance(400);
+    app.advance(1050);
+    root.classList.add('setup-boot-failed');
+    await app.settle();
+    expect(app.frames.size).toBe(0);
+  });
+
   it('retires the splash after its last-resort fade', () => {
     const app = fixture();
     app.animationEnd(app.splash, 'boot-splash-fail-open');

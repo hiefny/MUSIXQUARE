@@ -104,6 +104,7 @@ afterEach(async () => {
   document.body.replaceChildren();
   document.documentElement.className = '';
   document.documentElement.removeAttribute('style');
+  document.documentElement.removeAttribute('data-boot-hold');
 });
 
 describe('Platform Detection', () => {
@@ -567,6 +568,87 @@ describe('Platform Detection', () => {
       expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('390px');
       offsetWidth.mockRestore();
       offsetHeight.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    // Owner decision 2026-11-16: over an installed app's first screen that iOS
+    // gives short by the home indicator strip, the boot splash (index.html's
+    // head preflight marks data-boot-hold) stays over the app until that
+    // screen has grown, so the app never shows on it and never jumps.
+    it("ends the boot splash's hold once the first screen has grown to its kept height", async () => {
+      installIOSStandaloneViewport({ innerWidth: 390, innerHeight: 810, screenHeight: 844 });
+      const root = document.documentElement;
+      root.setAttribute('data-boot-hold', '');
+      root.style.setProperty('--boot-splash-height', '844px');
+
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+      expect(root.hasAttribute('data-boot-hold')).toBe(true);
+
+      Object.defineProperty(window, 'innerHeight', { value: 844, configurable: true });
+      platformViewportForTests.updateNow();
+      expect(root.hasAttribute('data-boot-hold')).toBe(false);
+      platformViewportForTests.reset();
+    });
+
+    it("ends the boot splash's hold at the boot end when the first screen never grows, on its existing timers", async () => {
+      vi.useFakeTimers();
+      installIOSStandaloneViewport({ innerWidth: 390, innerHeight: 810, screenHeight: 844 });
+      const root = document.documentElement;
+      root.setAttribute('data-boot-hold', '');
+      root.style.setProperty('--boot-splash-height', '844px');
+      const rafCallbacks: FrameRequestCallback[] = [];
+      let nextRafId = 1;
+      const requestAnimationFrame = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          rafCallbacks.push(callback);
+          return nextRafId++;
+        });
+      const flushAnimationFrames = (): void => {
+        for (let callback = rafCallbacks.shift(); callback; callback = rafCallbacks.shift()) {
+          callback(performance.now());
+        }
+      };
+
+      const { initPlatform, platformViewportForTests } = await import('../platform.ts');
+      initPlatform();
+      flushAnimationFrames();
+      expect(root.hasAttribute('data-boot-hold')).toBe(true);
+
+      vi.advanceTimersByTime(1300);
+      flushAnimationFrames();
+      expect(root.hasAttribute('data-boot-hold')).toBe(true);
+
+      vi.advanceTimersByTime(100);
+      flushAnimationFrames();
+      expect(root.hasAttribute('data-boot-hold')).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+
+      requestAnimationFrame.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it("ends the boot splash's hold at once outside the installed iOS app", async () => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Windows NT 10.0)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: vi.fn(() => ({
+          matches: false,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })),
+      });
+      const root = document.documentElement;
+      root.setAttribute('data-boot-hold', '');
+
+      const { initPlatform, platformViewportForTests } = await import('../platform.ts');
+      initPlatform();
+      expect(root.hasAttribute('data-boot-hold')).toBe(false);
       platformViewportForTests.reset();
     });
 

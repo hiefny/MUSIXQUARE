@@ -96,6 +96,30 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.52 / v827 train: Phase 8 tidies the app CSS, with the right-to-left, layout-band and contrast fixes it found (2026-11-16)](design/app-9-0-52-train-2026-11-16.md):
+  in progress on `agent/p8-css`, not merged or released. The App update after 9.0.51 / v826 (the iPhone session refresh
+  fix, which shipped first), on main `7cf48e50` (the 9.0.51 release record), for Phase 8, which the owner gave on
+  2026-11-14: survey the app CSS for hard-coded values, unneeded parts, duplicates, forced structures and obvious
+  defects, restructure it, and say what changes the screen or behaviour. Of the survey's 62 findings and two cleanup
+  candidates handed over, 54 are built and 10 stay in the report's tables. 39 leave the screen unchanged in every
+  palette: unused rules and variables, declarations that reset nothing or always lose, repeated values, literal values
+  the tokens already hold, the hidden start screen brand box and wordmark, and the outer id of 13 two-id selectors,
+  which cuts the `:not(#\#)` tails each layer adds from three to two and about 30 KB off the built CSS (one desktop
+  header value changes only its `background-position` notation, with no background image). Seven obvious defects are
+  fixed with failing tests first: five right-to-left layouts (the skip link, the transport's optical offset, the wide
+  layout's settings column entrance, the sub-list and title insets with the start screen's language button, the start-up
+  failure screen's safe-area padding), the fractional pixel gaps between layout bands at display scaling (upper limits
+  now end at `.98`), and the About header's right-to-left safe-area edges. Five owner answers of 2026-11-15: the dark
+  toast text matches the other text; more contrast recolours the accent actions and the light pinned notice while forced
+  colors keep today's colours; forced colors show the transport buttons clearly while system audio is shared; the
+  YouTube playlist icon shrinks by the other source icons' ratio; the security check overlay covers the screen on legacy
+  TV browsers. Three runtime inline styles move to CSS or `hidden` with the screen unchanged. Against 9.0.49 the built
+  app CSS goes from 347,394 to 309,725 B (gzip 46,198 to 44,262) and `!important` from 150 to 143; against 9.0.51 the
+  final build goes from 349,869 to 312,047 B. Scene proofs compared every element's computed values in 855 scenes (42
+  viewport, theme, language, motion and demo cases) and 134 public-page scenes; every difference is an intended element,
+  that one notation, or timing, and the proofs repeated after the branch moved onto the 9.0.50 and 9.0.51 records found
+  the same elements changing to the same values apart from timing. Not verified on a physical device, a real Chromium
+  79, real Windows high contrast or Safari's fractional rounding. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.51 / v826 train: the page a session refresh opens keeps the refresh screen's height, so the wordmark and loader stay put on iPhone and iPad (2026-11-16)](design/app-9-0-51-train-2026-11-16.md):
   released on 2026-11-16 13:37 KST in Release 43804988699 (PR #601, squash `f0369f67`) as App 9.0.51 / v826 (App build
   826, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

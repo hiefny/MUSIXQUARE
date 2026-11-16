@@ -4550,7 +4550,10 @@ entry needs the owner's acceptance and is not implied by this registry.
     App 9.0.53, in the installed iOS app (`navigator.standalone` with an iPhone, iPad or iPod user
     agent or a touch screen, as `IS_IOS`: Safari 17 also reports standalone in a macOS Dock web
     app, where no strip shows), it marks the root `data-boot-installed`, which starts the splash
-    on the strip's colour (#000000 dark, #ffffff light) and raises it to the app's once released;
+    on the strip's colour (#000000 dark, #ffffff light) and raises its background to the app's in
+    0.3 s (`boot-splash-rise`) once nothing holds it, whether or not setup has released the splash
+    yet (from the first frame when the preflight sets no hold), keeping that rise through the fade
+    over the app;
     without a kept box it sets `--boot-splash-height` to the screen's height while this first
     screen is as wide as the screen and up to that 64 px shorter (that app's first open gets the
     same short first screen); and while the kept height is taller than this first screen it marks

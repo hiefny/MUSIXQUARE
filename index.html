@@ -43,7 +43,12 @@
          and loader values below mirror its tokens (boot-splash test). The
          splash steps aside once setup-boot-block leaves the root (the app
          surface took the screen) or boot fails; setup latches
-         boot-splash-released before it ever re-adds the guard. -->
+         boot-splash-released before it ever re-adds the guard. In the
+         installed iOS app, over a first screen iOS gives short, the head
+         preflight's data-boot-hold makes that release wait until
+         src/core/platform.ts ends the hold (once the screen has grown, at the
+         latest when its boot window ends); boot failure and the last-resort
+         fade are never held. -->
     <style data-boot-splash>
       .boot-splash {
         --boot-splash-bg: #121212;
@@ -355,9 +360,10 @@
 
       /* The app's loader (css/style.css .material-elastic-spinner, Google's
          Material circular progress) at its 24px, in fixed lengths: its ring
-         one still mask on the box above, the loader at its bottom, and every
-         part inside turning by a transform alone, which the compositor keeps
-         running while iOS freezes a page it leaves. */
+         one still clip on the box above (a mask where the browser cannot clip
+         to a path), the loader at its bottom, and every part inside turning
+         by a transform alone, which the compositor keeps running while iOS
+         freezes a page it leaves. */
       .boot-splash-spinner .material-elastic-turn {
         position: relative;
         display: block;

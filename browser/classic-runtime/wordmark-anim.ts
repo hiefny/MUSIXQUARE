@@ -15,9 +15,15 @@
  * data-phase="settled"), with reduced motion (the loader joins as the mark
  * shows), and after an app reset: bootstrap.js has then already settled the
  * splash, with its loader on the reset screen's wall-clock phase, before the
- * app module runs, which this async runtime cannot promise. When the app takes
- * the screen mid-draw, the drawing stops where it is and fades out with the
- * splash; a runtime that arrives after that leaves the splash as it is. With
+ * app module runs, which this async runtime cannot promise. When the splash
+ * steps aside mid-draw (the app takes the screen, or boot fails), the drawing
+ * stops where it is and fades out with the splash; a runtime that arrives
+ * after that leaves the splash as it is. A held splash still counts as up
+ * (splashUp): over an installed iOS app's short first screen, index.html's
+ * head preflight marks data-boot-hold and src/core/platform.ts ends it, so the
+ * drawing goes on through the hold even after the app's release, a runtime
+ * that arrives during it draws as usual, and the drawing stops where it is
+ * when the hold ends. With
  * no runtime the CSS fallback shows the authored silhouette and
  * rises at 3.2 s; it stays on until this runtime sets data-boot-splash-runtime,
  * so an older release's cached runtime keeps it. With invalid geometry the

@@ -266,6 +266,31 @@ describe('boot splash', () => {
         'background',
       ),
     ).toBe('#ffffff');
+    // Owner suggestion, same day: once nothing holds it (the strip is gone, or
+    // there never was one) the splash rises from that colour to the app's own
+    // background in 0.3 s, and keeps rising through its fade over the app.
+    expect(keyframes(SPLASH_CSS, 'boot-splash-rise')).toBe(
+      'to { background-color: var(--bg, var(--boot-splash-bg)); }',
+    );
+    const animation = (opener: string) =>
+      declaration(SPLASH_CSS, opener, 'animation').replace(/\s+/gu, ' ');
+    const rising = '      html[data-boot-installed]:not([data-boot-hold]) .boot-splash {';
+    expect(animation(rising)).toBe(
+      'boot-splash-rise 0.3s ease-out forwards, boot-splash-fail-open 0s linear calc(var(--setup-boot-failure-delay, 15s) + 5s) forwards',
+    );
+    const leaving = [
+      '      html[data-boot-installed]:not(.setup-boot-block):not([data-boot-hold]) .boot-splash,',
+      '      html[data-boot-installed].boot-splash-released:not([data-boot-hold]) .boot-splash,',
+      '      html[data-boot-installed].setup-boot-failed .boot-splash {',
+    ].join('\n');
+    expect(animation(leaving)).toBe(
+      'boot-splash-out 0.3s ease-out forwards, boot-splash-rise 0.3s ease-out forwards',
+    );
+    // The failure selector weighs as much as the rising rule, so it comes later.
+    expect(SPLASH_CSS.indexOf(leaving)).toBeGreaterThan(SPLASH_CSS.indexOf(rising));
+    expect(SPLASH_CSS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[^}]*html\[data-boot-installed\]:not\(\[data-boot-hold\]\) \.boot-splash,/u,
+    );
     // Everywhere else the refresh screen keeps the app's palette.
     expect(declaration(STYLE, '  .session-reset-overlay {', 'background')).toBe('var(--bg)');
     // Both colours are the palette's already: the dark contrast palette's

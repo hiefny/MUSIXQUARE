@@ -480,30 +480,31 @@ test.describe('session reset screen', () => {
   // in the light one (owner report, 2026-11-16): an installed app's splash
   // starts on that colour, its refresh screen ends on it, and elsewhere both
   // keep the app's palette.
-  test("an installed app's splash starts on the strip's colour and its refresh screen ends on it", async ({
+  test("an installed app's splash starts on the strip's colour, rises to the app's once the strip is gone, and its refresh screen ends on it", async ({
     page,
   }) => {
     await useAnonymousAccountSession(page);
     await page.goto('/');
     await waitForBootstrapReady(page);
-    await page.addInitScript(() => {
-      Object.defineProperty(Navigator.prototype, 'standalone', {
-        configurable: true,
-        get: () => true,
-      });
-      const sample = () => {
-        const splash = document.querySelector('.boot-splash');
-        if (!splash) {
-          requestAnimationFrame(sample);
-          return;
-        }
-        (window as typeof window & { __firstSplash?: unknown }).__firstSplash = {
-          theme: document.documentElement.getAttribute('data-theme'),
-          background: getComputedStyle(splash).backgroundColor,
-        };
-      };
-      requestAnimationFrame(sample);
-    });
+    const { width, height } = page.viewportSize()!;
+    await page.addInitScript(
+      ({ screenWidth, screenHeight }) => {
+        Object.defineProperty(Navigator.prototype, 'standalone', {
+          configurable: true,
+          get: () => true,
+        });
+        Object.defineProperty(Screen.prototype, 'width', {
+          configurable: true,
+          get: () => screenWidth,
+        });
+        Object.defineProperty(Screen.prototype, 'height', {
+          configurable: true,
+          get: () => screenHeight,
+        });
+      },
+      { screenWidth: width, screenHeight: height },
+    );
+    // Hold bootstrap.js, so the app never takes the screen while this reads it.
     let releaseBootstrap = (): void => undefined;
     const bootstrapHeld = new Promise<void>((resolve) => {
       releaseBootstrap = resolve;
@@ -512,19 +513,38 @@ test.describe('session reset screen', () => {
       await bootstrapHeld;
       await route.fallback();
     });
+    // A first open on a first screen 34 px short: the strip shows, so the
+    // preflight holds the splash.
     await page.evaluate(() => sessionStorage.clear());
+    await page.setViewportSize({ width, height: height - 34 });
     await page.goto('/', { waitUntil: 'commit' });
     await page.waitForFunction(
-      () => Boolean((window as typeof window & { __firstSplash?: unknown }).__firstSplash),
+      () => document.documentElement.hasAttribute('data-boot-hold'),
       null,
       { timeout: 10_000, polling: 20 },
     );
-    const first = await page.evaluate(
-      () =>
-        (window as typeof window & { __firstSplash: { theme: string; background: string } })
-          .__firstSplash,
+    const read = () =>
+      page.evaluate(() => {
+        const splash = document.querySelector('.boot-splash') as HTMLElement;
+        return {
+          theme: document.documentElement.getAttribute('data-theme'),
+          background: getComputedStyle(splash).backgroundColor,
+          up: !splash.hidden && getComputedStyle(splash).opacity === '1',
+        };
+      });
+    const held = await read();
+    expect(held.background).toBe(held.theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
+    expect(held.up).toBe(true);
+    // The strip goes: the screen grows and platform.ts ends the hold (its own
+    // part, src/core/__tests__/platform.test.ts); the app still loads.
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => document.documentElement.removeAttribute('data-boot-hold'));
+    await page.waitForTimeout(500);
+    const risen = await read();
+    expect(risen.background).toBe(
+      risen.theme === 'dark' ? 'rgb(18, 18, 18)' : 'rgb(248, 249, 250)',
     );
-    expect(first.background).toBe(first.theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
+    expect(risen.up).toBe(true);
     releaseBootstrap();
     await waitForBootstrapReady(page);
     // The refresh screen with the app stylesheet (its layer and palette) loaded.

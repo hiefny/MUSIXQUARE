@@ -104,7 +104,7 @@ runbooks. Neither belongs in a general setup document.
   body hashing to it, `data:` still allowed for images, the entry `main-DG9HpIEE.js` and the main CSS
   `main-8tOxyXfM.css` that the final gate and the exact-main candidate built, and v828; headless Chromium and WebKit
   first visits found the splash loader's ring drawn by a path clip, with no CSP violation. Its post-merge Full E2E
-  43915168508: <<FULL_E2E>>. The App update after 9.0.52 / v827, on main `71d9f883` (the 9.0.52 release record); the
+  43915168508: attempt 1 passed `e2e` (1109) and `webkit-mobile`; the non-blocking production large-room R2 smoke failed once two to three minutes after the deploy (one guest's join timed out twice; 9.0.53 did not touch joining), and re-running only that job passed (attempt 2). The App update after 9.0.52 / v827, on main `71d9f883` (the 9.0.52 release record); the
   next App update takes 9.0.829 / v829, since from it the version's patch is the App build number (owner decision
   2026-11-17). Two increments the owner asked for on 2026-11-16. (A) In the home-screen app only, when iOS gives its
   first open a screen short by the home indicator strip: the head preflight gives the boot splash the screen's height,

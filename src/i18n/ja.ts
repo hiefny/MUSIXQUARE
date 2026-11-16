@@ -494,6 +494,7 @@ const ja: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'システムオーディオ',
+  'system_audio.button_preparing': '共有を準備中...',
   'system_audio.sharing': 'システムオーディオ共有中',
   'system_audio.receiving': 'システムオーディオ受信中',
   'system_audio.owner_active': '{{name}}がシステムオーディオを共有しています',

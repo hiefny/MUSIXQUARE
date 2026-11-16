@@ -503,6 +503,7 @@ const de: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Systemaudio',
+  'system_audio.button_preparing': 'Freigabe wird vorbereitet...',
   'system_audio.sharing': 'Systemaudio wird geteilt',
   'system_audio.receiving': 'Systemaudio wird empfangen',
   'system_audio.owner_active': '{{name}} teilt Systemaudio',

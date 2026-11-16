@@ -474,6 +474,7 @@ const zhHans: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': '系统音频',
+  'system_audio.button_preparing': '正在准备共享...',
   'system_audio.sharing': '正在共享系统音频',
   'system_audio.receiving': '正在接收系统音频',
   'system_audio.owner_active': '{{name}} 正在共享系统音频',

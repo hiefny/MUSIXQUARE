@@ -498,6 +498,7 @@ const id: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Audio sistem',
+  'system_audio.button_preparing': 'Menyiapkan berbagi...',
   'system_audio.sharing': 'Berbagi audio sistem',
   'system_audio.receiving': 'Menerima audio sistem',
   'system_audio.owner_active': '{{name}} sedang berbagi audio sistem',

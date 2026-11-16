@@ -473,6 +473,7 @@ const zhHant: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': '系統音訊',
+  'system_audio.button_preparing': '正在準備分享…',
   'system_audio.sharing': '正在分享系統音訊',
   'system_audio.receiving': '正在接收系統音訊',
   'system_audio.owner_active': '{{name}} 正在分享系統音訊',

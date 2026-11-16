@@ -922,6 +922,7 @@ const hi: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ────────────────────────────────────────
   'system_audio.button': 'सिस्टम ऑडियो',
+  'system_audio.button_preparing': 'साझा करने की तैयारी...',
   'system_audio.sharing': 'सिस्टम ऑडियो साझा हो रहा है',
   'system_audio.receiving': 'सिस्टम ऑडियो मिल रहा है',
   'system_audio.owner_active': '{{name}} सिस्टम ऑडियो साझा कर रहे हैं',

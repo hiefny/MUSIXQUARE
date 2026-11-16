@@ -933,6 +933,7 @@ const nl: Record<I18nKey, string> = {
 
   // System audio sharing
   'system_audio.button': 'Systeemaudio',
+  'system_audio.button_preparing': 'Delen wordt voorbereid...',
   'system_audio.sharing': 'Systeemaudio wordt gedeeld',
   'system_audio.receiving': 'Systeemaudio wordt ontvangen',
   'system_audio.owner_active': '{{name}} deelt systeemaudio',

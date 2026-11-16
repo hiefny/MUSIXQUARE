@@ -923,6 +923,7 @@ const pa: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ────────────────────────────────────────
   'system_audio.button': 'ਸਿਸਟਮ ਆਡੀਓ',
+  'system_audio.button_preparing': 'ਸਾਂਝਾ ਕਰਨ ਦੀ ਤਿਆਰੀ...',
   'system_audio.sharing': 'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਹੋ ਰਿਹਾ ਹੈ',
   'system_audio.receiving': 'ਸਿਸਟਮ ਆਡੀਓ ਮਿਲ ਰਿਹਾ ਹੈ',
   'system_audio.owner_active': '{{name}} ਵੱਲੋਂ ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕੀਤਾ ਜਾ ਰਿਹਾ ਹੈ',

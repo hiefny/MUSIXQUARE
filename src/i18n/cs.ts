@@ -930,6 +930,7 @@ const cs: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Systémový zvuk',
+  'system_audio.button_preparing': 'Připravuje se sdílení...',
   'system_audio.sharing': 'Sdílení systémového zvuku',
   'system_audio.receiving': 'Příjem systémového zvuku',
   'system_audio.owner_active': '{{name}} sdílí systémový zvuk',

@@ -491,6 +491,7 @@ const vi: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Âm thanh hệ thống',
+  'system_audio.button_preparing': 'Đang chuẩn bị chia sẻ...',
   'system_audio.sharing': 'Đang chia sẻ âm thanh hệ thống',
   'system_audio.receiving': 'Đang nhận âm thanh hệ thống',
   'system_audio.owner_active': '{{name}} đang chia sẻ âm thanh hệ thống',

@@ -918,6 +918,7 @@ const ur: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ───────────────────────────────────────
   'system_audio.button': 'سسٹم آڈیو',
+  'system_audio.button_preparing': 'شیئر کرنے کی تیاری...',
   'system_audio.sharing': 'سسٹم آڈیو شیئر ہو رہی ہے',
   'system_audio.receiving': 'سسٹم آڈیو موصول ہو رہی ہے',
   'system_audio.owner_active': '{{name}} سسٹم آڈیو شیئر کر رہے ہیں',

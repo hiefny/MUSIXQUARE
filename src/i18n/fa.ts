@@ -910,6 +910,7 @@ const fa: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ───────────────────────────────────────
   'system_audio.button': 'صدای سیستم',
+  'system_audio.button_preparing': 'در حال آماده‌سازی اشتراک...',
   'system_audio.sharing': 'صدای سیستم در حال اشتراک‌گذاری است',
   'system_audio.receiving': 'صدای سیستم در حال دریافت است',
   'system_audio.owner_active': '{{name}} صدای سیستم را به اشتراک گذاشته است',

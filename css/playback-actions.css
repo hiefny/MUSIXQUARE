@@ -55,7 +55,10 @@
     display: flex;
   }
 
-  #btn-system-audio:disabled {
+  /* While a share gets ready, in both room kinds. The option stays focusable
+     (aria-disabled, never native disabled), so the busy look keys on
+     aria-busy. */
+  #btn-system-audio[aria-busy='true'] {
     cursor: wait;
     opacity: 0.72;
     transform: none;

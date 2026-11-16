@@ -949,6 +949,7 @@ const ta: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ────────────────────────────────────────
   'system_audio.button': 'சிஸ்டம் ஆடியோ',
+  'system_audio.button_preparing': 'பகிரத் தயாராகிறது...',
   'system_audio.sharing': 'சிஸ்டம் ஆடியோ பகிரப்படுகிறது',
   'system_audio.receiving': 'சிஸ்டம் ஆடியோ பெறப்படுகிறது',
   'system_audio.owner_active': '{{name}} சிஸ்டம் ஆடியோவைப் பகிர்கிறார்',

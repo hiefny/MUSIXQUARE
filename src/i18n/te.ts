@@ -929,6 +929,7 @@ const te: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ────────────────────────────────────────
   'system_audio.button': 'సిస్టమ్ ఆడియో',
+  'system_audio.button_preparing': 'షేర్ చేయడానికి సిద్ధమవుతోంది...',
   'system_audio.sharing': 'సిస్టమ్ ఆడియో షేర్ అవుతోంది',
   'system_audio.receiving': 'సిస్టమ్ ఆడియో స్వీకరించబడుతోంది',
   'system_audio.owner_active': '{{name}} సిస్టమ్ ఆడియోను షేర్ చేస్తున్నారు',

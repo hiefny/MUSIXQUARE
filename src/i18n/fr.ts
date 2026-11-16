@@ -499,6 +499,7 @@ const fr: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Audio système',
+  'system_audio.button_preparing': 'Préparation du partage…',
   'system_audio.sharing': 'Partage de l’audio système',
   'system_audio.receiving': 'Réception de l’audio système',
   'system_audio.owner_active': '{{name}} partage l’audio système',

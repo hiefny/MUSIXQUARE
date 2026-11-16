@@ -907,6 +907,7 @@ const gu: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ────────────────────────────────────────
   'system_audio.button': 'સિસ્ટમ ઑડિયો',
+  'system_audio.button_preparing': 'શેર કરવાની તૈયારી...',
   'system_audio.sharing': 'સિસ્ટમ ઑડિયો શેર થઈ રહ્યો છે',
   'system_audio.receiving': 'સિસ્ટમ ઑડિયો મળી રહ્યો છે',
   'system_audio.owner_active': '{{name}} સિસ્ટમ ઑડિયો શેર કરી રહ્યા છે',

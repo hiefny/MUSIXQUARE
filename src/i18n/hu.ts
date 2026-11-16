@@ -935,6 +935,7 @@ const hu: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Rendszerhang',
+  'system_audio.button_preparing': 'Megosztás előkészítése...',
   'system_audio.sharing': 'Rendszerhang megosztása',
   'system_audio.receiving': 'Rendszerhang fogadása',
   'system_audio.owner_active': '{{name}} rendszerhangot oszt meg',

@@ -943,6 +943,7 @@ const ro: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Sunetul sistemului',
+  'system_audio.button_preparing': 'Se pregătește partajarea...',
   'system_audio.sharing': 'Se partajează sunetul sistemului',
   'system_audio.receiving': 'Se primește sunetul sistemului',
   'system_audio.owner_active': '{{name}} partajează sunetul sistemului',

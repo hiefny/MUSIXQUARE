@@ -937,6 +937,7 @@ const bg: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Системен звук',
+  'system_audio.button_preparing': 'Подготовка за споделяне...',
   'system_audio.sharing': 'Споделяне на системен звук',
   'system_audio.receiving': 'Получаване на системен звук',
   'system_audio.owner_active': '{{name}} споделя системен звук',

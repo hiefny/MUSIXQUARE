@@ -23,13 +23,15 @@
          splash the screen's height while this first screen is as wide as the
          screen and up to 64px shorter: iOS gives an installed app's first open
          the same short first screen, and that app fills the screen it reports
-         (its own height reads the screen there, src/core/platform.ts). The app
+         (its own height reads the screen there, src/core/platform.ts). While
+         that kept height is taller than this first screen it also marks the
+         root data-boot-hold, which src/core/platform.ts ends. The app
          document CSP allows exactly
          this text by its SHA-256 and the inline-JS guard exempts exactly this
          block (src/core/boot-preflight.ts): editing it means a new hash. Its body
          stays on one line: the localized build strips every line's leading
          indentation and blank lines, which would change those bytes. -->
-    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms'); var box = String(sessionStorage.getItem('mxqr-boot-continuity-box')).split('x'); var height = Number(box[1]); if (Number(box[0]) === innerWidth && height > 0 && Math.abs(height - innerHeight) <= 64) { root.style.setProperty('--boot-splash-height', height + 'px'); } } } catch (error) {} try { if (navigator.standalone === true) { root.setAttribute('data-boot-installed', ''); var wide = Math.max(screen.width, screen.height); var narrow = Math.min(screen.width, screen.height); var turned = innerWidth > innerHeight; var full = turned ? narrow : wide; if (!root.style.getPropertyValue('--boot-splash-height') && Math.abs(innerWidth - (turned ? wide : narrow)) <= 1 && full > innerHeight && full - innerHeight <= 64) { root.style.setProperty('--boot-splash-height', full + 'px'); } } } catch (error) {} })();</script>
+    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms'); var box = String(sessionStorage.getItem('mxqr-boot-continuity-box')).split('x'); var height = Number(box[1]); if (Number(box[0]) === innerWidth && height > 0 && Math.abs(height - innerHeight) <= 64) { root.style.setProperty('--boot-splash-height', height + 'px'); } } } catch (error) {} try { if (navigator.standalone === true) { root.setAttribute('data-boot-installed', ''); var wide = Math.max(screen.width, screen.height); var narrow = Math.min(screen.width, screen.height); var turned = innerWidth > innerHeight; var full = turned ? narrow : wide; if (!root.style.getPropertyValue('--boot-splash-height') && Math.abs(innerWidth - (turned ? wide : narrow)) <= 1 && full > innerHeight && full - innerHeight <= 64) { root.style.setProperty('--boot-splash-height', full + 'px'); } if (parseFloat(root.style.getPropertyValue('--boot-splash-height')) > innerHeight) { root.setAttribute('data-boot-hold', ''); } } } catch (error) {} })();</script>
     <!-- Boot splash: the wordmark and the shared loader paint from this
          document alone, before any script or stylesheet arrives, so a slow
          first visit never shows a blank page. Nothing in <head> before this
@@ -108,9 +110,15 @@
 
       /* Fades over the app as it takes the screen. This is an animation
          rather than a transition because style.css switches transitions off
-         while the app boots (html.is-booting). */
-      html:not(.setup-boot-block) .boot-splash,
-      html.boot-splash-released .boot-splash,
+         while the app boots (html.is-booting). Over an installed iOS app's
+         first screen that iOS gives short by the home indicator strip the
+         head preflight marks data-boot-hold, and the app's release waits
+         until src/core/platform.ts ends it (once that screen has grown, at the
+         latest when the boot window ends), so the app never shows on the short
+         screen and never jumps as it grows (owner decision 2026-11-16). Boot
+         failure is never held. */
+      html:not(.setup-boot-block):not([data-boot-hold]) .boot-splash,
+      html.boot-splash-released:not([data-boot-hold]) .boot-splash,
       html.setup-boot-failed .boot-splash {
         pointer-events: none;
         animation: boot-splash-out 0.3s ease-out forwards;
@@ -130,8 +138,8 @@
         display: none;
       }
 
-      html:not([data-boot-splash-runtime]):not(.setup-boot-block) .boot-splash *,
-      html:not([data-boot-splash-runtime]).boot-splash-released .boot-splash *,
+      html:not([data-boot-splash-runtime]):not(.setup-boot-block):not([data-boot-hold]) .boot-splash *,
+      html:not([data-boot-splash-runtime]).boot-splash-released:not([data-boot-hold]) .boot-splash *,
       html:not([data-boot-splash-runtime]).setup-boot-failed .boot-splash * {
         animation-play-state: paused;
       }
@@ -463,8 +471,8 @@
       }
 
       @media (prefers-reduced-motion: reduce) {
-        html:not(.setup-boot-block) .boot-splash,
-        html.boot-splash-released .boot-splash,
+        html:not(.setup-boot-block):not([data-boot-hold]) .boot-splash,
+        html.boot-splash-released:not([data-boot-hold]) .boot-splash,
         html.setup-boot-failed .boot-splash,
         .boot-splash-mark,
         .boot-splash[data-phase='loader'] .boot-splash-mark,

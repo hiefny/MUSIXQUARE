@@ -367,14 +367,17 @@
     splash.dataset.phase = phase;
   }
 
-  /** The splash still covers the page: the app has not taken the screen and boot has not failed. */
+  /**
+   * The splash still covers the page: boot has not failed, and the app has not
+   * taken the screen or an installed iOS app's short first screen still holds
+   * the splash over it (index.html's head preflight marks data-boot-hold,
+   * src/core/platform.ts ends it once that screen grows).
+   */
   function splashUp(): boolean {
     const classes = root.classList;
-    return (
-      classes.contains('setup-boot-block') &&
-      !classes.contains('boot-splash-released') &&
-      !classes.contains('setup-boot-failed')
-    );
+    if (classes.contains('setup-boot-failed')) return false;
+    if (root.hasAttribute('data-boot-hold')) return true;
+    return classes.contains('setup-boot-block') && !classes.contains('boot-splash-released');
   }
 
   /**
@@ -489,7 +492,7 @@
       observer.disconnect();
       freeze();
     });
-    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    observer.observe(root, { attributes: true, attributeFilter: ['class', 'data-boot-hold'] });
     at(SPLASH_MARK_DELAY, start);
   }
 

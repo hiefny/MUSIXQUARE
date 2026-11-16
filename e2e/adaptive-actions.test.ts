@@ -1830,6 +1830,24 @@ test.describe('content-based adaptive action groups', () => {
     [1280, 800],
     [1440, 900],
   ];
+  // Where the preparing System Audio label (owner proposal 2026-11-03) comes
+  // out worse than with the 9.0.18 type, by viewport, without the theme and
+  // the probe's instance number. Accepted on review (2026-11-17):
+  // - Korean at 340px: keep-all keeps the owner's words whole, so they take
+  //   three lines beside the Beta badge, as the System Audio label they
+  //   replace does there; the 9.0.18 type kept two only by splitting a word.
+  // - Chinese at 360px, in the light theme without the options' border: the
+  //   14px chip type ends the first line inside a two-character word where
+  //   15px did not, and Chinese text breaks between any two characters.
+  // A fraction of a pixel decides these, so on another platform a listed
+  // entry may not occur.
+  const ACCEPTED_SWEPT_SLOT_ENTRIES: Record<string, readonly string[]> = {
+    '340x800': ['media sources ko 공유 준비 중... lines: 3 (9.0.18 type 2)'],
+    '360x800': [
+      'media sources zh-Hans 正在准备共享... broken: 1 (9.0.18 type 0)',
+      'media sources zh-Hant 正在準備分享… broken: 1 (9.0.18 type 0)',
+    ],
+  };
   for (const [viewportWidth, viewportHeight] of SWEPT_SLOT_VIEWPORTS) {
     test(`keeps the narrow slots' role labels no worse than 9.0.18 in every locale at ${viewportWidth}x${viewportHeight}`, async ({
       page,
@@ -1863,9 +1881,15 @@ test.describe('content-based adaptive action groups', () => {
         }
       }
       expect(probedLocales).toBe(84);
-      expect(worse, `swept slots worse than 9.0.18 at ${viewportWidth}x${viewportHeight}`).toEqual(
-        [],
+      const accepted = ACCEPTED_SWEPT_SLOT_ENTRIES[`${viewportWidth}x${viewportHeight}`] ?? [];
+      const unaccepted = worse.filter(
+        (entry) =>
+          !accepted.includes(entry.replace(/^(?:dark|light) /u, '').replace(/ #\d+ /u, ' ')),
       );
+      expect(
+        unaccepted,
+        `swept slots worse than 9.0.18 at ${viewportWidth}x${viewportHeight}`,
+      ).toEqual([]);
     });
   }
 
@@ -1974,11 +1998,11 @@ test.describe('content-based adaptive action groups', () => {
               option.classList.toggle('unsupported', !supported);
               if (label === 'systemPreparing') {
                 // While a share gets ready, as src/ui/player-controls.ts sets
-                // it. Only desktop Chromium can capture (canCaptureSystemAudio
-                // in src/core/platform.ts) and its windows are at least 500px
-                // wide, so the preparing label is measured from 500px up.
+                // it. Only desktop Chromium captures (canCaptureSystemAudio in
+                // src/core/platform.ts), but browser zoom brings it to every
+                // swept width (a 1280px window at 400% is 320 CSS px), so the
+                // label is measured at each, as the supported state is.
                 option.setAttribute('aria-busy', 'true');
-                if (innerWidth < 500) outer.dataset.unmeasured = '';
               }
               return outer;
             }),

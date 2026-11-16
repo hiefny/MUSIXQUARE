@@ -222,6 +222,58 @@ describe('boot splash', () => {
     );
   });
 
+  // Owner report 2026-11-16: in the installed iPhone app the strip iOS paints
+  // under a short first screen is pure black in the dark theme and pure white
+  // in the light one. There the splash starts on that colour and the refresh
+  // screen ends on it, so the strip blends in; the app's own background shows
+  // through the splash's fade over the app (owner decision, same day).
+  it("starts an installed app's splash on the strip's colour, and its refresh screen ends on it", () => {
+    expect(
+      ownDeclaration(SPLASH_CSS, '      html[data-boot-installed] .boot-splash {', 'background'),
+    ).toBe('#000000');
+    const systemLight = SPLASH_CSS.slice(
+      SPLASH_CSS.indexOf(
+        '@media (prefers-color-scheme: light) {\n        html[data-boot-installed] .boot-splash {',
+      ),
+    );
+    expect(declaration(systemLight, 'html[data-boot-installed] .boot-splash {', 'background')).toBe(
+      '#ffffff',
+    );
+    expect(
+      declaration(
+        SPLASH_CSS,
+        "      html[data-boot-installed][data-theme='dark'] .boot-splash {",
+        'background',
+      ),
+    ).toBe('#000000');
+    expect(
+      declaration(
+        SPLASH_CSS,
+        "      html[data-boot-installed][data-theme='light'] .boot-splash {",
+        'background',
+      ),
+    ).toBe('#ffffff');
+    // The background itself, not --boot-splash-bg: once style.css loads, its
+    // --bg would take over that fallback in the middle of the boot.
+    expect(SPLASH_CSS).not.toMatch(/data-boot-installed[^{]*\{[^}]*--boot-splash-bg/u);
+    expect(
+      declaration(STYLE, '  html[data-boot-installed] .session-reset-overlay {', 'background'),
+    ).toBe('#000000');
+    expect(
+      declaration(
+        STYLE,
+        "  html[data-boot-installed][data-theme='light'] .session-reset-overlay {",
+        'background',
+      ),
+    ).toBe('#ffffff');
+    // Everywhere else the refresh screen keeps the app's palette.
+    expect(declaration(STYLE, '  .session-reset-overlay {', 'background')).toBe('var(--bg)');
+    // Both colours are the palette's already: the dark contrast palette's
+    // background and the light palette's first surface.
+    expect(declaration(STYLE, "  html[data-contrast='more'] {", '--bg')).toBe('#000000');
+    expect(declaration(STYLE, "  html[data-theme='light'] {", '--surface-1')).toBe('#ffffff');
+  });
+
   it('keeps the app wordmark shapes in the loading screen logo, glyph for glyph', () => {
     const dom = new JSDOM(INDEX);
     const splashLogo = dom.window.document.querySelector('.boot-splash-logo');

@@ -476,6 +476,85 @@ test.describe('session reset screen', () => {
     ]);
   });
 
+  // The strip iOS paints there is pure black in the dark theme and pure white
+  // in the light one (owner report, 2026-11-16): an installed app's splash
+  // starts on that colour, its refresh screen ends on it, and elsewhere both
+  // keep the app's palette.
+  test("an installed app's splash starts on the strip's colour and its refresh screen ends on it", async ({
+    page,
+  }) => {
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    await page.addInitScript(() => {
+      Object.defineProperty(Navigator.prototype, 'standalone', {
+        configurable: true,
+        get: () => true,
+      });
+      const sample = () => {
+        const splash = document.querySelector('.boot-splash');
+        if (!splash) {
+          requestAnimationFrame(sample);
+          return;
+        }
+        (window as typeof window & { __firstSplash?: unknown }).__firstSplash = {
+          theme: document.documentElement.getAttribute('data-theme'),
+          background: getComputedStyle(splash).backgroundColor,
+        };
+      };
+      requestAnimationFrame(sample);
+    });
+    let releaseBootstrap = (): void => undefined;
+    const bootstrapHeld = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    await page.route(/\/bootstrap\.js(?:\?.*)?$/u, async (route) => {
+      await bootstrapHeld;
+      await route.fallback();
+    });
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto('/', { waitUntil: 'commit' });
+    await page.waitForFunction(
+      () => Boolean((window as typeof window & { __firstSplash?: unknown }).__firstSplash),
+      null,
+      { timeout: 10_000, polling: 20 },
+    );
+    const first = await page.evaluate(
+      () =>
+        (window as typeof window & { __firstSplash: { theme: string; background: string } })
+          .__firstSplash,
+    );
+    expect(first.background).toBe(first.theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
+    releaseBootstrap();
+    await waitForBootstrapReady(page);
+    // The refresh screen with the app stylesheet (its layer and palette) loaded.
+    const overlay = await page.evaluate(() => {
+      const root = document.documentElement;
+      const screen = document.createElement('div');
+      screen.className = 'session-reset-overlay';
+      document.body.append(screen);
+      const read = (theme: string, installed: boolean) => {
+        root.setAttribute('data-theme', theme);
+        root.toggleAttribute('data-boot-installed', installed);
+        return getComputedStyle(screen).backgroundColor;
+      };
+      const colours = {
+        installedDark: read('dark', true),
+        installedLight: read('light', true),
+        browserDark: read('dark', false),
+        browserLight: read('light', false),
+      };
+      screen.remove();
+      return colours;
+    });
+    expect(overlay).toEqual({
+      installedDark: 'rgb(0, 0, 0)',
+      installedLight: 'rgb(255, 255, 255)',
+      browserDark: 'rgb(18, 18, 18)',
+      browserLight: 'rgb(248, 249, 250)',
+    });
+  });
+
   test('a continued splash keeps the wordmark and loader on a screen turned after its first frame', async ({
     page,
   }) => {

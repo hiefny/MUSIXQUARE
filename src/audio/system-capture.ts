@@ -178,6 +178,11 @@ function restoreRejectedPendingCapture(snapshot: Readonly<PreSystemAudioState>):
 interface ProLeaseAttempt {
   owner: ProSystemAudioLeaseAttempt;
   result: Promise<{ ok: true } | { ok: false; error: unknown }>;
+  /**
+   * The release this start began, if it began one. It settles once the room
+   * has answered it, or the request has failed, and never rejects.
+   */
+  released: Promise<void> | null;
 }
 
 function showSystemAudioDeviceLimit(): void {
@@ -199,12 +204,17 @@ function beginProLeaseAttempt(): ProLeaseAttempt {
       () => ({ ok: true as const }),
       (error: unknown) => ({ ok: false as const, error }),
     ),
+    released: null,
   };
 }
 
 function releaseProLeaseAttempt(attempt: ProLeaseAttempt | null): void {
   if (!attempt) return;
-  void attempt.owner.releaseIfCurrent().catch(() => undefined);
+  // releaseIfCurrent is one flight per attempt; keep its end for the start.
+  attempt.released ??= attempt.owner.releaseIfCurrent().then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 function showProLeaseFailure(error?: unknown): void {
@@ -394,6 +404,14 @@ export async function startSystemAudioCapture(): Promise<void> {
   try {
     started = await attempt;
   } finally {
+    // A PRO start that did not go live released the lease it asked for, and
+    // the room holds that lease as preparing until it answers. A press before
+    // then would only meet the lease and open nothing, so the attempt, and
+    // the picker's preparing label, last until the answer: normally one
+    // round trip, each request bounded by the control request deadline.
+    if (!started && _captureStartPromise === attempt && proLeaseAttempt?.released) {
+      await proLeaseAttempt.released;
+    }
     // A stop that cleared the slot already settled this attempt; settle only
     // while it is still ours, so the picker hears each attempt end once.
     if (_captureStartPromise === attempt) {

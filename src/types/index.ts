@@ -1685,7 +1685,8 @@ interface BaseEventMap {
   /**
    * The capture's start attempt ended, exactly once: started when the share is
    * on (after the standard start broadcast or the PRO live commit), otherwise
-   * cancelled, refused, failed or superseded.
+   * cancelled, refused, failed or superseded. A PRO attempt that released its
+   * lease ends once the room has answered that release.
    */
   'system-audio:start-settled': [event: Readonly<{ started: boolean }>];
   'system-audio:stop': [options?: { reason?: SystemAudioStopReason }];

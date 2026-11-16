@@ -727,6 +727,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     width,
     height,
     deviceDark = false,
+    installed = false,
+    screen,
   }: {
     theme?: string;
     stamp?: string;
@@ -734,6 +736,10 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     width?: number;
     height?: number;
     deviceDark?: boolean;
+    /** Opened from the iOS home screen: WebKit's navigator.standalone is true. */
+    installed?: boolean;
+    /** The screen as iOS reports it (in either orientation's order). */
+    screen?: { width: number; height: number };
   } = {}) {
     const dom = new JSDOM('<!doctype html><html class="setup-boot-block"><head></head></html>', {
       runScripts: 'outside-only',
@@ -747,6 +753,13 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     }
     if (height !== undefined) {
       Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+    }
+    if (installed) {
+      Object.defineProperty(window.navigator, 'standalone', { configurable: true, value: true });
+    }
+    if (screen !== undefined) {
+      Object.defineProperty(window.screen, 'width', { configurable: true, value: screen.width });
+      Object.defineProperty(window.screen, 'height', { configurable: true, value: screen.height });
     }
     if (box !== undefined) window.sessionStorage.setItem(BOOT_SPLASH_CONTINUITY_BOX_KEY, box);
     Object.defineProperty(window, 'matchMedia', {
@@ -770,7 +783,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       }),
       stamp: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_KEY),
       box: () => window.sessionStorage.getItem(BOOT_SPLASH_CONTINUITY_BOX_KEY),
-      height: () => root.style.getPropertyValue('--boot-continued-height'),
+      height: () => root.style.getPropertyValue('--boot-splash-height'),
+      installed: () => root.hasAttribute('data-boot-installed'),
       window,
     };
   }
@@ -884,10 +898,81 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect(app.height()).toBe('');
   });
 
+  // Owner report 2026-11-16, after 9.0.51: opening the installed app for the
+  // first time showed the strip too, and the wordmark came down when it went.
+  // No reset left a box there, but the installed app fills its whole screen
+  // (the app's own height already reads the screen there, src/core/platform.ts),
+  // so the screen iOS reports gives the same height from the first frame.
+  it.each([
+    ['an iPhone held upright, 34 px short', { width: 390, height: 844 }, 390, 810, '844px'],
+    ['an iPhone turned, 21 px short', { width: 390, height: 844 }, 844, 369, '390px'],
+    [
+      'an iPhone turned, the screen read in that order',
+      { width: 844, height: 390 },
+      844,
+      369,
+      '390px',
+    ],
+    ['an iPad held upright, 20 px short', { width: 820, height: 1180 }, 820, 1160, '1180px'],
+    ['an iPhone held upright, 64 px short', { width: 390, height: 844 }, 390, 780, '844px'],
+  ] as const)(
+    "gives an installed app's first screen the screen's height: %s",
+    (_label, screen, width, height, expected) => {
+      const app = page({ installed: true, screen, width, height });
+      app.run();
+      expect(app.installed()).toBe(true);
+      expect(app.state().continued).toBe(false);
+      expect(app.height()).toBe(expected);
+    },
+  );
+
+  it.each([
+    ['in a browser tab (not installed)', false, { width: 390, height: 844 }, 390, 810],
+    ['as tall as the screen', true, { width: 390, height: 844 }, 390, 844],
+    ['more than 64 px short', true, { width: 390, height: 844 }, 390, 779],
+    ['narrower than the screen (Split View)', true, { width: 820, height: 1180 }, 507, 1160],
+    ['taller than the screen', true, { width: 390, height: 844 }, 390, 850],
+    ['with no screen to read', true, { width: 0, height: 0 }, 390, 810],
+  ] as const)(
+    'lets the splash fill its own first screen %s',
+    (_label, installed, screen, width, height) => {
+      const app = page({ installed, screen, width, height });
+      app.run();
+      expect(app.installed()).toBe(installed);
+      expect(app.height()).toBe('');
+    },
+  );
+
+  it("keeps the reset screen's height over the screen's in an installed app, and falls back to the screen's without a box", () => {
+    const kept = page({
+      installed: true,
+      screen: { width: 390, height: 852 },
+      stamp: String(NOW - 1000),
+      box: '390x844',
+      width: 390,
+      height: 810,
+    });
+    kept.run();
+    expect(kept.height()).toBe('844px');
+    const unkept = page({
+      installed: true,
+      screen: { width: 390, height: 844 },
+      stamp: String(NOW - 1000),
+      width: 390,
+      height: 810,
+    });
+    unkept.run();
+    expect(unkept.state().continued).toBe(true);
+    expect(unkept.height()).toBe('844px');
+  });
+
   it("keeps a continued splash in the reset screen's box: from the top, as tall as the screen it left", () => {
-    const opener = '        html[data-boot-continued] .boot-splash {';
+    const opener = [
+      '        html[data-boot-continued] .boot-splash,',
+      '        html[data-boot-installed] .boot-splash {',
+    ].join('\n');
     expect(declaration(SPLASH_CSS, opener, 'bottom')).toBe('auto');
-    expect(declaration(SPLASH_CSS, opener, 'height')).toBe('var(--boot-continued-height, 100%)');
+    expect(declaration(SPLASH_CSS, opener, 'height')).toBe('var(--boot-splash-height, 100%)');
     // Never shorter than its own screen (a box left short by a size change
     // leaves no band under it), and never more than the preflight's window
     // taller (a screen turned after the first frame keeps the wordmark and
@@ -928,11 +1013,14 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     const guard = `      @media not all and (min-width: ${smallest.width}px) and (min-height: ${smallest.height}px) {`;
     const start = SPLASH_CSS.indexOf(guard);
     expect(start, guard).toBeGreaterThan(-1);
-    const rule = SPLASH_CSS.indexOf('        html[data-boot-continued] .boot-splash {', start);
+    const opener =
+      '        html[data-boot-continued] .boot-splash,\n        html[data-boot-installed] .boot-splash {';
+    const rule = SPLASH_CSS.indexOf(opener, start);
     expect(rule).toBeGreaterThan(start);
-    // The rule is the guard's only content.
+    // The rule is the guard's only content, and the kept height is set nowhere else.
     expect(SPLASH_CSS.slice(start + guard.length, rule).trim()).toBe('');
-    expect(SPLASH_CSS.indexOf('html[data-boot-continued] .boot-splash {')).toBe(rule + 8);
+    expect(SPLASH_CSS.indexOf(opener)).toBe(rule);
+    expect(SPLASH_CSS.split('var(--boot-splash-height')).toHaveLength(2);
   });
 
   it('changes nothing it cannot read when storage is blocked', () => {

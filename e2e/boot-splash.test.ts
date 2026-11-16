@@ -390,6 +390,92 @@ test.describe('session reset screen', () => {
     ]);
   });
 
+  // Owner report 2026-11-16, after 9.0.51: opening the installed app for the
+  // first time, the first screen stopped short by the strip and the wordmark,
+  // centred in it, came down when it went. No reset leaves a box there; the
+  // installed app fills the screen iOS reports, so the splash takes that height.
+  test("an installed app's first open keeps the wordmark where the full screen centres it while its first screen is shorter", async ({
+    page,
+  }) => {
+    await useAnonymousAccountSession(page);
+    await page.goto('/');
+    await waitForBootstrapReady(page);
+    const { width, height } = page.viewportSize()!;
+    type Frame = { screen: number; wordmark: number; installed: boolean };
+    // Opened from the iOS home screen (WebKit's navigator.standalone), on a
+    // screen the size of this window.
+    await page.addInitScript(
+      ({ screenWidth, screenHeight }) => {
+        Object.defineProperty(Navigator.prototype, 'standalone', {
+          configurable: true,
+          get: () => true,
+        });
+        Object.defineProperty(Screen.prototype, 'width', {
+          configurable: true,
+          get: () => screenWidth,
+        });
+        Object.defineProperty(Screen.prototype, 'height', {
+          configurable: true,
+          get: () => screenHeight,
+        });
+        const frames: Frame[] = [];
+        (window as typeof window & { __firstFrames: Frame[] }).__firstFrames = frames;
+        const sample = () => {
+          // The wordmark itself: on a first open it stands alone at the centre (its
+          // mark box also holds the loader's place below it).
+          const wordmark = document.querySelector('.boot-splash .boot-splash-logo');
+          if (wordmark) {
+            const box = wordmark.getBoundingClientRect();
+            frames.push({
+              screen: innerHeight,
+              wordmark: box.top + box.height / 2,
+              installed: document.documentElement.hasAttribute('data-boot-installed'),
+            });
+          }
+          if (frames.length < 3) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      },
+      { screenWidth: width, screenHeight: height },
+    );
+    // Hold bootstrap.js, so the first frames come before it.
+    let releaseBootstrap = (): void => undefined;
+    const bootstrapHeld = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    await page.route(/\/bootstrap\.js(?:\?.*)?$/u, async (route) => {
+      await bootstrapHeld;
+      await route.fallback();
+    });
+    // A first open (no reset stamp), on a first screen 34 px short, as an
+    // iPhone's is by its home indicator strip.
+    await page.evaluate(() => sessionStorage.clear());
+    await page.setViewportSize({ width, height: height - 34 });
+    await page.goto('/', { waitUntil: 'commit' });
+    await page.waitForFunction(
+      () =>
+        ((window as typeof window & { __firstFrames?: Frame[] }).__firstFrames?.length ?? 0) >= 2,
+      null,
+      { timeout: 10_000, polling: 20 },
+    );
+    const frames = await page.evaluate(
+      () => (window as typeof window & { __firstFrames: Frame[] }).__firstFrames,
+    );
+    releaseBootstrap();
+    await page.setViewportSize({ width, height });
+    // The wordmark sits where the full screen centres it: half the full screen down.
+    expect(
+      frames.slice(0, 2).map((frame) => ({
+        screen: frame.screen,
+        wordmark: Math.round(frame.wordmark * 2) / 2,
+        installed: frame.installed,
+      })),
+    ).toEqual([
+      { screen: height - 34, wordmark: height / 2, installed: true },
+      { screen: height - 34, wordmark: height / 2, installed: true },
+    ]);
+  });
+
   test('a continued splash keeps the wordmark and loader on a screen turned after its first frame', async ({
     page,
   }) => {

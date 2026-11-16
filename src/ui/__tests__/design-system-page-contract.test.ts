@@ -782,7 +782,7 @@ describe('public design-system page contract', () => {
     expect(search?.textContent?.trim()).toBe('bach cello suite');
     expect(
       components.querySelector(
-        '.material-elastic-spinner--large .material-elastic-turn .material-elastic-arc .material-elastic-head > svg',
+        '.material-elastic-spinner--large .material-elastic-turn .material-elastic-arc .material-elastic-head > .material-elastic-ring > svg',
       ),
     ).toBeTruthy();
     expect(components.querySelector('.large-spinner-stage')?.textContent?.trim()).toBe('');

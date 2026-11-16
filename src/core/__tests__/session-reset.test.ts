@@ -655,7 +655,8 @@ describe('session reset coordinator', () => {
     // swings every 1.333 s.
     const TURN = '.material-elastic-turn';
     const LAYER = '.material-elastic-arc';
-    const RINGS = '.material-elastic-tail > svg, .material-elastic-head > svg';
+    const RINGS =
+      '.material-elastic-tail > .material-elastic-ring, .material-elastic-head > .material-elastic-ring';
     const MOVING_PARTS = `${TURN}, ${LAYER}, ${RINGS}`;
     const periodOf = (element: Element) =>
       element.matches(TURN) ? 1568 : element.matches(LAYER) ? 5332 : 1333;
@@ -845,7 +846,7 @@ describe('session reset coordinator', () => {
               '#session-reset-overlay .boot-splash-spinner *',
             ),
           ].map((element) => element.style.animationDelay),
-        ).toEqual(Array.from({ length: 10 }, () => ''));
+        ).toEqual(Array.from({ length: 12 }, () => ''));
         expect([...transitions.values()].map((transition) => transition.currentTime)).toEqual([
           null,
           null,

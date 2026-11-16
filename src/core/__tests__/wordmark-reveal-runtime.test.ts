@@ -489,7 +489,7 @@ describe('boot splash wordmark reveal', () => {
     // None of the loader's moving parts (src/ui/material-elastic-spinner.ts) is phased here.
     const parts = [
       ...loader.querySelectorAll<HTMLElement | SVGElement>(
-        '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
+        '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > .material-elastic-ring, .material-elastic-head > .material-elastic-ring',
       ),
     ];
     expect(parts).toHaveLength(4);

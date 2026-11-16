@@ -14,9 +14,9 @@ import {
 // compositor runs without the page. iOS stops painting a page it is leaving:
 // on the session refresh screen the old loader's animated stroke dash froze
 // there while its turn ran on, a short or long arc at one steady speed.
-// Since App 9.0.53 it turns as Google's Material circular progress does
-// (Material Components Web 14, @material/circular-progress, MIT), the owner's
-// choice of 2026-11-16 after seeing the two side by side on real devices.
+// It turns as Google's Material circular progress does (Material Components
+// Web 14, @material/circular-progress, MIT), the owner's choice of 2026-11-16
+// after seeing the two side by side on Windows.
 const INDEX = readFileSync('index.html', 'utf8');
 const STYLE = readFileSync('css/style.css', 'utf8');
 const PLAYBACK_ACTIONS = readFileSync('css/playback-actions.css', 'utf8');
@@ -241,8 +241,8 @@ describe('shared loader (material elastic spinner)', () => {
       const parts = {
         spin: `${root} .material-elastic-turn`,
         arc: `${root} .material-elastic-arc`,
-        tail: `${root} .material-elastic-tail > svg`,
-        head: `${root} .material-elastic-head > svg`,
+        tail: `${root} .material-elastic-tail > .material-elastic-ring`,
+        head: `${root} .material-elastic-head > .material-elastic-ring`,
       };
       for (const part of ['spin', 'arc', 'tail', 'head'] as const) {
         expect(declaration(css, parts[part], 'animation'), part).toBe(
@@ -314,32 +314,88 @@ describe('shared loader (material elastic spinner)', () => {
     },
   );
 
+  it('turns every moving part as an HTML box, which every compositor runs', () => {
+    // Chromium runs a transform animation on an <svg> on the main thread
+    // whenever the device scale is not 1, so on a 125 % or 150 % Windows
+    // display or a phone the rings stopped whenever the page was busy while
+    // the turn and the layer kept going, and the arc's parts moved apart. Each
+    // ring turns on a span holding its drawing.
+    for (const { css, root } of SHEETS) {
+      for (const rule of rules(css)) {
+        if (!rule.selectors.some((selector) => selector.includes(root))) continue;
+        const animation = rule.declarations.match(
+          /(?:^|[\s;])animation(?:-name)?\s*:\s*([^;]+);/u,
+        )?.[1];
+        if (!animation || /^none\b/u.test(animation.trim())) continue;
+        for (const selector of rule.selectors) {
+          expect(selector, `${root}: ${selector}`).not.toMatch(
+            /(?:^|[\s>+~])(?:svg|path|circle)(?:[.:[]|$)/u,
+          );
+        }
+      }
+    }
+    const document = new JSDOM(`<span>${MATERIAL_ELASTIC_SPINNER_PARTS}</span>`).window.document;
+    for (const part of ['turn', 'arc', 'ring']) {
+      const elements = [...document.querySelectorAll(`.material-elastic-${part}`)];
+      expect(elements.length, part).toBeGreaterThan(0);
+      for (const element of elements) expect(element.localName, part).toBe('span');
+    }
+    for (const side of ['tail', 'head']) {
+      expect(
+        document.querySelectorAll(
+          `.material-elastic-${side} > .material-elastic-ring > svg > path`,
+        ),
+        side,
+      ).toHaveLength(1);
+    }
+  });
+
   it('sizes every loader to an even whole number of px', () => {
     // WebKit rounds each composited part's pivot to a device pixel but draws
     // its ring about the exact centre, so a loader whose half is not a whole
     // pixel turns its two half rings about points apart: a step at the arc's
     // middle that flips sides every cycle, and a wobble. Half an even whole
-    // px is whole at 1x, 2x and 3x. Rings drawn smaller keep their even box
-    // and shrink by a scale (--material-elastic-scale), about the same centre.
-    const sizes = [
-      ...[STYLE, PLAYBACK_ACTIONS, EDITORIAL].flatMap((css) =>
-        [...css.matchAll(/--material-elastic-size:\s*([^;]+);/gu)].map(([, value]) =>
-          value!.trim(),
-        ),
+    // px is whole at 1x, 2x and 3x (at 100 % page zoom). A ring drawn smaller
+    // keeps its even box and sits inside it (--material-elastic-ring-size).
+    // Every sheet and page the app or its public pages ship:
+    const files = [
+      'index.html',
+      ...['css', 'public'].flatMap((dir) =>
+        readdirSync(dir, { recursive: true, encoding: 'utf8' })
+          .filter((path) => /\.(?:css|html)$/u.test(path))
+          .map((path) => join(dir, path)),
       ),
-      declaration(SPLASH_CSS, '.boot-splash-spinner .material-elastic-turn', 'width') ?? '',
+    ];
+    const declared = (property: string) =>
+      files.flatMap((path) =>
+        [
+          ...readFileSync(path, 'utf8').matchAll(new RegExp(`${property}:\\s*([^;"]+)[;"]`, 'gu')),
+        ].map(([, value]) => [path, value!.trim()] as const),
+      );
+    const sizes = [
+      ...declared('--material-elastic-size'),
+      [
+        'index.html',
+        declaration(SPLASH_CSS, '.boot-splash-spinner .material-elastic-turn', 'width') ?? '',
+      ] as const,
     ];
     expect(sizes.length).toBeGreaterThan(10);
-    for (const size of sizes) {
-      expect(size, size).toMatch(/^\d+px$/u);
-      expect(Number.parseInt(size, 10) % 2, size).toBe(0);
+    for (const [path, size] of sizes) {
+      expect(size, `${path} ${size}`).toMatch(/^\d+px$/u);
+      expect(Number.parseInt(size, 10) % 2, `${path} ${size}`).toBe(0);
     }
-    // No script gives a loader a size of its own.
+    // The stroke is a number of viewBox units, which the seam's calc() needs.
+    const strokes = declared('--material-elastic-stroke');
+    expect(strokes.length).toBeGreaterThan(5);
+    for (const [path, stroke] of strokes) {
+      expect(stroke, `${path} ${stroke}`).toMatch(/^\d+(?:\.\d+)?$/u);
+    }
+    // No script gives a loader a size or a stroke of its own.
     for (const path of readdirSync('src', { recursive: true, encoding: 'utf8' })) {
       if (!path.endsWith('.ts') || path.split(/[\\/]/u).includes('__tests__')) continue;
-      expect(readFileSync(join('src', path), 'utf8'), path).not.toContain(
-        '--material-elastic-size',
-      );
+      const source = readFileSync(join('src', path), 'utf8');
+      expect(source, path).not.toContain('--material-elastic-size');
+      expect(source, path).not.toContain('--material-elastic-stroke');
     }
   });
 
@@ -362,16 +418,36 @@ describe('shared loader (material elastic spinner)', () => {
         /^(?:50%|12px)$/u,
       );
       // Each half ring is the whole loader's size, centred on the frame's centre.
-      expect(declaration(css, `${root} .material-elastic-${side} > svg`, 'width')).toMatch(
-        /^(?:200%|24px)$/u,
-      );
+      expect(
+        declaration(css, `${root} .material-elastic-${side} > .material-elastic-ring`, 'width'),
+      ).toMatch(/^(?:200%|24px)$/u);
     }
     expect(declaration(css, `${root} .material-elastic-tail`, 'left')).toBe('0');
     expect(declaration(css, `${root} .material-elastic-head`, 'left')).toMatch(/^(?:50%|12px)$/u);
-    expect(declaration(css, `${root} .material-elastic-tail > svg`, 'left')).toBe('0');
-    expect(declaration(css, `${root} .material-elastic-head > svg`, 'left')).toMatch(
-      /^(?:-100%|-12px)$/u,
-    );
+    expect(
+      declaration(css, `${root} .material-elastic-tail > .material-elastic-ring`, 'left'),
+    ).toBe('0');
+    expect(
+      declaration(css, `${root} .material-elastic-head > .material-elastic-ring`, 'left'),
+    ).toMatch(/^(?:-100%|-12px)$/u);
+    // Each ring's drawing sits inside it at the ring's drawn size, by default
+    // the whole box; the seam's likewise inside the frame. The splash draws the
+    // default 24px loader in fixed lengths.
+    const drawing =
+      root === '.boot-splash-spinner'
+        ? { size: '24px', offset: undefined }
+        : {
+            size: 'var(--material-elastic-ring-size, 100%)',
+            offset: 'calc((100% - var(--material-elastic-ring-size, 100%)) / 2)',
+          };
+    for (const part of ['.material-elastic-ring > svg', '.material-elastic-seam']) {
+      expect(declaration(css, `${root} ${part}`, 'width'), part).toBe(drawing.size);
+      expect(declaration(css, `${root} ${part}`, 'height'), part).toBe(drawing.size);
+      if (drawing.offset) {
+        expect(declaration(css, `${root} ${part}`, 'left'), part).toBe(drawing.offset);
+        expect(declaration(css, `${root} ${part}`, 'top'), part).toBe(drawing.offset);
+      }
+    }
   });
 
   it('carries the same parts in every copy of the loader', () => {
@@ -457,7 +533,9 @@ describe('shared loader (material elastic spinner)', () => {
     // (degrees clockwise from 3 o'clock, in the ring's own unturned frame).
     const span = (side: 'tail' | 'head') => {
       const d =
-        document.querySelector(`.material-elastic-${side} > svg > path`)?.getAttribute('d') ?? '';
+        document
+          .querySelector(`.material-elastic-${side} > .material-elastic-ring > svg > path`)
+          ?.getAttribute('d') ?? '';
       // One move and one clockwise arc of radius 18, the arc absolute (A) or relative (a).
       const arc = d.match(
         /^M(-?[\d.]+)[ ,](-?[\d.]+)([Aa])18[ ,]18[ ,]0[ ,]0[ ,]1[ ,]?(-?[\d.]+)[ ,]?(-?[\d.]+)$/u,
@@ -496,7 +574,9 @@ describe('shared loader (material elastic spinner)', () => {
       const h = tenth / 10;
       for (const farEnd of [tail.end + 270 - h, head.start + h - 270]) {
         expect(distance(farEnd, 90), `far end ${farEnd} at h ${h}`).toBeGreaterThanOrEqual(30);
-        expect(distance(farEnd, 270), `far end ${farEnd} at h ${h}`).toBeGreaterThanOrEqual(10);
+        // Near 12 o'clock only under the other ring's ink, 2 degrees inside it.
+        const fromNoon = distance(farEnd, 270);
+        expect(fromNoon >= 30 || fromNoon <= h - 2, `far end ${farEnd} at h ${h}`).toBe(true);
       }
     }
   });

@@ -366,7 +366,7 @@ describe('boot splash', () => {
       '      .boot-splash-spinner .material-elastic-arc,\n      .boot-splash-spinner .material-elastic-seam {',
     );
     const [ringWidth = 0, ringHeight = 0] = fixedSize(
-      '      .boot-splash-spinner .material-elastic-tail > svg,\n      .boot-splash-spinner .material-elastic-head > svg {',
+      '      .boot-splash-spinner .material-elastic-ring > svg {',
     );
     expect(
       logoWidth * logoHeight + seamWidth * seamHeight + 2 * ringWidth * ringHeight,
@@ -423,12 +423,12 @@ describe('boot splash', () => {
         `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 1000}s ${curve} infinite both`,
       ],
       [
-        '.material-elastic-tail > svg {',
+        '.material-elastic-tail > .material-elastic-ring {',
         'tail',
         `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 4000}s ${curve} infinite both`,
       ],
       [
-        '.material-elastic-head > svg {',
+        '.material-elastic-head > .material-elastic-ring {',
         'head',
         `${MATERIAL_ELASTIC_ARC_PERIOD_MS / 4000}s ${curve} infinite both`,
       ],
@@ -465,15 +465,15 @@ describe('boot splash', () => {
     // Reduced motion holds both on the same static arc: a rule of its own per
     // part, after the one that stops their animations.
     const staticArc = (css: string, root: string) =>
-      ['.material-elastic-arc', '.material-elastic-tail > svg', '.material-elastic-head > svg'].map(
-        (part) => {
-          const reduced = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce) {'));
-          const selector = `${root} ${part}`.replace(/\./gu, '\\.');
-          return reduced.match(
-            new RegExp(`\\n\\s*${selector} \\{\\s*transform: ([^;]+);`, 'u'),
-          )?.[1];
-        },
-      );
+      [
+        '.material-elastic-arc',
+        '.material-elastic-tail > .material-elastic-ring',
+        '.material-elastic-head > .material-elastic-ring',
+      ].map((part) => {
+        const reduced = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce) {'));
+        const selector = `${root} ${part}`.replace(/\./gu, '\\.');
+        return reduced.match(new RegExp(`\\n\\s*${selector} \\{\\s*transform: ([^;]+);`, 'u'))?.[1];
+      });
     const staticSplash = staticArc(SPLASH_CSS, '.boot-splash-spinner');
     expect(staticSplash).toEqual(['rotate(259.2deg)', 'rotate(165.6deg)', 'rotate(-165.6deg)']);
     const appSheet = STYLE.slice(0, STYLE.indexOf('.header-safe-content {'));
@@ -719,7 +719,9 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
           ? '1.568s'
           : element.matches('.material-elastic-arc')
             ? '5.332s'
-            : element.matches('.material-elastic-tail > svg, .material-elastic-head > svg')
+            : element.matches(
+                  '.material-elastic-tail > .material-elastic-ring, .material-elastic-head > .material-elastic-ring',
+                )
               ? '1.333s'
               : '0s',
       }),
@@ -739,8 +741,8 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
         [
           '.material-elastic-turn',
           '.material-elastic-arc',
-          '.material-elastic-tail > svg',
-          '.material-elastic-head > svg',
+          '.material-elastic-tail > .material-elastic-ring',
+          '.material-elastic-head > .material-elastic-ring',
         ].map((part) => delay(`.boot-splash-spinner ${part}`)),
       // Every other part of the loader keeps no delay.
       stillParts: () =>
@@ -748,7 +750,7 @@ describe('boot splash continuity preflight (bootstrap.js)', () => {
           .filter(
             (element) =>
               !element.matches(
-                '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > svg, .material-elastic-head > svg',
+                '.material-elastic-turn, .material-elastic-arc, .material-elastic-tail > .material-elastic-ring, .material-elastic-head > .material-elastic-ring',
               ),
           )
           .map((element) => element.style.animationDelay)
@@ -1229,8 +1231,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
         SPLASH_CSS,
         [
           '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-arc,',
-          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-tail > svg,',
-          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-head > svg {',
+          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-tail > .material-elastic-ring,',
+          '      html[data-boot-continued] .boot-splash .boot-splash-spinner .material-elastic-head > .material-elastic-ring {',
         ].join('\n'),
         'animation-delay',
       ),
@@ -1278,8 +1280,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     expect([spin, dash]).toEqual([MATERIAL_ELASTIC_TURN_PERIOD_MS, MATERIAL_ELASTIC_ARC_PERIOD_MS]);
     // The rings swing four times per layer cycle, so the layer's phase is theirs.
     expect([
-      period('.material-elastic-tail > svg'),
-      period('.material-elastic-head > svg'),
+      period('.material-elastic-tail > .material-elastic-ring'),
+      period('.material-elastic-head > .material-elastic-ring'),
     ]).toEqual([dash / 4, dash / 4]);
     expect(PREFLIGHT).toContain(`now % ${spin}`);
     expect(PREFLIGHT).toContain(`now % ${dash}`);

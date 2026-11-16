@@ -4582,8 +4582,13 @@ entry needs the owner's acceptance and is not implied by this registry.
   copies `BOOT_SPLASH_CONTINUITY_KEY` in `src/core/navigation-contract.ts`, the home of the
   next-document keys (RO-23), and its 15 s window is its own. The head preflight runs before any
   module and copies the stored theme's key from the theme step of `bootstrap.js`, the stamp's key,
-  that 15 s window and the sheet's loader periods (1.85 s turn, 1.45 s arc; the arc's variable
-  keeps the name `--boot-splash-dash-delay` of the dash its turning parts replaced in App 9.0.50).
+  that 15 s window and the sheet's loader periods (1.568 s turn; 5.332 s arc layer, whose two
+  rings swing four times in it, so one phase serves the layer and both; the arc's variable keeps
+  the name `--boot-splash-dash-delay` of the dash its turning parts replaced in App 9.0.50). The
+  same two periods are exported by `src/ui/material-elastic-spinner.ts`
+  (`MATERIAL_ELASTIC_TURN_PERIOD_MS`, `MATERIAL_ELASTIC_ARC_PERIOD_MS`), whose upload-row phase
+  in `src/ui/playlist-view.ts` imports them; `material-elastic-spinner.test.ts` "keeps the
+  periods the app phases its loaders by equal to the sheets" pins them to the app sheet.
   `src/core/__tests__/boot-splash.test.ts` "keeps the timings the runtime copies equal to the
   splash sheet" pins the four times and the key copy, and "keeps the copies it carries equal to
   their homes" pins the preflight's; `navigation-contract.test.ts` pins the key string.

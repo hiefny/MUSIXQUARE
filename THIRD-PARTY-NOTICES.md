@@ -149,6 +149,18 @@ without modifying either source.
   [Screen saver third-party notices](public/licenses/screensaver-third-party.txt).
   The same notices are included in the screen saver HTML.
 
+## 15. Material Components Web Circular Progress (Shared Loader Motion)
+
+- **License**: MIT License (text below)
+- **Copyright**: Copyright Google LLC
+- **Source**:
+  https://github.com/material-components/material-components-web/tree/master/packages/mdc-circular-progress
+- **Use**: The shared loader follows the indeterminate circular progress of
+  Material Components Web 14: its container turn, its spinner layer's 135
+  degree steps, its two clippers' swings and its gap patch at 80 % of the
+  stroke, with their durations and easing. MUSIXQUARE draws its own ring and
+  ships no file from the package.
+
 ### License Summaries
 
 #### MIT License

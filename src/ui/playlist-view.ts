@@ -35,7 +35,11 @@ import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { setControlHint, setControlUnavailable } from './control-hint.ts';
-import { MATERIAL_ELASTIC_SPINNER_PARTS } from './material-elastic-spinner.ts';
+import {
+  MATERIAL_ELASTIC_ARC_PERIOD_MS,
+  MATERIAL_ELASTIC_SPINNER_PARTS,
+  MATERIAL_ELASTIC_TURN_PERIOD_MS,
+} from './material-elastic-spinner.ts';
 import { renderPlaylistSlotName } from './playlist-slot-names.ts';
 import { SELECTION_TOGGLE_PATHS } from './selection-mark.ts';
 import { getFileDisplayName, getTrackDisplayTitle } from '../player/track-display.ts';
@@ -71,8 +75,6 @@ const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 // immediately and yield between the remaining batches.
 const SUB_ITEMS_INITIAL_RENDER_COUNT = 240;
 const SUB_ITEMS_RENDER_BATCH_SIZE = 240;
-const MATERIAL_ELASTIC_SPIN_DURATION_MS = 1850;
-const MATERIAL_ELASTIC_DASH_DURATION_MS = 1450;
 
 let _pendingPlaylistUpdate = false;
 let _deferredPlaylistUpdate = false;
@@ -769,15 +771,17 @@ function createProRoomUploadSpinner(): HTMLSpanElement {
   spinner.innerHTML = MATERIAL_ELASTIC_SPINNER_PARTS;
   // Upload rows can be rebuilt when their phase or an authoritative playlist
   // snapshot changes. Anchor new loader instances to the document clock so
-  // those renders do not visibly restart the elastic head/tail motion.
+  // those renders do not visibly restart the turn or the arc's swing: the
+  // turn on its own period, the layer and its two rings on the layer's (the
+  // rings swing four times in it). The dash variable keeps its old name.
   const now = performance.now();
   spinner.style.setProperty(
     '--material-elastic-spin-delay',
-    `${-Math.round(now % MATERIAL_ELASTIC_SPIN_DURATION_MS)}ms`,
+    `${-Math.round(now % MATERIAL_ELASTIC_TURN_PERIOD_MS)}ms`,
   );
   spinner.style.setProperty(
     '--material-elastic-dash-delay',
-    `${-Math.round(now % MATERIAL_ELASTIC_DASH_DURATION_MS)}ms`,
+    `${-Math.round(now % MATERIAL_ELASTIC_ARC_PERIOD_MS)}ms`,
   );
   return spinner;
 }

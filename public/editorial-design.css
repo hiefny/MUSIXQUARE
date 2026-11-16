@@ -2453,14 +2453,15 @@
   color: currentColor;
 }
 
-/* The app's loader (css/style.css .material-elastic-spinner): every part turns
-   by a transform alone (src/ui/material-elastic-spinner.ts). */
+/* The app's loader (css/style.css .material-elastic-spinner, Google's Material
+   circular progress): every part turns by a transform alone
+   (src/ui/material-elastic-spinner.ts). */
 .material-elastic-spinner .material-elastic-turn {
   position: relative;
   display: block;
   width: 100%;
   height: 100%;
-  animation: material-elastic-spin 1.85s linear infinite;
+  animation: material-elastic-spin 1.568s linear infinite;
 }
 
 .material-elastic-spinner .material-elastic-arc,
@@ -2474,7 +2475,7 @@
 }
 
 .material-elastic-spinner .material-elastic-arc {
-  animation: material-elastic-arc 1.45s ease-in-out infinite;
+  animation: material-elastic-arc 5.332s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 .material-elastic-spinner .material-elastic-tail,
@@ -2506,12 +2507,12 @@
 
 .material-elastic-spinner .material-elastic-tail > svg {
   left: 0;
-  animation: material-elastic-tail 1.45s ease-in-out infinite;
+  animation: material-elastic-tail 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 .material-elastic-spinner .material-elastic-head > svg {
   left: -100%;
-  animation: material-elastic-head 1.45s ease-in-out infinite;
+  animation: material-elastic-head 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 /* Each turning part turns about the loader's centre in px (WebKit takes a
@@ -2531,6 +2532,10 @@
   shape-rendering: geometricPrecision;
 }
 
+.material-elastic-spinner .material-elastic-seam path {
+  stroke-width: calc(var(--material-elastic-stroke) * 0.8px);
+}
+
 @keyframes material-elastic-spin {
   to {
     transform: rotate(360deg);
@@ -2539,43 +2544,67 @@
 
 @keyframes material-elastic-arc {
   0% {
-    transform: rotate(93.6deg);
+    transform: rotate(0deg);
   }
 
-  48% {
-    transform: rotate(266.4deg);
+  12.5% {
+    transform: rotate(135deg);
+  }
+
+  25% {
+    transform: rotate(270deg);
+  }
+
+  37.5% {
+    transform: rotate(405deg);
+  }
+
+  50% {
+    transform: rotate(540deg);
+  }
+
+  62.5% {
+    transform: rotate(675deg);
+  }
+
+  75% {
+    transform: rotate(810deg);
+  }
+
+  87.5% {
+    transform: rotate(945deg);
   }
 
   100% {
-    transform: rotate(453.6deg);
+    transform: rotate(1080deg);
   }
 }
 
 @keyframes material-elastic-tail {
   0% {
-    transform: rotate(-93.6deg);
+    transform: rotate(265deg);
   }
 
-  48% {
-    transform: rotate(-223.2deg);
+  50% {
+    transform: rotate(130deg);
   }
 
   100% {
-    transform: rotate(-93.6deg);
+    transform: rotate(265deg);
   }
 }
 
 @keyframes material-elastic-head {
   0% {
-    transform: rotate(93.6deg);
+    transform: rotate(-265deg);
   }
 
-  48% {
-    transform: rotate(223.2deg);
+  50% {
+    transform: rotate(-130deg);
   }
 
   100% {
-    transform: rotate(93.6deg);
+    transform: rotate(-265deg);
   }
 }
 
@@ -3459,11 +3488,11 @@
   }
 
   .material-elastic-spinner .material-elastic-tail > svg {
-    transform: rotate(-194.4deg);
+    transform: rotate(165.6deg);
   }
 
   .material-elastic-spinner .material-elastic-head > svg {
-    transform: rotate(194.4deg);
+    transform: rotate(-165.6deg);
   }
 
   .app-loading-header-progress {

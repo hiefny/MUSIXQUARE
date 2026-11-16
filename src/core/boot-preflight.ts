@@ -23,4 +23,4 @@ export const BOOT_PREFLIGHT_SCRIPT_ATTRIBUTE = 'data-boot-preflight';
  * every built app shell carry it (one line, so the build's indentation
  * stripping leaves it alone).
  */
-export const BOOT_PREFLIGHT_SCRIPT_SHA256 = '4IbV7eyjhpxBNTusUWKv2iXHzXy4DK7xRE4nUbI5+FM=';
+export const BOOT_PREFLIGHT_SCRIPT_SHA256 = 'fEshNMQNC1a95YKeTuMuzt4BfgJPbxjq1AdERjrQxHY=';

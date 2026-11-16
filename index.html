@@ -33,7 +33,7 @@
          block (src/core/boot-preflight.ts): editing it means a new hash. Its body
          stays on one line: the localized build strips every line's leading
          indentation and blank lines, which would change those bytes. -->
-    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1850) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 1450) + 'ms'); var box = String(sessionStorage.getItem('mxqr-boot-continuity-box')).split('x'); var height = Number(box[1]); if (Number(box[0]) === innerWidth && height > 0 && Math.abs(height - innerHeight) <= 64) { root.style.setProperty('--boot-splash-height', height + 'px'); } } } catch (error) {} try { if (navigator.standalone === true && (/iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.maxTouchPoints > 1)) { root.setAttribute('data-boot-installed', ''); var wide = Math.max(screen.width, screen.height); var narrow = Math.min(screen.width, screen.height); var turned = innerWidth > innerHeight; var full = turned ? narrow : wide; if (!root.style.getPropertyValue('--boot-splash-height') && Math.abs(innerWidth - (turned ? wide : narrow)) <= 1 && full > innerHeight && full - innerHeight <= 64) { root.style.setProperty('--boot-splash-height', full + 'px'); } if (parseFloat(root.style.getPropertyValue('--boot-splash-height')) > innerHeight) { root.setAttribute('data-boot-hold', ''); } } } catch (error) {} })();</script>
+    <script data-boot-preflight>(function () { var root = document.documentElement; try { var mode = localStorage.getItem('musixquare-theme'); var theme = mode === 'dark' || mode === 'light' ? mode : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; root.setAttribute('data-theme', theme); root.style.colorScheme = theme; } catch (error) {} try { var now = Date.now(); var stamp = Number(sessionStorage.getItem('mxqr-boot-continuity')); if (stamp > 0 && now - stamp >= 0 && now - stamp < 15000) { root.setAttribute('data-boot-continued', ''); root.style.setProperty('--boot-splash-spin-delay', -(now % 1568) + 'ms'); root.style.setProperty('--boot-splash-dash-delay', -(now % 5332) + 'ms'); var box = String(sessionStorage.getItem('mxqr-boot-continuity-box')).split('x'); var height = Number(box[1]); if (Number(box[0]) === innerWidth && height > 0 && Math.abs(height - innerHeight) <= 64) { root.style.setProperty('--boot-splash-height', height + 'px'); } } } catch (error) {} try { if (navigator.standalone === true && (/iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.maxTouchPoints > 1)) { root.setAttribute('data-boot-installed', ''); var wide = Math.max(screen.width, screen.height); var narrow = Math.min(screen.width, screen.height); var turned = innerWidth > innerHeight; var full = turned ? narrow : wide; if (!root.style.getPropertyValue('--boot-splash-height') && Math.abs(innerWidth - (turned ? wide : narrow)) <= 1 && full > innerHeight && full - innerHeight <= 64) { root.style.setProperty('--boot-splash-height', full + 'px'); } if (parseFloat(root.style.getPropertyValue('--boot-splash-height')) > innerHeight) { root.setAttribute('data-boot-hold', ''); } } } catch (error) {} })();</script>
     <!-- Boot splash: the wordmark and the shared loader paint from this
          document alone, before any script or stylesheet arrives, so a slow
          first visit never shows a blank page. Nothing in <head> before this
@@ -326,16 +326,17 @@
         height: 48px;
       }
 
-      /* The app's loader (css/style.css .material-elastic-spinner) at its
-         24px, in fixed lengths: every part turns by a transform alone, which
-         the compositor keeps running while iOS freezes a page it leaves. */
+      /* The app's loader (css/style.css .material-elastic-spinner, Google's
+         Material circular progress) at its 24px, in fixed lengths: every part
+         turns by a transform alone, which the compositor keeps running while
+         iOS freezes a page it leaves. */
       .boot-splash-spinner .material-elastic-turn {
         position: relative;
         display: block;
         flex: none;
         width: 24px;
         height: 24px;
-        animation: boot-splash-spin 1.85s linear infinite;
+        animation: boot-splash-spin 1.568s linear infinite;
       }
 
       .boot-splash-spinner .material-elastic-arc,
@@ -349,7 +350,7 @@
       }
 
       .boot-splash-spinner .material-elastic-arc {
-        animation: boot-splash-arc 1.45s ease-in-out infinite;
+        animation: boot-splash-arc 5.332s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
       }
 
       .boot-splash-spinner .material-elastic-tail,
@@ -381,16 +382,18 @@
 
       .boot-splash-spinner .material-elastic-tail > svg {
         left: 0;
-        animation: boot-splash-tail 1.45s ease-in-out infinite;
+        animation: boot-splash-tail 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
       }
 
       .boot-splash-spinner .material-elastic-head > svg {
         left: -12px;
-        animation: boot-splash-head 1.45s ease-in-out infinite;
+        animation: boot-splash-head 1.333s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
       }
 
       /* Each turning part turns about the loader's centre in px (WebKit takes
-         a percentage origin of its box snapped to device pixels). */
+         a percentage origin of its box snapped to device pixels); its 24px
+         box keeps that centre on a whole device pixel, where the compositor
+         rounds each part's pivot. */
       .boot-splash-spinner .material-elastic-turn,
       .boot-splash-spinner .material-elastic-arc,
       .boot-splash-spinner .material-elastic-tail > svg,
@@ -404,6 +407,10 @@
         stroke-width: 4.75;
         stroke-linecap: butt;
         shape-rendering: geometricPrecision;
+      }
+
+      .boot-splash-spinner .material-elastic-seam path {
+        stroke-width: 3.8;
       }
 
       @keyframes boot-splash-mark-in {
@@ -458,43 +465,67 @@
 
       @keyframes boot-splash-arc {
         0% {
-          transform: rotate(93.6deg);
+          transform: rotate(0deg);
         }
 
-        48% {
-          transform: rotate(266.4deg);
+        12.5% {
+          transform: rotate(135deg);
+        }
+
+        25% {
+          transform: rotate(270deg);
+        }
+
+        37.5% {
+          transform: rotate(405deg);
+        }
+
+        50% {
+          transform: rotate(540deg);
+        }
+
+        62.5% {
+          transform: rotate(675deg);
+        }
+
+        75% {
+          transform: rotate(810deg);
+        }
+
+        87.5% {
+          transform: rotate(945deg);
         }
 
         100% {
-          transform: rotate(453.6deg);
+          transform: rotate(1080deg);
         }
       }
 
       @keyframes boot-splash-tail {
         0% {
-          transform: rotate(-93.6deg);
+          transform: rotate(265deg);
         }
 
-        48% {
-          transform: rotate(-223.2deg);
+        50% {
+          transform: rotate(130deg);
         }
 
         100% {
-          transform: rotate(-93.6deg);
+          transform: rotate(265deg);
         }
       }
 
       @keyframes boot-splash-head {
         0% {
-          transform: rotate(93.6deg);
+          transform: rotate(-265deg);
         }
 
-        48% {
-          transform: rotate(223.2deg);
+        50% {
+          transform: rotate(-130deg);
         }
 
         100% {
-          transform: rotate(93.6deg);
+          transform: rotate(-265deg);
         }
       }
 
@@ -527,11 +558,11 @@
         }
 
         .boot-splash-spinner .material-elastic-tail > svg {
-          transform: rotate(-194.4deg);
+          transform: rotate(165.6deg);
         }
 
         .boot-splash-spinner .material-elastic-head > svg {
-          transform: rotate(194.4deg);
+          transform: rotate(-165.6deg);
         }
       }
     </style>

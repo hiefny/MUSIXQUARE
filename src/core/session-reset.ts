@@ -60,8 +60,10 @@ import {
   setReloadFenceOpenHandler,
   type ReloadFenceTicket,
 } from './document-reload.ts';
+import { getFullscreenElement } from './fullscreen.ts';
 import { setElementInertForOwner } from './inert-ownership.ts';
 import {
+  BOOT_SPLASH_CONTINUITY_BOX_KEY,
   BOOT_SPLASH_CONTINUITY_KEY,
   NAVIGATION_COMMIT_TIMEOUT_MS,
   NAVIGATION_PREPARE_TIMEOUT_MS,
@@ -615,6 +617,10 @@ function followSurfaceHost(): void {
   releasePageClaims(attempt);
   placeOverlay(overlay);
   claimPageAround(overlay, attempt);
+  // No next page has a fullscreen box (a navigation ends fullscreen), and
+  // back in the page the body can still be fullscreen-tall for a frame: the
+  // box is taken again just before the page leaves.
+  forgetResetScreenBox();
   // A move restarts the loader's animations.
   alignLoaderToWallClock(overlay.querySelector('.boot-splash-spinner'));
   // Moving the focused overlay drops its focus; the page holds no other.
@@ -650,6 +656,9 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
   overlay.hidden = false;
   overlay.setAttribute('aria-hidden', 'false');
   overlay.setAttribute('aria-busy', 'true');
+  // Shown and placed, the screen has its box: the page this reset opens keeps
+  // its height.
+  rememberResetScreenBox(overlay);
   // Settle the hidden starting style first so the surface fades in (it blocks
   // input from this call on, before the fade completes).
   void overlay.getBoundingClientRect();
@@ -714,8 +723,47 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
 function forgetBootSplashContinuity(): void {
   try {
     sessionStorage.removeItem(BOOT_SPLASH_CONTINUITY_KEY);
+    sessionStorage.removeItem(BOOT_SPLASH_CONTINUITY_BOX_KEY);
   } catch {
     // Without storage the stamp was never written.
+  }
+}
+
+/**
+ * Leave the box this screen centres the wordmark and loader in (the window's
+ * width and the screen's laid-out height) for the page the reset opens. iOS
+ * gives that page a first screen short by the home indicator strip (inferred
+ * from the owner's report, 2026-11-16), and its splash, centred in that, put
+ * them half the strip higher until the screen grew; its head preflight keeps
+ * this height instead while its screen is as wide and within 64 px of it. It
+ * is taken when the screen shows and again just before the page leaves, only
+ * while the screen sits in the page's body and nothing is fullscreen: a
+ * navigation ends element and document fullscreen alike (the screensaver's is
+ * the root), so no next page has that box. A screen with no box there leaves
+ * none.
+ */
+function rememberResetScreenBox(overlay: HTMLElement): void {
+  const height =
+    overlay.parentElement === document.body && !getFullscreenElement() ? overlay.offsetHeight : 0;
+  if (!(height > 0)) {
+    forgetResetScreenBox();
+    return;
+  }
+  try {
+    sessionStorage.setItem(
+      BOOT_SPLASH_CONTINUITY_BOX_KEY,
+      `${Math.round(window.innerWidth)}x${height}`,
+    );
+  } catch {
+    // Without storage the next page centres them in its own first screen.
+  }
+}
+
+function forgetResetScreenBox(): void {
+  try {
+    sessionStorage.removeItem(BOOT_SPLASH_CONTINUITY_BOX_KEY);
+  } catch {
+    // Without storage the box was never written.
   }
 }
 
@@ -835,6 +883,10 @@ function navigateAttempt(attempt: NavigationAttempt, request: NavigationRequest)
     return;
   }
   _state = { phase: 'navigating', attempt };
+  // The screen as the page leaves it: a keyboard bar that hid after the
+  // reset's blur, or a window resized meanwhile, changed it since it showed.
+  const overlay = document.getElementById(OVERLAY_ID);
+  if (overlay instanceof HTMLElement) rememberResetScreenBox(overlay);
   try {
     request.navigate();
   } catch (error) {

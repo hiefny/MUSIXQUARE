@@ -96,6 +96,22 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.51 / v826 train: the page a session refresh opens keeps the refresh screen's height, so the wordmark and loader stay put on iPhone and iPad (2026-11-16)](design/app-9-0-51-train-2026-11-16.md):
+  not yet merged or released. An App update after 9.0.50 / v825, on main `ca93b03a` (whose App runtime equals
+  9.0.50's `cbce861f`), for the fix the owner asked for on 2026-11-16 after reporting that on an iPhone a session
+  refresh showed the home indicator strip for a moment while the wordmark and loader jumped up and back. Both the
+  refresh screen and the reloaded page's boot splash centre them in the screen they get and read no safe-area value;
+  the inference is that iOS gives the reloaded page a first screen short by that strip (half of 34 px is the 17 px
+  jump). The refresh screen now leaves its box (window width and its own height in the page's body, taken when it
+  shows and again just before the page leaves, never while anything is fullscreen) beside the continuity stamp, the head
+  preflight gives the continued splash that height while the first screen is as wide and within 64 px of it (a new
+  CSP hash for the preflight), the splash stays between its screen's height and 64 px more and keeps the plain fill
+  where the desktop layout scales body, and bootstrap.js removes the box with the stamp. An independent review's
+  seven confirmed findings (fullscreen hosts, scaled desktops, a screen turned after the first frame, a box taken too
+  early, an uncovered band, an old-version chain, a missing row) were fixed or documented. With a first screen 34 px short,
+  the real page keeps the wordmark where the refresh screen centred it (398 px instead of 381 px at 390 x 844 in
+  Chromium; 360 px at 1280 x 720 and the WebKit iPhone lane in e2e). Not verified on a physical device; the strip
+  itself may still flash if iOS draws it outside the page.
 - [App 9.0.50 / v825 train: every loader moves by turning layers only, so the arc keeps growing and shrinking on the iPhone and iPad session refresh screen (2026-11-15)](design/app-9-0-50-train-2026-11-15.md):
   released on 2026-11-16 00:52 KST in Release 43732082611 (PR #599, squash `cbce861f`) as App 9.0.50 / v825 (App build
   825, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

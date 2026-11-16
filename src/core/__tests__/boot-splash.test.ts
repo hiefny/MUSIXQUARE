@@ -808,6 +808,14 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   // splash, a frame of the wrong colour or without the wordmark after a refresh.
   const NOW = 1_000_000;
   const PREFLIGHT = INDEX.match(/<script data-boot-preflight>([\s\S]*?)<\/script>/u)?.[1] ?? '';
+  // The installed iOS app's largest safe-area difference (src/core/platform.ts).
+  // The boundary rows below are built from it, so each of the preflight's two
+  // copies is checked against it by what it does.
+  const D = Number(
+    readFileSync('src/core/platform.ts', 'utf8').match(
+      /const IOS_STANDALONE_SAFE_AREA_DELTA_MAX = (\d+);/u,
+    )?.[1],
+  );
 
   function page({
     theme,
@@ -825,8 +833,12 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     width?: number;
     height?: number;
     deviceDark?: boolean;
-    /** Opened from the iOS home screen: WebKit's navigator.standalone is true. */
-    installed?: boolean;
+    /**
+     * Opened as an installed web app, where WebKit's navigator.standalone is
+     * true: from the iOS home screen (true), or from the macOS Dock ('mac',
+     * Safari 17 and later), which reports no touch points.
+     */
+    installed?: boolean | 'mac';
     /** The screen as iOS reports it (in either orientation's order). */
     screen?: { width: number; height: number };
   } = {}) {
@@ -845,6 +857,17 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
     }
     if (installed) {
       Object.defineProperty(window.navigator, 'standalone', { configurable: true, value: true });
+      const mac = installed === 'mac';
+      Object.defineProperty(window.navigator, 'userAgent', {
+        configurable: true,
+        value: mac
+          ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)'
+          : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+      });
+      Object.defineProperty(window.navigator, 'maxTouchPoints', {
+        configurable: true,
+        value: mac ? 0 : 5,
+      });
     }
     if (screen !== undefined) {
       Object.defineProperty(window.screen, 'width', { configurable: true, value: screen.width });
@@ -950,8 +973,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   it.each([
     ['as tall', 844],
     ['34 px shorter (an iPhone home indicator strip)', 810],
-    ['64 px shorter', 780],
-    ['64 px taller', 908],
+    [`${D} px shorter`, 844 - D],
+    [`${D} px taller`, 844 + D],
   ])(
     "hands the sheet the reset screen's height for a first screen %s at the same width, and leaves its box to bootstrap.js",
     (_label, height) => {
@@ -967,8 +990,8 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
 
   it.each([
     ['another width (the device turned)', '844x390', 390, 810],
-    ['more than 64 px shorter', '390x844', 390, 779],
-    ['more than 64 px taller', '390x844', 390, 909],
+    [`more than ${D} px shorter`, '390x844', 390, 844 - D - 1],
+    [`more than ${D} px taller`, '390x844', 390, 844 + D + 1],
     ['an unreadable box', 'tall', 390, 844],
     ['a box without a height', '390x', 390, 844],
     ['a zero height', '390x0', 390, 30],
@@ -1006,7 +1029,7 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       '390px',
     ],
     ['an iPad held upright, 20 px short', { width: 820, height: 1180 }, 820, 1160, '1180px'],
-    ['an iPhone held upright, 64 px short', { width: 390, height: 844 }, 390, 780, '844px'],
+    [`an iPhone held upright, ${D} px short`, { width: 390, height: 844 }, 390, 844 - D, '844px'],
   ] as const)(
     "gives an installed app's first screen the screen's height: %s",
     (_label, screen, width, height, expected) => {
@@ -1023,7 +1046,7 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
   it.each([
     ['in a browser tab (not installed)', false, { width: 390, height: 844 }, 390, 810],
     ['as tall as the screen', true, { width: 390, height: 844 }, 390, 844],
-    ['more than 64 px short', true, { width: 390, height: 844 }, 390, 779],
+    [`more than ${D} px short`, true, { width: 390, height: 844 }, 390, 844 - D - 1],
     ['narrower than the screen (Split View)', true, { width: 820, height: 1180 }, 507, 1160],
     ['taller than the screen', true, { width: 390, height: 844 }, 390, 850],
     ['with no screen to read', true, { width: 0, height: 0 }, 390, 810],
@@ -1033,6 +1056,25 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       const app = page({ installed, screen, width, height });
       app.run();
       expect(app.installed()).toBe(installed);
+      expect(app.height()).toBe('');
+      expect(app.hold()).toBe(false);
+    },
+  );
+
+  // Safari 17 and later report navigator.standalone in a macOS Dock web app
+  // too, where no strip shows and the app's own height never reads the screen:
+  // only the iOS home-screen app (an iPhone, iPad or iPod user agent, or a touch
+  // screen, as src/core/platform.ts's IS_IOS) counts as installed here.
+  it.each([
+    ['full screen below a notch', { width: 1512, height: 982 }, 1512, 944],
+    ['a zoomed window under the menu bar', { width: 1920, height: 1080 }, 1920, 1028],
+    ['a smaller window', { width: 1512, height: 982 }, 1200, 800],
+  ] as const)(
+    'leaves a macOS Dock web app to its own first screen: %s',
+    (_label, screen, width, height) => {
+      const app = page({ installed: 'mac', screen, width, height });
+      app.run();
+      expect(app.installed()).toBe(false);
       expect(app.height()).toBe('');
       expect(app.hold()).toBe(false);
     },
@@ -1191,7 +1233,9 @@ describe('boot preflight (index.html <head>): the stored theme and a reset conti
       )?.[1],
     );
     expect(safeAreaDelta).toBe(64);
-    expect(PREFLIGHT).toContain(`<= ${safeAreaDelta}`);
+    expect(PREFLIGHT).toContain(`Math.abs(height - innerHeight) <= ${safeAreaDelta})`);
+    expect(PREFLIGHT).toContain(`full - innerHeight <= ${safeAreaDelta})`);
+    expect(PREFLIGHT.match(new RegExp(`<= ${safeAreaDelta}(?!\\d)`, 'gu'))).toHaveLength(2);
     const window = Number(
       bootstrap.match(/const continuityWindowMs = ([\d_]+);/u)?.[1]?.replace(/_/gu, ''),
     );

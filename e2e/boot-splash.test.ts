@@ -410,6 +410,11 @@ test.describe('session reset screen', () => {
           configurable: true,
           get: () => true,
         });
+        // An iPhone's touch screen (Chromium and desktop WebKit report none).
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+          configurable: true,
+          get: () => 5,
+        });
         Object.defineProperty(Screen.prototype, 'width', {
           configurable: true,
           get: () => screenWidth,
@@ -492,6 +497,11 @@ test.describe('session reset screen', () => {
         Object.defineProperty(Navigator.prototype, 'standalone', {
           configurable: true,
           get: () => true,
+        });
+        // An iPhone's touch screen (Chromium and desktop WebKit report none).
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+          configurable: true,
+          get: () => 5,
         });
         Object.defineProperty(Screen.prototype, 'width', {
           configurable: true,
@@ -690,6 +700,11 @@ test.describe('installed iOS app', () => {
         Object.defineProperty(Navigator.prototype, 'standalone', {
           configurable: true,
           get: () => true,
+        });
+        // An iPhone's touch screen (Chromium and desktop WebKit report none).
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+          configurable: true,
+          get: () => 5,
         });
         Object.defineProperty(Screen.prototype, 'width', {
           configurable: true,

@@ -1972,8 +1972,14 @@ test.describe('content-based adaptive action groups', () => {
               // Phones cannot capture system audio: the option is marked
               // unsupported and its Beta badge hidden.
               option.classList.toggle('unsupported', !supported);
-              // While a share gets ready, as src/ui/player-controls.ts sets it.
-              if (label === 'systemPreparing') option.setAttribute('aria-busy', 'true');
+              if (label === 'systemPreparing') {
+                // While a share gets ready, as src/ui/player-controls.ts sets
+                // it. Only desktop Chromium can capture (canCaptureSystemAudio
+                // in src/core/platform.ts) and its windows are at least 500px
+                // wide, so the preparing label is measured from 500px up.
+                option.setAttribute('aria-busy', 'true');
+                if (innerWidth < 500) outer.dataset.unmeasured = '';
+              }
               return outer;
             }),
           'selection toggle': (locale) =>
@@ -2224,12 +2230,12 @@ test.describe('content-based adaptive action groups', () => {
     await waitForLayoutFonts(page);
     const reference = await measure();
 
-    // Instances per locale: 4 invite modes, 2 media states, 5 toggle states,
-    // 6 setup confirm labels, 3 YouTube primary labels, 2 play action states,
-    // one of each other slot.
+    // Instances per locale: 4 invite modes, 3 media states (supported,
+    // unsupported, preparing), 5 toggle states, 6 setup confirm labels,
+    // 3 YouTube primary labels, 2 play action states, one of each other slot.
     const instances: Record<string, number> = {
       'invite link': 4,
-      'media sources': 2,
+      'media sources': 3,
       'selection toggle': 5,
       'setup confirm': 6,
       'YouTube link actions': 3,

@@ -145,9 +145,14 @@ function captureSystemAudioRoomIdentity(): SystemAudioRoomIdentity {
 
 // A start that a stop, a newer playback choice, a room change or an ended
 // track supersedes ends without a toast, because the newer state is what the
-// person sees. Its info line names the stage and the reason, so a shared log
-// shows the ending instead of a gap where the share should be (2026-11-18).
-// A share window cancelled or failing after such a supersession passes the
+// person sees. Its info line names the stage and every reason that holds, so
+// a shared log shows the ending instead of a gap where the share should be
+// (2026-11-18). Some stages check in the same condition that the start is
+// still allowed, and a refusal there logs this line too: "device limit" for a
+// standard room over its device limit, otherwise "no longer allowed" (a host
+// that is no longer the coordinator, or a PRO coordinator that needs an
+// update). Such a refusal can show its own toast, which the log does not hold.
+// A share window cancelled or failing after a supersession passes the
 // browser's error too, and the line carries it in place of the warning.
 // After this attempt's own STOP the load epoch moved by its own hand, so the
 // stages from there on pass null and leave it out.
@@ -165,6 +170,10 @@ function logSupersededStart(
   if (newerPlayback) reasons.push('newer playback');
   if (!isCurrentSystemAudioRoom(startRoom)) reasons.push('room changed');
   if (isTrackLive && !isTrackLive()) reasons.push('track ended');
+  // A PRO room's lease enforces its device limit, never this local count.
+  if (startRoom.kind === 'standard' && !hasSystemAudioDeviceCapacity()) {
+    reasons.push('device limit');
+  }
   log.info(
     `[SystemAudio] Capture start superseded ${stage}:`,
     reasons.length > 0 ? reasons.join(', ') : 'no longer allowed',

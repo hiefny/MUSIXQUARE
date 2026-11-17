@@ -2763,6 +2763,34 @@ describe('capture start pending and settlement', () => {
     ]);
   });
 
+  // The shared source can end before the attempt attaches its listener, so
+  // the window returns audio that has already ended. Nothing is committed
+  // yet, so no stop runs and no toast shows: the line is all the log holds.
+  it.each(['standard', 'PRO'] as const)(
+    'logs why a %s start ends quietly when the share window returns audio that has already ended',
+    async (room) => {
+      const superseded = observeSupersededStarts();
+      if (room === 'PRO') setProRoom();
+      stubDisplayMedia((stream) => {
+        lastDisplayCapture!.dispatchEnded();
+        return Promise.resolve(stream);
+      });
+      const captured = observeCaptures();
+      const settled = observeSettlements();
+      const toasts = observeToasts();
+
+      await startSystemAudioCapture();
+
+      expect(settled).toHaveBeenCalledExactlyOnceWith({ started: false });
+      expect(captured).not.toHaveBeenCalled();
+      expect(toasts).not.toHaveBeenCalled();
+      expect(proAudio.release).toHaveBeenCalledTimes(room === 'PRO' ? 1 : 0);
+      expect(superseded()).toEqual([
+        ['[SystemAudio] Capture start superseded after the share window:', 'track ended'],
+      ]);
+    },
+  );
+
   it('logs why a PRO start ends quietly when a newer load arrives while the room lease is unanswered', async () => {
     const superseded = observeSupersededStarts();
     setProRoom();

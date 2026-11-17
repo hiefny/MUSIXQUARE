@@ -9,10 +9,11 @@
  * language, and the phases only decide how early each sheet is declared:
  *
  * - Phase A, when a language applies (i18n/index.ts): Inter, the UI's own
- *   script sheet, MUSIXQUARE Hangul and Noto Sans KR for every UI that is not
- *   Japanese or Chinese, and the first family of the UI's Han order. The
- *   Korean and English UIs therefore declare the same sheets at the same
- *   moment under every Han order.
+ *   script sheet, MUSIXQUARE Hangul for every UI that is not Japanese or
+ *   Chinese, the first family of the UI's Han order, then Noto Sans KR for
+ *   every UI that is not Japanese or Chinese. The Korean and English UIs
+ *   therefore declare the same sheets, in the same order and at the same
+ *   moments, under every Han order.
  * - Phase B, after window load and the first idle slice: every other sheet.
  *   It ignores data saver because it is correctness, not prefetch.
  * - Phase C, a quiet period after phase B starts: the Korean, Japanese and

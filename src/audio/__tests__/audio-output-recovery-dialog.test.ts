@@ -18,11 +18,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeNativeAudioContext } from './__helpers__/fake-audio-context.ts';
 import {
   QUEUE_B,
+  armNewIncident,
   bind,
   dialogSelector,
   dialogTakesPlayRequest,
   foregroundIncident,
   loadOwners,
+  ownerView,
   playRequest,
   playbackScope,
   recordBus,
@@ -109,6 +111,32 @@ function settled<T>(promise: Promise<T>): { value: T | 'waiting' | 'rejected' } 
     },
   );
   return box;
+}
+
+/** The 7C-K8 scene: a YouTube attempt waits, then the room switches to a file. */
+async function youtubeAttemptThenFile(): Promise<Scene> {
+  const fake = new FakeNativeAudioContext();
+  const o = await loadOwners(fake);
+  const c = await import('../output-recovery-counters.ts');
+  stageYouTube(o);
+  bind(o, fake);
+  fake.planResume({ outcome: 'reject' });
+  fake.transition('interrupted');
+  await vi.advanceTimersByTimeAsync(1_000);
+  stageFile(o, QUEUE_B);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(playbackScope.view(o)).toEqual({ attempt: 'youtube', gesture: true });
+  return { o, fake, c };
+}
+
+/** A local file's OS interruption whose automatic resume was refused: its attempt waits. */
+async function fileAttemptWaits(): Promise<Scene> {
+  const s = await scene();
+  s.fake.planResume({ outcome: 'reject' });
+  s.fake.transition('interrupted');
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(playbackScope.view(s.o)).toEqual({ attempt: 'file', gesture: true });
+  return s;
 }
 
 beforeEach(setupOwnerTest);
@@ -218,6 +246,29 @@ describe("RO-01 the recovery dialog's tap: the owner picks the branch and resume
     expect(tap(s, dialogSelector('restore-playing-output'))).toBeNull();
     expect(s.fake.ops.slice(ops)).toEqual([]);
     expect(countChanges(s, before)).toEqual({});
+  });
+
+  it('a restore that carries its play-request restart while a file attempt of the playback scope waits too: the tap resumes the restart it serves', async () => {
+    // Both scopes live on one context (C1-I14): an OS interruption whose
+    // automatic resume was refused, then a restart parked at once on the
+    // interrupted context, which its dialog took. The entry tests the
+    // restart the dialog serves before the playback scope's attempt. The
+    // pairing is staged to make that order observable: in app.ts a restore
+    // carries a restart only after its own ordinary branch prepared one for
+    // a frozen clock, and a PLAY's restart is shown as a failed PLAY's
+    // retry, for which the second test is false in either order.
+    const s = await fileAttemptWaits();
+    const restart = playRequest.arm(s.o, s.fake);
+    await expect(restart.first).resolves.toBe('prepared');
+    expect(ownerView(s.o)).toEqual({ request: 'owned', scope: { attempt: 'file', gesture: true } });
+    const before = counts(s);
+    const ops = s.fake.ops.length;
+
+    const gesture = tap(s, dialogSelector('restore-playing-output', restart));
+
+    expect(gesture).not.toBeNull();
+    expect(s.fake.ops.slice(ops)).toEqual(['resume()']);
+    expect(countChanges(s, before)).toEqual({ RESUME_PLAY_REQUEST: 1, DEADLINES_WATCHED: 1 });
   });
 });
 
@@ -345,6 +396,81 @@ describe('RO-01 the play-request branch after the dialog closed (Phase 7 7C-2)',
     });
   });
 
+  it("a dialog that stops acting during the clock probe: the probe answers superseded, so nothing commits; the dialog's log first, then the attempt retires and the next PLAY's clock check is armed", async () => {
+    const s = await scene();
+    const restart = playRequest.arm(s.o, s.fake);
+    await expect(restart.first).resolves.toBe('prepared');
+    const side = dialog();
+    const confirm = vi.fn((): boolean => true);
+    const loggedWhileCurrent: boolean[] = [];
+    const before = counts(s);
+
+    const outcome = settled(
+      s.o.recovery
+        .beginAudioOutputGestureRecovery(dialogSelector('retry-failed-play', restart), {
+          ...side.caller,
+          confirm,
+          unhealthy: (health) => {
+            side.caller.unhealthy(health);
+            loggedWhileCurrent.push(restart.isCurrent());
+          },
+        })!
+        .finish(),
+    );
+    // The tap's resume lands at once and promotes the attempt; the probe's
+    // first sample ends at 180 ms. The probe is the only place the dialog's
+    // currency is read between the requirement wait and the commit.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(outcome.value).toBe('waiting');
+    side.current = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // A withdrawn dialog's failed PLAY is not retried: no confirm, no commit.
+    expect(outcome.value).toEqual({ kind: 'stopped' });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(side.unhealthy).toEqual(['superseded']);
+    expect(loggedWhileCurrent).toEqual([true]);
+    expect(restart.isCurrent()).toBe(false);
+    const incident = foregroundIncident(s.o);
+    expect(incident).not.toBeNull();
+    expect(incident).not.toBe(restart.incident);
+    expect(countChanges(s, before)).toEqual({
+      RESUME_PLAY_REQUEST: 1,
+      DEADLINES_WATCHED: 3,
+      CLOCK_WAITS: 1,
+      CLOCK_CANCELLED: 1,
+    });
+  });
+
+  it("the attempt superseded by a newer foreground incident during the clock probe: the caller's confirm is not asked, the dialog logs the probe's answer, and that incident stays", async () => {
+    const s = await scene();
+    const restart = playRequest.arm(s.o, s.fake);
+    await expect(restart.first).resolves.toBe('prepared');
+    const side = dialog();
+    const confirm = vi.fn((): boolean => true);
+
+    const outcome = settled(
+      s.o.recovery
+        .beginAudioOutputGestureRecovery(dialogSelector('retry-failed-play', restart), {
+          ...side.caller,
+          confirm,
+        })!
+        .finish(),
+    );
+    // The probe's first sample ends at 180 ms.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(outcome.value).toBe('waiting');
+    const newer = armNewIncident(s.o, s.fake);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(outcome.value).toEqual({ kind: 'stopped' });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(side.unhealthy).toEqual(['superseded']);
+    expect(restart.isCurrent()).toBe(false);
+    // The dialog retired nothing itself, so it armed nothing in that incident's place.
+    expect(foregroundIncident(s.o)).toBe(newer);
+  });
+
   it.each(['abort', 'hidden'] as const)(
     "the dialog's %s ends the requirement wait at once: the attempt retires before the limit",
     async (ending) => {
@@ -369,6 +495,63 @@ describe('RO-01 the play-request branch after the dialog closed (Phase 7 7C-2)',
       expect(countChanges(s, before).DEADLINE_CLOCK_REQUIREMENT).toBeUndefined();
     },
   );
+
+  it("a dialog that stops acting during the requirement wait, with no abort and no visibility change: the owner reads that when the tap's late resume promotes the attempt, and retires it with no clock check and no log", async () => {
+    const s = await scene();
+    const restart = playRequest.arm(s.o, s.fake);
+    await expect(restart.first).resolves.toBe('prepared');
+    s.fake.planResume({ latencyMs: 1_200 });
+    const side = dialog();
+    const before = counts(s);
+
+    const outcome = settled(tap(s, dialogSelector('retry-failed-play', restart), side)!.finish());
+    // The owner's resume deadline answers at 750 ms, so the requirement wait
+    // runs from there; the resume lands, and promotes the attempt, at 1.2 s.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(outcome.value).toBe('waiting');
+    side.current = false;
+    await vi.advanceTimersByTimeAsync(150);
+    expect(outcome.value).toBe('waiting');
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(outcome.value).toEqual({ kind: 'stopped' });
+    expect(s.fake.state).toBe('running');
+    expect(side.unhealthy).toEqual([]);
+    expect(restart.isCurrent()).toBe(false);
+    const incident = foregroundIncident(s.o);
+    expect(incident).not.toBeNull();
+    expect(incident).not.toBe(restart.incident);
+    expect(countChanges(s, before)).toEqual({
+      RESUME_PLAY_REQUEST: 1,
+      DEADLINE_PLAY_REQUEST_RESUME: 1,
+      DEADLINES_WATCHED: 3,
+      CLOCK_WAITS: 1,
+      CLOCK_CANCELLED: 1,
+    });
+  });
+
+  it("a newer restart takes the attempt's place during the requirement wait: the dialog stops and leaves that restart and its incident alone", async () => {
+    const s = await scene();
+    const restart = playRequest.arm(s.o, s.fake);
+    await expect(restart.first).resolves.toBe('prepared');
+    s.fake.planResume({ outcome: 'never' });
+
+    const outcome = settled(tap(s, dialogSelector('retry-failed-play', restart))!.finish());
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(outcome.value).toBe('waiting');
+    // A newer foreground incident, and the restart a PLAY prepares for it,
+    // parked at once on the context the tap's resume has not woken.
+    const newer = playRequest.arm(s.o, s.fake);
+    await expect(newer.first).resolves.toBe('prepared');
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The dialog's attempt was superseded, not retired by the dialog: it arms
+    // no clock check of its own, which would retire the newer restart.
+    expect(outcome.value).toEqual({ kind: 'stopped' });
+    expect(restart.isCurrent()).toBe(false);
+    expect(newer.isCurrent()).toBe(true);
+    expect(foregroundIncident(s.o)).toBe(newer.incident);
+  });
 });
 
 describe('RO-01 the playback-scope and ordinary branches after the dialog closed (Phase 7 7C-2)', () => {
@@ -435,6 +618,63 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     },
   );
 
+  it("the playback scope's attempt whose tap's resume is refused, the interruption ending by itself before the dialog closed: the dialog lets it go with no clock check of its own and no log; the owner verifies that running state with its one rejoin", async () => {
+    const s = await fileAttemptWaits();
+    s.fake.planResume({ outcome: 'reject' });
+    const bus = recordBus(s.o);
+    const side = dialog();
+    const before = counts(s);
+
+    const gesture = tap(s, dialogSelector('restore-playing-output'), side)!;
+    await vi.advanceTimersByTimeAsync(50);
+    // The OS ends the interruption: the owner hears an outside resume and
+    // verifies it itself (fix lane G7). The flight still answered not
+    // running, and the second step is told so.
+    s.fake.transition('running');
+    const outcome = settled(gesture.finish());
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(outcome.value).toEqual({ kind: 'stopped' });
+    expect(side.unhealthy).toEqual([]);
+    expect(bus.needed).toEqual([]);
+    expect(bus.rejoins).toEqual(['audio-context-recovered']);
+    expect(playbackScope.view(s.o)).toEqual({ attempt: 'none', gesture: false });
+    expect(countChanges(s, before)).toEqual({
+      RESUME_PLAY_GESTURE: 1,
+      DEADLINES_WATCHED: 2,
+      CLOCK_WAITS: 1,
+      CLOCK_CONFIRMED: 1,
+      CONTEXT_RECOVERED_REJOINS: 1,
+    });
+  });
+
+  it("the playback scope's attempt on a clock still frozen whose dialog stops acting while the owner parks it again: stopped, not the same request again", async () => {
+    const s = await scene();
+    await expect(playbackScope.armStalled(s.o, s.fake)).resolves.toBe('prepared');
+    const bus = recordBus(s.o);
+    s.fake.freezeClock();
+    // The attempt's second suspend takes effect 300 ms after the clock check.
+    s.fake.planSuspend({ latencyMs: 300 });
+    const side = dialog();
+
+    const outcome = settled(tap(s, dialogSelector('restore-playing-output'), side)!.finish());
+    // Two frozen samples end at 360 ms; the suspend lands at 660 ms.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(side.unhealthy).toEqual(['clock-stalled']);
+    expect(outcome.value).toBe('waiting');
+    side.current = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // 'escalated' asks app.ts for the same request again; a dialog that no
+    // longer acts gets 'stopped'. The owner still parked the attempt once
+    // more and sent its one notice.
+    expect(outcome.value).toEqual({ kind: 'stopped' });
+    expect(bus.needed).toEqual(['background-resume:clock-stalled']);
+    expect(bus.rejoins).toEqual([]);
+    expect(s.fake.state).toBe('suspended');
+    expect(playbackScope.view(s.o)).toEqual({ attempt: 'file', gesture: true });
+  });
+
   it.each([
     ['its flight wins the 1 s wait', {}, { RESUME_DIALOG: 1, DEADLINES_WATCHED: 1 }],
     [
@@ -461,6 +701,42 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
       expect(countChanges(s, before)).toEqual(expected);
     },
   );
+
+  it("the ordinary branch whose own resume is refused: it stops although the context runs on a healthy clock, and the dialog logs the probe's answer", async () => {
+    // A context that runs on a healthy clock although the tap's own resume
+    // was refused. Here the fake's reject plan leaves a running context
+    // running. By code reading (no row stages it, and no device or browser
+    // run has shown it), the same state follows on this branch when a
+    // refused tap's interruption ends by itself before the dialog closes: a
+    // restore after the room switched to a file, or a failed PLAY's retry
+    // with no restart. The other row that refuses the tap's own resume
+    // (audio-output-recovery-file-start.test.ts) does it on a context that
+    // does not run, where the probe answers not-running whatever the flight
+    // said.
+    const s = await scene();
+    s.fake.planResume({ outcome: 'reject' });
+    const bus = recordBus(s.o);
+    const side = dialog();
+    const before = counts(s);
+    const ops = s.fake.ops.length;
+
+    const finished = tap(s, dialogSelector('restore-playing-output'), side)!.finish();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // Today's answer, carried over from app.ts (before 7C-2:
+    // !health.healthy || !gestureReachedRunning): a refused resume does not
+    // answer recovered, so app.ts publishes no rejoin and retries no failed
+    // PLAY for it (code reading). The branch retired any pending attempt in
+    // its tap and carries none, so nothing else realigns either. The App
+    // 9.0.42 report decides a refused resume only for a context that does
+    // not run; this row records the answer for one that runs and does not
+    // settle it.
+    await expect(finished).resolves.toEqual({ kind: 'stopped' });
+    expect(s.fake.ops.slice(ops)).toEqual(['resume()', 'resume:rejected']);
+    expect(side.unhealthy).toEqual(['healthy']);
+    expect(bus.rejoins).toEqual([]);
+    expect(countChanges(s, before)).toEqual({ RESUME_DIALOG: 1, DEADLINES_WATCHED: 1 });
+  });
 
   it("the ordinary branch on a frozen clock prepares a play-request restart, whose own tap then commits; the counts are the lab's re-queued request", async () => {
     const s = await scene();
@@ -508,6 +784,28 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
       CLOCK_WAITS: 1,
       CLOCK_CONFIRMED: 1,
     });
+  });
+
+  it('the ordinary branch on a frozen clock whose dialog stops acting while the restart prepares: it answers stopped, not a restart to queue', async () => {
+    const s = await scene();
+    s.fake.freezeClock();
+    // The restart's suspend takes effect 300 ms after the clock check asked for it.
+    s.fake.planSuspend({ latencyMs: 300 });
+    const side = dialog();
+
+    const outcome = settled(tap(s, dialogSelector('restore-playing-output'), side)!.finish());
+    // Two frozen samples end at 360 ms; the suspend lands at 660 ms.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(side.unhealthy).toEqual(['clock-stalled']);
+    expect(outcome.value).toBe('waiting');
+    side.current = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // No 'clock-stalled' answer for a dialog that no longer acts: app.ts
+    // queues no request for it. This row pins the answer only; what becomes
+    // of the restart the branch prepared is not asserted here.
+    expect(outcome.value).toEqual({ kind: 'stopped' });
+    expect(side.unhealthy).toEqual(['clock-stalled']);
   });
 
   it("a failed PLAY's retry with no restart cancels a pending playback-scope attempt inside its tap, before its resume, and carries none", async () => {
@@ -575,32 +873,6 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
  * retry), with no new dialog. Past the limit it stops as before.
  */
 describe("RO-01 the ordinary branch's resume after the dialog's 1 s wait (App 9.0.42)", () => {
-  /** The 7C-K8 scene: a YouTube attempt waits, then the room switches to a file. */
-  async function youtubeAttemptThenFile(): Promise<Scene> {
-    const fake = new FakeNativeAudioContext();
-    const o = await loadOwners(fake);
-    const c = await import('../output-recovery-counters.ts');
-    stageYouTube(o);
-    bind(o, fake);
-    fake.planResume({ outcome: 'reject' });
-    fake.transition('interrupted');
-    await vi.advanceTimersByTimeAsync(1_000);
-    stageFile(o, QUEUE_B);
-    await vi.advanceTimersByTimeAsync(100);
-    expect(playbackScope.view(o)).toEqual({ attempt: 'youtube', gesture: true });
-    return { o, fake, c };
-  }
-
-  /** A local file's OS interruption whose automatic resume was refused: its attempt waits. */
-  async function fileAttemptWaits(): Promise<Scene> {
-    const s = await scene();
-    s.fake.planResume({ outcome: 'reject' });
-    s.fake.transition('interrupted');
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(playbackScope.view(s.o)).toEqual({ attempt: 'file', gesture: true });
-    return s;
-  }
-
   it.each([
     [
       'a restore after the room switched to a file',
@@ -667,4 +939,30 @@ describe("RO-01 the ordinary branch's resume after the dialog's 1 s wait (App 9.
       });
     },
   );
+
+  it('a dialog that stops acting during the second wait: the branch reads that once the wait ends and stops, with no clock check and no log', async () => {
+    const s = await youtubeAttemptThenFile();
+    s.fake.planResume({ latencyMs: 3_000 });
+    const bus = recordBus(s.o);
+    const side = dialog();
+    const before = counts(s);
+
+    const outcome = settled(tap(s, dialogSelector('restore-playing-output'), side)!.finish());
+    // The 1 s wait ends on a context that does not run yet; the resume lands at 3 s.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(outcome.value).toBe('waiting');
+    side.current = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(outcome.value).toEqual({ kind: 'stopped' });
+    expect(s.fake.state).toBe('running');
+    expect(side.unhealthy).toEqual([]);
+    expect(bus.needed).toEqual([]);
+    expect(bus.rejoins).toEqual([]);
+    expect(countChanges(s, before)).toEqual({
+      RESUME_DIALOG: 1,
+      DEADLINE_GESTURE_FLOW: 1,
+      DEADLINES_WATCHED: 2,
+    });
+  });
 });

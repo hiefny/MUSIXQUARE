@@ -344,7 +344,10 @@ function refreshTrackTitle(): void {
   // title reads the picker's preparing label and the row already shows the
   // share's profile label, the text it keeps once the share is on. The row
   // never empties, so nothing on the play tab moves, and when the share is on
-  // only the title changes (owner decisions 2026-11-17 and 2026-11-18).
+  // only the title changes (owner decisions 2026-11-17 and 2026-11-18). A
+  // newer load before the share's own STOP (a track choice, another
+  // controller's change, a natural advance) ends this at once: the capture
+  // stops reporting the surface, and the newer track's metadata shows here.
   const capturedSurface = getSystemAudioCapturedStartSurface();
   if (capturedSurface) {
     updateTitleWithMarquee(t('system_audio.button_preparing'));

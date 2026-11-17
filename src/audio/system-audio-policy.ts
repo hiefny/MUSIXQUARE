@@ -72,7 +72,10 @@ export function isSystemAudioCaptureStartPending(): boolean {
  * same way. The capture holds it with its start-attempt slot and says when it
  * is set with `system-audio:start-captured`: the media source picker closes
  * then, and the play tab shows the share preparing with the share's profile
- * label until `system-audio:start-settled`, still with nothing of its own.
+ * label until `system-audio:start-settled`, still with nothing of its own. A
+ * newer load before the attempt's own STOP ends that sooner, with no event of
+ * its own: the probe stops reporting the surface, and the newer track's
+ * metadata refreshes the play tab.
  */
 export function configureSystemAudioCapturedStartProbe(
   probe: SystemAudioCapturedStartProbe,
@@ -86,8 +89,9 @@ export function configureSystemAudioCapturedStartProbe(
 
 /**
  * The surface of a running start attempt that holds live audio; null while
- * the browser's share window is open, and from the moment the attempt settles
- * or a stop clears it.
+ * the browser's share window is open, once a newer load supersedes the
+ * attempt before its own STOP, and from the moment the attempt settles or a
+ * stop clears it.
  */
 export function getSystemAudioCapturedStartSurface(): SystemAudioSurface | null {
   return capturedStartProbe();

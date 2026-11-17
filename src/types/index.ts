@@ -1688,7 +1688,8 @@ interface BaseEventMap {
    * and its publication, or the standard start). At most once per attempt,
    * never for a cancelled or refused window, a capture without audio or an
    * audio track that already ended. Its surface is
-   * `getSystemAudioCapturedStartSurface()` until the attempt settles.
+   * `getSystemAudioCapturedStartSurface()` until the attempt settles, or until
+   * a newer load supersedes it before its own STOP.
    */
   'system-audio:start-captured': [];
   /**

@@ -106,6 +106,11 @@ let _captureStartPromise: Promise<boolean> | null = null;
 // The surface that attempt captured live audio from, set once the browser's
 // share window returns audio and cleared with the slot above.
 let _captureStartSurface: SystemAudioSurface | null = null;
+// The load epoch the attempt started in, kept with that surface until the
+// attempt's own STOP starts a new one. A newer load before then supersedes
+// the attempt, which can then only end once its wait returns, so from that
+// moment the surface is no longer reported.
+let _captureStartSurfaceLoadEpoch: number | null = null;
 let _captureStartEpoch = 0;
 let _captureRestoreEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
@@ -310,16 +315,30 @@ export function isSystemAudioActive(): boolean {
   return _capturedStream !== null && _capturedStream.active;
 }
 
+/** The captured surface while the attempt holding it can still become the share. */
+function getCapturedStartSurface(): SystemAudioSurface | null {
+  // The attempt makes the same check once its wait returns. No event marks
+  // the newer load: the newer track's metadata refreshes the play tab.
+  if (
+    _captureStartSurfaceLoadEpoch !== null &&
+    !isCurrentLoadEpoch(_captureStartSurfaceLoadEpoch)
+  ) {
+    return null;
+  }
+  return _captureStartSurface;
+}
+
 // Keep capture state and listener ownership in this module while exposing the
 // exact predicate through the acyclic audio-policy boundary.
 configureSystemAudioCaptureActivityProbe(isSystemAudioActive);
 // The media source picker shows its preparing state from this slot alone and
 // hears its end through system-audio:start-settled, emitted only where the
 // slot is cleared. Once the attempt holds live audio, the play tab reads its
-// surface, cleared with the slot, and hears that moment through
+// surface (cleared with the slot, and no longer reported once a newer load
+// supersedes the attempt) and hears that moment through
 // system-audio:start-captured.
 configureSystemAudioCaptureStartProbe(() => _captureStartPromise !== null);
-configureSystemAudioCapturedStartProbe(() => _captureStartSurface);
+configureSystemAudioCapturedStartProbe(getCapturedStartSurface);
 
 /** Return a stream containing the original captured audio track. */
 export function getCapturedAudioStream(): MediaStream | null {
@@ -424,6 +443,7 @@ export async function startSystemAudioCapture(): Promise<void> {
     if (_captureStartPromise === attempt) {
       _captureStartPromise = null;
       _captureStartSurface = null;
+      _captureStartSurfaceLoadEpoch = null;
       bus.emit('system-audio:start-settled', { started });
     }
   }
@@ -599,9 +619,11 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   // The capture holds live audio and this attempt still owns the slot (the
   // epoch was checked above, with no wait since). The media source picker
   // closes now and the play tab shows the share preparing, while the attempt
-  // goes on: the PRO lease and publication, or the standard start. A later
-  // ending settles it as before (owner decision 2026-11-17).
+  // goes on: the PRO lease and publication, or the standard start. A newer
+  // load before this attempt's own STOP shows the newer track at once, and a
+  // later ending settles it as before (owner decision 2026-11-17).
   _captureStartSurface = selectedSurface;
+  _captureStartSurfaceLoadEpoch = startLoadEpoch;
   bus.emit('system-audio:start-captured');
 
   if (isProRoom) {
@@ -726,6 +748,11 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   };
 
   // 3. Stop all current media
+  // This STOP starts a new load epoch itself, and once the capture holds the
+  // stream a newer load force-stops it, so the surface stops following the
+  // epoch the attempt started in. The attempt still owns the slot (checked
+  // above after audio initialization, with no wait since).
+  _captureStartSurfaceLoadEpoch = null;
   let stoppedPreviousMedia: boolean;
   try {
     stoppedPreviousMedia = await stopAllMediaAsync({
@@ -954,6 +981,7 @@ function stopSystemAudioCapture(opts?: {
   ++_captureStartEpoch;
   _captureStartPromise = null;
   _captureStartSurface = null;
+  _captureStartSurfaceLoadEpoch = null;
   // Clearing the slot ends the attempt for the picker now, even though its
   // native picker or PRO request may settle later; that late result is thrown
   // away and its own finally no longer owns the slot, so it stays quiet.

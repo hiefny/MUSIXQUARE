@@ -18,6 +18,22 @@ const GATE = ':where(html[data-hover-pointer])';
 const NO_HOVER_GATE = ':where(html:not([data-hover-pointer]))';
 const OUTSIDE_EDIT_MODE = ':where(.playlist-ul:not(.has-removal-selection))';
 
+/**
+ * Owner request (2026-11-18): a focus ring is for a person navigating by
+ * keyboard. A click, a tap, a key that only plays or types, or a window that
+ * opens by itself never brings one. The same owner marks
+ * <html data-keyboard-navigation="on|off">, and every focus ring rule reads
+ * it through one leading gate. Without the owner (a page where the app script
+ * never ran) the attribute is absent and the browser's own :focus-visible
+ * decides, as before.
+ */
+const RING = ":where(html:not([data-keyboard-navigation='off']))";
+const NO_RING = ":where(html[data-keyboard-navigation='off'])";
+const FORCED = '@media (forced-colors: active)';
+const FORCED_FIELDS =
+  ":is(input:not([type='range']):not([type='hidden']), textarea, select, [contenteditable='true'], [contenteditable='plaintext-only'], [role='textbox'], [role='combobox'])";
+const FORCED_CONTROLS = ":is(a, button, [role='button'], [role='switch'], [role='tab'])";
+
 const STYLESHEETS = readdirSync(resolve('css'))
   .filter((file) => file.endsWith('.css'))
   .map((file) => `css/${file}`);
@@ -383,5 +399,292 @@ describe('playlist row icons on the hover gate', () => {
     expect(
       rulesFor(`${GATE} .playlist-ul.has-removal-selection .track-item:hover .btn-playlist-select`),
     ).toEqual([{ conditions: [], declarations: ['color: var(--primary)'] }]);
+  });
+});
+
+function press(target: EventTarget, key: string, init: KeyboardEventInit = {}): void {
+  target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }));
+}
+
+function keyboardNavigation(): string | null {
+  return document.documentElement.getAttribute('data-keyboard-navigation');
+}
+
+function mount(html: string): HTMLElement {
+  const holder = document.createElement('div');
+  holder.innerHTML = html;
+  const element = holder.firstElementChild as HTMLElement;
+  document.body.appendChild(element);
+  return element;
+}
+
+/** Selector text with whitespace collapsed and none just inside parentheses. */
+function compact(selector: string): string {
+  return selector.replace(/\s+/gu, ' ').replace(/\(\s+/gu, '(').replace(/\s+\)/gu, ')').trim();
+}
+
+/** Every rule listing this selector, with its media conditions and declarations. */
+function compactRulesFor(selector: string): { conditions: string[]; declarations: string[] }[] {
+  return selectorSites()
+    .filter((site) => compact(site.selector) === compact(selector))
+    .map((site) => {
+      const conditions: string[] = [];
+      for (let parent: Node | undefined = site.rule.parent; parent; parent = parent.parent) {
+        if (parent.type !== 'atrule') continue;
+        const { name, params } = parent as AtRule;
+        if (name !== 'layer') conditions.push(`@${name} ${compact(params)}`);
+      }
+      const list: string[] = [];
+      site.rule.each((node) => {
+        if (node.type === 'decl') {
+          list.push(`${node.prop}: ${compact(node.value)}${node.important ? ' !important' : ''}`);
+        }
+      });
+      return { conditions, declarations: list };
+    });
+}
+
+/** Panels the skip link and a click on their empty space can focus. */
+const TAB_PANELS = ['tab-play', 'tab-playlist', 'tab-connect', 'tab-guide', 'tab-settings'];
+
+describe('keyboard navigation owner', () => {
+  let installed: HoverPointerModule;
+
+  beforeEach(async () => {
+    document.documentElement.removeAttribute('data-keyboard-navigation');
+    installAnyHover(true);
+    installed = await freshHoverPointer();
+    installed.initHoverPointer();
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+    document.documentElement.removeAttribute('data-keyboard-navigation');
+    document.documentElement.removeAttribute('data-hover-pointer');
+    Reflect.deleteProperty(window, 'matchMedia');
+  });
+
+  it('starts with no keyboard navigation, so a window opening by itself draws no ring', () => {
+    expect(keyboardNavigation()).toBe('off');
+  });
+
+  it('turns keyboard navigation on with Tab and Shift+Tab, and off on every press', () => {
+    for (const pointerType of ['mouse', 'pen', 'touch']) {
+      press(document.body, 'Tab');
+      expect(keyboardNavigation(), pointerType).toBe('on');
+      // Moving a pointer is not a press: a keyboard user may nudge the mouse.
+      document.dispatchEvent(pointer('pointermove', pointerType));
+      document.dispatchEvent(pointer('pointerover', pointerType));
+      expect(keyboardNavigation(), pointerType).toBe('on');
+      document.dispatchEvent(pointer('pointerdown', pointerType));
+      expect(keyboardNavigation(), pointerType).toBe('off');
+    }
+    press(document.body, 'Tab', { shiftKey: true });
+    expect(keyboardNavigation()).toBe('on');
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    // Safari moves focus to every control with Option+Tab.
+    press(document.body, 'Tab', { altKey: true });
+    expect(keyboardNavigation()).toBe('on');
+  });
+
+  it('leaves Tab held with Ctrl or Cmd to the browser', () => {
+    press(document.body, 'Tab', { ctrlKey: true });
+    press(document.body, 'Tab', { metaKey: true });
+    expect(keyboardNavigation()).toBe('off');
+  });
+
+  it('counts the arrows, Home, End and the page keys on a control', () => {
+    const controls = [
+      '<button type="button">Play</button>',
+      '<a href="#settings">Settings</a>',
+      '<input type="range" min="0" max="100" value="40">',
+      '<input type="radio" name="choice">',
+      '<select><option>One</option><option>Two</option></select>',
+      '<div role="tab" tabindex="0">Playlist</div>',
+      '<div role="option" tabindex="-1">English</div>',
+      '<canvas role="button" tabindex="0"></canvas>',
+      '<div role="separator" tabindex="0" aria-valuenow="50"></div>',
+      '<div role="listbox" tabindex="0"></div>',
+    ];
+    const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp'];
+    for (const html of controls) {
+      const control = mount(html);
+      for (const key of [...keys, 'PageDown']) {
+        document.dispatchEvent(pointer('pointerdown', 'mouse'));
+        press(control, key);
+        expect(keyboardNavigation(), `${key} on ${html}`).toBe('on');
+      }
+      control.remove();
+    }
+  });
+
+  it('leaves the arrows on the page, a panel or a field to scrolling and typing', () => {
+    const notControls = [
+      '<div id="panel" class="tab-content" role="tabpanel" tabindex="-1"></div>',
+      '<div class="chat-drawer" role="region" tabindex="-1"></div>',
+      '<div role="log" tabindex="-1"></div>',
+      '<div role="dialog" tabindex="-1"></div>',
+      // A reading dialog's message and a copyable chat bubble scroll or copy.
+      '<div class="dialog-message" tabindex="0"></div>',
+      '<div class="chat-bubble" role="group" tabindex="0"></div>',
+      '<input type="text">',
+      '<input type="number">',
+      '<textarea></textarea>',
+      '<div contenteditable="true" role="combobox" tabindex="0"></div>',
+    ];
+    const targets = [document.body, ...notControls.map(mount)];
+    for (const target of targets) {
+      for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End']) {
+        press(target, key);
+        press(target, 'PageUp');
+        press(target, 'PageDown');
+      }
+      expect(keyboardNavigation(), target.outerHTML).toBe('off');
+    }
+    // Alt+Left is the browser's Back; Ctrl and Cmd arrows jump words or ends.
+    const button = mount('<button type="button">Next</button>');
+    press(button, 'ArrowLeft', { altKey: true });
+    press(button, 'ArrowDown', { ctrlKey: true });
+    press(button, 'End', { metaKey: true });
+    expect(keyboardNavigation()).toBe('off');
+  });
+
+  it('never counts a key that presses, plays, closes or types', () => {
+    const targets = [
+      document.body,
+      mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>'),
+      mount('<button type="button">Play</button>'),
+      mount('<input type="text">'),
+    ];
+    const keys = [' ', 'Enter', 'Escape', 'a', 'Shift', 'Control', 'Backspace', 'Delete', 'F6'];
+    for (const target of targets) {
+      for (const key of keys) press(target, key);
+    }
+    expect(keyboardNavigation()).toBe('off');
+  });
+
+  it('keeps a keyboard user on keyboard navigation through Space, Enter, Escape and typing', () => {
+    press(document.body, 'Tab');
+    const targets = [
+      document.body,
+      mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>'),
+      mount('<button type="button">Play</button>'),
+      mount('<input type="text">'),
+    ];
+    for (const target of targets) {
+      for (const key of [' ', 'Enter', 'Escape', 'x', 'ArrowDown', 'PageDown']) {
+        press(target, key);
+      }
+    }
+    expect(keyboardNavigation()).toBe('on');
+  });
+
+  it('lets only hover-pointer.ts write the keyboard navigation flag', () => {
+    const writers: string[] = [];
+    for (const file of sourceFiles('src')) {
+      if (file === 'src/ui/hover-pointer.ts') continue;
+      const source = readFileSync(resolve(file), 'utf8');
+      if (/data-keyboard-navigation/u.test(source)) writers.push(file);
+    }
+    expect(writers).toEqual([]);
+  });
+
+  it('leaves no component its own pointer-focus mark beside the one owner', () => {
+    // Sliders, the dialog's choice page and the language list each kept a
+    // class that hid their ring after a pointer press; the owner now decides.
+    const marks = /is-pointer-focused|dialog-choice-pointer-focus|language-option-initial-/u;
+    const sites = [
+      ...sourceFiles('src').filter((file) => marks.test(readFileSync(resolve(file), 'utf8'))),
+      ...STYLESHEETS.filter((file) => marks.test(readFileSync(resolve(file), 'utf8'))),
+    ];
+    expect(sites).toEqual([]);
+  });
+});
+
+describe('one keyboard gate for focus rings in the app stylesheets', () => {
+  /** A rule that only takes a ring away draws nothing for the gate to hold back. */
+  const onlyHides = (site: SelectorSite): boolean => {
+    const list = declarations(site.rule);
+    return list.length > 0 && list.every((entry) => /^outline(?:-style)?: none$/u.test(entry));
+  };
+
+  it('puts every focus ring rule under the keyboard gate', () => {
+    const outside = selectorSites()
+      .filter((site) => site.selector.includes(':focus-visible'))
+      .filter((site) => afterGate(site.selector, RING) === null && !onlyHides(site))
+      // A field's focus mark shows on every focus, as its blue underline does.
+      .filter((site) => compact(site.selector) !== compact(`${FORCED_FIELDS}:focus-visible`))
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(outside).toEqual([]);
+  });
+
+  it('turns the browser ring off everywhere outside keyboard navigation', () => {
+    expect(compactRulesFor(`${NO_RING} :focus-visible`)).toEqual([
+      { conditions: [], declarations: ['outline: none'] },
+    ]);
+    expect(compactRulesFor(`${RING} :focus-visible`)).toEqual([
+      {
+        conditions: [],
+        declarations: ['outline: 2px solid var(--primary)', 'outline-offset: 2px'],
+      },
+    ]);
+    // Outside keyboard navigation nothing is drawn, only taken away.
+    const drawing = selectorSites()
+      .filter((site) => afterGate(site.selector, NO_RING) !== null && !onlyHides(site))
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(drawing).toEqual([]);
+  });
+
+  it('uses the keyboard flag only as the leading, zero-specificity gate', () => {
+    const misplaced = selectorSites()
+      .filter((site) => site.selector.includes('data-keyboard-navigation'))
+      .filter((site) => {
+        const rest = afterGate(site.selector, RING) ?? afterGate(site.selector, NO_RING);
+        return rest === null || rest.includes('data-keyboard-navigation');
+      })
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(misplaced).toEqual([]);
+  });
+
+  it('draws a tab panel ring on the panel edge, over its divider lines, on every panel', () => {
+    const panelRing = compactRulesFor(`${RING} .tab-content:focus-visible`);
+    expect(panelRing).toEqual([{ conditions: [], declarations: ['outline-offset: -2px'] }]);
+    // The global ring is 2px wide: offset -2px puts it exactly inside the
+    // panel's border box, over the 1px column dividers its borders draw.
+    const ring = compactRulesFor(`${RING} :focus-visible`)[0]!.declarations;
+    expect(ring).toContain('outline: 2px solid var(--primary)');
+    const dividers = compactRulesFor('#tab-play')
+      .concat(compactRulesFor('#tab-playlist'))
+      .flatMap((found) => found.declarations)
+      .filter((entry) => /^border-(?:inline-end|bottom):/u.test(entry));
+    expect(dividers.length).toBeGreaterThan(0);
+    for (const divider of dividers) expect(divider).toMatch(/: 1px solid var\(--divider\)$/u);
+    // Every panel is a .tab-content, and none has a focus look of its own.
+    const html = readFileSync(resolve('index.html'), 'utf8');
+    for (const id of TAB_PANELS) {
+      expect(html, id).toMatch(
+        new RegExp(`id="${id}"\\s+class="tab-content[^"]*"\\s+role="tabpanel"`, 'u'),
+      );
+    }
+    const ownLooks = selectorSites()
+      .filter((site) => /:focus/u.test(site.selector))
+      .filter((site) => TAB_PANELS.some((id) => site.selector.includes(`#${id}`)))
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(ownLooks).toEqual([]);
+  });
+
+  it('keeps a field focus mark on every focus in forced colours and rings controls by keyboard only', () => {
+    expect(compactRulesFor(`${FORCED_FIELDS}:focus-visible`)).toEqual([
+      {
+        conditions: [FORCED],
+        declarations: ['outline: 3px solid Highlight !important', 'outline-offset: 2px !important'],
+      },
+    ]);
+    expect(compactRulesFor(`${RING} ${FORCED_CONTROLS}:focus-visible`)).toEqual([
+      {
+        conditions: [FORCED],
+        declarations: ['outline: 3px solid Highlight !important', 'outline-offset: 2px !important'],
+      },
+    ]);
   });
 });

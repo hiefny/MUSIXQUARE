@@ -33,6 +33,62 @@ function runningInsideSplash(page: Page): Promise<string[]> {
   );
 }
 
+// The app's background (css/style.css --bg) and, in the installed iOS app, the
+// colour iOS paints the strip under a short first screen with before any
+// stylesheet loads (owner report, 2026-11-16), which the splash starts on.
+const APP_BG = { dark: 'rgb(18, 18, 18)', light: 'rgb(248, 249, 250)' } as const;
+const STRIP = { dark: 'rgb(0, 0, 0)', light: 'rgb(255, 255, 255)' } as const;
+
+function channels(colour: string): number[] {
+  return (colour.match(/[\d.]+/gu) ?? []).map(Number);
+}
+
+/** Within one step per channel: two animations interpolate each on its own. */
+function near(colour: string, other: string): boolean {
+  const [left, right] = [channels(colour), channels(other)];
+  return (
+    left.length === right.length &&
+    left.every((value, index) => Math.abs(value - (right[index] ?? Number.NaN)) <= 1)
+  );
+}
+
+/** On the way from one colour to the other, at neither end. */
+function between(colour: string, from: string, to: string): boolean {
+  const [value, start, end] = [channels(colour), channels(from), channels(to)];
+  return (
+    colour !== from &&
+    colour !== to &&
+    value.length === 3 &&
+    value.every(
+      (channel, index) =>
+        channel >= Math.min(start[index]!, end[index]!) &&
+        channel <= Math.max(start[index]!, end[index]!),
+    )
+  );
+}
+
+/** The page's own background as WebKit reads it: body's over the root's. */
+function pageColour(frame: { root: string; body: string }): string {
+  return frame.body === 'rgba(0, 0, 0, 0)' || frame.body === 'transparent'
+    ? frame.root
+    : frame.body;
+}
+
+/** How many frames differ in each way (an empty record when none does). */
+function tally<T>(
+  frames: readonly T[],
+  differences: (frame: T) => (string | false)[],
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const frame of frames) {
+    const found = differences(frame).filter((difference) => difference !== false);
+    if (found.length === 0) continue;
+    const key = found.join('; ');
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
+
 test.describe('boot splash', () => {
   test('renders frames while the start-up scripts are still loading', async ({ page }) => {
     // Hold the first start-up script: the parser waits on it with only the
@@ -71,6 +127,70 @@ test.describe('boot splash', () => {
     await expect(page.locator('.boot-splash')).toBeHidden();
     await expect(page.locator('.boot-splash')).toHaveAttribute('hidden', '');
     expect(await runningInsideSplash(page)).toEqual([]);
+  });
+
+  // The installed iOS app holds the page's background on the strip's colour
+  // (index.html, data-boot-installed). A browser tab, a desktop or an Android
+  // phone keeps the app's background on the page and the splash, and nothing
+  // animates the root.
+  test("keeps the page and the splash on the app's background outside the installed iOS app", async ({
+    page,
+  }) => {
+    type PageFrame = {
+      installed: boolean;
+      animations: string[];
+      sheet: boolean;
+      theme: string | null;
+      root: string;
+      body: string;
+      splash: string;
+    };
+    await page.addInitScript(() => {
+      const frames: PageFrame[] = [];
+      (window as typeof window & { __pageFrames: PageFrame[] }).__pageFrames = frames;
+      // Every frame from the splash's first until the runtime retires it.
+      const sample = () => {
+        const root = document.documentElement;
+        const splash = document.querySelector<HTMLElement>('.boot-splash');
+        if (splash?.hidden) return;
+        if (splash && document.body) {
+          const rootStyle = getComputedStyle(root);
+          frames.push({
+            installed: root.hasAttribute('data-boot-installed'),
+            animations: root
+              .getAnimations()
+              .map((animation) => (animation as CSSAnimation).animationName),
+            // The app stylesheet has applied: the root has its --bg.
+            sheet: rootStyle.getPropertyValue('--bg').trim() !== '',
+            theme: root.getAttribute('data-theme'),
+            root: rootStyle.backgroundColor,
+            body: getComputedStyle(document.body).backgroundColor,
+            splash: getComputedStyle(splash).backgroundColor,
+          });
+        }
+        requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    await openApp(page);
+    await expect(page.locator('.boot-splash')).toHaveAttribute('hidden', '');
+    const frames = await page.evaluate(
+      () => (window as typeof window & { __pageFrames: PageFrame[] }).__pageFrames,
+    );
+    expect(frames.some((frame) => frame.sheet)).toBe(true);
+    const theme = frames[0]?.theme === 'dark' ? 'dark' : 'light';
+    const background = APP_BG[theme];
+    expect(
+      tally(frames, (frame) => [
+        frame.installed && 'installed',
+        frame.animations.length > 0 && `root animations ${frame.animations.join(', ')}`,
+        frame.theme !== theme && `theme ${frame.theme}`,
+        frame.splash !== background && `splash ${frame.splash}`,
+        frame.sheet &&
+          (frame.root !== background || frame.body !== background) &&
+          `root ${frame.root}, body ${frame.body}`,
+      ]),
+    ).toEqual({});
   });
 
   for (const [label, runtime] of [
@@ -795,4 +915,218 @@ test.describe('installed iOS app', () => {
       false,
     );
   });
+
+  // Owner report 2026-11-17: on a refresh of the installed iPhone app the strip
+  // under the short first screen showed the app's own background (dark in the
+  // dark theme, light in the light one) around the time the app finished
+  // loading, under a splash still pure black or white. iOS paints the strip with
+  // the page's own background, body's over the root's: the system's black or
+  // white until the app stylesheet gives both the app's --bg. Every frame from
+  // the splash's first to its last reads what iOS reads there.
+  type StripFrame = {
+    held: boolean;
+    /** The app stylesheet has applied: the root has its --bg. */
+    sheet: boolean;
+    theme: string | null;
+    root: string;
+    body: string;
+    splash: string;
+  };
+
+  for (const row of [
+    {
+      label: 'a first open whose screen grows',
+      device: 'dark',
+      stored: null,
+      refresh: false,
+      grows: true,
+    },
+    {
+      label: 'a first open whose screen never grows',
+      device: 'light',
+      stored: null,
+      refresh: false,
+      grows: false,
+    },
+    {
+      label: 'a session refresh whose screen grows, the app dark on a light device',
+      device: 'light',
+      stored: 'dark',
+      refresh: true,
+      grows: true,
+    },
+    {
+      label: 'a session refresh whose screen grows, the app light on a dark device',
+      device: 'dark',
+      stored: 'light',
+      refresh: true,
+      grows: true,
+    },
+  ] as const) {
+    test(`keeps the page's background on the splash's colour while it holds, and raises it with the splash: ${row.label}`, async ({
+      page,
+    }) => {
+      const theme = row.stored ?? row.device;
+      await page.emulateMedia({ colorScheme: row.device });
+      await useAnonymousAccountSession(page);
+      await page.goto('/');
+      await waitForBootstrapReady(page);
+      const { width, height } = page.viewportSize()!;
+      await page.evaluate((stored) => {
+        if (stored) localStorage.setItem('musixquare-theme', stored);
+        else localStorage.removeItem('musixquare-theme');
+        sessionStorage.clear();
+      }, row.stored);
+      await page.addInitScript(
+        ({ screenWidth, screenHeight }) => {
+          Object.defineProperty(Navigator.prototype, 'standalone', {
+            configurable: true,
+            get: () => true,
+          });
+          // An iPhone's touch screen (Chromium and desktop WebKit report none).
+          Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+            configurable: true,
+            get: () => 5,
+          });
+          Object.defineProperty(Screen.prototype, 'width', {
+            configurable: true,
+            get: () => screenWidth,
+          });
+          Object.defineProperty(Screen.prototype, 'height', {
+            configurable: true,
+            get: () => screenHeight,
+          });
+          const frames: StripFrame[] = [];
+          (window as typeof window & { __stripFrames: StripFrame[] }).__stripFrames = frames;
+          // Every frame from the splash's first until the runtime retires it.
+          const sample = () => {
+            const root = document.documentElement;
+            const splash = document.querySelector<HTMLElement>('.boot-splash');
+            if (splash?.hidden) return;
+            if (splash && document.body) {
+              const rootStyle = getComputedStyle(root);
+              frames.push({
+                held: root.hasAttribute('data-boot-hold'),
+                sheet: rootStyle.getPropertyValue('--bg').trim() !== '',
+                theme: root.getAttribute('data-theme'),
+                root: rootStyle.backgroundColor,
+                body: getComputedStyle(document.body).backgroundColor,
+                splash: getComputedStyle(splash).backgroundColor,
+              });
+            }
+            requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        },
+        { screenWidth: width, screenHeight: height },
+      );
+      // The first screen stops 34 px short, as an iPhone's does by its home
+      // indicator strip.
+      await page.setViewportSize({ width, height: height - 34 });
+      if (row.refresh) {
+        // What a session refresh leaves just before it navigates
+        // (session-reset.ts): the stamp, and the box its full screen centred
+        // the wordmark and loader in.
+        await page.evaluate((box) => {
+          sessionStorage.setItem('mxqr-boot-continuity', String(Date.now()));
+          sessionStorage.setItem('mxqr-boot-continuity-box', box);
+        }, `${width}x${height}`);
+        await page.reload({ waitUntil: 'commit' });
+      } else {
+        await page.goto('/', { waitUntil: 'commit' });
+      }
+      if (row.grows) {
+        // The strip goes once the app stylesheet has applied under the hold and
+        // the app waits behind the splash (unless the boot window already ended
+        // the hold); platform.ts ends the hold when it sees the screen grow.
+        await page.waitForFunction(
+          () => {
+            const root = document.documentElement;
+            const frames =
+              (window as typeof window & { __stripFrames?: StripFrame[] }).__stripFrames ?? [];
+            return (
+              !root.hasAttribute('data-boot-hold') ||
+              (!root.classList.contains('setup-boot-block') &&
+                frames.some((frame) => frame.held && frame.sheet))
+            );
+          },
+          null,
+          { timeout: 30_000, polling: 50 },
+        );
+        await page.setViewportSize({ width, height });
+      }
+      await page.waitForFunction(
+        () => (document.querySelector('.boot-splash') as HTMLElement | null)?.hidden === true,
+        null,
+        { timeout: 30_000, polling: 50 },
+      );
+      const frames = await page.evaluate(
+        () => (window as typeof window & { __stripFrames: StripFrame[] }).__stripFrames,
+      );
+
+      const strip = STRIP[theme];
+      const background = APP_BG[theme];
+      const lastHeld = frames.map((frame) => frame.held).lastIndexOf(true);
+      const held = frames.slice(0, lastHeld + 1);
+      const after = frames.slice(lastHeld + 1);
+      // The run reached both halves: the app stylesheet applied while the splash
+      // held, and the splash rose in the frames after.
+      expect(tally(frames, (frame) => [frame.theme !== theme && `theme ${frame.theme}`])).toEqual(
+        {},
+      );
+      expect(held.filter((frame) => frame.held && frame.sheet).length).toBeGreaterThan(0);
+      expect(
+        after.filter((frame) => between(frame.splash, strip, background)).length,
+      ).toBeGreaterThanOrEqual(3);
+      expect({
+        // While it holds, the page is the splash's colour, before and after the
+        // app stylesheet applies.
+        held: tally(held, (frame) => [
+          !frame.held && 'not held',
+          (pageColour(frame) !== strip || frame.splash !== strip) &&
+            `${frame.sheet ? 'with' : 'before'} the app stylesheet: page ${pageColour(frame)}, splash ${frame.splash}`,
+        ]),
+        // Then it rises with the splash, frame for frame, body with the root.
+        rising: after
+          .filter((frame) => !near(frame.root, frame.splash) || frame.body !== frame.root)
+          .map((frame) => `root ${frame.root}, body ${frame.body}, splash ${frame.splash}`),
+      }).toEqual({ held: {}, rising: [] });
+
+      // Nothing stays on the root afterwards: the app's own background follows
+      // a theme change at once.
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const root = document.documentElement;
+            return {
+              root: getComputedStyle(root).backgroundColor,
+              body: getComputedStyle(document.body).backgroundColor,
+              inEffect: root
+                .getAnimations()
+                .filter(
+                  (animation) => (animation.effect?.getComputedTiming().progress ?? null) !== null,
+                )
+                .map((animation) => (animation as CSSAnimation).animationName),
+            };
+          }),
+        )
+        .toEqual({ root: background, body: background, inEffect: [] });
+      const other = theme === 'dark' ? 'light' : 'dark';
+      const flipped = await page.evaluate(
+        (next) =>
+          new Promise<{ root: string; body: string }>((resolve) => {
+            const root = document.documentElement;
+            root.setAttribute('data-theme', next);
+            requestAnimationFrame(() =>
+              resolve({
+                root: getComputedStyle(root).backgroundColor,
+                body: getComputedStyle(document.body).backgroundColor,
+              }),
+            );
+          }),
+        other,
+      );
+      expect(flipped).toEqual({ root: APP_BG[other], body: APP_BG[other] });
+    });
+  }
 });

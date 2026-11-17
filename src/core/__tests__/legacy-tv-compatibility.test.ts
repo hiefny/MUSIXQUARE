@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { JSDOM } from 'jsdom';
-import { parse as parseCss } from 'postcss';
+import { parse as parseCss, type Rule } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -289,6 +289,65 @@ describe('legacy smart-TV app compatibility', () => {
 
     expect(sheets).toHaveLength(4);
     expect(crowded).toEqual([]);
+  });
+
+  // Owner report 2026-11-17: in the installed iOS app the strip under a short
+  // first screen shows the page's background, body's over html's. The boot
+  // splash sheet (index.html) holds the root's background on the strip's
+  // colour with an animation, which outranks every normal declaration however
+  // the build lowers it, and body takes the root's from @layer states.
+  it("lets the installed app's body take the root's background over every body background the build lowers, and leaves the root's animation to the splash sheet", async () => {
+    const sheets = [
+      ...readFileSync('css/app.css', 'utf8').matchAll(/@import\s+['"]\.\/([^'"]+)['"]/gu),
+    ].map(([, file]) => readFileSync(`css/${file}`, 'utf8'));
+    expect(sheets).toHaveLength(4);
+    const lowered = parseCss(await transformAppCssForLegacyBrowsers(sheets.join('\n')));
+
+    const TAIL = ':not(#\\#)';
+    const tails = (selector: string) => selector.split(TAIL).length - 1;
+    const compounds = (selector: string) =>
+      selector
+        .replaceAll(TAIL, '')
+        .trim()
+        .split(/\s*[\s>+~]\s*/u);
+    const sets = (rule: Rule, property: RegExp, important = false) =>
+      rule.nodes.some(
+        (node) =>
+          node.type === 'decl' && property.test(node.prop) && (!important || node.important),
+      );
+    const installed: { tails: number; value: string }[] = [];
+    const bodyBackgrounds: { tails: number; selector: string }[] = [];
+    const rootOverrides: string[] = [];
+    lowered.walkRules((rule) => {
+      for (const selector of rule.selectors) {
+        const parts = compounds(selector);
+        const subject = parts[parts.length - 1] ?? '';
+        if (selector.replaceAll(TAIL, '') === 'html[data-boot-installed] body') {
+          rule.walkDecls('background-color', (declaration) => {
+            installed.push({ tails: tails(selector), value: declaration.value });
+          });
+        } else if (/^body(?![\w-])/u.test(subject) && sets(rule, /^background(?:-color)?$/u)) {
+          bodyBackgrounds.push({ tails: tails(selector), selector: selector.replaceAll(TAIL, '') });
+        }
+        // Only a lone compound can match the root, which has no ancestor. An
+        // app animation there would replace the splash sheet's hold and rise,
+        // and an important background would outrank them.
+        if (parts.length === 1 && /^(?:html(?![\w-])|:root|\*)/u.test(subject)) {
+          if (sets(rule, /^animation(?:-name)?$/u)) rootOverrides.push(`${selector} animation`);
+          if (sets(rule, /^background(?:-color)?$/u, true)) {
+            rootOverrides.push(`${selector} important background`);
+          }
+        }
+      }
+    });
+
+    expect(installed.map(({ value }) => value)).toEqual(['inherit']);
+    // Today base (2) and desktop (4).
+    expect(bodyBackgrounds.length).toBeGreaterThanOrEqual(2);
+    for (const { tails: count, selector } of bodyBackgrounds) {
+      expect(installed[0]?.tails ?? 0, selector).toBeGreaterThan(count);
+    }
+    expect(rootOverrides).toEqual([]);
   });
 
   it('fails closed on layer constructs the compatibility transform cannot preserve', async () => {

@@ -22,22 +22,32 @@ file any more and it is not deployed: the app and the public pages serve only
 the Hangul subsets under their own name. The pre-rendered share images use
 their own subset of `fonts/Pretendard-Bold.ttf`.
 
+On 2026-11-17 the owner chose Inter's base forms for Latin and symbols and
+its tabular forms for digits, and on 2026-11-18 which symbols: Inter draws
+every symbol it has that the app could show, where Noto Sans KR or JP, or a
+device font, drew ※ → ≤ ≈ ★ ✓ beside Inter's ± × ÷ ↑ ↓. Google serves Inter
+only as seven subsets, which lack those symbols, so `fonts/inter-full.ttf`,
+the full Inter of the same build from google/fonts, stays in the repository
+as the recorded source of Inter's symbol faces (see
+[Inter symbol faces](#inter-symbol-faces)). Nothing serves the whole file and
+it is not deployed.
+
 ## Faces
 
-| Family                                  | Files the app serves (inputs)                                                                 | Draws                                                                                  |
-| --------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Inter 4.001 (Google Fonts v20)          | `fonts/app/inter/`, 7 subsets (`fonts/inter/`)                                                | Latin, digits, Cyrillic, Greek and the marks in its own cmap                           |
-| MUSIXQUARE Hangul (Pretendard 1.309)    | `fonts/app/hangul/`, 87 subsets (`fonts/PretendardVariable.woff2`)                            | Hangul: the syllables, the modern compatibility jamo, ㈜ and the halfwidth jamo        |
-| Noto Sans KR 2.004 (Google Fonts v40)   | `fonts/app/noto-sans-kr/`, 53 shards (`fonts/noto/noto-sans-kr/`)                             | the 98 Hangul Pretendard lacks, Hanja, CJK punctuation and symbols Inter lacks (※ ‼ →) |
-| Noto Sans JP, SC, TC (Google Fonts)     | `fonts/app/noto-sans-{jp,sc,tc}/`, 120, 95 and 98 shards (`fonts/noto/noto-sans-{jp,sc,tc}/`) | kana (only JP), Han and CJK marks in the Han order of the UI                           |
-| Noto Sans Thai, Arabic, Hebrew, 8 Indic | `fonts/noto/noto-sans-*/`                                                                     | their own script                                                                       |
+| Family                                  | Files the app serves (inputs)                                                                                           | Draws                                                                                      |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Inter 4.001 (Google Fonts v20)          | `fonts/app/inter/`, 7 subsets (`fonts/inter/`), and `fonts/app/inter-symbols/`, 7 symbol faces (`fonts/inter-full.ttf`) | Latin, digits, Cyrillic, Greek, the marks in its own cmap and its symbols (※ → ≤ ★ ✓)      |
+| MUSIXQUARE Hangul (Pretendard 1.309)    | `fonts/app/hangul/`, 87 subsets (`fonts/PretendardVariable.woff2`)                                                      | Hangul: the syllables, the modern compatibility jamo, ㈜ and the halfwidth jamo            |
+| Noto Sans KR 2.004 (Google Fonts v40)   | `fonts/app/noto-sans-kr/`, 52 shards (`fonts/noto/noto-sans-kr/`)                                                       | the 98 Hangul Pretendard lacks, Hanja, CJK punctuation and symbols Inter lacks (♪ ∴ ◎ ⑩ ♠) |
+| Noto Sans JP, SC, TC (Google Fonts)     | `fonts/app/noto-sans-{jp,sc,tc}/`, 120, 94 and 98 shards (`fonts/noto/noto-sans-{jp,sc,tc}/`)                           | kana (only JP), Han and CJK marks in the Han order of the UI                               |
+| Noto Sans Thai, Arabic, Hebrew, 8 Indic | `fonts/noto/noto-sans-*/`                                                                                               | their own script                                                                           |
 
 The Inter and CJK files the app serves are copies with the app's line box
-baked in (see [Baked line box](#baked-line-box)); the Hangul faces hold that
-box as Pretendard does (see [Hangul faces](#hangul-faces)). The folders in
-parentheses
-hold their inputs; `fonts/noto/noto-sans-{jp,sc,tc}/` are Google's numbered
-shards.
+baked in (see [Baked line box](#baked-line-box)), and Inter's symbol faces are
+cut with the same box (see [Inter symbol faces](#inter-symbol-faces)); the
+Hangul faces hold that box as Pretendard does (see
+[Hangul faces](#hangul-faces)). The files in parentheses hold their inputs;
+`fonts/noto/noto-sans-{jp,sc,tc}/` are Google's numbered shards.
 
 - Inter's input is the seven variable subsets (`opsz` 14-32, `wght` 100-900)
   exactly as Google serves them. Its Latin subset keeps the contextual
@@ -60,8 +70,9 @@ shards.
   the name table unchanged as well.
 - The four unnumbered Noto Sans KR shards (Latin, Cyrillic, Vietnamese) are
   not shipped: Inter draws those ranges. Of the 120 numbered ones the app
-  serves 53: the other 67 held only Hangul that Pretendard draws. The 53
-  still contain Hangul glyphs, which their sheet no longer declares.
+  serves 52: 67 held only Hangul that Pretendard draws, and #113 only ▲ and ▶,
+  which Inter's shapes face draws. The 52 still contain Hangul glyphs, which
+  their sheet no longer declares.
   Likewise Google's JP, SC and TC sheets list unnumbered Latin, Latin
   Extended, Cyrillic and Vietnamese faces and the Thai sheet two Latin faces;
   the generator reads none of them, so those 14 files are not in the
@@ -125,15 +136,78 @@ retired by the public-page font train).
   accepts new bytes or a new source after review, and `--check` subsets every
   face again in memory (about 20 s).
 
+## Inter symbol faces
+
+`scripts/fonts/build-inter-symbol-faces.mts`
+(`npm run generate:inter-symbol-faces`) cuts Inter's symbol faces from
+`fonts/inter-full.ttf`: google/fonts' `ofl/inter/Inter[opsz,wght].ttf`,
+Inter 4.001 (`Version 4.001;git-66647c0bb`, the build Google cut the seven
+subsets from), 876,576 B, sha256
+`29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031`, Git blob
+`047c92f6e2212473dc436020afed689527076d44` (`interFull` in
+`fonts/font-sources.json`). The file keeps a name without `[ ]` and a comma,
+which shells expand.
+
+- Selection: every code point the full Inter maps and no Google subset maps
+  (280 of 1,227), but private use (Inter's 745 alternates, such as G.1),
+  combining marks (123: a mark joins only a base of its own font, and the
+  Google subsets draw the letters, so the device font keeps drawing them) and
+  emoji presentation (⬜). By owner decision (2026-11-18) the enclosed
+  alphanumerics (① to ⑨, Ⓐ to Ⓩ, ➀ to ➈ and the squared letters) stay with
+  the families that draw them, so a series never switches family midway
+  (Inter lacks ⑩, ⓐ and ➉), and ↩ ↪ ⏏ ❤ (U+21A9, U+21AA, U+23CF, U+2764)
+  stay with the device font that draws them today, which a phone may show as
+  color emoji. The full Inter lacks ♪, ∼ and ≒, which stay where they were.
+- Faces, by block, in the sheet after Google's seven: spaces (15 code points:
+  the spaces and the dashes ‐ ‑ ‒ ―), punctuation (49: ※ ‼ ⁉ ‣ ‡ ‰ ‥ and
+  more), arrows (34: → ← ↔ ⇒ ⟶), math (19: ≤ ≥ ≈ ≠ √ ∞ ∑), letterlike (55: ℃
+  Ⅰ to ⅿ ฿ and more), fractions (59: ⅓ ⁴ ₂ and the other super- and
+  subscripts) and shapes (49: ■ ● ▲ ▶ ★ ☆ ♡ ✓ ✗ ⌘ and more), 67,472 B in all.
+  A page downloads a face only when it shows one of its code points: the
+  player's "≈320 kbps · MP3" and "≤256 kbps · DISPLAY" fetch the math face
+  (7,116 B) where they fetched a Noto Sans KR or JP shard of 11.8 to 25.3 KB,
+  and the French start screen's narrow no-break space the spaces face
+  (1,592 B), where a device font drew it.
+- Each face is a harfbuzz subset (subset-font on harfbuzzjs) of the full Inter
+  with its code points only, the whole `opsz` and `wght` axes, the layout
+  features and name records Google's subsets keep (so no `case`, `ss` or `cv`
+  forms: Inter's base forms; `tnum` stays) and no glyph names. It is encoded
+  as WOFF2 and decoded again, the Inter box of `src/i18n/font-metrics.ts`
+  (2006 / 508 / 0 of 2048 with `USE_TYPO_METRICS`, win 2269 / 660 kept) is
+  baked into that layout as into Google's Inter faces, and the result is
+  encoded. Each face's `unicode-range` is its cmap, with the descriptors of
+  the other Inter faces.
+- Before anything is written the run checks that the full Inter is the build
+  of the subsets (the same name ID 5, and every code point a subset maps with
+  the same outline and advance at the default instance and every corner of
+  `opsz` 14 and 32 with `wght` 100, 400, 700 and 900), and for every face
+  that its glyf table holds bytes (OTS, in Chromium and Firefox, refuses a
+  face whose glyf table has none, which a face of spaces alone would be),
+  that every code point keeps the full Inter's outline and advance at those
+  instances, that the WOFF2 round trip and the bake change nothing but the
+  box, and the cmap, axes, features, name records and checksums.
+- `fonts/inter-symbol-faces.json` records the source, the tool versions, the
+  rule and what each exclusion leaves out, the features, the name IDs, the
+  box and each face's code points and digest. As for the Hangul faces, a
+  face cut again must give its recorded bytes, also after a tool update, and
+  a full Inter that differs from the record is refused; `--record` accepts
+  new bytes or a new source after review, and `--check` cuts every face again
+  in memory (about 2 s).
+- The CJK cut takes these code points out of the four CJK families: Noto Sans
+  KR gives up 86 and drops shard #113 (▲ ▶), Noto Sans SC gives up 76 and
+  drops #91 (‐ ‑ ‒ ― ‖ ‡ ‥ ‰ ‵ ‼ ⁉ ⁴), JP gives up 90 and TC 78. The script
+  faces keep what their own ranges declare, so the Arabic and Hebrew UIs,
+  whose script face comes first, still draw ‐ (and in Arabic ‑ and ⁏) with it.
+
 ## Sheets
 
 The app's 17 font sheets are listed in `src/i18n/app-font-contract.ts`:
 
 - `css/fonts/app/` holds the seven sheets `scripts/fonts/build-font-sheets.mts`
-  generates: `font-inter.css` (7 faces), `font-hangul.css` (87),
-  `font-noto-kr.css` (53), `font-noto-jp.css` (120), `font-noto-sc.css` (95),
-  `font-noto-tc.css` (98) and `font-noto-thai.css` (1). Do not edit them by
-  hand.
+  generates: `font-inter.css` (14 faces: Google's 7 and the 7 symbol faces),
+  `font-hangul.css` (87), `font-noto-kr.css` (52), `font-noto-jp.css` (120),
+  `font-noto-sc.css` (94), `font-noto-tc.css` (98) and `font-noto-thai.css`
+  (1). Do not edit them by hand.
 - The ten single-script sheets (Arabic, Hebrew and the eight Indic scripts)
   are Google's sheets in `css/fonts/`.
 
@@ -141,9 +215,10 @@ The generator starts from `fonts/font-sources.json` and Google's sheets in
 `css/fonts/` (left unchanged as its inputs) and edits the ranges so every
 script has exactly one family:
 
-- Inter draws what its cmap covers inside its Google ranges. Those code
-  points are cut from the four CJK families by Inter's cmap, never by its
-  declared ranges, so the marks Inter lacks stay in the CJK families instead
+- Inter draws what its cmap covers inside its Google ranges, and its symbol
+  faces declare exactly their cmaps. Those code points are cut from the four
+  CJK families by Inter's cmap, never by its declared ranges, so a mark no
+  Inter face has (the soft hyphen U+00AD) stays in the CJK families instead
   of falling to a device font.
 - MUSIXQUARE Hangul declares exactly each face's cmap. The Hangul it draws
   is removed from all four CJK families, the Hangul only Noto Sans KR draws
@@ -152,10 +227,10 @@ script has exactly one family:
   such as ㈜ and ㉠, circled and square katakana such as ㋖ and ㌔ sit
   outside the blocks). A character its owners lack stays where it is drawn.
 - Invisible marks (U+200B-200F, U+202F, U+2060-2064, U+FEFF) belong to no CJK
-  family. In the shared stack Inter draws U+200B and U+FEFF, Noto Sans Thai
-  U+200C and U+200D (a script-first UI's own face draws them there), Noto Sans
-  Arabic U+200E and Noto Sans Hebrew U+200F; the device font draws U+202F and
-  U+2060-2064.
+  family. In the shared stack Inter draws U+200B, U+202F (its spaces face)
+  and U+FEFF, Noto Sans Thai U+200C and U+200D (a script-first UI's own face
+  draws them there), Noto Sans Arabic U+200E and Noto Sans Hebrew U+200F; the
+  device font draws U+2060-2064.
 - Each CJK face declares only the characters its own file draws, so an emoji
   or a stray mark never makes the browser download a shard that cannot draw
   it. Faces left empty are dropped.
@@ -166,8 +241,9 @@ script has exactly one family:
   97.96%, 24.82% and 0%; MUSIXQUARE Hangul 100%, 95.21%, 24.12% and 0%. The
   overrides are Pretendard's ascent and descent divided by the size, so line
   boxes stay where Pretendard put them. Each Inter and CJK face points at its
-  baked copy in `fonts/app/`, which holds the same box in its own tables; the
-  Hangul faces are Pretendard's size and box already.
+  baked copy in `fonts/app/`, which holds the same box in its own tables, and
+  Inter's symbol faces hold it from their own generator; the Hangul faces are
+  Pretendard's size and box already.
 
 Generated sheets carry a `font-` prefix so their emitted names never collide
 with Google's `noto-*.css` sheets, which the build and the retryable
@@ -189,7 +265,9 @@ bake the box into the files rather than patch `line-height` in CSS
   `hhea` and the OS/2 typo metrics and `USE_TYPO_METRICS` set: 2006 / 508 / 0
   of 2048 units for Inter, 1013 / 257 / 0 of 1000 for the CJK families. Those
   are the nearest units to the descriptors, which a browser scales by
-  `size-adjust` just as it scales the file's own metrics.
+  `size-adjust` just as it scales the file's own metrics. Inter's symbol
+  faces have no input file: their generator bakes the same Inter box into
+  its cut of the full Inter (see [Inter symbol faces](#inter-symbol-faces)).
 - Nothing else changes: outlines, advances, cmap, layout tables, `BASE`,
   `vhea` and `vmtx` stay, and so do the win metrics (Inter 2269 / 660, CJK
   1160 / 288), so a renderer that clips glyphs to them (GDI) clips nothing
@@ -385,26 +463,43 @@ both scripts everywhere).
   and 700, and its copyright and license names, before it writes the copy.
 - `fonts/app-faces.json` is the record of the baked app faces (see
   [Baked line box](#baked-line-box)), written by `npm run generate:app-faces`.
+- `fonts/font-sources.json` also records the full Inter (`interFull`): the
+  download URL (google/fonts on `main`), the upstream path, the Git blob id
+  that pins the bytes behind that URL, and the sha256 and size of the
+  committed file, which is the download unchanged.
 - `fonts/hangul-faces.json` is the record of the Hangul faces (see
   [Hangul faces](#hangul-faces)), written by `npm run generate:hangul-faces`.
-- `npm run generate:font-sheets` first subsets the Hangul faces and bakes the
-  app faces that are new or changed, then writes `css/fonts/app/` and
-  `src/i18n/font-prefetch-samples.ts`
-  (`-- --check` compares the sheets and checks the baked faces against their
-  record without baking them again; `npm run generate:app-faces -- --check`
-  bakes them again).
+- `fonts/inter-symbol-faces.json` is the record of Inter's symbol faces (see
+  [Inter symbol faces](#inter-symbol-faces)), written by
+  `npm run generate:inter-symbol-faces`.
+- `npm run generate:font-sheets` first subsets the Hangul faces, cuts Inter's
+  symbol faces and bakes the app faces that are new or changed, then writes
+  `css/fonts/app/` and `src/i18n/font-prefetch-samples.ts`
+  (`-- --check` compares the sheets and checks the Hangul, symbol and baked
+  faces against their records without cutting or baking them again;
+  `npm run generate:app-faces -- --check` bakes them again).
 - `npm run generate:noto-kr -- --check` verifies the shipped Noto Sans KR
   files against the record and that no `locl` lookup is left.
 - To refresh from Google, download the CSS and the files into a new empty
   folder and run `node scripts/fonts/record-font-sources.mts` (its header lists
   the arguments), then `npm run generate:noto-kr -- --source <folder> --record`
   and `npm run generate:font-sheets`. Without `--record`, the Noto Sans KR
-  build must reproduce the recorded shipped bytes exactly.
+  build must reproduce the recorded shipped bytes exactly. New Inter subsets
+  must be the build of the recorded full Inter, or the recorder stops: pass
+  the full Inter of their build with `--inter-full <file>` (or record it alone
+  with `node scripts/fonts/record-font-sources.mts --inter-full <file>`), then
+  `npm run generate:inter-symbol-faces -- --record` before
+  `npm run generate:font-sheets`.
 
 ## Verification
 
 - `npm run guard:font-assets` checks the source: the Inter and Noto Sans KR
-  inputs against `fonts/font-sources.json`, the baked app faces against
+  inputs against `fonts/font-sources.json`, the full Inter against its record
+  there (its bytes, Git blob, version and axes) and against the subsets (the
+  same build: name ID 5, outlines and advances), Inter's symbol faces against
+  `fonts/inter-symbol-faces.json` (the source, the selection and partition
+  recomputed from the cmaps, the files, the box, a glyf table with bytes,
+  the axes, features and names), the baked app faces against
   `fonts/app-faces.json` (the box in `hhea` and the OS/2 typo metrics with
   `USE_TYPO_METRICS`, the input's win metrics, valid checksums and no other
   change from the input), the Hangul faces against `fonts/hangul-faces.json`
@@ -434,19 +529,23 @@ both scripts everywhere).
 - `npm run guard:font-build` adds the build: no font in the initial graph of
   the app document or its localized copies, each app sheet its own lazy CSS
   asset with root-relative WOFF2 files, the built Inter and CJK faces equal
-  to their baked copies and the Hangul faces to `fonts/app/hangul/`, no font in the service worker's install manifests
+  to their baked copies, the symbol faces to `fonts/app/inter-symbols/` and
+  the Hangul faces to `fonts/app/hangul/`, no font in the service worker's install manifests
   (which do install the font owner chunk), `/web-fonts/` built from the app
   sheets, every built public page's font links, and nothing retired in the
   build.
 - Unit tests: `src/i18n/__tests__/font-*.test.ts` (`font-baked-metrics`
-  reads the tables of every app face itself), `hangul-faces.test.ts`,
+  reads the tables of every app face itself; `font-stack-identity` requires
+  Inter for ≤ ≈ → ★ ※ ✓ and the other symbols in every UI, and leaves the
+  owner's exclusions off Inter), `hangul-faces.test.ts`,
+  `inter-symbol-faces.test.ts`,
   `sfnt-names.test.ts`, `app-face-metrics.test.ts`,
   `locale-fonts.test.ts`, `public-font-*.test.ts`, `public-han-order.test.ts`,
   `src/core/__tests__/app-font-guard.test.ts` and `font-retirement.test.ts`.
 - `e2e/font-line-boxes.test.ts` (local, on the e2e build) serves the Inter,
   Hangul and CJK sheets without the three overrides, as Safari on the owner's
-  iPhone reads them, and requires the line boxes of Latin, Hangul, mixed, kana
-  and Han lines at 13, 14.5, 15 and 28 px and the four tab titles to stay
+  iPhone reads them, and requires the line boxes of Latin, Hangul, mixed,
+  kana, Han and symbol lines at 13, 14.5, 15 and 28 px and the four tab titles to stay
   where the shipped sheets put them, but the recorded 1 px of the kana and Han
   lines at 14.5 px (18 against 17). It also opens the shipped sheets in
   Playwright's WebKit, which applies the overrides, and requires Hangul and
@@ -455,16 +554,18 @@ both scripts everywhere).
   only; the reports' measurements and the 42-language sweep cover the other
   UIs.
 - `e2e/font-baked-pixels.test.ts` (local, on the e2e build) answers every
-  request for a baked face with its input file in a second context and
-  requires the start screen, the four tab screens and the chat in the Korean
-  and English UIs, and desktop Home and Playlist, to be the same PNG as with
-  the baked faces.
+  request for a baked face with its input file in a second context, and for
+  a symbol face with the face holding the full Inter's own box, and requires
+  the start screen, the four tab screens and the chat in the Korean and
+  English UIs, and desktop Home and Playlist, to be the same PNG as with the
+  baked faces.
 - `e2e/font-identity.test.ts` (local, on the e2e build) draws the same chat
   and track titles in a fresh Korean and a fresh English UI and compares the
   faces of every character, the widths and the pixels, and checks what each
-  UI fetches. Its line of symbols no self-hosted face draws (☺ ℹ ∼ ◈ ‣) is
-  recorded for both UIs and kept out of the comparison until a face draws
-  them.
+  UI fetches. A line with the player's "≤256 kbps · DISPLAY" and symbols of
+  every symbol face must draw from Inter alone, and no face may end in error.
+  Its line of symbols no self-hosted face draws (☺ ℹ ∼ ◈) is recorded for both
+  UIs and kept out of the comparison until a face draws them.
 - `e2e/font-han-turn.test.ts` (local, on the e2e build, Chromium) holds the
   font owner until window load and the UI's first Han sheet until phase B
   has run and every other requested sheet has drawn, and requires that the
@@ -484,12 +585,13 @@ both scripts everywhere).
 - A missing font does not prevent the app shell from loading, but affected
   text falls back to a system font until the font arrives. A character no
   self-hosted face draws (the recorded gaps: some IPA letters, combining
-  marks, sub- and superscripts, and letterlike, math, technical, symbol and
-  dingbat characters such as ☺ ℹ ∼ ≒ ◈) always uses a system font, which the
+  marks, and letterlike, math, technical, symbol and dingbat characters such
+  as ☺ ℹ ∼ ≒ ◈ and ↩ ↪ ⏏ ❤) always uses a system font, which the
   browser picks by the page language, so it can differ between the Korean and
   English UIs.
 - Inter is licensed under the **SIL Open Font License 1.1** (see
-  `INTER_LICENSE.txt`).
+  `INTER_LICENSE.txt`), which names no Reserved Font Name, so the symbol
+  faces cut from `fonts/inter-full.ttf` keep the name Inter.
 - Noto fonts are licensed under the **SIL Open Font License 1.1** (see the
   Noto license files in this directory).
 - Pretendard, the source of MUSIXQUARE Hangul (in the app and on the public

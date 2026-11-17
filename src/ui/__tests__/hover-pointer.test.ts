@@ -412,6 +412,22 @@ function press(target: EventTarget, key: string, init: KeyboardEventInit = {}): 
   target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }));
 }
 
+function releaseKey(target: EventTarget, key: string): void {
+  target.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
+}
+
+/** The arrows, Home, End and the page keys. */
+const NAVIGATION_KEYS = [
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+];
+
 function keyboardNavigation(): string | null {
   return document.documentElement.getAttribute('data-keyboard-navigation');
 }
@@ -514,29 +530,209 @@ describe('keyboard navigation owner', () => {
     expect(keyboardNavigation()).toBe('off');
   });
 
-  it('counts the arrows, Home, End and the page keys on a control', () => {
-    const controls = [
-      '<button type="button">Play</button>',
-      '<a href="#settings">Settings</a>',
+  it('counts the arrows, Home, End and the page keys on a widget they move through or move', () => {
+    const widgets = [
       '<input type="range" min="0" max="100" value="40">',
       '<input type="radio" name="choice">',
       '<select><option>One</option><option>Two</option></select>',
       '<div role="tab" tabindex="0">Playlist</div>',
+      '<button type="button" role="tab">Chat</button>',
       '<div role="option" tabindex="-1">English</div>',
-      '<canvas role="button" tabindex="0"></canvas>',
       '<div role="separator" tabindex="0" aria-valuenow="50"></div>',
       '<div role="listbox" tabindex="0"></div>',
+      '<div role="slider" tabindex="0" aria-valuenow="5"></div>',
     ];
-    const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp'];
-    for (const html of controls) {
-      const control = mount(html);
-      for (const key of [...keys, 'PageDown']) {
+    for (const html of widgets) {
+      const widget = mount(html);
+      for (const key of NAVIGATION_KEYS) {
         document.dispatchEvent(pointer('pointerdown', 'mouse'));
-        press(control, key);
+        press(widget, key);
+        releaseKey(widget, key);
         expect(keyboardNavigation(), `${key} on ${html}`).toBe('on');
       }
+      widget.remove();
+    }
+  });
+
+  it('leaves the arrows, Home, End and the page keys on a plain button, link or switch to scrolling', () => {
+    // A mouse user who clicks a track and scrolls the playlist with the
+    // arrows or Page Down (src/ui/playlist-follow.ts reads those keys as
+    // scrolling) gets no ring on the track, nor on the next window.
+    const plain = [
+      '<button type="button" class="track-name">Track</button>',
+      '<a href="#settings">Settings</a>',
+      '<canvas role="button" tabindex="0"></canvas>',
+      '<div role="button" tabindex="0">Sync</div>',
+      '<div role="link" tabindex="0">Help</div>',
+      '<button type="button" role="switch" aria-checked="false">Password</button>',
+      '<div role="checkbox" tabindex="0" aria-checked="false"></div>',
+      '<input type="checkbox">',
+      '<input type="button" value="Go">',
+      '<details><summary>More</summary></details>',
+    ];
+    for (const html of plain) {
+      const control = mount(html);
+      const target = control.querySelector('summary') ?? control;
+      for (const key of NAVIGATION_KEYS) {
+        press(target, key);
+        releaseKey(target, key);
+      }
+      expect(keyboardNavigation(), html).toBe('off');
       control.remove();
     }
+  });
+
+  it('counts an arrow, Home, End or page key that moves focus, wherever it was pressed', () => {
+    // A TV remote's arrows move focus by spatial navigation from the page, a
+    // panel or a plain button alike, and an app's own arrow handler may move
+    // focus from any of them.
+    const landing = mount('<button type="button">Next</button>');
+    const targets: [string, HTMLElement][] = [
+      ['the page', document.body],
+      ['a panel', mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>')],
+      ['a plain button', mount('<button type="button">Play</button>')],
+      ['a text field', mount('<input type="text">')],
+    ];
+    for (const [label, target] of targets) {
+      for (const key of NAVIGATION_KEYS) {
+        document.dispatchEvent(pointer('pointerdown', 'mouse'));
+        landing.blur();
+        press(target, key);
+        // The key's default action or a handler moves focus while it is down.
+        landing.focus();
+        releaseKey(target, key);
+        expect(keyboardNavigation(), `${key} on ${label}`).toBe('on');
+      }
+    }
+    // A plain button group whose own arrow handler moves focus.
+    const [first, second] = [mount('<button>A</button>'), mount('<button>B</button>')];
+    first.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight') second.focus();
+    });
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    first.focus();
+    press(first, 'ArrowRight');
+    releaseKey(first, 'ArrowRight');
+    expect(keyboardNavigation()).toBe('on');
+  });
+
+  it('leaves a focus move alone once the key is up, after a pointer press or another key, or when the window loses focus', () => {
+    // A window that opens by itself focuses its control: that is no
+    // navigation, even just after an arrow that only scrolled.
+    const opened = mount('<button type="button">Stay</button>');
+    const between: [string, () => void][] = [
+      ['the key up', () => releaseKey(document.body, 'ArrowDown')],
+      ['a pointer press', () => document.dispatchEvent(pointer('pointerdown', 'mouse'))],
+      ['the window losing focus', () => window.dispatchEvent(new Event('blur'))],
+      ['another key', () => press(document.body, 'a')],
+    ];
+    for (const [label, step] of between) {
+      opened.blur();
+      press(document.body, 'ArrowDown');
+      step();
+      opened.focus();
+      expect(keyboardNavigation(), label).toBe('off');
+    }
+    // Keys that press, play, close or type, and shortcuts, never count a focus
+    // move, even one made while they are down.
+    const keys: [string, KeyboardEventInit][] = [
+      [' ', {}],
+      ['Enter', {}],
+      ['Escape', {}],
+      ['a', {}],
+      ['ArrowLeft', { altKey: true }],
+      ['ArrowDown', { ctrlKey: true }],
+      ['End', { metaKey: true }],
+    ];
+    for (const [key, init] of keys) {
+      opened.blur();
+      press(document.body, key, init);
+      opened.focus();
+      releaseKey(document.body, key);
+      expect(keyboardNavigation(), `${key} ${JSON.stringify(init)}`).toBe('off');
+    }
+  });
+
+  it('leaves a Tab that a text field takes for itself, keeping focus, to the field', () => {
+    // The chat's command completion takes Tab (preventDefault) and keeps
+    // focus in the field: a mouse user completing a command is not
+    // navigating, and the next window opens without a ring.
+    for (const html of ['<input type="text">', '<textarea></textarea>']) {
+      const field = mount(html);
+      field.addEventListener('keydown', (event) => {
+        if (event.key === 'Tab') event.preventDefault();
+      });
+      for (const shiftKey of [false, true]) {
+        document.dispatchEvent(pointer('pointerdown', 'mouse'));
+        field.focus();
+        press(field, 'Tab', { cancelable: true, shiftKey });
+        releaseKey(field, 'Tab');
+        expect(keyboardNavigation(), `${html} shift=${shiftKey}`).toBe('off');
+      }
+      // A keyboard user keeps their rings through it.
+      press(document.body, 'Tab');
+      field.focus();
+      press(field, 'Tab', { cancelable: true });
+      releaseKey(field, 'Tab');
+      expect(keyboardNavigation(), html).toBe('on');
+      field.remove();
+    }
+  });
+
+  it('counts a Tab that leaves a text field, or that a focus trap takes and moves', () => {
+    const field = mount('<input type="text">');
+    const other = mount('<button type="button">OK</button>');
+
+    // The browser moves focus out of the field.
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    field.focus();
+    press(field, 'Tab', { cancelable: true });
+    releaseKey(field, 'Tab');
+    expect(keyboardNavigation(), 'Tab out of a field').toBe('on');
+
+    // A dialog's focus trap on the window (src/ui/dialog.ts) takes the Tab
+    // and moves focus itself.
+    const trap = (event: KeyboardEvent): void => {
+      if (event.key !== 'Tab') return;
+      event.preventDefault();
+      (document.activeElement === other ? field : other).focus();
+    };
+    window.addEventListener('keydown', trap);
+    try {
+      document.dispatchEvent(pointer('pointerdown', 'mouse'));
+      field.focus();
+      press(field, 'Tab', { cancelable: true });
+      releaseKey(field, 'Tab');
+      expect(keyboardNavigation(), 'a trap moving focus from a field').toBe('on');
+
+      // A one-button dialog's trap wraps focus onto the same button.
+      document.dispatchEvent(pointer('pointerdown', 'mouse'));
+      other.focus();
+      window.removeEventListener('keydown', trap);
+      const wrap = (event: KeyboardEvent): void => {
+        if (event.key !== 'Tab') return;
+        event.preventDefault();
+        other.focus();
+      };
+      window.addEventListener('keydown', wrap);
+      press(other, 'Tab', { cancelable: true });
+      releaseKey(other, 'Tab');
+      window.removeEventListener('keydown', wrap);
+      expect(keyboardNavigation(), 'a one-button wrap').toBe('on');
+    } finally {
+      window.removeEventListener('keydown', trap);
+    }
+
+    // A field handler that stops the key before the window, while the
+    // browser still moves focus out of the field.
+    const stopping = mount('<input type="text">');
+    stopping.addEventListener('keydown', (event) => event.stopPropagation());
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    stopping.focus();
+    press(stopping, 'Tab', { cancelable: true });
+    other.focus();
+    releaseKey(stopping, 'Tab');
+    expect(keyboardNavigation(), 'Tab past a stopping handler').toBe('on');
   });
 
   it('leaves the arrows on the page, a panel or a field to scrolling and typing', () => {

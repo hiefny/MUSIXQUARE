@@ -14,8 +14,15 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import postcss, { type AtRule } from 'postcss';
-import { waitForBootstrapReady } from './helpers/bootstrap.ts';
-import { uploadFixture } from './helpers/file-upload.ts';
+import { uploadFixtures } from './helpers/file-upload.ts';
+import {
+  DESKTOP,
+  emptySpot,
+  focusRing,
+  openRoomWithTrack,
+  openStartScreen,
+  type FocusRing,
+} from './helpers/focus-ring.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
 import {
@@ -23,90 +30,20 @@ import {
   readPlaybackProjection,
   sendChat,
   waitForFilePlaybackReady,
+  waitForPlaylistCount,
   waitForViewTransitionEnd,
 } from './helpers/wait.ts';
 
 test.use({ serviceWorkers: 'block', colorScheme: 'dark' });
 
-const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
 
 type BusWindow = { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } };
-
-interface FocusRing {
-  /** The focused element's id, or its tag and first class. */
-  readonly focused: string;
-  /** Whether the focused element draws an outline. */
-  readonly ring: boolean;
-  readonly outline: string;
-}
-
-async function focusRing(page: Page): Promise<FocusRing> {
-  return page.evaluate(() => {
-    const element = document.activeElement as HTMLElement | null;
-    const style = element ? getComputedStyle(element) : null;
-    const width = style ? Number.parseFloat(style.outlineWidth) : 0;
-    return {
-      focused: element?.id
-        ? `#${element.id}`
-        : `${element?.tagName.toLowerCase() ?? 'none'}.${element?.classList[0] ?? ''}`,
-      ring: !!style && style.outlineStyle !== 'none' && width > 0,
-      outline: style ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineOffset}` : '',
-    };
-  });
-}
 
 /** Waits for focus to settle on `target`, then reads its ring. */
 async function ringOn(page: Page, target: Locator): Promise<FocusRing> {
   await expect(target).toBeFocused();
   return focusRing(page);
-}
-
-const NOT_EMPTY =
-  'button, a, input, textarea, select, label, canvas, [role="button"], [role="slider"], ' +
-  '[contenteditable], [tabindex]:not([tabindex="-1"])';
-
-/**
- * A point inside `panel` whose topmost element is no control: empty space.
- * While a view transition runs, every point hits <html>, so this waits.
- */
-async function emptySpot(page: Page, panel: string): Promise<{ x: number; y: number }> {
-  const spot = await page.waitForFunction(
-    ({ selector, notEmpty }) => {
-      const element = document.querySelector<HTMLElement>(selector)!;
-      const rect = element.getBoundingClientRect();
-      for (let fy = 0.9; fy > 0.15; fy -= 0.05) {
-        for (let fx = 0.2; fx < 0.85; fx += 0.1) {
-          const x = rect.left + rect.width * fx;
-          const y = rect.top + rect.height * fy;
-          const hit = document.elementFromPoint(x, y);
-          if (hit && element.contains(hit) && !hit.closest(notEmpty)) return { x, y };
-        }
-      }
-      return null;
-    },
-    { selector: panel, notEmpty: NOT_EMPTY },
-    { timeout: 10_000 },
-  );
-  return (await spot.jsonValue()) as { x: number; y: number };
-}
-
-async function openRoomWithTrack(page: Page, viewport: { width: number; height: number }) {
-  await page.setViewportSize(viewport);
-  await injectPeerServer(page);
-  await setupHostAndStart(page);
-  await uploadFixture(page, 'test01');
-  await waitForFilePlaybackReady(page, 30_000);
-  await waitForViewTransitionEnd(page);
-}
-
-async function openStartScreen(page: Page): Promise<void> {
-  await page.setViewportSize(DESKTOP);
-  await injectPeerServer(page);
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
-  await waitForBootstrapReady(page);
-  await page.locator('#btn-setup-host').waitFor({ state: 'visible', timeout: 15_000 });
 }
 
 /** The logo's leave confirmation: [Stay | Leave], Stay focused first. */
@@ -320,6 +257,107 @@ test.describe('focus rings follow keyboard navigation', () => {
     await expect(account).toBeVisible();
     await expect.poll(() => focusRing(page).then((ring) => ring.focused)).toMatch(/^#btn-account/);
     expect(await focusRing(page), 'after a chat command').toMatchObject({ ring: false });
+  });
+
+  test('a Tab that completes a chat command draws no ring on the next window, and a Tab out of the field does', async ({
+    page,
+  }) => {
+    await openRoomWithTrack(page, DESKTOP);
+    const input = page.locator('#chat-input');
+
+    // Tab out of the chat field is navigation: the next control rings.
+    await input.click();
+    await page.keyboard.type('See you all at eight');
+    await page.keyboard.press('Tab');
+    await expect(input).not.toBeFocused();
+    expect(await focusRing(page), 'Tab out of the chat field').toMatchObject({ ring: true });
+
+    // Tab that completes a command keeps focus in the field: a mouse user
+    // finishing '/users' is not navigating.
+    await input.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('/us');
+    await page.keyboard.press('Tab');
+    await expect(input).toBeFocused();
+    await expect(input).toContainText('/users');
+    await openLeaveDialogByItself(page);
+    expect(await ringOn(page, stay(page)), 'after a completion Tab').toMatchObject({
+      ring: false,
+    });
+    await closeDialogByPointer(page);
+
+    // The same for a command completed with Tab and sent with Enter.
+    await input.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('/ni');
+    await page.keyboard.press('Tab');
+    await expect(input).toContainText('/nick');
+    await page.keyboard.type('Tester');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#account-dialog-overlay.show')).toBeVisible();
+    await expect.poll(() => focusRing(page).then((ring) => ring.focused)).toMatch(/^#btn-account/);
+    expect(await focusRing(page), 'after a completed chat command').toMatchObject({
+      ring: false,
+    });
+  });
+
+  test('an arrow or page key that only scrolls draws no ring on a clicked track, nor on the next window', async ({
+    page,
+  }) => {
+    await openRoomWithTrack(page, DESKTOP);
+    const track = page.locator('#playlist-ui button.track-name').first();
+    await track.click();
+    await expect(track).toBeFocused();
+    for (const key of ['ArrowDown', 'PageDown', 'End', 'ArrowUp', 'PageUp', 'Home']) {
+      await page.keyboard.press(key);
+      expect(await ringOn(page, track), key).toMatchObject({ ring: false });
+    }
+    await openLeaveDialogByItself(page);
+    expect(await ringOn(page, stay(page)), 'the next window').toMatchObject({ ring: false });
+  });
+
+  test('a keyboard reorder started after a click rings the row handle once an arrow moves it', async ({
+    page,
+  }) => {
+    await page.setViewportSize(DESKTOP);
+    await injectPeerServer(page);
+    await setupHostAndStart(page);
+    await uploadFixtures(page, ['test01', 'test02']);
+    await waitForPlaylistCount(page, 2);
+    await waitForFilePlaybackReady(page, 30_000);
+    await waitForViewTransitionEnd(page);
+    const list = page.locator('#playlist-ui');
+    const handle = list.locator('.playlist-reorder-handle').first();
+    await handle.click();
+    await expect(handle).toBeFocused();
+    expect(await focusRing(page), 'after the click').toMatchObject({ ring: false });
+    // The press started a pointer drag; Space grabs the row once its release
+    // has settled (Space before that does nothing).
+    const grabbed = () =>
+      list.evaluate((element) => element.classList.contains('is-keyboard-reordering'));
+    await expect
+      .poll(
+        async () => {
+          if (!(await grabbed())) await page.keyboard.press('Space');
+          return grabbed();
+        },
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    expect(await focusRing(page), 'after Space').toMatchObject({ ring: false });
+    await page.keyboard.press('ArrowDown');
+    // The row moved down to second place with its focused handle.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const entries = [...document.querySelectorAll('#playlist-ui .playlist-entry')];
+          const entry = document.activeElement?.closest('.playlist-entry');
+          return entry ? entries.indexOf(entry) : -1;
+        }),
+      )
+      .toBe(1);
+    expect(await focusRing(page), 'after the arrow').toMatchObject({ ring: true });
+    await page.keyboard.press('Escape');
   });
 
   test('keyboard navigation keeps every ring, into a dialog, through it and back', async ({

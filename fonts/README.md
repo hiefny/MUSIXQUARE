@@ -167,7 +167,13 @@ which shells expand.
   player's "≈320 kbps · MP3" and "≤256 kbps · DISPLAY" fetch the math face
   (7,116 B) where they fetched a Noto Sans KR or JP shard of 11.8 to 25.3 KB,
   and the French start screen's narrow no-break space the spaces face
-  (1,592 B), where a device font drew it.
+  (1,592 B), where a device font drew it. Chromium also fetches the spaces
+  face for text with `hyphens: auto` in a language it hyphenates, such as the
+  English start screen's buttons (`.adaptive-action-group`): it looks up the
+  hyphen ‐ (U+2010), which only that face has. It still draws the
+  hyphen-minus of Inter's latin face at a break, as before (measured: the
+  same pixels as with `hyphenate-character: "-"`). The Korean start screen
+  hyphenates nothing.
 - Each face is a harfbuzz subset (subset-font on harfbuzzjs) of the full Inter
   with its code points only, the whole `opsz` and `wght` axes, the layout
   features and name records Google's subsets keep (so no `case`, `ss` or `cv`

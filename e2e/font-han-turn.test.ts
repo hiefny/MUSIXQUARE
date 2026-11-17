@@ -44,10 +44,10 @@
  *
  * Chromium only: WebKit holds window load while the font owner loads, so the
  * test cannot hold the owner past load there, and the faces are read over
- * CDP. WebKit draws nothing while a sheet is pending, but it can still draw
- * Han with a later family while the first family's sheet is not pending, as
- * after a failed first attempt; the failure rows cover that path in
- * Chromium. A local verification spec, not part of the critical set.
+ * CDP. WebKit also holds rendering while a sheet is pending, but it can still
+ * draw Han with a later family while the first family's sheet is not
+ * pending, as after a failed first attempt; the failure rows cover that path
+ * in Chromium. A local verification spec, not part of the critical set.
  */
 import { readdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';

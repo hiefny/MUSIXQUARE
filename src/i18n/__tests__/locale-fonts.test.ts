@@ -19,6 +19,7 @@ import {
 } from '../font-loading-policy.ts';
 import { FONT_PREFETCH_BY_LANGUAGE } from '../font-prefetch-samples.ts';
 import type { LanguageCode } from '../locales.ts';
+import { applyUserTextFontFallback } from '../../ui/user-text-font.ts';
 
 /**
  * The app font owner, driven through its public API with the stylesheet
@@ -507,6 +508,91 @@ describe('Han turn', () => {
     finishJp();
     await settle();
     expect(HAN.filter((id) => !requested(id))).toEqual([]);
+  });
+
+  // Text the app marks with its own Han order (src/ui/user-text-font.ts)
+  // draws Han with that order's family first. That family goes right after
+  // the UI's first one and the remaining families wait for it too: declared
+  // together, whichever sheet applied first drew such a line (a Traditional
+  // Chinese title in the Korean UI drew with Noto Sans JP or SC, then TC).
+  function markedLine(text: string): HTMLElement {
+    const line = document.createElement('p');
+    line.textContent = text;
+    applyUserTextFontFallback(line, text);
+    document.body.append(line);
+    return line;
+  }
+
+  it.each([
+    ['ko', ['ko-KR'], '這個樂團說', 'font-noto-kr', 'font-noto-tc'],
+    ['ja', ['ja-JP'], '這個樂團說', 'font-noto-jp', 'font-noto-tc'],
+    ['en', ['en-US'], 'ひらがなの歌', 'font-noto-kr', 'font-noto-jp'],
+    ['zh-hans', ['zh-CN'], 'ひらがなの歌', 'font-noto-sc', 'font-noto-jp'],
+  ] as const)(
+    'phase B in the %s UI with browser languages %j declares the family user text %j draws Han with first before the others',
+    async (code, languages, text, first, own) => {
+      setLanguages(languages);
+      const line = markedLine(text);
+      try {
+        const sheet = held(own);
+        const runtime = await freshRuntime();
+        await runtime.loadLanguageFonts(code);
+        await runIdle();
+        const others = HAN.filter((id) => id !== first && id !== own);
+        expect(requested(own)).toBe(true);
+        expect(others.filter(requested)).toEqual([]);
+
+        sheet.resolve();
+        await settle();
+        expect(others.filter((id) => !requested(id))).toEqual([]);
+      } finally {
+        line.remove();
+      }
+    },
+  );
+
+  it('reads the page again after each wait, so user text shown meanwhile has its family declared first', async () => {
+    setLanguages(['ja-JP']);
+    const jp = held('font-noto-jp');
+    const tc = held('font-noto-tc');
+    const runtime = await freshRuntime();
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+    await runIdle();
+    const line = markedLine('這個樂團說');
+    try {
+      jp.resolve();
+      await settle();
+      expect(requested('font-noto-tc')).toBe(true);
+      expect(['font-noto-kr', 'font-noto-sc'].filter(requested)).toEqual([]);
+
+      tc.resolve();
+      await settle();
+      expect(HAN.filter((id) => !requested(id))).toEqual([]);
+    } finally {
+      line.remove();
+    }
+  });
+
+  it("tries a user-text family's failed first attempt again at once too", async () => {
+    setLanguages(['ko-KR']);
+    const line = markedLine('這個樂團說');
+    try {
+      const tc = held('font-noto-tc');
+      const runtime = await freshRuntime();
+      await runtime.loadLanguageFonts('ko');
+      await runIdle();
+
+      tc.reject();
+      await settle();
+      expect(sheets.requests.filter((id) => id === 'font-noto-tc')).toHaveLength(2);
+      expect(['font-noto-jp', 'font-noto-sc'].filter(requested)).toEqual([]);
+
+      tc.resolve();
+      await settle();
+      expect(HAN.filter((id) => !requested(id))).toEqual([]);
+    } finally {
+      line.remove();
+    }
   });
 
   it('follows a language change that makes another family draw Han first', async () => {

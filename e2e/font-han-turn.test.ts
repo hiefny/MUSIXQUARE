@@ -1,5 +1,5 @@
 /**
- * The UI's first Han family applies before any other Han family.
+ * The Han family text draws first applies before the other Han families.
  *
  * Each of the four CJK families draws Han, and Chromium draws a character
  * with the first family in the stack whose declared faces have it. On a first
@@ -11,10 +11,20 @@
  * Sans JP ones. A Korean or English UI under a Japanese or Chinese Han order
  * declared Noto Sans KR in phase A beside its first family the same way.
  *
- * The test holds the font owner until window load, and the UI's first Han
- * sheet until phase B's idle slice has run and every other sheet the page
- * asked for has applied and drawn. It then requires that no face of another
- * Han family was asked for and that the UI's own family draws the Han.
+ * The test holds the font owner until window load, and the sheet of the
+ * family under test (the UI's first, or a marked line's own) until phase B's
+ * idle slice has run and every other sheet the page asked for has applied
+ * and drawn. It then requires that no face of a Han family other than the
+ * UI's first and the line's own was asked for, and that each Han text draws
+ * with its own family.
+ *
+ * Two rows lay a Traditional Chinese line the app marks as user text
+ * (src/ui/user-text-font.ts; its stack is Noto Sans TC, SC, JP, KR) over the
+ * Korean and Japanese start screens and hold Noto Sans TC. The UI's first
+ * family may draw the line until TC applies, since phase A declares only
+ * that one. On App 9.0.829's first Han turn the remaining families were
+ * declared together, so Noto Sans SC, whose sheet applied while TC's was
+ * held, drew the line and had its shards fetched.
  *
  * Two rows fail the first request for that sheet: at once, before phase B,
  * or once phase B has left the other Han families waiting for it. The font
@@ -69,6 +79,10 @@ function assetStem(url: string): string {
   return name.replace(/-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/u, '');
 }
 
+/** A line src/ui/user-text-font.ts marks as Traditional Chinese (體, 這, 樂, 說), and its classes. */
+const TRADITIONAL_LINE = '繁體中文歌詞 這個測試 臺灣樂團 說話';
+const TRADITIONAL_CLASS = 'user-text-font user-text-font-zh-hant';
+
 interface Row {
   readonly name: string;
   readonly locale: string;
@@ -76,11 +90,20 @@ interface Row {
   readonly languages?: readonly string[];
   /** The saved UI language, when it is not the browser's. */
   readonly ui?: string;
-  /** The UI's first Han family and its sheet, which the test holds. */
+  /** The UI's first Han family, which draws the start screen's Han. */
   readonly family: CjkFamily;
+  /** The sheet the test holds: the UI's first family's, or the line's family's. */
   readonly sheet: string;
-  /** Han the start screen does not show, laid out over it. */
-  readonly content?: string;
+  /**
+   * Han the start screen does not show, laid out over it: its text, the
+   * order class src/ui/user-text-font.ts gives it, and the family that class
+   * draws it with first (the UI's first family without a class).
+   */
+  readonly content?: {
+    readonly text: string;
+    readonly className?: string;
+    readonly family?: CjkFamily;
+  };
   /**
    * The held sheet's first request fails at once (before phase B), or once
    * phase B has left the other Han families waiting for it.
@@ -114,7 +137,7 @@ const ROWS: readonly Row[] = [
     ui: 'en',
     family: 'Noto Sans JP',
     sheet: 'font-noto-jp',
-    content: '漢字 海 返 曜 花 雪',
+    content: { text: '漢字 海 返 曜 花 雪' },
   },
   {
     name: 'the Japanese start screen whose sheet fails first',
@@ -129,6 +152,20 @@ const ROWS: readonly Row[] = [
     family: 'Noto Sans JP',
     sheet: 'font-noto-jp',
     failFirst: 'while they wait',
+  },
+  {
+    name: 'a Traditional Chinese user-text line in the Korean UI',
+    locale: 'ko-KR',
+    family: 'Noto Sans KR',
+    sheet: 'font-noto-tc',
+    content: { text: TRADITIONAL_LINE, className: TRADITIONAL_CLASS, family: 'Noto Sans TC' },
+  },
+  {
+    name: 'a Traditional Chinese user-text line in the Japanese UI',
+    locale: 'ja-JP',
+    family: 'Noto Sans JP',
+    sheet: 'font-noto-tc',
+    content: { text: TRADITIONAL_LINE, className: TRADITIONAL_CLASS, family: 'Noto Sans TC' },
   },
 ];
 
@@ -254,13 +291,18 @@ test.describe('the first Han family applies first', () => {
         await loaded;
         await expect(page.locator('#btn-setup-host')).toBeVisible();
         if (row.content) {
-          await page.evaluate((text) => {
-            const line = document.createElement('p');
-            line.textContent = text;
-            line.style.cssText =
-              'position:fixed;left:8px;top:8px;z-index:2147483647;margin:0;font-size:15px;';
-            document.body.append(line);
-          }, row.content);
+          await page.evaluate(
+            ({ text, className }) => {
+              const line = document.createElement('p');
+              line.textContent = text;
+              if (className) line.className = className;
+              line.dataset.hanLine = '';
+              line.style.cssText =
+                'position:fixed;left:8px;top:8px;z-index:2147483647;margin:0;font-size:15px;';
+              document.body.append(line);
+            },
+            { text: row.content.text, className: row.content.className ?? null },
+          );
         }
 
         releaseRuntime();
@@ -306,8 +348,11 @@ test.describe('the first Han family applies first', () => {
           .toBe(0);
 
         // No shard of another Han family, on the network or in the font set.
+        // The UI's first family may draw a marked line until the line's own
+        // family applies.
+        const allowed: readonly CjkFamily[] = [row.family, row.content?.family ?? row.family];
         expect(
-          asked.filter((family) => family !== row.family),
+          asked.filter((family) => !allowed.includes(family)),
           'shards of other Han families',
         ).toEqual([]);
         const touched = await page.evaluate(
@@ -315,44 +360,53 @@ test.describe('the first Han family applies first', () => {
             [...document.fonts]
               .filter((face) => face.status !== 'unloaded')
               .map((face) => face.family.replace(/^(['"])(.*)\1$/su, '$2'))
-              .filter((family) => family !== own && families.includes(family)),
-          { own: row.family, families: CJK_FAMILIES as readonly string[] },
+              .filter((family) => !own.includes(family) && families.includes(family)),
+          { own: allowed as readonly string[], families: CJK_FAMILIES as readonly string[] },
         );
         expect(touched, 'faces of other Han families').toEqual([]);
 
-        // The UI's own family draws the Han.
+        // Each Han text draws with its own family: the start screen's with the
+        // UI's first family, the laid-out line's with its own.
         await page.evaluate(() => {
-          let index = 0;
           const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
           for (let node = walker.nextNode(); node; node = walker.nextNode()) {
             const element = node.parentElement;
             if (!element || !/\p{Script=Han}/u.test(node.textContent ?? '')) continue;
             const box = element.getBoundingClientRect();
-            if (box.width > 0 && box.height > 0) element.dataset.hanProbe = String(index++);
+            if (box.width === 0 || box.height === 0) continue;
+            element.dataset.hanProbe = element.closest('[data-han-line]') ? 'line' : 'screen';
           }
         });
         const cdp = await context.newCDPSession(page);
         await cdp.send('DOM.enable');
         await cdp.send('CSS.enable');
         const { root } = await cdp.send('DOM.getDocument', { depth: -1 });
-        const { nodeIds } = await cdp.send('DOM.querySelectorAll', {
-          nodeId: root.nodeId,
-          selector: '[data-han-probe]',
-        });
-        expect(nodeIds.length, 'elements with Han').toBeGreaterThan(0);
-        const drawn = new Set<string>();
-        for (const nodeId of nodeIds) {
-          const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
-          for (const { familyName, isCustomFont } of fonts) {
-            drawn.add(`${familyName}${isCustomFont ? '' : ' (device)'}`);
+        let probed = 0;
+        for (const [probe, family] of [
+          ['screen', row.family],
+          ['line', row.content?.family ?? row.family],
+        ] as const) {
+          const { nodeIds } = await cdp.send('DOM.querySelectorAll', {
+            nodeId: root.nodeId,
+            selector: `[data-han-probe="${probe}"]`,
+          });
+          if (nodeIds.length === 0) continue;
+          probed += nodeIds.length;
+          const drawn = new Set<string>();
+          for (const nodeId of nodeIds) {
+            const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
+            for (const { familyName, isCustomFont } of fonts) {
+              drawn.add(`${familyName}${isCustomFont ? '' : ' (device)'}`);
+            }
           }
+          expect(
+            [...drawn].filter((name) => !name.startsWith('Inter') && !name.startsWith(family)),
+            `faces drawing the ${probe}'s Han`,
+          ).toEqual([]);
+          expect([...drawn].some((name) => name.startsWith(family))).toBe(true);
         }
         await cdp.detach();
-        expect(
-          [...drawn].filter((name) => !name.startsWith('Inter') && !name.startsWith(row.family)),
-          'faces drawing the Han text',
-        ).toEqual([]);
-        expect([...drawn].some((name) => name.startsWith(row.family))).toBe(true);
+        expect(probed, 'elements with Han').toBeGreaterThan(0);
       } finally {
         await context.close();
       }

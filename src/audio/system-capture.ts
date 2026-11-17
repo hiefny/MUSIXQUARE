@@ -638,6 +638,14 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   };
 
   if (!isSelectedCaptureTrackLive()) {
+    // Nothing is committed yet, so the track-ended handler logged nothing.
+    logSupersededStart(
+      'after the share window',
+      startEpoch,
+      startLoadEpoch,
+      startRoom,
+      isSelectedCaptureTrackLive,
+    );
     releaseProLeaseAttempt(proLeaseAttempt);
     discardSelectedCapture();
     return false;

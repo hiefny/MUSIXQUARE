@@ -225,7 +225,13 @@ function scheduleSetupScrollbarReveal(): void {
 
 function hasTerminalSetupBootFailure(): boolean {
   const root = document.documentElement;
-  if (root.classList.contains('setup-boot-failed')) return true;
+  if (root.classList.contains('setup-boot-failed')) {
+    // A failed boot is terminal for this document. Lift a guard left with it:
+    // the guard's rules outrank the failure surface's and would hide Retry.
+    document.body?.classList.add('fouc-loaded');
+    root.classList.remove('setup-boot-block');
+    return true;
+  }
   if (!root.classList.contains('setup-boot-block')) return false;
 
   const failure = setupEl('bootstrap-failure');

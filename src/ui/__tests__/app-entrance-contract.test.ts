@@ -54,6 +54,17 @@ describe('app entrance choreography contract', () => {
     expect(expectedCount).toBe(initializers.length + 2);
   });
 
+  it('starts the bootstrap on the styled page even where the module runs before its stylesheet', () => {
+    // WebKit runs the entry module before the app stylesheet the parser placed
+    // ahead of it has loaded. The first step already reads the styled page,
+    // and setup's boot-failure check reads the stylesheet's failure surface.
+    const bootstrapBody =
+      appSource.match(/async function bootstrap\(\): Promise<void> \{([\s\S]*?)\n\}/u)?.[1] ?? '';
+    const wait = bootstrapBody.indexOf('await whenAppStylesheetsSettled();');
+    expect(wait).toBeGreaterThanOrEqual(0);
+    expect(wait).toBeLessThan(bootstrapBody.indexOf("safeInit('Platform', initPlatform);"));
+  });
+
   it('keeps the app chrome unpainted until onboarding owns the first visible frame', () => {
     const openingHtmlTag = appMarkup.match(/<html\b[^>]*>/u)?.[0] ?? '';
     expect(openingHtmlTag).toContain('class="setup-boot-block"');

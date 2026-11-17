@@ -366,11 +366,25 @@ export function playChatSystemEventSound(
   }
 }
 
-function isEligibleButton(target: EventTarget | null): target is HTMLElement {
+const pressesTakenBeforeBusy = new WeakSet<Event>();
+
+/**
+ * Keep the touch sound of a press that its control takes and answers by
+ * marking itself busy (aria-disabled) in its own click handler, as the media
+ * picker's System Audio option does when it starts a share. The touch sound
+ * listens on the document, after that handler, and would read the control as
+ * one that cannot be pressed. A press on a control that was busy already, or
+ * on one that opts out with data-ui-sound="off", stays silent.
+ */
+export function keepUiTouchSoundForPress(event: Event): void {
+  pressesTakenBeforeBusy.add(event);
+}
+
+function isEligibleButton(target: EventTarget | null, pressTaken: boolean): target is HTMLElement {
   if (!(target instanceof Element)) return false;
   const button = target.closest<HTMLElement>('button, [role="button"]');
   if (!button) return false;
-  if (button.matches(':disabled, [aria-disabled="true"], [data-ui-sound="off"]')) return false;
+  if (!pressTaken && button.matches(':disabled, [aria-disabled="true"]')) return false;
   if (button.closest('[data-ui-sound="off"]')) return false;
   if (button.matches('.playlist-reorder-handle, [role="slider"]')) return false;
   return true;
@@ -382,7 +396,8 @@ export function initUiSounds(): void {
   previousSessionStarted = getState('setup.sessionStarted');
 
   const handleClick = (event: MouseEvent) => {
-    if (!event.isTrusted || !readEnabled() || !isEligibleButton(event.target)) return;
+    if (!event.isTrusted || !readEnabled()) return;
+    if (!isEligibleButton(event.target, pressesTakenBeforeBusy.has(event))) return;
     playUiTouchSound();
   };
   const handlePointerDown = (event: PointerEvent) => {

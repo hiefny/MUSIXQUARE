@@ -96,6 +96,7 @@ import {
   isSystemAudioCaptureActive,
   isSystemAudioCaptureStartPending,
 } from '../audio/system-audio-policy.ts';
+import { keepUiTouchSoundForPress } from '../audio/ui-sounds.ts';
 import {
   canPublishProSystemAudioWithCurrentCoordinator,
   getProSystemAudioOwnerDisplayName,
@@ -1501,7 +1502,7 @@ export function initPlayerControls(): void {
     closeMediaSourcePopup(false);
     openYouTubePopup(returnFocus);
   });
-  $on('btn-system-audio', 'click', () => {
+  $on('btn-system-audio', 'click', (event) => {
     // A share is getting ready: the option reads as preparing and is
     // aria-disabled but focusable, so Enter and Space still reach this
     // handler. A further press has nothing to add, not even a toast.
@@ -1542,6 +1543,9 @@ export function initPlayerControls(): void {
       // lease, synchronously inside this click's user activation. The picker
       // stays open until the share is on (system-audio:start-settled), as it
       // stays open until a chosen file arrives (owner proposal 2026-11-03).
+      // The option turns preparing before this press reaches the touch
+      // sound's listener on the document; the press keeps its sound.
+      keepUiTouchSoundForPress(event);
       bus.emit('system-audio:start');
       syncSystemAudioSourceButton();
     } else {

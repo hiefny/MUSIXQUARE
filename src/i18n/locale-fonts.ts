@@ -32,13 +32,16 @@
  * families draws Han, and the browser draws a character with the first
  * family in the stack whose declared faces have it, so a Han family other
  * than the UI's first one (its own in Japanese and Chinese, the Han order's
- * first family in every other UI) waits for its Han turn: until the first
- * family's first sheet attempt has settled (loaded, failed or abandoned at
- * its deadline). Otherwise a later family whose sheet applied first drew the
- * visible Han and had its shards fetched, then the first family's (in App
- * 9.0.829 a first visit's Japanese start screen fetched 30 Noto Sans KR
- * shards that way). Phase A, phase B, the retries and the language picker
- * all take the turn, and a retry of the first family holds nothing.
+ * first family in every other UI) waits for its Han turn: while an attempt of
+ * the first family's sheet is in flight. When the first family's first
+ * attempt fails or is abandoned at its deadline, the turn tries it again at
+ * once, not after the timer retry's delay, and waits for that attempt too;
+ * once that one fails as well, the other families are declared. Otherwise a
+ * later family whose sheet applied first drew the visible Han and had its
+ * shards fetched, then the first family's (in App 9.0.829 a first visit's
+ * Japanese start screen fetched 30 Noto Sans KR shards that way). Phase A,
+ * phase B, the retries and the language picker all take the turn, and phase
+ * B and the retries ask for the first family before the others.
  *
  * A sheet attempt that does not settle within its deadline
  * (FONT_SHEET_ATTEMPT_TIMEOUT_MS, doubled for each later attempt of the sheet)
@@ -266,29 +269,49 @@ function loadSheet(id: AppFontSheetId): Promise<boolean> {
 }
 
 /**
- * loadSheet in the sheet's Han turn. A Han family other than the current UI's
- * first one waits while the first family's first attempt is in flight, until
- * it has loaded, failed or been abandoned at its deadline, and then looks
- * again: a language change that made another family first meanwhile holds it
- * until that family's first attempt has settled too. Only a first attempt
- * holds, so a retry of the first family never does and no wait outlasts
- * FONT_SHEET_ATTEMPT_TIMEOUT_MS. It waits on that attempt only and never
- * starts one of the first family. Every other sheet, and a Han family with
- * nothing to wait for, goes to loadSheet in the same call, so concurrent
- * requests still share one attempt.
+ * The attempt a later Han family waits for: the first family's attempt in
+ * flight, or one started now when the first family's first attempt has
+ * failed or been abandoned (or it was never asked for). That one retry at
+ * once keeps a failed first attempt from leaving the later families to draw
+ * its Han until the timer retry. Nothing once the family has loaded, or has
+ * failed its retry too.
  */
-function loadSheetInHanTurn(id: AppFontSheetId): Promise<boolean> {
-  const first = HAN_SHEETS.has(id) ? currentHanFirstSheet() : null;
-  const firstState = first && first !== id ? sheetState(first) : null;
-  const firstAttempt = firstState?.attempts === 1 ? firstState.inFlight : null;
-  if (!firstAttempt) return loadSheet(id);
-  const next = () => loadSheetInHanTurn(id);
-  return firstAttempt.then(next, next);
+function hanTurnAttempt(id: AppFontSheetId): Promise<boolean> | null {
+  const state = sheetState(id);
+  if (state.loaded) return null;
+  if (state.inFlight) return state.inFlight;
+  return state.attempts < 2 ? loadSheet(id) : null;
 }
 
-/** Load sheets in their Han turn in the background, then run onSettled; loadSheet never rejects. */
+/**
+ * loadSheet in the sheet's Han turn. A Han family other than the current UI's
+ * first one, neither loaded nor loading, waits while an attempt of the first
+ * family is in flight (hanTurnAttempt), and then looks again: a language
+ * change that made another family first meanwhile holds it until that
+ * family's attempt has settled too. Each wait is bounded by the deadline of
+ * the attempt it waits for. Every other sheet, and a Han family with nothing
+ * to wait for, goes to loadSheet in the same call, so concurrent requests
+ * still share one attempt.
+ */
+function loadSheetInHanTurn(id: AppFontSheetId): Promise<boolean> {
+  const state = sheetState(id);
+  const first =
+    HAN_SHEETS.has(id) && !state.loaded && !state.inFlight ? currentHanFirstSheet() : null;
+  const turn = first && first !== id ? hanTurnAttempt(first) : null;
+  if (!turn) return loadSheet(id);
+  const next = () => loadSheetInHanTurn(id);
+  return turn.then(next, next);
+}
+
+/**
+ * Load sheets in their Han turn in the background, then run onSettled;
+ * loadSheet never rejects. The UI's first Han family is asked for first, so
+ * the families that wait for it find its attempt in flight.
+ */
 function declareSheets(ids: readonly AppFontSheetId[], onSettled?: () => void): void {
-  Promise.all(ids.map((id) => loadSheetInHanTurn(id)))
+  const first = currentHanFirstSheet();
+  const ordered = first && ids.includes(first) ? [first, ...ids.filter((id) => id !== first)] : ids;
+  Promise.all(ordered.map((id) => loadSheetInHanTurn(id)))
     .then(() => onSettled?.())
     .catch((error: unknown) => {
       log.warn('[i18n] Font sheet bookkeeping failed', error);

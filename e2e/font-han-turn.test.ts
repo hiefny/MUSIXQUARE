@@ -22,18 +22,17 @@
  * (src/ui/user-text-font.ts; its stack is Noto Sans TC, SC, JP, KR) over the
  * Korean and Japanese start screens and hold Noto Sans TC. The UI's first
  * family may draw the line until TC applies, since phase A declares only
- * that one. On App 9.0.829's first Han turn the remaining families were
- * declared together, so Noto Sans SC, whose sheet applied while TC's was
- * held, drew the line and had its shards fetched.
+ * that one. When the remaining families are declared together, as in App
+ * 9.0.829, Noto Sans SC, whose sheet applies while TC's is held, draws the
+ * line and has its shards fetched.
  *
  * Two rows fail the first request for the Japanese UI's own sheet: at once,
  * before phase B, or once phase B has left the other Han families waiting
  * for it. The font owner tries the sheet again at once and the other families
  * wait for that attempt too, so the test holds the second request instead.
- * On App 9.0.829's first Han turn a failed first attempt let the other
- * families be declared at once (phase B asked for Noto Sans KR before the
- * retry, or the retry waited 10 s for its timer), and Noto Sans KR drew the
- * Japanese start screen.
+ * Were the other families declared as soon as the first attempt failed
+ * (phase B asking for Noto Sans KR before the retry, or the retry waiting
+ * 10 s for its timer), Noto Sans KR would draw the Japanese start screen.
  *
  * An installed family of the same name (a Windows 11 PC can have Noto Sans
  * KR, SC and TC) would draw the Han while its sheet is held and hide the

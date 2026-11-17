@@ -392,9 +392,9 @@ describe('Han turn', () => {
 
   // A failed or abandoned first attempt of the Han-first sheet is tried again
   // at once while the other families wait, and they wait for that attempt
-  // too. On App 9.0.829's first turn they were declared as soon as the first
-  // attempt settled while the retry waited FONT_SHEET_RETRY_DELAY_MS, so a
-  // later family drew the Japanese start screen's Han for about 10 s.
+  // too. Were they declared as soon as the first attempt settled while the
+  // retry waited FONT_SHEET_RETRY_DELAY_MS, a later family would draw the
+  // Japanese start screen's Han for about 10 s.
   const jpRequests = () => sheets.requests.filter((id) => id === 'font-noto-jp').length;
 
   it('tries the Han-first sheet again at once when its first attempt fails, and declares them once that attempt settles', async () => {

@@ -2332,6 +2332,40 @@ describe('system audio option while a share prepares', () => {
     expectReady(elements.option);
   });
 
+  // A standard share is on a moment after its capture, often before the
+  // browser has run the close's update: the fading picker still never shows
+  // the option back at System Audio, as when the started share closed it.
+  it('keeps the fading picker preparing when the share comes on before the close update runs', async () => {
+    const elements = setup();
+    openPicker(elements);
+    pressOption(elements);
+    const updates: Array<() => void> = [];
+    transitionDescriptor = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+    stubbedTransition = true;
+    Object.defineProperty(document, 'startViewTransition', {
+      configurable: true,
+      value: vi.fn((update: () => void) => {
+        updates.push(update);
+        return {};
+      }),
+    });
+
+    captureLiveAudio();
+    settleStart(true);
+    await Promise.resolve();
+
+    expect(document.startViewTransition).toHaveBeenCalledOnce();
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+    expectPreparing(elements.option);
+
+    updates.forEach((update) => update());
+
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    expectReady(elements.option);
+    await Promise.resolve();
+    expect(document.activeElement).toBe(elements.opener);
+  });
+
   // Owner decision 2026-11-17: the picker closes once per start, at the
   // capture. A picker the person opens again while the start goes on (from
   // the playlist's add button) is theirs: the share coming on leaves it open.
@@ -3945,6 +3979,12 @@ describe('initPlayerControls track title while a captured share gets ready', () 
 
   it('follows a language change while the share gets ready', async () => {
     const { title, subtitle } = renderTrackTitle(NIGHT_DRIVE);
+    // The i18n observer translates markup inserted after it started, as this
+    // row's is (the page's own is translated at load). Let it run first, as
+    // it would before any language change, then show the track again.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    bus.emit('ui:player-panel-visible');
+    expect(subtitle.textContent).toBe('FLAC');
     pressShare();
     captureLiveAudio('display');
     expect(title.innerText).toBe('Preparing to share...');

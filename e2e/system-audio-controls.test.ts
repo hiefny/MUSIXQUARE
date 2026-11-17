@@ -676,6 +676,67 @@ test('a cancelled share dialog keeps the picker open and the option ready again'
   expect((await readHeldSystemAudioPicker(page)).activations).toEqual([true, true]);
 });
 
+type TouchSoundWindow = Window & { __uiTouchSounds?: number };
+
+/** Turn UI sounds on and count the touch sounds src/audio/ui-sounds.ts plays. */
+async function recordUiTouchSounds(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    localStorage.setItem('musixquare-ui-sounds-enabled', '1');
+    const win = window as TouchSoundWindow;
+    win.__uiTouchSounds = 0;
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (
+      this: AudioBufferSourceNode,
+      ...args: Parameters<AudioBufferSourceNode['start']>
+    ) {
+      // The touch is the only short mono buffer the app plays (55 ms).
+      if (this.buffer?.numberOfChannels === 1 && this.buffer.duration < 0.1) {
+        win.__uiTouchSounds = (win.__uiTouchSounds ?? 0) + 1;
+      }
+      return start.apply(this, args);
+    };
+  });
+}
+
+function readUiTouchSounds(page: Page): Promise<number> {
+  return page.evaluate(() => (window as TouchSoundWindow).__uiTouchSounds ?? 0);
+}
+
+test('the press that starts a share keeps the UI touch sound, and a press while it prepares stays silent', async ({
+  page,
+}) => {
+  await injectPeerServer(page);
+  await installSyntheticSystemAudio(page);
+  await recordUiTouchSounds(page);
+  await useAnonymousAccountSession(page);
+  await setupHostAndStart(page);
+  await navigateToTab(page, 'play');
+  await holdSyntheticSystemAudioPicker(page);
+  const { option } = await openSystemAudioOption(page);
+  // Opening the picker was a press with its touch sound.
+  await expect.poll(() => readUiTouchSounds(page)).toBeGreaterThan(0);
+  const beforeShare = await readUiTouchSounds(page);
+
+  // The option marks itself preparing in its own click, before the press
+  // reaches the touch sound's listener on the document. As when the picker
+  // closed at the tap, the press still answers with the sound.
+  await option.click();
+  await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+  await expect(option).toHaveAttribute('aria-disabled', 'true');
+  await expect.poll(() => readUiTouchSounds(page)).toBe(beforeShare + 1);
+
+  // Past the touch sound's 35 ms repeat guard, a press on the preparing
+  // option opens nothing and plays nothing.
+  await page.waitForTimeout(100);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  expect((await readHeldSystemAudioPicker(page)).calls).toBe(1);
+  expect(await readUiTouchSounds(page)).toBe(beforeShare + 1);
+
+  await cancelHeldSystemAudioPicker(page);
+  await expect(option).toHaveAttribute('aria-busy', 'false');
+});
+
 test('a PRO owner sees the preparing label for the whole start and, after a cancel, until the room releases the lease', async ({
   page,
 }) => {

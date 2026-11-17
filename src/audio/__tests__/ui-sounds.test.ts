@@ -16,6 +16,7 @@ vi.mock('../context-recovery.ts', () => recoveryMock);
 import {
   initUiSounds,
   isUiSoundsEnabled,
+  keepUiTouchSoundForPress,
   playAnnouncementSound,
   playChatSystemEventSound,
   playUiTouchSound,
@@ -376,6 +377,59 @@ describe('UI sounds', () => {
       expect(context.createBufferSource).not.toHaveBeenCalled();
       hold(false);
       playUiTouchSound({ force: true });
+      await flushSounds();
+      expect(context.createBufferSource).toHaveBeenCalledOnce();
+    });
+  });
+
+  /**
+   * The touch sound listens for clicks on the document, after the control's
+   * own click handler. The media picker's System Audio option marks itself
+   * preparing (aria-disabled) in that handler when it starts a share, so the
+   * press it took reaches the listener on a control that reads as disabled.
+   * jsdom clicks are untrusted, so these rows call the document listener
+   * directly with the trusted press it would receive.
+   */
+  describe('a press its control took before marking itself busy', () => {
+    const press = (target: Element): MouseEvent =>
+      ({ isTrusted: true, target }) as unknown as MouseEvent;
+
+    function documentClickListener(): (event: MouseEvent) => void {
+      const add = vi.spyOn(document, 'addEventListener');
+      try {
+        initUiSounds();
+        const registered = add.mock.calls.find(
+          ([type, , options]) => type === 'click' && options === undefined,
+        );
+        return registered![1] as (event: MouseEvent) => void;
+      } finally {
+        add.mockRestore();
+      }
+    }
+
+    it('plays for that press only, and still honours an opt-out', async () => {
+      setUiSoundsEnabled(true);
+      const onClick = documentClickListener();
+      document.body.innerHTML = '<button type="button" aria-disabled="true">Option</button>';
+      const option = document.querySelector('button')!;
+
+      // A press on a control that was already busy stays silent.
+      onClick(press(option));
+      await flushSounds();
+      expect(context.createBufferSource).not.toHaveBeenCalled();
+
+      // A control that opts out of touch sounds stays silent either way.
+      option.dataset.uiSound = 'off';
+      const optedOut = press(option);
+      keepUiTouchSoundForPress(optedOut);
+      onClick(optedOut);
+      await flushSounds();
+      expect(context.createBufferSource).not.toHaveBeenCalled();
+
+      delete option.dataset.uiSound;
+      const taken = press(option);
+      keepUiTouchSoundForPress(taken);
+      onClick(taken);
       await flushSounds();
       expect(context.createBufferSource).toHaveBeenCalledOnce();
     });

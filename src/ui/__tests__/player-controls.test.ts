@@ -43,6 +43,7 @@ import {
   configureSystemAudioCaptureActivityProbe,
   configureSystemAudioCaptureStartProbe,
 } from '../../audio/system-audio-policy.ts';
+import { keepUiTouchSoundForPress } from '../../audio/ui-sounds.ts';
 import { createSharingActionMotion } from '../sharing-action-motion.ts';
 import { registerSharingActionMotion } from '../sharing-action-motion-port.ts';
 import {
@@ -133,6 +134,11 @@ vi.mock('../../core/navigation.ts', async (importOriginal) => ({
 vi.mock('../toast.ts', () => ({
   showToast: vi.fn(),
   showLoader: vi.fn(),
+}));
+
+vi.mock('../../audio/ui-sounds.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../audio/ui-sounds.ts')>()),
+  keepUiTouchSoundForPress: vi.fn(),
 }));
 
 vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
@@ -2308,6 +2314,28 @@ describe('system audio option while a share prepares', () => {
     bus.emit('pro-system-audio:state-changed', { ...proSystemAudio.view }, null);
     expectPreparing(elements.option);
   });
+
+  // The option marks itself preparing (aria-disabled) in its own click, before
+  // the press reaches the touch sound's listener on the document.
+  it.each(['standard', 'pro'] as const)(
+    'keeps the touch sound of the press that starts a share in a %s room, not of an ignored press',
+    (room) => {
+      const elements = setup(room);
+      openPicker(elements);
+
+      pressOption(elements);
+
+      expect(elements.startSpy).toHaveBeenCalledTimes(1);
+      expect(keepUiTouchSoundForPress).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(keepUiTouchSoundForPress).mock.calls[0]![0]).toBeInstanceOf(MouseEvent);
+      expectPreparing(elements.option);
+
+      elements.option.click();
+
+      expect(elements.startSpy).toHaveBeenCalledTimes(1);
+      expect(keepUiTouchSoundForPress).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('closing the picker while the share prepares leaves the share running', async () => {
     const stopSpy = vi.fn();

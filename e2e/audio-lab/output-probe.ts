@@ -312,6 +312,11 @@ export async function unfreeze(page: Page): Promise<void> {
   await page.evaluate(() => (window as unknown as LabWindow).__audioLab.unfreeze());
 }
 
+/** Freeze the clock where it is, on a visible page, with no round trip. */
+export async function freeze(page: Page): Promise<void> {
+  await page.evaluate(() => (window as unknown as LabWindow).__audioLab.freeze());
+}
+
 /** Hold the first `limit` resume() calls made while one of `origins` dispatches. */
 export async function holdResume(page: Page, origins: string[], limit = 1): Promise<void> {
   await page.evaluate(
@@ -386,6 +391,25 @@ export async function emitNewerPlayRequest(page: Page): Promise<number> {
       `${Math.round(performance.now())} abort+microtasks`,
     );
     return at;
+  });
+}
+
+/**
+ * A restore notice for the playing file with no owner attempt behind it, so
+ * its dialog's tap takes the owner's ordinary branch. Synthetic: the return
+ * check's own notices in this lab come with a playback-scope attempt, whose
+ * branch the prepared dialog takes instead.
+ */
+export async function emitRestoreNotice(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const hooks = window as unknown as Record<string, unknown>;
+    const bus = hooks.__MUSIXQUARE_BUS__ as { emit: (type: string, payload: unknown) => void };
+    const getState = hooks.__MUSIXQUARE_GET_STATE__ as (path: string) => unknown;
+    bus.emit('audio:output-recovery-needed', {
+      reason: 'context-not-running',
+      source: 'background-resume',
+      queueItemId: getState('playlist.currentQueueItemId'),
+    });
   });
 }
 

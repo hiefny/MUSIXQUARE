@@ -884,6 +884,87 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     },
   );
 
+  it.each([
+    [
+      'still frozen at the return: that attempt parks the output and asks for its gesture',
+      { suspendMs: 300, runsAgain: false },
+      { needed: ['background-resume:clock-stalled'], rejoins: [] },
+      { attempt: 'file', gesture: true },
+      'suspended',
+    ],
+    [
+      'running again at the return: that attempt proves the clock and publishes its one rejoin',
+      { suspendMs: 300, runsAgain: true },
+      { needed: [], rejoins: ['audio-context-recovered'] },
+      { attempt: 'none', gesture: false },
+      'running',
+    ],
+    [
+      'still frozen at the return, the restart still preparing when the branch gave it up',
+      { suspendMs: 700, runsAgain: false },
+      { needed: ['background-resume:clock-stalled'], rejoins: [] },
+      { attempt: 'file', gesture: true },
+      'suspended',
+    ],
+  ] as const)(
+    "the same hidden page where the suspend's statechange comes after its promise (the order Chromium ran in the browser lab): the given-up restart's suspension is an interruption of the playing file, whose attempt resumes it while hidden and decides at the return (F-2502); the clock %s",
+    async (_label, { suspendMs, runsAgain }, published, scope, state) => {
+      const s = await scene();
+      const health = await import('../output-health.ts');
+      s.fake.freezeClock();
+      s.fake.planSuspend({ latencyMs: suspendMs, statechange: 'deferred-event', stateDelayMs: 5 });
+      const bus = recordBus(s.o);
+      const side = dialog();
+      const ops = s.fake.ops.length;
+
+      const outcome = settled(tap(s, dialogSelector('restore-playing-output'), side)!.finish());
+      await vi.advanceTimersByTimeAsync(500);
+      setVisibility('hidden');
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      // The branch gives the restart up once its suspend promise settles (or
+      // its 500 ms wait ends). The statechange that follows finds no owner of
+      // that suspension, so the binding reads it as an interruption of the
+      // file that plays: the playback scope's attempt resumes the context at
+      // once, as for any playing file on a hidden page, and leaves the clock
+      // proof to the return. Before F-2502 the restart kept that statechange,
+      // nothing resumed, and the return's inspection deferred to it.
+      expect(outcome.value).toEqual({ kind: 'stopped' });
+      expect(ownerView(s.o)).toEqual({
+        request: 'none',
+        scope: { attempt: 'file', gesture: true },
+      });
+      expect(s.fake.ops.slice(ops)).toEqual([
+        'resume()',
+        'resume:resolved',
+        'suspend()',
+        'state:suspended',
+        'suspend:resolved',
+        'statechange:suspended',
+        'resume()',
+        'statechange:running',
+        'resume:resolved',
+      ]);
+      expect(bus.needed).toEqual([]);
+      expect(bus.rejoins).toEqual([]);
+
+      // The return: the app's inspection defers to that attempt, which
+      // samples the clock itself: frozen, it parks the output and asks for
+      // the dialog; running, it publishes the one rejoin.
+      await vi.advanceTimersByTimeAsync(30_000);
+      if (runsAgain) s.fake.runClock();
+      setVisibility('visible');
+      await vi.advanceTimersByTimeAsync(0);
+      const inspection = health.inspectBackgroundFileOutput();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(inspection).resolves.toMatchObject({ status: 'stale', reason: 'superseded' });
+      expect(bus.needed).toEqual(published.needed);
+      expect(bus.rejoins).toEqual(published.rejoins);
+      expect(playbackScope.view(s.o)).toEqual(scope);
+      expect(s.fake.state).toBe(state);
+    },
+  );
+
   it("a failed PLAY's retry with no restart cancels a pending playback-scope attempt inside its tap, before its resume, and carries none", async () => {
     const s = await scene();
     await expect(playbackScope.armStalled(s.o, s.fake)).resolves.toBe('prepared');

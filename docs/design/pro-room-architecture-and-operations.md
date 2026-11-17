@@ -486,7 +486,7 @@ active devices total, so the publisher opens at most three
 offer/answer/ICE frames over the authenticated PRO WebSocket. Each route takes
 one signaling round trip: one offer with the probe data channel and an audio
 section whose sender stays empty, an answer within two seconds, then both ends'
-proofs within one more second, the receiver's reported on the probe channel;
+proofs within two more seconds, the receiver's reported on the probe channel;
 the capture track attaches only after both, and the receiver plays it only
 after the publisher reports that on the same channel. A route passes only when browser
 statistics on each end identify exactly one

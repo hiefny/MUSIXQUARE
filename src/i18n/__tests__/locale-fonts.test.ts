@@ -234,10 +234,12 @@ describe('phase A', () => {
     ['fr', ['fr-FR'], ['font-inter', 'font-hangul', 'font-noto-kr']],
     ['ru', ['ru-RU'], ['font-inter', 'font-hangul', 'font-noto-kr']],
     ['el', ['el-GR'], ['font-inter', 'font-hangul', 'font-noto-kr']],
-    ['ko', ['ja-JP', 'ko-KR'], ['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-jp']],
-    ['en', ['ja-JP', 'ko-KR'], ['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-jp']],
-    ['en', ['zh-TW'], ['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-tc']],
-    ['fr', ['ja-JP'], ['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-jp']],
+    // Under a Japanese or Chinese Han order Noto Sans KR follows the first
+    // family, and waits for it (describe 'Han turn').
+    ['ko', ['ja-JP', 'ko-KR'], ['font-inter', 'font-hangul', 'font-noto-jp', 'font-noto-kr']],
+    ['en', ['ja-JP', 'ko-KR'], ['font-inter', 'font-hangul', 'font-noto-jp', 'font-noto-kr']],
+    ['en', ['zh-TW'], ['font-inter', 'font-hangul', 'font-noto-tc', 'font-noto-kr']],
+    ['fr', ['ja-JP'], ['font-inter', 'font-hangul', 'font-noto-jp', 'font-noto-kr']],
     ['ja', ['en-US'], ['font-inter', 'font-noto-jp']],
     ['ja', ['zh-CN'], ['font-inter', 'font-noto-jp']],
     ['zh-hans', ['en-US'], ['font-inter', 'font-noto-sc']],
@@ -311,6 +313,173 @@ describe('phase A', () => {
     await runtime.loadLanguageFonts('en');
 
     expect(sheets.requests).toEqual(['font-inter', 'font-hangul', 'font-noto-kr', 'font-noto-kr']);
+  });
+});
+
+describe('Han turn', () => {
+  // Each CJK family draws Han, and the browser draws a character with the
+  // first family in the stack whose declared faces have it. While a later
+  // family's faces are declared and the UI's first family's are not, the
+  // visible Han is fetched from the later family's shards, then again from
+  // the first family's once its sheet applies (measured with App 9.0.829: 30
+  // Noto Sans KR shards, 1.19 MB, on a first visit's Japanese start screen).
+  const HAN = ['font-noto-kr', 'font-noto-jp', 'font-noto-sc', 'font-noto-tc'];
+  const requested = (id: string) => sheets.requests.includes(id);
+
+  /** A sheet whose import the test settles. */
+  function held(id: string): { resolve(): void; reject(): void } {
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    sheets.behaviour.set(
+      id,
+      () =>
+        new Promise<void>((onLoad, onError) => {
+          resolve = onLoad;
+          reject = onError;
+        }),
+    );
+    return { resolve: () => resolve(), reject: () => reject(new Error('sheet failed')) };
+  }
+
+  it.each([
+    ['ko', ['ja-JP', 'ko-KR'], 'font-noto-jp'],
+    ['en', ['ja-JP', 'ko-KR'], 'font-noto-jp'],
+    ['en', ['zh-CN'], 'font-noto-sc'],
+    ['fr', ['zh-HK'], 'font-noto-tc'],
+  ] as const)(
+    'the %s UI with browser languages %j requests Noto Sans KR only once %s has settled',
+    async (code, languages, first) => {
+      setLanguages(languages);
+      const sheet = held(first);
+      const runtime = await freshRuntime();
+
+      const phaseA = runtime.loadLanguageFonts(code);
+      await settle();
+      expect(sheets.requests).toEqual(['font-inter', 'font-hangul', first]);
+
+      sheet.resolve();
+      await phaseA;
+      expect(sheets.requests).toEqual(['font-inter', 'font-hangul', first, 'font-noto-kr']);
+    },
+  );
+
+  it.each([
+    ['ja', ['ja-JP'], 'font-noto-jp'],
+    ['zh-hans', ['zh-CN'], 'font-noto-sc'],
+    ['zh-hant', ['zh-TW'], 'font-noto-tc'],
+    ['ko', ['ko-KR'], 'font-noto-kr'],
+    ['en', ['en-US', 'ja-JP'], 'font-noto-jp'],
+  ] as const)(
+    'phase B in the %s UI with browser languages %j declares the other Han families once %s has settled',
+    async (code, languages, first) => {
+      setLanguages(languages);
+      const sheet = held(first);
+      const runtime = await freshRuntime();
+      runtime.loadLanguageFonts(code).catch(() => undefined);
+
+      await runIdle();
+      const others = HAN.filter((id) => id !== first);
+      expect(others.filter(requested)).toEqual([]);
+      // Every family that draws no Han is declared at once.
+      expect(APP_SHEET_IDS.filter((id) => !HAN.includes(id) && !requested(id))).toEqual([]);
+
+      sheet.resolve();
+      await settle();
+      expect(others.filter((id) => !requested(id))).toEqual([]);
+    },
+  );
+
+  it('declares them once the Han-first sheet fails', async () => {
+    setLanguages(['ja-JP']);
+    const sheet = held('font-noto-jp');
+    const runtime = await freshRuntime();
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+    await runIdle();
+
+    sheet.reject();
+    await settle();
+
+    expect(HAN.filter((id) => !requested(id))).toEqual([]);
+  });
+
+  it('waits no longer than the Han-first sheet attempt deadline', async () => {
+    useFakeTimers();
+    setLanguages(['ja-JP']);
+    sheets.behaviour.set('font-noto-jp', () => new Promise<void>(() => undefined));
+    const runtime = await freshRuntime();
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+    await runIdle();
+
+    await vi.advanceTimersByTimeAsync(FONT_SHEET_ATTEMPT_TIMEOUT_MS - 1);
+    expect(requested('font-noto-kr')).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(sheets.abandoned).toEqual(['font-noto-jp']);
+    expect(HAN.filter((id) => !requested(id))).toEqual([]);
+  });
+
+  it("holds them for the Han-first sheet's first attempt only, never for a retry", async () => {
+    // A later attempt's deadline doubles, up to FONT_SHEET_ATTEMPT_TIMEOUT_MAX_MS,
+    // so on a failing network the other families load beside the retry.
+    setLanguages(['ja-JP']);
+    let attempts = 0;
+    sheets.behaviour.set('font-noto-jp', () => {
+      attempts += 1;
+      return attempts === 1
+        ? Promise.reject(new Error('sheet failed'))
+        : new Promise<void>(() => undefined);
+    });
+    const runtime = await freshRuntime();
+    await runtime.loadLanguageFonts('ja');
+    await runIdle();
+
+    // Phase B tried the sheet again and declared the other families beside it.
+    expect(sheets.requests.filter((id) => id === 'font-noto-jp')).toHaveLength(2);
+    expect(HAN.filter((id) => !requested(id))).toEqual([]);
+  });
+
+  it('follows a language change that makes another family draw Han first', async () => {
+    setLanguages(['ja-JP']);
+    const jp = held('font-noto-jp');
+    const sc = held('font-noto-sc');
+    const runtime = await freshRuntime();
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+    await runIdle();
+    runtime.loadLanguageFonts('zh-hans').catch(() => undefined);
+    await settle();
+
+    jp.resolve();
+    await settle();
+    expect(['font-noto-kr', 'font-noto-tc'].filter(requested)).toEqual([]);
+
+    sc.resolve();
+    await settle();
+    expect(HAN.filter((id) => !requested(id))).toEqual([]);
+  });
+
+  it('resolves the fonts-settled hook once the waiting Han families are declared', async () => {
+    setLanguages(['ja-JP']);
+    const jp = held('font-noto-jp');
+    const kr = held('font-noto-kr');
+    const runtime = await freshRuntime();
+    let done = false;
+    window.__MUSIXQUARE_FONTS_SETTLED__?.then(
+      () => {
+        done = true;
+      },
+      () => undefined,
+    );
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+    await runIdle();
+
+    jp.resolve();
+    await settle();
+    expect(requested('font-noto-kr')).toBe(true);
+    expect(done).toBe(false);
+
+    kr.resolve();
+    await settle();
+    expect(done).toBe(true);
   });
 });
 
@@ -1358,6 +1527,29 @@ describe('language name glyph warming', () => {
     await expect(runtime.preloadNativeNameGlyphs('th', 'ไทย')).resolves.toBe(true);
 
     expect(glyphs).toHaveBeenCalledTimes(3);
+  });
+
+  it("warms another Han family's name only once the UI's Han-first sheet has settled", async () => {
+    setLanguages(['ja-JP']);
+    let finish!: () => void;
+    sheets.behaviour.set(
+      'font-noto-jp',
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    installFontSet();
+    const runtime = await freshRuntime();
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+
+    const warming = runtime.preloadNativeNameGlyphs('zh-hans', '简体中文');
+    await settle();
+    expect(sheets.requests).not.toContain('font-noto-sc');
+
+    finish();
+    await expect(warming).resolves.toBe(true);
+    expect(sheets.requests).toContain('font-noto-sc');
   });
 
   it('relies on natural rendering where the Font Loading API is missing', async () => {

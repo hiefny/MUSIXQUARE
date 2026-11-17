@@ -16,13 +16,11 @@ function appStylesheet(applied = false, parent: HTMLElement = document.body): HT
 }
 
 /** Whether the wait has ended once every queued reaction has run. */
-async function hasSettled(wait: Promise<void>): Promise<boolean> {
-  let settled = false;
-  void wait.then(() => {
-    settled = true;
-  });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  return settled;
+function hasSettled(wait: Promise<void>): Promise<boolean> {
+  return Promise.race([
+    wait.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 0)),
+  ]);
 }
 
 describe('the bootstrap wait for the app stylesheet', () => {

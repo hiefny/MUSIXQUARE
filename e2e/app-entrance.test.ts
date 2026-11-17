@@ -191,6 +191,23 @@ test.describe('app entrance choreography', () => {
     ).toBe(true);
   });
 
+  test('still fails the boot at once when the app stylesheet fails after the app module', async ({
+    page,
+  }) => {
+    // The bootstrap's wait for the sheet ends on its error too, long before
+    // the 15 s boot-failure fallbacks; the unstyled page then fails as before.
+    await page.route(/\/assets\/main-[^/?]+\.css(?:\?.*)?$/u, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await route.abort('failed');
+    });
+
+    await page.goto('/', { waitUntil: 'commit' });
+
+    await expect(page.locator('html')).toHaveClass(/\bsetup-boot-failed\b/u, { timeout: 8_000 });
+    await expect(page.locator('#setup-overlay')).not.toHaveClass(/\bactive\b/u);
+    await expect(page.locator('#bootstrap-retry')).toBeVisible();
+  });
+
   test('reveals metadata and desktop settings as separate 1200ms cascades', async ({
     page,
     browserName,

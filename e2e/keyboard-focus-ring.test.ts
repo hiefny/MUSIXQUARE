@@ -13,12 +13,15 @@
  * moved focus. Keyboard navigation keeps every ring, into dialogs and back.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import postcss, { type AtRule } from 'postcss';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
 import {
+  openChatDrawer,
   readPlaybackProjection,
+  sendChat,
   waitForFilePlaybackReady,
   waitForViewTransitionEnd,
 } from './helpers/wait.ts';
@@ -458,5 +461,146 @@ test.describe('focus rings in the language list', () => {
     expect(await ringOn(page, activeLanguage), 'opened from the keyboard').toMatchObject({
       ring: true,
     });
+  });
+});
+
+/**
+ * Serves the app stylesheet as an engine that knows :focus-visible but not
+ * :where() reads it: Chromium 86 and 87, for example 2022 LG webOS TVs
+ * (docs/known-accepted.md #20). Such an engine drops every rule whose selector
+ * names :where() or :has(), and an `@supports selector()` test of either is
+ * false there. Every rule under the keyboard gate is gone, so only ungated
+ * rules can draw a ring.
+ */
+async function readStylesheetWithoutWhere(page: Page): Promise<void> {
+  const unknown = /:(?:where|has)\(/u;
+  // Nothing leaves the machine; a chat YouTube link reads a fixed title.
+  await page.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (['127.0.0.1', 'localhost'].includes(url.hostname)) return route.fallback();
+    if (url.hostname === 'www.youtube.com' && url.pathname === '/oembed') {
+      return route.fulfill({ json: { title: 'Sample track' } });
+    }
+    return route.abort();
+  });
+  await page.route(/\/assets\/main-[^/?#]*\.css(?:[?#].*)?$/u, async (route) => {
+    const response = await route.fetch();
+    const root = postcss.parse(await response.text());
+    const tests: AtRule[] = [];
+    root.walkAtRules('supports', (rule) => {
+      tests.push(rule);
+    });
+    for (const rule of tests) {
+      const selectorTest = /^(not\s+)?selector\((.+)\)$/u.exec(rule.params.trim());
+      if (!selectorTest || !unknown.test(selectorTest[2]!)) continue;
+      if (selectorTest[1]) rule.replaceWith([...(rule.nodes ?? [])]);
+      else rule.remove();
+    }
+    root.walkRules((rule) => {
+      const parent = rule.parent as AtRule | undefined;
+      if (parent?.type === 'atrule' && /keyframes$/u.test(parent.name)) return;
+      if (unknown.test(rule.selector)) rule.remove();
+    });
+    await route.fulfill({ response, body: root.toString() });
+  });
+}
+
+/** Reaches `target` the way a keyboard user does: Tab from the control before it. */
+async function tabTo(page: Page, target: Locator): Promise<void> {
+  await target.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(target).toBeFocused();
+}
+
+/** The ring of the surface a focused choice radio paints (src/ui/dialog.ts). */
+async function choiceSurfaceRing(page: Page): Promise<FocusRing> {
+  return page.evaluate(() => {
+    const radio = document.activeElement as HTMLInputElement;
+    const surface = radio.nextElementSibling as HTMLElement;
+    const style = getComputedStyle(surface);
+    return {
+      focused: `${radio.className}[value=${radio.value}]`,
+      ring: style.outlineStyle !== 'none' && Number.parseFloat(style.outlineWidth) > 0,
+      outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineOffset}`,
+    };
+  });
+}
+
+test.describe('focus rings on an engine without :where()', () => {
+  test('the carousel arrows and the PIN dialog choice rows ring on the start screen', async ({
+    page,
+  }) => {
+    await readStylesheetWithoutWhere(page);
+    await openStartScreen(page);
+    for (const arrow of ['#ob-prev', '#ob-next']) {
+      const control = page.locator(arrow);
+      await tabTo(page, control);
+      expect.soft(await focusRing(page), arrow).toMatchObject({ ring: true });
+    }
+
+    // The PIN dialog's choice rows, built as src/ui/dialog.ts builds them: a
+    // transparent native radio before the surface that shows the row.
+    await page.evaluate(() => {
+      const host = document.createElement('div');
+      host.setAttribute(
+        'style',
+        'position:fixed;left:40px;top:120px;width:360px;z-index:2147483647;padding:16px',
+      );
+      const before = document.createElement('button');
+      before.type = 'button';
+      before.id = 'choice-before';
+      before.textContent = 'Before';
+      const list = document.createElement('div');
+      list.className = 'dialog-choice-list';
+      list.setAttribute('role', 'radiogroup');
+      for (const value of ['keep', 'rejoin']) {
+        const row = document.createElement('label');
+        row.className = 'dialog-choice-option';
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.className = 'dialog-choice-radio';
+        radio.name = 'choice-probe';
+        radio.value = value;
+        radio.checked = value === 'keep';
+        const surface = document.createElement('span');
+        surface.className = 'dialog-choice-surface';
+        surface.setAttribute('aria-hidden', 'true');
+        surface.textContent = value;
+        row.append(radio, surface);
+        list.appendChild(row);
+      }
+      host.append(before, list);
+      document.body.appendChild(host);
+    });
+    await page.locator('#choice-before').focus();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('.dialog-choice-radio[value="keep"]')).toBeFocused();
+    expect.soft(await choiceSurfaceRing(page), 'checked row, by Tab').toMatchObject({ ring: true });
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.dialog-choice-radio[value="rejoin"]')).toBeFocused();
+    expect
+      .soft(await choiceSurfaceRing(page), 'next row, by an arrow')
+      .toMatchObject({ ring: true });
+  });
+
+  test("the play panel's Sync and Play media buttons and the chat's YouTube button ring in a room", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await readStylesheetWithoutWhere(page);
+    await openRoomWithTrack(page, DESKTOP);
+    for (const id of ['#btn-sync', '#btn-media-source']) {
+      const button = page.locator(id);
+      await tabTo(page, button);
+      expect.soft(await focusRing(page), id).toMatchObject({ ring: true });
+    }
+
+    await openChatDrawer(page);
+    await sendChat(page, 'https://youtu.be/aqz-KE-bpKQ');
+    const youtube = page.locator('.chat-youtube-btn').first();
+    await expect(youtube).toBeVisible();
+    await tabTo(page, youtube);
+    expect.soft(await focusRing(page), '.chat-youtube-btn').toMatchObject({ ring: true });
   });
 });

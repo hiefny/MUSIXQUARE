@@ -33,6 +33,12 @@ const FORCED = '@media (forced-colors: active)';
 const FORCED_FIELDS =
   ":is(input:not([type='range']):not([type='hidden']), textarea, select, [contenteditable='true'], [contenteditable='plaintext-only'], [role='textbox'], [role='combobox'])";
 const FORCED_CONTROLS = ":is(a, button, [role='button'], [role='switch'], [role='tab'])";
+/**
+ * Chromium 86 and 87 (for example 2022 LG webOS TVs, docs/known-accepted.md
+ * #20) know :focus-visible but not :where(), so they drop every gated rule
+ * whole. They read the ungated rings under this condition instead.
+ */
+const NO_WHERE = '@supports not selector(:where(*))';
 
 const STYLESHEETS = readdirSync(resolve('css'))
   .filter((file) => file.endsWith('.css'))
@@ -444,6 +450,21 @@ function compactRulesFor(selector: string): { conditions: string[]; declarations
     });
 }
 
+/** The at-rule a rule sits in, written as `@name params`, or null for none. */
+function atRuleOf(node: Node | undefined): string | null {
+  if (node?.type !== 'atrule') return null;
+  const { name, params } = node as AtRule;
+  return `@${name} ${compact(params)}`;
+}
+
+/** Whether a rule is part of the ring that engines without :where() read. */
+function readWithoutWhere(rule: Rule): boolean {
+  for (let parent: Node | undefined = rule.parent; parent; parent = parent.parent) {
+    if (atRuleOf(parent) === NO_WHERE) return true;
+  }
+  return false;
+}
+
 /** Panels the skip link and a click on their empty space can focus. */
 const TAB_PANELS = ['tab-play', 'tab-playlist', 'tab-connect', 'tab-guide', 'tab-settings'];
 
@@ -614,8 +635,52 @@ describe('one keyboard gate for focus rings in the app stylesheets', () => {
       .filter((site) => afterGate(site.selector, RING) === null && !onlyHides(site))
       // A field's focus mark shows on every focus, as its blue underline does.
       .filter((site) => compact(site.selector) !== compact(`${FORCED_FIELDS}:focus-visible`))
+      // Engines that drop the gate read their own copy (the next test).
+      .filter((site) => !readWithoutWhere(site.rule))
       .map((site) => `${site.file}:${site.line} ${site.selector}`);
     expect(outside).toEqual([]);
+  });
+
+  it('gives an engine without :where() the app rings the gate takes from it, after each gated rule', () => {
+    // Chromium 86 and 87 drop every gated rule, so no keyboard mark reaches
+    // them. The play panel's Sync and Play media buttons, the carousel arrows
+    // and the chat's YouTube buttons turn the browser's own ring off, and the
+    // PIN dialog's radios are transparent: without a ring of the app's own
+    // they would show no focus at all there. Each copy follows its gated rule in
+    // the same layer, so those engines keep the cascade the app had before
+    // the gate: the global ring after those resets, the browser's
+    // :focus-visible deciding where it shows.
+    const copies = [
+      [':focus-visible', `${RING} :focus-visible`],
+      [
+        '.dialog-choice-radio:focus-visible + .dialog-choice-surface',
+        `${RING} .dialog-choice-radio:focus-visible + .dialog-choice-surface`,
+      ],
+    ] as const;
+    for (const [ungated, gated] of copies) {
+      const original = selectorSites().filter(
+        (site) =>
+          compact(site.selector) === compact(gated) &&
+          atRuleOf(site.rule.parent)?.startsWith('@layer ') === true,
+      );
+      expect(original, gated).toHaveLength(1);
+      let next = original[0]!.rule.next();
+      while (next?.type === 'comment') next = next.next();
+      expect(atRuleOf(next), gated).toBe(NO_WHERE);
+      const inside: { selector: string; declarations: string[] }[] = [];
+      (next as AtRule).each((node) => {
+        if (node.type === 'rule') {
+          inside.push({ selector: compact(node.selector), declarations: declarations(node) });
+        }
+      });
+      expect(inside, gated).toEqual([
+        { selector: compact(ungated), declarations: declarations(original[0]!.rule) },
+      ]);
+    }
+    const fallback = selectorSites()
+      .filter((site) => readWithoutWhere(site.rule))
+      .map((site) => compact(site.selector));
+    expect(fallback.sort()).toEqual(copies.map(([ungated]) => compact(ungated)).sort());
   });
 
   it('turns the browser ring off everywhere outside keyboard navigation', () => {

@@ -3234,7 +3234,10 @@ describe('action button label contract', () => {
       });
     }
     expect(violations).toEqual([]);
-    expect(brandSeen).toBe(4);
+    // The YouTube mark's colour, its light-theme fill and the pressed chat
+    // card. The media picker's hover tint kept a fourth (YouTube's own red
+    // under the mouse) until the tint went (owner decision 2026-11-17).
+    expect(brandSeen).toBe(3);
 
     // A red cannot hide in a color syntax the guards do not read.
     const unreadable: string[] = [];

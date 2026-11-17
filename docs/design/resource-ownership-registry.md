@@ -2922,9 +2922,14 @@ RO-55 accepted-exception
   release retry). Each LAN-direct route's negotiation is the transport's own single attempt
   (`negotiatePublisherRoute` in `src/network/pro-system-audio-direct.ts`, one signaling round trip
   since the one-offer protocol, 2026-10-30): the answer within `DIRECT_NEGOTIATION_TIMEOUT_MS`
-  (2 s) of the offer, then both ends' pair proofs within `DIRECT_PAIR_PROOF_TIMEOUT_MS` (1 s), so
-  one route takes at most 3 s and a route that never answers still fails at 2 s. The receiver's own
-  proof window is the same 2 s constant. A host-to-prflx pair waiting for its statistics to show the
+  (2 s) of the offer, then both ends' pair proofs within `DIRECT_PAIR_PROOF_TIMEOUT_MS` (2 s), so
+  one route takes at most 4 s and a route that never answers still fails at 2 s. The receiver's own
+  proof window is the same 2 s constant as the answer, and the publisher's window after the answer
+  now has the same length, in a separate constant linked to it by a comment (owner decision
+  2026-11-17, up from 1 s: a same-Wi-Fi iPhone listener's proof reached the sharer 932 ms after the
+  answer; accepted cost, a share whose listener route answers but never proves its pair, as when
+  it never connects, reaches the held SFU fallback up to 1 s later). A host-to-prflx pair waiting
+  for its statistics to show the
   refined host candidate (an iOS Safari listener, 2026-10-30) waits inside these windows: the pair
   reading adds no timer, retry or poll of its own. A route whose own end finishes ICE gathering
   having sent no LAN candidate fails at that event, not at a timer (`no-lan-candidate`, owner

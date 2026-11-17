@@ -33,8 +33,12 @@ import { tuneSystemAudioLanDirectSender } from './system-audio-media.ts';
  * window and the bound on one locality reproof's statistics read.
  */
 const DIRECT_NEGOTIATION_TIMEOUT_MS = 2_000;
-/** From the answer to both ends' LAN pair proofs. */
-const DIRECT_PAIR_PROOF_TIMEOUT_MS = 1_000;
+/**
+ * From the answer to both ends' LAN pair proofs. The same 2 s as the
+ * receiver's own proof window (DIRECT_NEGOTIATION_TIMEOUT_MS), but a separate
+ * value, linked to it by this comment.
+ */
+const DIRECT_PAIR_PROOF_TIMEOUT_MS = 2_000;
 const DIRECT_PAIR_POLL_MS = 25;
 const DIRECT_CHANNEL_LABEL = 'MUSIXQUARE-lan-probe';
 /** Sent once by the receiver on the probe channel after its own LAN pair proof. */
@@ -1919,10 +1923,11 @@ function sendPublisherTrackAttached(route: PublisherRoute): boolean {
 /**
  * One route's single round trip: the offer must be answered within
  * `answerTimeoutMs`, then both ends must prove the LAN pair within
- * DIRECT_PAIR_PROOF_TIMEOUT_MS. A route that never answers or never connects
- * therefore fails as fast as before, one whose end gathered no LAN candidate
- * fails when that gathering ends ('no-lan-candidate'), and one result line per
- * route names the stage it reached.
+ * DIRECT_PAIR_PROOF_TIMEOUT_MS. A route that never answers therefore fails as
+ * fast as before, one that answers but never connects fails when that window
+ * ends, one whose end gathered no LAN candidate fails when that gathering ends
+ * ('no-lan-candidate'), and one result line per route names the stage it
+ * reached.
  */
 async function negotiatePublisherRoute(
   session: PublisherSession,

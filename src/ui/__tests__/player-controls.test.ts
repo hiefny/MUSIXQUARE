@@ -3901,6 +3901,14 @@ describe('initPlayerControls track title while a captured share gets ready', () 
     bus.emit('system-audio:start-settled', { started });
   }
 
+  /**
+   * A newer load supersedes the attempt before its own STOP: the capture no
+   * longer reports the surface, while the attempt goes on until it settles.
+   */
+  function supersedeCapturedStart(): void {
+    captured = null;
+  }
+
   /** Every write that left the row empty, even for a moment. */
   function observeEmptiedRows(subtitle: HTMLElement): () => MutationRecord[] {
     const observer = new MutationObserver(() => {});
@@ -3974,6 +3982,33 @@ describe('initPlayerControls track title while a captured share gets ready', () 
     expect(title.innerText).toBe('Live Session');
     expect(subtitle.textContent).toBe('MUSIXQUARE Live');
     expect(subtitle.title).toBe('MUSIXQUARE Live');
+    expect(emptiedRows()).toEqual([]);
+  });
+
+  // A track choice, another controller's change or a natural advance while
+  // the share waits (for the PRO lease, or for audio initialization).
+  it('shows a newer track at once when a newer load supersedes the share before it is on', () => {
+    const NEXT_TRACK: TrackMeta = { type: 'file', name: 'next-track.flac', title: 'Next Track' };
+    const { title, subtitle } = renderTrackTitle(NIGHT_DRIVE);
+    const emptiedRows = observeEmptiedRows(subtitle);
+    pressShare();
+    captureLiveAudio('display');
+    expect(title.innerText).toBe(t('system_audio.button_preparing'));
+    expect(subtitle.textContent).toBe('≤256 kbps · DISPLAY');
+
+    supersedeCapturedStart();
+    setState('player.currentTrackMeta', NEXT_TRACK);
+
+    expect(title.innerText).toBe('Next Track');
+    expect(subtitle.textContent).toBe('FLAC');
+    expect(subtitle.title).toBe('FLAC');
+
+    // The superseded attempt settles later (after the PRO lease answer and
+    // its release): nothing on the play tab changes then.
+    settleStart(false);
+
+    expect(title.innerText).toBe('Next Track');
+    expect(subtitle.textContent).toBe('FLAC');
     expect(emptiedRows()).toEqual([]);
   });
 

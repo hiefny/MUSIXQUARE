@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { compileClassicRuntimeForBrowserTest } from '../../core/__tests__/classic-runtime-test-asset.ts';
 import en from '../../i18n/en.ts';
 import { failOpenSetupBootGuard } from '../setup-boot-guard.ts';
 
@@ -306,6 +308,45 @@ describe('first setup paint with a deferred native View Transition', () => {
     await Promise.resolve();
 
     expect(document.documentElement.classList.contains('setup-boot-failed')).toBe(true);
+    expect(document.getElementById('setup-overlay')?.classList.contains('active')).toBe(false);
+    expect(document.getElementById('bootstrap-failure')?.hasAttribute('inert')).toBe(false);
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
+  });
+
+  it('keeps Retry when the boot failed open before a late bootstrap reached setup', async () => {
+    // fouc-cleanup.js fails the boot open at 15 s while the bootstrap still
+    // waits: for a slow module graph, or in WebKit for a late app stylesheet
+    // (src/core/app-stylesheet.ts). Setup then meets a root that is already
+    // terminal. It must not put the guard back: the guard's rules outrank the
+    // failure surface's and blanked the page until the sheet's own 15 s reveal.
+    vm.runInNewContext(compileClassicRuntimeForBrowserTest('fouc-cleanup.js'), {
+      document,
+      window: { addEventListener: vi.fn() },
+      getComputedStyle: (element: Element) => window.getComputedStyle(element),
+      requestAnimationFrame: () => 1,
+      setTimeout: globalThis.setTimeout,
+    });
+    vi.advanceTimersByTime(15_000);
+    const root = document.documentElement;
+    expect(root.classList.contains('setup-boot-failed')).toBe(true);
+    expect(root.classList.contains('setup-boot-block')).toBe(false);
+
+    const classesBefore: string[] = [];
+    const watch = new MutationObserver((records) => {
+      for (const record of records) classesBefore.push(record.oldValue ?? '');
+    });
+    watch.observe(root, { attributeFilter: ['class'], attributeOldValue: true });
+    setup.initSetup();
+    await Promise.resolve();
+    for (const update of pendingUpdates.splice(0)) update();
+    await Promise.resolve();
+    for (const record of watch.takeRecords()) classesBefore.push(record.oldValue ?? '');
+    watch.disconnect();
+
+    // Not put back even for the rest of the task.
+    expect(classesBefore.filter((classes) => /\bsetup-boot-block\b/u.test(classes))).toEqual([]);
+    expect(root.classList.contains('setup-boot-block')).toBe(false);
+    expect(root.classList.contains('setup-boot-failed')).toBe(true);
     expect(document.getElementById('setup-overlay')?.classList.contains('active')).toBe(false);
     expect(document.getElementById('bootstrap-failure')?.hasAttribute('inert')).toBe(false);
     expect(document.body.classList.contains('overlay-open')).toBe(false);

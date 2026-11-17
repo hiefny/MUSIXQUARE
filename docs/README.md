@@ -142,8 +142,11 @@ runbooks. Neither belongs in a general setup document.
   fixture reproduced it (in a PRO room whose item is YouTube, a press while the post-share restore prepares has that
   restore's late cancel move the load epoch, and the new capture is dropped with no notice, since `3dd9086c`); the fix
   needs the RO-21 owner extended and is left for the owner, and this train only logs one info line wherever a start the
-  share window returned ends without a notice. No new flow or owner, registry baselines unchanged (RO-01 and RO-20 text
-  only). Not verified on a physical device or a real slow network; B was not run in WebKit, C's e2e is Chromium only,
+  share window returned ends without a notice. On the train's first PR CI, the dependency audit failed on a new
+  picomatch advisory (every version up to 4.0.7, no fixed version, reached only through vite and vitest), and the owner
+  decided that CI blocks on the dependencies the App ships (`npm run security:audit -- --omit=dev`; the script alone
+  stays the full local audit, and the Dependabot alerts cover the build and test tools). No new flow or owner, registry
+  baselines unchanged (RO-01 and RO-20 text only). Not verified on a physical device or a real slow network; B was not run in WebKit, C's e2e is Chromium only,
   D and H were seen in local Chromium (H also in the WebKit lane), F with a mocked PRO API in a room of one, and G in
   Chromium and part of the WebKit lane. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.829 / v829 train: the phone start screen's language button shows whole and every setup step clips at one line, the version's patch number becomes the App build number, the media picker stays open with Preparing to share... until shared system audio arrives, and the installed iPhone and iPad app's home indicator strip keeps the loading screen's colour (2026-11-17)](design/app-9-0-829-train-2026-11-17.md):

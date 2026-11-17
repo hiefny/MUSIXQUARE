@@ -49,6 +49,7 @@ import {
 import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
 import {
   configureSystemAudioCaptureActivityProbe,
+  configureSystemAudioCapturedStartProbe,
   configureSystemAudioCaptureStartProbe,
   hasSystemAudioDeviceCapacity,
 } from './system-audio-policy.ts';
@@ -102,6 +103,9 @@ let _preSysAudioState: PreSystemAudioState | null = null;
 // The one start attempt, from the click until it settles. It resolves true
 // only once the share is on for the room.
 let _captureStartPromise: Promise<boolean> | null = null;
+// The surface that attempt captured live audio from, set once the browser's
+// share window returns audio and cleared with the slot above.
+let _captureStartSurface: SystemAudioSurface | null = null;
 let _captureStartEpoch = 0;
 let _captureRestoreEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
@@ -311,8 +315,11 @@ export function isSystemAudioActive(): boolean {
 configureSystemAudioCaptureActivityProbe(isSystemAudioActive);
 // The media source picker shows its preparing state from this slot alone and
 // hears its end through system-audio:start-settled, emitted only where the
-// slot is cleared.
+// slot is cleared. Once the attempt holds live audio, the play tab reads its
+// surface, cleared with the slot, and hears that moment through
+// system-audio:start-captured.
 configureSystemAudioCaptureStartProbe(() => _captureStartPromise !== null);
+configureSystemAudioCapturedStartProbe(() => _captureStartSurface);
 
 /** Return a stream containing the original captured audio track. */
 export function getCapturedAudioStream(): MediaStream | null {
@@ -416,6 +423,7 @@ export async function startSystemAudioCapture(): Promise<void> {
     // while it is still ours, so the picker hears each attempt end once.
     if (_captureStartPromise === attempt) {
       _captureStartPromise = null;
+      _captureStartSurface = null;
       bus.emit('system-audio:start-settled', { started });
     }
   }
@@ -587,6 +595,14 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     discardSelectedCapture();
     return false;
   }
+
+  // The capture holds live audio and this attempt still owns the slot (the
+  // epoch was checked above, with no wait since). The media source picker
+  // closes now and the play tab shows the share preparing, while the attempt
+  // goes on: the PRO lease and publication, or the standard start. A later
+  // ending settles it as before (owner decision 2026-11-17).
+  _captureStartSurface = selectedSurface;
+  bus.emit('system-audio:start-captured');
 
   if (isProRoom) {
     const leaseResult = await proLeaseAttempt!.result;
@@ -937,6 +953,7 @@ function stopSystemAudioCapture(opts?: {
   if (isSystemAudioActive() || _capturedStream || startWasPending) ++_captureRestoreEpoch;
   ++_captureStartEpoch;
   _captureStartPromise = null;
+  _captureStartSurface = null;
   // Clearing the slot ends the attempt for the picker now, even though its
   // native picker or PRO request may settle later; that late result is thrown
   // away and its own finally no longer owns the slot, so it stays quiet.

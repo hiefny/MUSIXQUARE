@@ -1,13 +1,17 @@
 import { MAX_SYSTEM_AUDIO_DEVICES } from '../core/constants.ts';
 import { getState } from '../core/state.ts';
+import type { SystemAudioSurface } from '../core/system-audio-profile.ts';
 
 type SystemAudioCaptureActivityProbe = () => boolean;
 type SystemAudioCaptureStartProbe = () => boolean;
+type SystemAudioCapturedStartProbe = () => SystemAudioSurface | null;
 
 const inactiveCaptureProbe: SystemAudioCaptureActivityProbe = () => false;
 let captureActivityProbe = inactiveCaptureProbe;
 const idleCaptureStartProbe: SystemAudioCaptureStartProbe = () => false;
 let captureStartProbe = idleCaptureStartProbe;
+const uncapturedStartProbe: SystemAudioCapturedStartProbe = () => null;
+let capturedStartProbe = uncapturedStartProbe;
 
 /** The coordinator is device one; only fully connected, unique guests count. */
 function getConnectedSystemAudioDeviceCount(): number {
@@ -61,4 +65,30 @@ export function configureSystemAudioCaptureStartProbe(
 /** A start attempt is running: from the click until it settles or a stop clears it. */
 export function isSystemAudioCaptureStartPending(): boolean {
   return captureStartProbe();
+}
+
+/**
+ * Bind the surface the running start attempt captured live audio from, the
+ * same way. The capture holds it with its start-attempt slot and says when it
+ * is set with `system-audio:start-captured`: the media source picker closes
+ * then, and the play tab shows the share preparing with the share's profile
+ * label until `system-audio:start-settled`, still with nothing of its own.
+ */
+export function configureSystemAudioCapturedStartProbe(
+  probe: SystemAudioCapturedStartProbe,
+): () => void {
+  const previousProbe = capturedStartProbe;
+  capturedStartProbe = probe;
+  return () => {
+    if (capturedStartProbe === probe) capturedStartProbe = previousProbe;
+  };
+}
+
+/**
+ * The surface of a running start attempt that holds live audio; null while
+ * the browser's share window is open, and from the moment the attempt settles
+ * or a stop clears it.
+ */
+export function getSystemAudioCapturedStartSurface(): SystemAudioSurface | null {
+  return capturedStartProbe();
 }

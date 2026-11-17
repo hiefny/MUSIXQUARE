@@ -92,6 +92,7 @@ import {
   isProRoomTrackChangeIntentPending,
 } from '../player/track-change-intent.ts';
 import {
+  getSystemAudioCapturedStartSurface,
   hasSystemAudioDeviceCapacity,
   isSystemAudioCaptureActive,
   isSystemAudioCaptureStartPending,
@@ -134,6 +135,11 @@ let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
 // sends a room-wide Pause.
 let _playIconShowsPlaying = false;
 let _mediaSourcePreviousFocus: HTMLElement | null = null;
+// A close of the media picker whose update has not run yet: a view transition
+// captures the outgoing picker first. Until then the close renders the option,
+// so a start that settles in that gap (a standard share is on within it) never
+// shows the fading picker's option back at System Audio.
+let _mediaSourceCloseQueued = false;
 let _youtubePopupPreviousFocus: HTMLElement | null = null;
 let _playButtonMediaEnabled = false;
 let _mainSyncPending = false;
@@ -315,11 +321,10 @@ function getTrackSubtitle(item: TrackMeta): string {
     .join(' · ');
 }
 
-function updateTrackSubtitle(item: TrackMeta | null): void {
+function renderTrackSubtitle(subtitle: string): void {
   const artistEl = getUiElement('track-artist');
   if (!artistEl) return;
 
-  const subtitle = item ? getTrackSubtitle(item) : t('player.select_file_hint');
   artistEl.textContent = subtitle;
   if (subtitle) {
     artistEl.title = subtitle;
@@ -329,8 +334,24 @@ function updateTrackSubtitle(item: TrackMeta | null): void {
   }
 }
 
+function updateTrackSubtitle(item: TrackMeta | null): void {
+  renderTrackSubtitle(item ? getTrackSubtitle(item) : t('player.select_file_hint'));
+}
+
 /** Refresh the track title and its source metadata row. */
 function refreshTrackTitle(): void {
+  // From the moment this device's share holds live audio until it is on, the
+  // title reads the picker's preparing label and the row already shows the
+  // share's profile label, the text it keeps once the share is on. The row
+  // never empties, so nothing on the play tab moves, and when the share is on
+  // only the title changes (owner decisions 2026-11-17 and 2026-11-18).
+  const capturedSurface = getSystemAudioCapturedStartSurface();
+  if (capturedSurface) {
+    updateTitleWithMarquee(t('system_audio.button_preparing'));
+    renderTrackSubtitle(formatSystemAudioProfileLabel(capturedSurface));
+    return;
+  }
+
   const item = getState('player.currentTrackMeta');
   if (!item) {
     updateTitleWithMarquee(t('player.no_media'));
@@ -350,6 +371,9 @@ function refreshTrackTitle(): void {
   updateTrackSubtitle(item);
 }
 
+// The browser tab title, like the Media Session, keeps naming the media while
+// a share gets ready: the preparing label is the picker's status moved onto
+// the play tab. It names the share once the share claims the player.
 function getTabTitleTrack(): string {
   const item = getState('player.currentTrackMeta');
   if (!item) return '';
@@ -708,15 +732,17 @@ function closeMediaSourcePopup(restoreFocus = true): void {
   clearManagedTimer('media-source-focus');
   const returnFocus = _mediaSourcePreviousFocus;
   _mediaSourcePreviousFocus = null;
+  _mediaSourceCloseQueued = true;
   animateTransition(
     () => {
+      _mediaSourceCloseQueued = false;
       const overlay = getUiElement('media-source-overlay');
       if (overlay) {
         overlay.classList.remove('active');
         syncOverlayState();
         if (restoreFocus) restoreOverlayOpener(returnFocus, overlay);
       }
-      // In the same update as the close, so a picker closing on a started
+      // In the same update as the close, so a picker closing on a captured
       // share never shows the option back at System Audio while it fades.
       syncSystemAudioSourceButton();
     },
@@ -1541,10 +1567,12 @@ export function initPlayerControls(): void {
       }
       // The capture calls getDisplayMedia, and in a PRO room begins the
       // lease, synchronously inside this click's user activation. The picker
-      // stays open until the share is on (system-audio:start-settled), as it
-      // stays open until a chosen file arrives (owner proposal 2026-11-03).
-      // The option turns preparing before this press reaches the touch
-      // sound's listener on the document; the press keeps its sound.
+      // stays open while the browser's share window is open, as it stays open
+      // until a chosen file arrives (owner proposal 2026-11-03), and closes
+      // once the capture holds live audio (system-audio:start-captured, owner
+      // decision 2026-11-17). The option turns preparing before this press
+      // reaches the touch sound's listener on the document; the press keeps
+      // its sound.
       keepUiTouchSoundForPress(event);
       bus.emit('system-audio:start');
       syncSystemAudioSourceButton();
@@ -2061,17 +2089,30 @@ export function initPlayerControls(): void {
   _busScope.on('pro-system-audio:state-changed', () => {
     syncMediaSourceButtonAuthority();
   });
-  // The capture's start attempt ended. Only a started share closes the
-  // picker, returning focus to its opener (Stop Sharing, or the playlist's
-  // add button); the close renders the option inside its own update. Every
-  // other ending leaves the picker as it is, with the option ready again and
-  // focus where it was. A picker the person already closed does not reopen.
-  _busScope.on('system-audio:start-settled', ({ started }) => {
-    if (started && getUiElement('media-source-overlay')?.classList.contains('active')) {
+  // The capture's start attempt holds live audio and goes on (owner decision
+  // 2026-11-17). The picker closes now, once per start, returning focus to
+  // its opener (the media button, or the playlist's add button); the close
+  // renders the option, still preparing, inside its own update. A picker the
+  // person already closed, or is closing, is left to that close. The play tab
+  // shows the share preparing until the attempt settles.
+  _busScope.on('system-audio:start-captured', () => {
+    if (
+      !_mediaSourceCloseQueued &&
+      getUiElement('media-source-overlay')?.classList.contains('active')
+    ) {
       closeMediaSourcePopup();
-      return;
     }
-    syncSystemAudioSourceButton();
+    refreshTrackTitle();
+  });
+  // The capture's start attempt ended. An ending before the capture held live
+  // audio leaves the picker as it is, with the option ready again and focus
+  // where it was; no ending opens or closes the picker, and a close still
+  // queued renders the option in its own update. The title shows what the
+  // player shows: the share once it is on, otherwise what the capture kept or
+  // put back when the start ended.
+  _busScope.on('system-audio:start-settled', () => {
+    if (!_mediaSourceCloseQueued) syncSystemAudioSourceButton();
+    refreshTrackTitle();
   });
   _busScope.on('state:playlist.items', () => {
     const pendingQueueItemId = getState('network.pendingTrackChangeQueueItemId');

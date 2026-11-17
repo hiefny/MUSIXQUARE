@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { log } from '../../core/log.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
@@ -2717,5 +2718,90 @@ describe('capture start pending and settlement', () => {
 
     expect(settled).toHaveBeenCalledTimes(1);
     expect(getSystemAudioCapturedStartSurface()).toBeNull();
+  });
+  // A start that a stop, a newer playback choice, a room change or an ended
+  // track supersedes ends without a toast, because the newer state is what
+  // the person sees. Its info line names the reason, so a share that ends
+  // this way leaves a line in a shared log instead of a gap (2026-11-18).
+  it('logs why a start ends quietly when a newer load arrives while the share window is open', async () => {
+    const info = vi.spyOn(log, 'info');
+    onTestFinished(() => info.mockRestore());
+    let resolvePicker!: () => void;
+    stubDisplayMedia(
+      (stream) =>
+        new Promise<MediaStream>((resolve) => {
+          resolvePicker = () => resolve(stream);
+        }),
+    );
+    const settled = observeSettlements();
+
+    const startPromise = startSystemAudioCapture();
+    await Promise.resolve();
+    // A newer load's teardown starts a new load epoch while the window is open.
+    stopAllMedia({ cancelInFlight: true, silent: true });
+    resolvePicker();
+    await startPromise;
+
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ started: false });
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith(
+      '[SystemAudio] Capture start superseded after the share window:',
+      'newer playback',
+    );
+  });
+
+  it('logs why a PRO start ends quietly when a newer load arrives while the room lease is unanswered', async () => {
+    const info = vi.spyOn(log, 'info');
+    onTestFinished(() => info.mockRestore());
+    setProRoom();
+    let resolveLease!: (state: unknown) => void;
+    proAudio.acquire.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLease = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const captured = observeCaptures();
+    const settled = observeSettlements();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(captured).toHaveBeenCalledTimes(1));
+    stopAllMedia({ cancelInFlight: true, silent: true });
+    resolveLease(preparingLease());
+    await startPromise;
+
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ started: false });
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith(
+      '[SystemAudio] Capture start superseded after the room lease:',
+      'newer playback',
+    );
+  });
+
+  it('logs a stop that supersedes a start while audio initializes', async () => {
+    const info = vi.spyOn(log, 'info');
+    onTestFinished(() => info.mockRestore());
+    let finishInitialization!: () => void;
+    vi.mocked(initAudio).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishInitialization = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const settled = observeSettlements();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(initAudio).toHaveBeenCalledOnce());
+    bus.emit('system-audio:force-stop');
+    finishInitialization();
+    await startPromise;
+
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ started: false });
+    expect(info).toHaveBeenCalledWith(
+      '[SystemAudio] Capture start superseded after audio setup:',
+      expect.stringContaining('stopped'),
+    );
   });
 });

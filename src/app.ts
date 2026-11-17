@@ -25,6 +25,7 @@ import {
 } from './core/bootstrap-readiness.ts';
 import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
+import { whenAppStylesheetsSettled } from './core/app-stylesheet.ts';
 import { INSTANCE_ID } from './core/session.ts';
 import { getState, setState, snapshot } from './core/state.ts';
 import { delay, setManagedTimer } from './core/timers.ts';
@@ -987,6 +988,11 @@ window.addEventListener(NAVIGATION_SOURCE_EVENT, (event) => {
 
 async function bootstrap(): Promise<void> {
   log.info(`[App] MUSIXQUARE bootstrap (instance: ${INSTANCE_ID})`);
+
+  // WebKit runs this module before the app stylesheet the parser placed ahead
+  // of it has loaded (Chromium waits, as the HTML standard asks). Unstyled,
+  // setup's boot-failure check reads the failure surface as shown.
+  await whenAppStylesheetsSettled();
 
   /** Wrap an init call so a single failure doesn't crash the entire bootstrap. */
   function safeInit(name: string, fn: () => void): void {

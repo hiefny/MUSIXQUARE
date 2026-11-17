@@ -26,13 +26,14 @@
  * declared together, so Noto Sans SC, whose sheet applied while TC's was
  * held, drew the line and had its shards fetched.
  *
- * Two rows fail the first request for that sheet: at once, before phase B,
- * or once phase B has left the other Han families waiting for it. The font
- * owner tries the sheet again at once and the other families wait for that
- * attempt too, so the test holds the second request instead. On App 9.0.829's
- * first Han turn a failed first attempt let the other families be declared
- * at once (phase B asked for Noto Sans KR before the retry, or the retry
- * waited 10 s for its timer), and Noto Sans KR drew the Japanese start screen.
+ * Two rows fail the first request for the Japanese UI's own sheet: at once,
+ * before phase B, or once phase B has left the other Han families waiting
+ * for it. The font owner tries the sheet again at once and the other families
+ * wait for that attempt too, so the test holds the second request instead.
+ * On App 9.0.829's first Han turn a failed first attempt let the other
+ * families be declared at once (phase B asked for Noto Sans KR before the
+ * retry, or the retry waited 10 s for its timer), and Noto Sans KR drew the
+ * Japanese start screen.
  *
  * An installed family of the same name (a Windows 11 PC can have Noto Sans
  * KR, SC and TC) would draw the Han while its sheet is held and hide the
@@ -244,9 +245,9 @@ test.describe('the first Han family applies first', () => {
           if (family) asked.push(family);
         });
 
-        // Gates: the font owner until window load, the first Han sheet until
-        // every other requested sheet has applied and drawn. A failing row
-        // fails the sheet's first request and holds its second instead.
+        // Gates: the font owner until window load, the held sheet until every
+        // other requested sheet has applied and drawn. A failing row fails the
+        // sheet's first request and holds its second instead.
         let releaseRuntime!: () => void;
         const runtimeGate = new Promise<void>((resolve) => {
           releaseRuntime = resolve;
@@ -306,9 +307,10 @@ test.describe('the first Han family applies first', () => {
         }
 
         releaseRuntime();
-        // Phase A asked for the sheet, so it has armed phase B; idle
-        // callbacks run in the order they were requested, so after two of the
-        // test's own, phase B's slice has run.
+        // The font owner armed phase B before phase A asked for any sheet, and
+        // idle callbacks run in the order they were requested, so once the
+        // held sheet has been asked for (in phase A or B), phase B's slice has
+        // run after two of the test's own.
         if (row.failFirst === 'while they wait') {
           await firstSeen;
           await idleSlices(page);

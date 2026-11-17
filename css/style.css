@@ -5,7 +5,8 @@ Hover: src/ui/hover-pointer.ts alone decides whether the user can hover and mark
 or pointers. Keep :focus-visible and :active outside the hover gate.
 Focus: the same owner marks html[data-keyboard-navigation] 'off' until a key moves focus and after every pointer press.
 Every rule that draws for :focus-visible starts with :where(html:not([data-keyboard-navigation='off'])), so a ring is
-for keyboard navigation only; a field's own focus mark is not a ring and shows on every focus
+for keyboard navigation only; a field's own focus mark is not a ring and shows on every focus. An engine without
+:where() draws its rings from the ungated copies under @supports not selector(:where(*)) (docs/known-accepted.md #20)
 (src/ui/__tests__/hover-pointer.test.ts). */
 
 @layer safety, base, desktop, components, responsive, states;
@@ -6279,6 +6280,15 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     outline-offset: -2px;
   }
 
+  /* The radio is transparent, so an engine that drops the gate above (see
+     the global ring) would show no focus on a row without this copy. */
+  @supports not selector(:where(*)) {
+    .dialog-choice-radio:focus-visible + .dialog-choice-surface {
+      outline: 2px solid var(--primary);
+      outline-offset: -2px;
+    }
+  }
+
   /* The extra start inset matches the language rows' label inset. */
   .dialog-choice-text {
     min-inline-size: 0;
@@ -10889,6 +10899,20 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
   :where(html:not([data-keyboard-navigation='off'])) :focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
+  }
+
+  /* An engine that knows :focus-visible but not :where() (Chromium 86 and 87,
+     for example 2022 LG webOS TVs; Chromium 83 and later read this test)
+     drops every gated rule and cannot read the keyboard mark. Several controls
+     turn the browser's own ring off (.ob-nav-arrow, .chat-youtube-btn,
+     .file-select-btn), so those engines keep the ring the app drew before the
+     gate: this ungated copy follows those resets, and the browser's own
+     :focus-visible decides where it shows (docs/known-accepted.md #20). */
+  @supports not selector(:where(*)) {
+    :focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
   }
 
   /* A container where focus waits draws its ring on its own edge: a tab panel

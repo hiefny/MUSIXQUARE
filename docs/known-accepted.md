@@ -337,10 +337,16 @@ entry first said that every focus rule was kept there
 ([9.0.20 report](design/ui-followup-920-2026-10-29.md#v4-멤버-내보내기-아이콘의-키보드-포커스)).
 Since the owner's request of 2026-11-18, every rule that draws for `:focus-visible` sits under a
 second gate from the same owner, `:where(html:not([data-keyboard-navigation='off']))`, so a ring
-shows for keyboard navigation only. Chromium 79 drops those rules as before; an engine that knows
-`:focus-visible` but not `:where()` (Chromium 86 and 87, for example 2022 LG webOS TVs) drops
-them too and draws the browser's own focus ring, on the browser's own `:focus-visible` rule,
-in place of the app's blue one. Plain `:focus` rules (the skip link) stay outside both gates.
+shows for keyboard navigation only. Chromium 79 drops those rules as before. An engine that knows
+`:focus-visible` but not `:where()` (Chromium 86 and 87, for example 2022 LG webOS TVs) drops them
+too, and the browser's own ring cannot stand in for them everywhere: the play panel's Sync and
+Play media buttons, the start screen's carousel arrows and the chat's YouTube buttons turn it off,
+and the PIN dialog's choice radios are transparent. So `css/style.css` keeps the app's global ring
+and the choice row's ring for those engines, ungated, under `@supports not selector(:where(*))`
+right after each gated rule (`guard:legacy-tv-build` fails a build that loses them). There the
+browser's own `:focus-visible` decides where the app's ring shows, as before the gate, and the
+global ring's shape stands in for a control's own (an inset ring, a colour change). Plain
+`:focus` rules (the skip link) stay outside both gates.
 No control depends on hover alone.
 Revisit if a TV report shows a control that only hover reveals or the gate starts to carry more
 than hover styles. [Report](design/ui-bundle-2026-10-27.md#u3-호버-관문-하나-추천표-410)

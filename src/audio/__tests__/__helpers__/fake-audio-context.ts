@@ -200,10 +200,13 @@ export function createFakeAudioContext(sampleRate = 48_000): FakeAudioContext {
  *   spec); calls on a closed context reject with InvalidStateError.
  * - 'before-settle': the state flips and listeners run before the promise
  *   reaction (the order the structural plan's C1 review attributes to
- *   Chromium).
+ *   Chromium; for suspend() the browser lab saw Chromium take
+ *   'deferred-event', below).
  * - 'deferred-event': the state flips when the promise settles and the
  *   event fires `stateDelayMs` later (the Web Audio spec queues statechange
- *   as a separate task after resolving the promise).
+ *   as a separate task after resolving the promise; Chromium's suspend() in
+ *   e2e/audio-lab, 2026-11-17: the dialog a parked restart asks for shows
+ *   before `statechange:suspended` is logged).
  * - 'after-settle': the promise settles while the old state is still
  *   visible; the state and its event land `stateDelayMs` later (WebKit
  *   suspend() resolving while still running, `nativeResolvedWithoutPrepared`

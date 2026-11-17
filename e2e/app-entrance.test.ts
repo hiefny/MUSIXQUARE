@@ -154,6 +154,43 @@ test.describe('app entrance choreography', () => {
     await expect(page.locator('#bootstrap-retry')).toBeFocused();
   });
 
+  test('opens setup, not the failure surface, when the app stylesheet arrives after the app module', async ({
+    page,
+  }) => {
+    // A slow mobile network can deliver the app stylesheet after the entry
+    // module's graph. Chromium holds the module until the sheet the parser
+    // placed before it has loaded, as the HTML standard asks; WebKit runs it at
+    // once, and setup then read the still unstyled failure surface as shown.
+    await page.addInitScript(() => {
+      const release: { styled?: boolean } = {};
+      Object.assign(window, { __appSheetAtSetupRelease: release });
+      new MutationObserver((_records, observer) => {
+        const root = document.documentElement;
+        if (!root || root.classList.contains('setup-boot-block')) return;
+        observer.disconnect();
+        release.styled = getComputedStyle(root).getPropertyValue('--bg').trim() !== '';
+      }).observe(document, { attributes: true, attributeFilter: ['class'], subtree: true });
+    });
+    await page.route(/\/assets\/main-[^/?]+\.css(?:\?.*)?$/u, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await route.fallback();
+    });
+
+    await page.goto('/', { waitUntil: 'commit' });
+
+    await expect(page.locator('#setup-overlay')).toHaveClass(/\bactive\b/u);
+    await expect(page.locator('html')).not.toHaveClass(/\bsetup-boot-failed\b/u);
+    await expect(page.locator('#bootstrap-failure')).toBeHidden();
+    // Setup took the screen from the boot splash only once the sheet applied.
+    expect(
+      await page.evaluate(
+        () =>
+          (window as Window & { __appSheetAtSetupRelease?: { styled?: boolean } })
+            .__appSheetAtSetupRelease?.styled,
+      ),
+    ).toBe(true);
+  });
+
   test('reveals metadata and desktop settings as separate 1200ms cascades', async ({
     page,
     browserName,

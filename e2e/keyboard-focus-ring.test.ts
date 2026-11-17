@@ -7,10 +7,14 @@
  * divider lines; and a dialog often opened with a blue ring on one of its
  * buttons for a person who was not navigating by keyboard.
  *
- * The rule: a ring shows for a person navigating by keyboard (Tab, Shift+Tab,
- * and the arrows, Home, End and page keys on a control), and never only
- * because a click, a tap, a play/pause or typing key, or a window opening
+ * The rule: a ring shows for a person navigating by keyboard (Tab and
+ * Shift+Tab, the arrows, Home, End and page keys on a widget they move
+ * through or move, and any of those keys that moves focus), and never only
+ * because a click, a tap, a play/pause or typing key, a key that only
+ * scrolls, a Tab that a text field keeps for itself, or a window opening
  * moved focus. Keyboard navigation keeps every ring, into dialogs and back.
+ * e2e/keyboard-focus-ring-spatial-navigation.test.ts covers arrows that move
+ * focus as a TV remote does.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import postcss, { type AtRule } from 'postcss';

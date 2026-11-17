@@ -10737,23 +10737,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-items: center;
     justify-content: center;
     margin-inline-end: 16px;
+    /* Kept under the mouse and while pressed, in both themes: the option's
+       own surface shows hover and press (owner decision 2026-11-17), and the
+       preparing spinner draws with this colour. */
     color: var(--text-main);
-    transition: color 0.2s;
   }
 
   .btn-icon-bg.youtube {
-    color: #ff0033;
-  }
-
-  /* The press tints the icon too, so a tap still shows it while held. */
-  :where(html[data-hover-pointer]) .file-select-btn:hover .btn-icon-bg,
-  .file-select-btn:active .btn-icon-bg {
-    background: transparent;
-    color: var(--primary);
-  }
-
-  :where(html[data-hover-pointer]) .file-select-btn:hover .btn-icon-bg.youtube,
-  .file-select-btn:active .btn-icon-bg.youtube {
     color: #ff0033;
   }
 

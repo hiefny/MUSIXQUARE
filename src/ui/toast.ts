@@ -442,6 +442,32 @@ function toastDurationMs(displayText: string, requestedMs: number | undefined): 
   return Math.max(minimumMs, Math.min(TOAST_MAX_DURATION_MS, readingMs));
 }
 
+// A window on top makes the rest of the page inert and aria-hidden
+// (src/ui/dom.ts), the toast included, so a screen reader no longer hears
+// it. A window whose own actions answer through toasts (the media picker,
+// which stays open while a system audio share gets ready) carries a visually
+// hidden status marked data-toast-echo. While that window is the one on top,
+// the toast is repeated there until it hides.
+const TOAST_ECHO_SELECTOR = '[data-toast-echo]';
+const HIDDEN_FROM_ASSISTIVE_TECHNOLOGY = '[inert], [aria-hidden="true"], [hidden]';
+let _toastEcho: HTMLElement | null = null;
+
+function clearToastEcho(): void {
+  if (_toastEcho) _toastEcho.textContent = '';
+  _toastEcho = null;
+}
+
+function echoToast(toast: HTMLElement, displayText: string): void {
+  clearToastEcho();
+  if (!toast.closest(HIDDEN_FROM_ASSISTIVE_TECHNOLOGY)) return;
+  const echo = Array.from(document.querySelectorAll<HTMLElement>(TOAST_ECHO_SELECTOR)).find(
+    (region) => !region.closest(HIDDEN_FROM_ASSISTIVE_TECHNOLOGY),
+  );
+  if (!echo) return;
+  echo.textContent = displayText;
+  _toastEcho = echo;
+}
+
 export function showToast(msg: unknown, options: { durationMs?: number } = {}): void {
   try {
     const t = document.getElementById('toast');
@@ -466,10 +492,12 @@ export function showToast(msg: unknown, options: { durationMs?: number } = {}): 
       void t.offsetWidth;
     }
     t.classList.add('show');
+    echoToast(t, displayText);
 
     setManagedTimer(
       'toast-hide',
       () => {
+        clearToastEcho();
         try {
           t.classList.remove('show');
         } catch {

@@ -932,6 +932,7 @@ const sv: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Systemljud',
+  'system_audio.button_preparing': 'Förbereder delning…',
   'system_audio.sharing': 'Delar systemljud',
   'system_audio.receiving': 'Tar emot systemljud',
   'system_audio.owner_active': '{{name}} delar systemljud',

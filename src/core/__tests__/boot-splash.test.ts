@@ -303,6 +303,154 @@ describe('boot splash', () => {
     expect(declaration(STYLE, "  html[data-theme='light'] {", '--surface-1')).toBe('#ffffff');
   });
 
+  // Owner report 2026-11-17: on a refresh of the installed iPhone app the strip
+  // showed the app's own background (dark in the dark theme, light in the light
+  // one) around the time the app finished loading, under a splash still pure
+  // black or white. iOS paints the strip with the page's own background, body's
+  // over html's (inferred): the system's black or white until the app
+  // stylesheet gives both the app's --bg. So while the splash holds, the page's
+  // background holds the splash's colour, and it rises with the splash once
+  // nothing holds it.
+  it("holds an installed app's page background on the strip's colour while the splash holds, and raises it with the splash", () => {
+    const systemLight = (opener: string) =>
+      SPLASH_CSS.slice(SPLASH_CSS.indexOf(`@media (prefers-color-scheme: light) {\n${opener}`));
+    const strip = {
+      device: ownDeclaration(
+        SPLASH_CSS,
+        '      html[data-boot-installed] {',
+        '--boot-splash-strip',
+      ),
+      deviceLight: declaration(
+        systemLight('        html[data-boot-installed] {'),
+        'html[data-boot-installed] {',
+        '--boot-splash-strip',
+      ),
+      dark: declaration(
+        SPLASH_CSS,
+        "      html[data-boot-installed][data-theme='dark'] {",
+        '--boot-splash-strip',
+      ),
+      light: declaration(
+        SPLASH_CSS,
+        "      html[data-boot-installed][data-theme='light'] {",
+        '--boot-splash-strip',
+      ),
+    };
+    expect(strip).toEqual({
+      device: '#000000',
+      deviceLight: '#ffffff',
+      dark: '#000000',
+      light: '#ffffff',
+    });
+    // Condition for condition, the splash's own installed background: data-theme
+    // first, the device's scheme only without one.
+    expect({
+      device: ownDeclaration(
+        SPLASH_CSS,
+        '      html[data-boot-installed] .boot-splash {',
+        'background',
+      ),
+      deviceLight: declaration(
+        systemLight('        html[data-boot-installed] .boot-splash {'),
+        'html[data-boot-installed] .boot-splash {',
+        'background',
+      ),
+      dark: declaration(
+        SPLASH_CSS,
+        "      html[data-boot-installed][data-theme='dark'] .boot-splash {",
+        'background',
+      ),
+      light: declaration(
+        SPLASH_CSS,
+        "      html[data-boot-installed][data-theme='light'] .boot-splash {",
+        'background',
+      ),
+    }).toEqual(strip);
+    // And the colour the installed refresh screen ends on, which the next page
+    // continues.
+    expect(
+      declaration(STYLE, '  html[data-boot-installed] .session-reset-overlay {', 'background'),
+    ).toBe(strip.dark);
+    expect(
+      declaration(
+        STYLE,
+        "  html[data-boot-installed][data-theme='light'] .session-reset-overlay {",
+        'background',
+      ),
+    ).toBe(strip.light);
+
+    // An animation, because it outranks every normal declaration: the build
+    // lowers style.css's own html background into selectors this sheet cannot
+    // outrank once that stylesheet loads. The hold fills for exactly as long as
+    // data-boot-hold lasts, from the first frame.
+    const animation = (opener: string) =>
+      declaration(SPLASH_CSS, opener, 'animation').replace(/\s+/gu, ' ');
+    const holding = '      html[data-boot-installed][data-boot-hold] {';
+    expect(animation(holding)).toBe('boot-splash-root-hold 0s forwards');
+    expect(keyframes(SPLASH_CSS, 'boot-splash-root-hold')).toBe(
+      'to { background-color: var(--boot-splash-strip); }',
+    );
+    // Then it rises with the splash: keyed as the splash's rise (once nothing
+    // holds it, or boot fails), on the same duration and curve (RO-55: this
+    // copy of the splash rise's timing lives in the same sheet).
+    const rising = [
+      '      html[data-boot-installed]:not([data-boot-hold]),',
+      '      html[data-boot-installed].setup-boot-failed {',
+    ].join('\n');
+    const rootRise = animation(rising).split(' ');
+    expect(rootRise[0]).toBe('boot-splash-root-rise');
+    const splashRise = (opener: string) =>
+      animation(opener)
+        .split(/,\s*/u)
+        .find((entry) => entry.startsWith('boot-splash-rise '))
+        ?.split(' ');
+    for (const opener of [
+      '      html[data-boot-installed]:not([data-boot-hold]) .boot-splash {',
+      '      html[data-boot-installed].setup-boot-failed .boot-splash {',
+    ]) {
+      expect(rootRise.slice(1, 3), opener).toEqual(splashRise(opener)?.slice(1, 3));
+    }
+    // With no fill, so once it has risen nothing is left on the root: the
+    // stylesheet's own html background (var(--bg)) follows theme and contrast
+    // changes again.
+    expect(rootRise).toHaveLength(3);
+    for (const fill of ['forwards', 'backwards', 'both']) expect(rootRise).not.toContain(fill);
+    expect(keyframes(SPLASH_CSS, 'boot-splash-root-rise')).toBe(
+      'from { background-color: var(--boot-splash-strip); }',
+    );
+    // The rise weighs as much as the hold, so it comes after it: boot failure
+    // is never held.
+    expect(SPLASH_CSS.indexOf(rising)).toBeGreaterThan(SPLASH_CSS.indexOf(holding));
+    // Under reduced motion it switches with the splash's own rise.
+    const reduced = SPLASH_CSS.slice(
+      SPLASH_CSS.indexOf('@media (prefers-reduced-motion: reduce) {') +
+        '@media (prefers-reduced-motion: reduce) {'.length,
+    );
+    const reducedSelectors = reduced
+      .slice(0, reduced.indexOf('{'))
+      .split(',')
+      .map((selector) => selector.trim());
+    expect(reducedSelectors).toEqual(
+      expect.arrayContaining([
+        'html[data-boot-installed]:not([data-boot-hold])',
+        'html[data-boot-installed].setup-boot-failed',
+      ]),
+    );
+    expect(block(reduced, '{').trim()).toBe('animation-duration: 0s;');
+
+    // body takes the root's background in the installed app: WebKit puts
+    // body's over html's, and the app stylesheet gives body its own var(--bg).
+    // In @layer states, which the build weighs above body's base and desktop
+    // backgrounds (legacy-tv-compatibility test).
+    const inheriting = '  html[data-boot-installed] body {';
+    expect(block(STYLE, inheriting).trim()).toBe('background-color: inherit;');
+    expect(STYLE.indexOf(inheriting)).toBeGreaterThan(STYLE.indexOf('@layer states {'));
+    expect(STYLE.indexOf(inheriting)).toBeLessThan(STYLE.indexOf('@layer safety {'));
+    // Everywhere else both keep the app's background.
+    expect(declaration(STYLE, '  html {', 'background-color')).toBe('var(--bg)');
+    expect(declaration(STYLE, '  body {', 'background-color')).toBe('var(--bg)');
+  });
+
   it('keeps the app wordmark shapes in the loading screen logo, glyph for glyph', () => {
     const dom = new JSDOM(INDEX);
     const splashLogo = dom.window.document.querySelector('.boot-splash-logo');

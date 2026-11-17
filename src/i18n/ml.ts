@@ -941,6 +941,7 @@ const ml: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'സിസ്റ്റം ഓഡിയോ',
+  'system_audio.button_preparing': 'പങ്കിടാൻ തയ്യാറെടുക്കുന്നു...',
   'system_audio.sharing': 'സിസ്റ്റം ഓഡിയോ പങ്കിടുന്നു',
   'system_audio.receiving': 'സിസ്റ്റം ഓഡിയോ സ്വീകരിക്കുന്നു',
   'system_audio.owner_active': '{{name}} സിസ്റ്റം ഓഡിയോ പങ്കിടുന്നു',

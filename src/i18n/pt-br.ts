@@ -502,6 +502,7 @@ const ptBr: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Áudio do sistema',
+  'system_audio.button_preparing': 'Preparando o compartilhamento...',
   'system_audio.sharing': 'Compartilhando áudio do sistema',
   'system_audio.receiving': 'Recebendo áudio do sistema',
   'system_audio.owner_active': '{{name}} está compartilhando o áudio do sistema',

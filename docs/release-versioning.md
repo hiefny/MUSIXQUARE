@@ -1,7 +1,9 @@
 # Release versioning
 
-MUSIXQUARE deliberately uses several independent identifiers. They describe
-different compatibility boundaries and must not be made numerically equal.
+MUSIXQUARE uses several identifiers for different compatibility boundaries.
+Only one tie joins them: from App 9.0.829 the product version's patch number is
+the App build number (below). Every other identifier stays independent and must
+not be made numerically equal to another.
 
 ## Product release
 
@@ -11,11 +13,19 @@ product version. Both `package-lock.json` locations mirror it, as do
 in `browser/classic-runtime/admin.ts`. The `guard:release-identity` check fails
 if any mirror drifts.
 
-The product follows semantic versioning:
+The product follows semantic versioning, with the patch number counting App
+builds (owner decision 2026-11-17, from 9.0.829):
 
-- patch: compatible fixes and operational hardening;
-- minor: backward-compatible product features;
+- patch: the App build number, which is the service-worker cache epoch
+  (`9.0.829` is build 829, `v829`). It never resets: a minor or major release
+  keeps counting it, so 9.1.840 follows 9.0.839. Before 9.0.829 the patch
+  counted releases on its own (9.0.0 to 9.0.53);
+- minor: the owner's call, for a release the owner judges a notable product
+  step;
 - major: an intentional product or compatibility milestone.
+
+The `guard:release-identity` check also fails if the patch is not the cache
+epoch.
 
 The move from 7.x to 8.0 marks the persistent PRO-room, account identity, and
 room-authority generation added after the 7.0 YouTube synchronization release.
@@ -25,23 +35,25 @@ replacement for those immutable IDs.
 
 Advancing product SemVer updates the browser admin mirror, which is a PWA
 runtime input, so the same release also needs a covering monotonic
-`SERVICE_WORKER_CACHE_VERSION` advance. A pure Worker-only change may leave both
-identifiers untouched when product policy does not call for a SemVer release.
+`SERVICE_WORKER_CACHE_VERSION` advance, and the advanced epoch is the new
+patch number. A pure Worker-only change leaves both identifiers untouched.
 
 ## Service-worker cache epoch
 
 `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts` is the
 canonical monotonic cache epoch injected into the strict
 `browser/service-worker.ts` source during dev and production builds. A value
-such as `v226` means "the 226th app-shell cache boundary," not
-"MUSIXQUARE version 226." It changes only when the PWA cache/update contract
-requires existing clients to migrate. `guard:sw-cache-version` independently
-checks its history and monotonicity.
+such as `v829` means "the 829th app-shell cache boundary"; from 9.0.829 it is
+also the product version's patch number. It changes only when the PWA
+cache/update contract requires existing clients to migrate, and then the
+product version changes with it. `guard:sw-cache-version` independently checks
+its history and monotonicity.
 
 ## App build number and floor
 
 From App 9.0.14 the App reports a build number: the integer of the service-worker
-cache epoch (`v787` is build 787). It is not a second version. The browser reads
+cache epoch (`v787` is build 787). It is not a second version: from 9.0.829 it
+is the product version's patch number. The browser reads
 it from the compile-time define `__MXQR_BUILD_CACHE_VERSION__` that Vite derives
 from `SERVICE_WORKER_CACHE_VERSION` (`APP_BUILD` in `src/core/app-build.ts`);
 the App Worker reads its own deployed `/service-worker.js`; the release smokes
@@ -94,13 +106,13 @@ dates where possible and are not product versions.
 
 ## Release artifact record
 
-Production release manifests record both independent values:
+Production release manifests record both values:
 
 ```json
 {
   "release": {
-    "productVersion": "1.2.3",
-    "serviceWorkerCacheEpoch": 123
+    "productVersion": "9.0.829",
+    "serviceWorkerCacheEpoch": 829
   }
 }
 ```

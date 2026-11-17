@@ -26,9 +26,10 @@ git switch -c agent/describe-the-fix
 
 # make the fix
 
-# Advance the product patch version when shipped behavior or product copy changes.
-# For public/PWA runtime inputs, also bump SERVICE_WORKER_CACHE_VERSION in the
-# same commit. See "Client Update Behavior" below.
+# For public/PWA runtime inputs or product copy, bump SERVICE_WORKER_CACHE_VERSION
+# and set the product patch to that new epoch (9.0.830 with v830) in the same
+# commit, with both package-lock entries and both admin mirrors. A Worker-only
+# change bumps neither. See "Client Update Behavior" below.
 
 npm run typecheck
 npm run lint
@@ -559,12 +560,13 @@ MUSIXQUARE is a PWA with a service worker, so "deployed" and "every open client 
 
 Current behavior:
 
-Product SemVer and the service-worker cache epoch are intentionally independent.
-See [release versioning](release-versioning.md). A hotfix normally advances the
-product patch version when it changes shipped behavior or public product copy;
-it advances `SERVICE_WORKER_CACHE_VERSION` only when the PWA cache boundary also
-needs to move. The Git SHA
-and Cloudflare Worker version IDs identify the exact deployed build.
+From App 9.0.829 the product version's patch number is the service-worker cache
+epoch, the App build number (owner decision 2026-11-17, see
+[release versioning](release-versioning.md)). A hotfix that changes shipped App
+behavior or public product copy advances `SERVICE_WORKER_CACHE_VERSION` and sets
+the patch to the new epoch in the same commit; a Worker-only hotfix changes
+neither. `guard:release-identity` fails when the two differ. The Git SHA and
+Cloudflare Worker version IDs identify the exact deployed build.
 
 | Client state                                | Expected behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -595,7 +597,8 @@ tab still needs them (or when activation sees no live window clients). It still
 does not create a guaranteed instant reload for every active/background client.
 
 `npm run guard:sw-cache-version` enforces this migration boundary for committed
-PWA runtime changes. Include the bump in the feature commit when practical. A
+PWA runtime changes. Include the bump, with the product patch set to the new
+epoch and its mirrors, in the feature commit when practical. A
 separate bump commit is also valid if it lands before push and the final
 committed `HEAD` passes `npm run build:checked`; the guard passes once the latest
 bump covers the resulting app tree. Repository-only documents such as `README.md`,
@@ -624,10 +627,9 @@ retain full git history (`fetch-depth: 0`).
 Use this when stale clients are likely to keep hitting a severe bug.
 
 1. Make the minimal code fix.
-2. Advance the product patch version and every required mirror when shipped
-   behavior or public copy changes, as defined by
-   [release versioning](release-versioning.md).
-3. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
+2. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
+3. Set the product patch to that new epoch (9.0.830 with v830) with every
+   required mirror, as defined by [release versioning](release-versioning.md).
 4. Run the repository's non-E2E verification baseline:
 
    ```bash
@@ -1097,9 +1099,9 @@ If a deployment is bad:
    git switch -c agent/restore-known-good-behavior
    git revert --no-commit <bad-commit-sha>
 
-   # If the bad release advanced product SemVer, keep moving forward to a new
-   # patch version and update every required mirror. If it advanced the PWA cache
-   # epoch, choose an epoch greater than the bad release; never restore an older one.
+   # If the bad release advanced product SemVer or the PWA cache epoch, keep
+   # moving forward: a new epoch greater than the bad release, the patch set to
+   # it, and every required mirror. Never restore an older one.
 
    npm run typecheck
    npm run lint
@@ -1120,11 +1122,11 @@ If a deployment is bad:
    # Open a pull request into main, wait for CI, and merge the reviewed rollback.
    ```
 
-   When the reverted commit advanced product SemVer, set `package.json` to a new
-   higher patch version and update `package-lock.json`, `ADMIN_ASSET_VERSION`,
-   and `ADMIN_SCRIPT_VERSION` before the single rollback commit. When it touched
-   PWA inputs or advanced `SERVICE_WORKER_CACHE_VERSION`, set a new cache epoch
-   greater than the bad release in that same commit.
+   When the reverted commit advanced product SemVer, touched PWA inputs or
+   advanced `SERVICE_WORKER_CACHE_VERSION`, set a new cache epoch greater than
+   the bad release, set the `package.json` patch to that epoch, and update
+   `package-lock.json`, `ADMIN_ASSET_VERSION` and `ADMIN_SCRIPT_VERSION`, all in
+   the single rollback commit.
 
 3. Run the `Production Release` workflow for the reverted scope, then rerun its
    live smoke; merging the revert into `main` alone does not update Cloudflare.

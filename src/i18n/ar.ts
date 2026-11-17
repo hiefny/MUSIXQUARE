@@ -900,6 +900,7 @@ const ar: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ───────────────────────────────────────
   'system_audio.button': 'صوت النظام',
+  'system_audio.button_preparing': 'جارٍ تحضير المشاركة...',
   'system_audio.sharing': 'جارٍ مشاركة صوت النظام',
   'system_audio.receiving': 'جارٍ استقبال صوت النظام',
   'system_audio.owner_active': 'يشارك {{name}} صوت النظام',

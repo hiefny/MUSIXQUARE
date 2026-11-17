@@ -927,6 +927,7 @@ const nb: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Systemlyd',
+  'system_audio.button_preparing': 'Forbereder deling…',
   'system_audio.sharing': 'Deler systemlyd',
   'system_audio.receiving': 'Mottar systemlyd',
   'system_audio.owner_active': '{{name}} deler systemlyd',

@@ -929,6 +929,7 @@ const fi: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Järjestelmän ääni',
+  'system_audio.button_preparing': 'Valmistellaan jakamista…',
   'system_audio.sharing': 'Järjestelmän ääntä jaetaan',
   'system_audio.receiving': 'Järjestelmän ääntä vastaanotetaan',
   'system_audio.owner_active': '{{name}} jakaa järjestelmän ääntä',

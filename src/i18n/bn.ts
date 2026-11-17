@@ -921,6 +921,7 @@ const bn: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ────────────────────────────────────────
   'system_audio.button': 'সিস্টেম অডিও',
+  'system_audio.button_preparing': 'শেয়ার করার প্রস্তুতি...',
   'system_audio.sharing': 'সিস্টেম অডিও শেয়ার হচ্ছে',
   'system_audio.receiving': 'সিস্টেম অডিও গ্রহণ করা হচ্ছে',
   'system_audio.owner_active': '{{name}} সিস্টেম অডিও শেয়ার করছেন',

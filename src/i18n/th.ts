@@ -898,6 +898,7 @@ const th: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'เสียงระบบ',
+  'system_audio.button_preparing': 'กำลังเตรียมแชร์...',
   'system_audio.sharing': 'กำลังแชร์เสียงระบบ',
   'system_audio.receiving': 'กำลังรับเสียงระบบ',
   'system_audio.owner_active': '{{name}} กำลังแชร์เสียงระบบ',

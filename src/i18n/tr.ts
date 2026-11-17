@@ -912,6 +912,7 @@ const tr: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Sistem Sesi',
+  'system_audio.button_preparing': 'Paylaşım hazırlanıyor...',
   'system_audio.sharing': 'Sistem Sesi Paylaşılıyor',
   'system_audio.receiving': 'Sistem Sesi Alınıyor',
   'system_audio.owner_active': '{{name}} sistem sesini paylaşıyor',

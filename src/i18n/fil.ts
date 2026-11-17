@@ -947,6 +947,7 @@ const fil: Record<I18nKey, string> = {
 
   // ─── Pagbabahagi ng System Audio ─────────────────────────────────
   'system_audio.button': 'System Audio',
+  'system_audio.button_preparing': 'Naghahandang ibahagi...',
   'system_audio.sharing': 'Nagbabahagi ng System Audio',
   'system_audio.receiving': 'Tumatanggap ng System Audio',
   'system_audio.owner_active': 'Ibinabahagi ni {{name}} ang system audio',

@@ -936,6 +936,7 @@ const kn: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ────────────────────────────────────────
   'system_audio.button': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ',
+  'system_audio.button_preparing': 'ಹಂಚಲು ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ...',
   'system_audio.sharing': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಲಾಗುತ್ತಿದೆ',
   'system_audio.receiving': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸ್ವೀಕರಿಸಲಾಗುತ್ತಿದೆ',
   'system_audio.owner_active': '{{name}} ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚುತ್ತಿದ್ದಾರೆ',

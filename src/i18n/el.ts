@@ -952,6 +952,7 @@ const el: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Ήχος συστήματος',
+  'system_audio.button_preparing': 'Προετοιμασία κοινοποίησης...',
   'system_audio.sharing': 'Κοινοποίηση ήχου συστήματος',
   'system_audio.receiving': 'Λήψη ήχου συστήματος',
   'system_audio.owner_active': 'Κοινοποίηση ήχου συστήματος από {{name}}',

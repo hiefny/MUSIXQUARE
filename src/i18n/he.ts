@@ -892,6 +892,7 @@ const he: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ───────────────────────────────────────
   'system_audio.button': 'שמע המערכת',
+  'system_audio.button_preparing': 'השיתוף בהכנה...',
   'system_audio.sharing': 'שמע המערכת משותף',
   'system_audio.receiving': 'שמע המערכת מתקבל',
   'system_audio.owner_active': 'שמע המערכת משותף על ידי {{name}}',

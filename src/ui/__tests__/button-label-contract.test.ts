@@ -1887,6 +1887,11 @@ const ROLE_SLOTS: readonly RoleSlot[] = [
       ...SHARED_PAGE_STATES,
       // Phones cannot capture system audio.
       { name: 'system audio unsupported', apply: toggleClass('#btn-system-audio', 'unsupported') },
+      // While a share gets ready (src/ui/player-controls.ts).
+      {
+        name: 'system audio preparing',
+        apply: setAttribute('#btn-system-audio', 'aria-busy', 'true'),
+      },
     ],
     targets: (markup) => roleLabels(markup, '#media-source-overlay'),
   },

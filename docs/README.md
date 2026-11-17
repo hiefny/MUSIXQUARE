@@ -96,6 +96,32 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.829 / v829 train: the phone start screen's language button shows whole and every setup step clips at one line, the version's patch number becomes the App build number, the media picker stays open with Preparing to share... until shared system audio arrives, and the installed iPhone and iPad app's home indicator strip keeps the loading screen's colour (2026-11-17)](design/app-9-0-829-train-2026-11-17.md):
+  in progress on `agent/app-9-0-829`, not merged or released. The App update after 9.0.53 / v828, on main `91f8a396`
+  (the 9.0.53 release record), and the first version under the new rule. Four increments. (A) Asked for by the owner
+  on 2026-11-17 after a mockup and a short-phone photo: on phones under 720px wide, the start screen's outer scroll box
+  and all five step areas start 16px higher, in the card's empty top padding, and pad the same 16px back, so the
+  language button's hover pill and focus outline are no longer cut off, its top strip takes taps, and scrolled content
+  leaves the screen 16px above the title on every step; the screen at rest is unchanged (0 differing pixels). (B) The
+  owner's version rule from the same day: from 9.0.829 the patch number is the App build number (the service-worker
+  cache epoch) and keeps counting through minor and major releases, the minor number is the owner's call, and
+  `guard:release-identity` fails when the patch is not the epoch; the versioning and hotfix documents follow it. (C) The
+  owner's 2026-11-03 proposal, built while the owner slept: in desktop Chromium, choosing System Audio keeps the media
+  picker open until the share is on (after the start broadcast in a standard room, after the live commit in a PRO
+  room), the option reads Preparing to share... (`system_audio.button_preparing`, 42 locales) with the busy look PRO
+  rooms already had, in both room kinds, and a cancelled, refused, silent, failed or superseded start leaves the picker
+  open with the option ready again; a PRO start that does not go live stays preparing until the room answers its lease
+  release. The picker reads the capture's own start attempt through a read-only probe and one settle event, and repeats
+  toasts in a hidden status inside it while it is the top window, so screen readers still hear them; the press that
+  starts a share keeps its UI touch sound, and at desktop zoom (360 CSS px or narrower) the preparing option grows to
+  hold its label; no new flow, timer or owner. (D) The owner's report the next morning: in the installed iPhone and iPad
+  app, a refresh showed the app's background at the home indicator strip near the end of loading. Inferred cause: iOS
+  paints the strip with the page's own background, which the app stylesheet set to `--bg` under the still-held pure
+  black or white loading screen. The loading screen's sheet now holds the root's background on the loading screen's
+  colour while the splash holds (`boot-splash-root-hold`) and raises it with the splash in the same 0.3 s
+  (`boot-splash-root-rise`, no fill), and body follows the root there; CSS only, the preflight and its CSP pin
+  unchanged, RO-55 updated as text. Not verified on a physical device, with the browser's real share window, in a
+  real PRO room or with a real screen reader. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.53 / v828 train: the installed iPhone and iPad app's first open keeps the wordmark in place and hides the home indicator strip, and every loader turns with Google's Material motion inside a still ring mask (2026-11-16)](design/app-9-0-53-train-2026-11-16.md):
   released on 2026-11-17 02:08 KST in Release 43914550117 (PR #605, squash `9fb7c8a8`) as App 9.0.53 / v828 (App build
   828, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

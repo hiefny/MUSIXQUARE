@@ -91,7 +91,12 @@ import {
   clearProRoomTrackChangeIntent,
   isProRoomTrackChangeIntentPending,
 } from '../player/track-change-intent.ts';
-import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
+import {
+  hasSystemAudioDeviceCapacity,
+  isSystemAudioCaptureActive,
+  isSystemAudioCaptureStartPending,
+} from '../audio/system-audio-policy.ts';
+import { keepUiTouchSoundForPress } from '../audio/ui-sounds.ts';
 import {
   canPublishProSystemAudioWithCurrentCoordinator,
   getProSystemAudioOwnerDisplayName,
@@ -610,17 +615,23 @@ function showProSystemAudioOwnerToast(): void {
   }
 }
 
+/**
+ * Render the option from the capture's start attempt alone, the same in both
+ * room kinds: preparing from the click until the attempt settles. A PRO lease
+ * request by itself (the acquire, a publisher recovery) is not that attempt.
+ * The option is busy but never natively disabled, so it keeps focus and its
+ * place in the picker's Tab cycle; the click handler ignores presses meanwhile.
+ */
 function syncSystemAudioSourceButton(): void {
   const button = getUiElement<HTMLButtonElement>('btn-system-audio');
   if (!button) return;
-  const label = button.querySelector<HTMLElement>('.media-source-label-text');
-  const isProRoom = getRoomContext().kind === 'pro';
-  const view = getProSystemAudioViewState();
-  const pending = isProRoom && view.localRequestPending;
-  button.disabled = pending;
+  const pending = isSystemAudioCaptureStartPending();
   button.setAttribute('aria-busy', String(pending));
+  if (pending) button.setAttribute('aria-disabled', 'true');
+  else button.removeAttribute('aria-disabled');
+  const label = button.querySelector<HTMLElement>('.media-source-label-text');
   if (!label) return;
-  const key: I18nKey = pending ? 'system_audio.pro_preparing' : 'system_audio.button';
+  const key: I18nKey = pending ? 'system_audio.button_preparing' : 'system_audio.button';
   label.textContent = t(key);
   label.setAttribute('data-i18n', key);
 }
@@ -705,6 +716,9 @@ function closeMediaSourcePopup(restoreFocus = true): void {
         syncOverlayState();
         if (restoreFocus) restoreOverlayOpener(returnFocus, overlay);
       }
+      // In the same update as the close, so a picker closing on a started
+      // share never shows the option back at System Audio while it fades.
+      syncSystemAudioSourceButton();
     },
     { closingWindow: true },
   );
@@ -1488,7 +1502,11 @@ export function initPlayerControls(): void {
     closeMediaSourcePopup(false);
     openYouTubePopup(returnFocus);
   });
-  $on('btn-system-audio', 'click', () => {
+  $on('btn-system-audio', 'click', (event) => {
+    // A share is getting ready: the option reads as preparing and is
+    // aria-disabled but focusable, so Enter and Space still reach this
+    // handler. A further press has nothing to add, not even a toast.
+    if (isSystemAudioCaptureStartPending()) return;
     const isProRoom = getRoomContext().kind === 'pro';
     if (!hasRoomCapability('system-audio.publish')) {
       showRoomCapabilityRequired('system-audio.publish');
@@ -1514,8 +1532,22 @@ export function initPlayerControls(): void {
         showToast(t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }));
         return;
       }
-      closeMediaSourcePopup();
+      if (!isProRoom && isSystemAudioCaptureActive()) {
+        // This device already shares (the picker opened from the playlist's
+        // add button). The capture refuses a second start without a word, so
+        // close the picker, as a press here always has.
+        closeMediaSourcePopup();
+        return;
+      }
+      // The capture calls getDisplayMedia, and in a PRO room begins the
+      // lease, synchronously inside this click's user activation. The picker
+      // stays open until the share is on (system-audio:start-settled), as it
+      // stays open until a chosen file arrives (owner proposal 2026-11-03).
+      // The option turns preparing before this press reaches the touch
+      // sound's listener on the document; the press keeps its sound.
+      keepUiTouchSoundForPress(event);
       bus.emit('system-audio:start');
+      syncSystemAudioSourceButton();
     } else {
       showToast(t('system_audio.desktop_only'));
     }
@@ -2022,14 +2054,24 @@ export function initPlayerControls(): void {
     ) {
       clearProRoomTrackChangeIntent();
     }
-    syncSystemAudioSourceButton();
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
     syncMainSyncButtonState();
   });
   _busScope.on('pro-system-audio:state-changed', () => {
-    syncSystemAudioSourceButton();
     syncMediaSourceButtonAuthority();
+  });
+  // The capture's start attempt ended. Only a started share closes the
+  // picker, returning focus to its opener (Stop Sharing, or the playlist's
+  // add button); the close renders the option inside its own update. Every
+  // other ending leaves the picker as it is, with the option ready again and
+  // focus where it was. A picker the person already closed does not reopen.
+  _busScope.on('system-audio:start-settled', ({ started }) => {
+    if (started && getUiElement('media-source-overlay')?.classList.contains('active')) {
+      closeMediaSourcePopup();
+      return;
+    }
+    syncSystemAudioSourceButton();
   });
   _busScope.on('state:playlist.items', () => {
     const pendingQueueItemId = getState('network.pendingTrackChangeQueueItemId');

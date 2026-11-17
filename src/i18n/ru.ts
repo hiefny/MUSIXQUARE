@@ -935,6 +935,7 @@ const ru: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Системный звук',
+  'system_audio.button_preparing': 'Подготовка трансляции...',
   'system_audio.sharing': 'Трансляция системного звука',
   'system_audio.receiving': 'Приём системного звука',
   'system_audio.owner_active': '{{name}} транслирует системный звук',

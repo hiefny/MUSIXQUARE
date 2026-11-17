@@ -928,6 +928,7 @@ const uk: Record<I18nKey, string> = {
 
   // ─── Трансляція системного аудіо ─────────────────────────────────
   'system_audio.button': 'Системне аудіо',
+  'system_audio.button_preparing': 'Підготовка до трансляції...',
   'system_audio.sharing': 'Трансляція системного аудіо',
   'system_audio.receiving': 'Отримання системного аудіо',
   'system_audio.owner_active': '{{name}} транслює системне аудіо',

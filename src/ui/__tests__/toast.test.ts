@@ -9,6 +9,7 @@ import { COMPACT_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { resetState, setState } from '../../core/state.ts';
 import type { DataConnection, StandardOperatorFileUplinkProgress } from '../../types/index.ts';
 import { initToast, showToast, showLoader, updateLoader } from '../toast.ts';
+import { __resetModalStackForTests, syncOverlayState } from '../dom.ts';
 
 let uplinkSequence = 0;
 
@@ -464,6 +465,86 @@ describe('showToast', () => {
     const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
     showToast('No DOM');
     expect(spy).toHaveBeenCalledWith('[Toast]', 'No DOM');
+  });
+});
+
+// A window on top makes the rest of the page inert (src/ui/dom.ts), the toast
+// included, so a screen reader no longer hears it. A window whose own actions
+// answer through toasts, such as the media picker that stays open while a
+// system audio share gets ready, carries a hidden status for them.
+describe('toast under a window that holds the page inert', () => {
+  function mountPicker(): { picker: HTMLElement; status: HTMLElement } {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      `<div id="media-source-overlay" role="dialog" aria-modal="true" tabindex="-1">
+        <button id="btn-system-audio">System Audio</button>
+        <p id="media-source-status" class="sr-only" role="status" aria-live="polite"
+          aria-atomic="true" data-toast-echo></p>
+      </div>`,
+    );
+    return {
+      picker: document.getElementById('media-source-overlay')!,
+      status: document.getElementById('media-source-status')!,
+    };
+  }
+
+  function openPicker(picker: HTMLElement): void {
+    picker.classList.add('active');
+    syncOverlayState('media-source-overlay');
+  }
+
+  afterEach(() => {
+    __resetModalStackForTests();
+  });
+
+  it('repeats the toast in the top window until the toast hides', () => {
+    const { picker, status } = mountPicker();
+    openPicker(picker);
+    const toast = document.getElementById('toast')!;
+    expect(toast.closest('[inert]')).not.toBeNull();
+    expect(toast.getAttribute('aria-hidden')).toBe('true');
+
+    showToast('"Share audio" was not enabled\nPlease try again');
+
+    expect(status.textContent).toBe('"Share audio" was not enabled\nPlease try again');
+    // 45 characters at 50 ms each.
+    vi.advanceTimersByTime(2249);
+    expect(toast.classList.contains('show')).toBe(true);
+    expect(status.textContent).toBe('"Share audio" was not enabled\nPlease try again');
+    vi.advanceTimersByTime(1);
+    expect(toast.classList.contains('show')).toBe(false);
+    expect(status.textContent).toBe('');
+  });
+
+  it('keeps only the latest toast and stays quiet once the toast can be heard itself', () => {
+    const { picker, status } = mountPicker();
+    openPicker(picker);
+    showToast('Audio sharing was cancelled');
+    showToast('Could not start system audio sharing');
+    expect(status.textContent).toBe('Could not start system audio sharing');
+
+    picker.classList.remove('active');
+    syncOverlayState();
+    expect(document.getElementById('toast')!.closest('[inert]')).toBeNull();
+    showToast('Track added');
+
+    expect(document.getElementById('toast-msg')!.innerText).toBe('Track added');
+    expect(status.textContent).toBe('');
+  });
+
+  it('does not speak through a window that another window covers', () => {
+    const { picker, status } = mountPicker();
+    openPicker(picker);
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div id="dialog-overlay" class="show" role="dialog"><button>OK</button></div>',
+    );
+    syncOverlayState('dialog-overlay');
+    expect(picker.closest('[inert]')).not.toBeNull();
+
+    showToast('Saved');
+
+    expect(status.textContent).toBe('');
   });
 });
 

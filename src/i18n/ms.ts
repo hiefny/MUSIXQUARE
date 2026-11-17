@@ -943,6 +943,7 @@ const ms: Record<I18nKey, string> = {
 
   // ─── Perkongsian Audio Sistem ────────────────────────────────────
   'system_audio.button': 'Audio Sistem',
+  'system_audio.button_preparing': 'Bersedia untuk berkongsi...',
   'system_audio.sharing': 'Berkongsi Audio Sistem',
   'system_audio.receiving': 'Menerima Audio Sistem',
   'system_audio.owner_active': '{{name}} sedang berkongsi audio sistem',

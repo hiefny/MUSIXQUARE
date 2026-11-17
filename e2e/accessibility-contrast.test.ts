@@ -607,6 +607,8 @@ test.describe('Forced colors while sharing system audio', () => {
       await page.locator('#btn-media-source').click();
       await page.locator('#btn-system-audio').click();
       await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+      // The media picker closes once the share is on.
+      await expect(page.locator('#media-source-overlay')).not.toHaveClass(/\bactive\b/);
       await expect(page.locator('body')).toHaveClass(/\bmode-system-audio\b/);
       await expect(page.locator('#play-btn')).not.toHaveClass(/\bis-loading\b/);
 

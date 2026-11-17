@@ -49,6 +49,7 @@ import {
 import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
 import {
   configureSystemAudioCaptureActivityProbe,
+  configureSystemAudioCaptureStartProbe,
   hasSystemAudioDeviceCapacity,
 } from './system-audio-policy.ts';
 import type { QueueItemId, SystemAudioStopReason, TrackMeta } from '../types/index.ts';
@@ -98,7 +99,9 @@ interface PreSystemAudioState {
 }
 
 let _preSysAudioState: PreSystemAudioState | null = null;
-let _captureStartPromise: Promise<void> | null = null;
+// The one start attempt, from the click until it settles. It resolves true
+// only once the share is on for the room.
+let _captureStartPromise: Promise<boolean> | null = null;
 let _captureStartEpoch = 0;
 let _captureRestoreEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
@@ -175,6 +178,11 @@ function restoreRejectedPendingCapture(snapshot: Readonly<PreSystemAudioState>):
 interface ProLeaseAttempt {
   owner: ProSystemAudioLeaseAttempt;
   result: Promise<{ ok: true } | { ok: false; error: unknown }>;
+  /**
+   * The release this start began, if it began one. It settles once the room
+   * has answered it, or the request has failed, and never rejects.
+   */
+  released: Promise<void> | null;
 }
 
 function showSystemAudioDeviceLimit(): void {
@@ -196,12 +204,17 @@ function beginProLeaseAttempt(): ProLeaseAttempt {
       () => ({ ok: true as const }),
       (error: unknown) => ({ ok: false as const, error }),
     ),
+    released: null,
   };
 }
 
 function releaseProLeaseAttempt(attempt: ProLeaseAttempt | null): void {
   if (!attempt) return;
-  void attempt.owner.releaseIfCurrent().catch(() => undefined);
+  // releaseIfCurrent is one flight per attempt; keep its end for the start.
+  attempt.released ??= attempt.owner.releaseIfCurrent().then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 function showProLeaseFailure(error?: unknown): void {
@@ -296,6 +309,10 @@ export function isSystemAudioActive(): boolean {
 // Keep capture state and listener ownership in this module while exposing the
 // exact predicate through the acyclic audio-policy boundary.
 configureSystemAudioCaptureActivityProbe(isSystemAudioActive);
+// The media source picker shows its preparing state from this slot alone and
+// hears its end through system-audio:start-settled, emitted only where the
+// slot is cleared.
+configureSystemAudioCaptureStartProbe(() => _captureStartPromise !== null);
 
 /** Return a stream containing the original captured audio track. */
 export function getCapturedAudioStream(): MediaStream | null {
@@ -380,11 +397,27 @@ export async function startSystemAudioCapture(): Promise<void> {
     startEpoch,
     startLoadEpoch,
   );
+  // Set in the same turn as getDisplayMedia, so the click that emitted the
+  // start reads the attempt as soon as the emit returns.
   _captureStartPromise = attempt;
+  let started = false;
   try {
-    await attempt;
+    started = await attempt;
   } finally {
-    if (_captureStartPromise === attempt) _captureStartPromise = null;
+    // A PRO start that did not go live released the lease it asked for, and
+    // the room holds that lease as preparing until it answers. A press before
+    // then would only meet the lease and open nothing, so the attempt, and
+    // the picker's preparing label, last until the answer: normally one
+    // round trip, each request bounded by the control request deadline.
+    if (!started && _captureStartPromise === attempt && proLeaseAttempt?.released) {
+      await proLeaseAttempt.released;
+    }
+    // A stop that cleared the slot already settled this attempt; settle only
+    // while it is still ours, so the picker hears each attempt end once.
+    if (_captureStartPromise === attempt) {
+      _captureStartPromise = null;
+      bus.emit('system-audio:start-settled', { started });
+    }
   }
 }
 
@@ -393,7 +426,7 @@ async function performSystemAudioCaptureStart(
   proLeaseAttempt: ProLeaseAttempt | null,
   startEpoch: number,
   startLoadEpoch: number,
-): Promise<void> {
+): Promise<boolean> {
   // Freeze the file debounce before the native picker opens. The picker can
   // remain open for seconds, far longer than the 300 ms transfer debounce.
   // A rejected pre-teardown start resumes the latest valid payload. After the
@@ -402,7 +435,7 @@ async function performSystemAudioCaptureStart(
   const pendingBroadcastSuspension = beginPendingBroadcastSuspension();
   const pendingBroadcastDisposition = { shouldResume: true };
   try {
-    await performSystemAudioCaptureStartWithSuspendedBroadcast(
+    return await performSystemAudioCaptureStartWithSuspendedBroadcast(
       startRoom,
       proLeaseAttempt,
       startEpoch,
@@ -435,7 +468,8 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   startLoadEpoch: number,
   onPreviousMediaStopped: () => void,
   onPreviousMediaRestored: () => void,
-): Promise<void> {
+): Promise<boolean> {
+  // Resolves true only when the share is on; every other ending is false.
   const isProRoom = startRoom.kind === 'pro';
   let authoritativeSfuLiveExpiresAt: number | null = null;
   // 1. Capture FIRST (user gesture must be synchronous call stack)
@@ -453,10 +487,10 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     });
   } catch (e) {
     releaseProLeaseAttempt(proLeaseAttempt);
-    if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) return;
+    if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) return false;
     log.warn('[SystemAudio] getDisplayMedia denied or failed:', e);
     bus.emit('ui:show-toast', t('system_audio.capture_denied'));
-    return;
+    return false;
   }
 
   // getDisplayMedia itself is not abortable. stop/leave invalidates the epoch;
@@ -465,12 +499,12 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) {
     releaseProLeaseAttempt(proLeaseAttempt);
     discardPendingCapture(stream);
-    return;
+    return false;
   }
   if (!isCurrentSystemAudioRoom(startRoom)) {
     releaseProLeaseAttempt(proLeaseAttempt);
     discardPendingCapture(stream);
-    return;
+    return false;
   }
 
   // Read only the coarse, standardized surface class before stopping video.
@@ -503,7 +537,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     discardPendingCapture(stream);
     log.warn('[SystemAudio] No audio track');
     bus.emit('ui:show-toast', t('system_audio.no_audio_track'));
-    return;
+    return false;
   }
 
   const audioTrack = audioTracks[0];
@@ -551,7 +585,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   if (!isSelectedCaptureTrackLive()) {
     releaseProLeaseAttempt(proLeaseAttempt);
     discardSelectedCapture();
-    return;
+    return false;
   }
 
   if (isProRoom) {
@@ -564,18 +598,18 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     ) {
       discardSelectedCapture();
       if (leaseResult.ok) releaseProLeaseAttempt(proLeaseAttempt);
-      return;
+      return false;
     }
     if (!leaseResult.ok) {
       discardSelectedCapture();
       await refreshProLeaseFailure(leaseResult.error);
-      return;
+      return false;
     }
     if (!canPublishProSystemAudioWithCurrentCoordinator()) {
       discardSelectedCapture();
       releaseProLeaseAttempt(proLeaseAttempt);
       showProCoordinatorUpdateRequired();
-      return;
+      return false;
     }
   }
 
@@ -588,7 +622,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     discardSelectedCapture();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     if (!isProRoom && !hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
-    return;
+    return false;
   }
 
   // Initialize before snapshotting/stopping the current track. This leaves
@@ -604,7 +638,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       !isCurrentLoadEpoch(startLoadEpoch) ||
       !isCurrentSystemAudioRoom(startRoom)
     ) {
-      return;
+      return false;
     }
     throw error;
   }
@@ -621,19 +655,19 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   ) {
     discardSelectedCapture();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
-    return;
+    return false;
   }
 
   if (!isProRoom && (!isCoordinator() || !hasSystemAudioDeviceCapacity())) {
     discardSelectedCapture();
     if (!hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
-    return;
+    return false;
   }
   if (isProRoom && !canPublishProSystemAudioWithCurrentCoordinator()) {
     discardSelectedCapture();
     releaseProLeaseAttempt(proLeaseAttempt);
     showProCoordinatorUpdateRequired();
-    return;
+    return false;
   }
 
   // 2. Save previous state
@@ -691,7 +725,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   }
   if (!stoppedPreviousMedia) {
     discardPendingStart();
-    return;
+    return false;
   }
   // The previous media transition committed, so the parked file payload must
   // remain held while system audio prepares. Settlement is deferred because
@@ -734,7 +768,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
         showProCoordinatorUpdateRequired();
       }
     }
-    return;
+    return false;
   }
 
   // Claim cleanup ownership before constructing the graph. WebAudio node
@@ -770,7 +804,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       log.error('[SystemAudio] No analyser found');
       abortPreparedStart();
       if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
-      return;
+      return false;
     }
     stereoUpmix.connect(analyser);
   } catch (error) {
@@ -801,7 +835,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   ) {
     abortPreparedStart();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
-    return;
+    return false;
   }
   // 8. Standard rooms keep their bounded direct/SFU hybrid. PRO rooms publish
   // role-independently: prepare LAN-direct when eligible, otherwise SFU, and
@@ -816,7 +850,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       const liveState = await publishLocalProSystemAudio(track);
       if (startEpoch !== _captureStartEpoch) {
         releaseProLeaseAttempt(proLeaseAttempt);
-        return;
+        return false;
       }
       if (
         !isCurrentSystemAudioRoom(startRoom) ||
@@ -825,7 +859,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       ) {
         abortPreparedStart();
         releaseProLeaseAttempt(proLeaseAttempt);
-        return;
+        return false;
       }
       trackEndLifecycleCommitted = true;
       authoritativeSfuLiveExpiresAt =
@@ -835,12 +869,12 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     } catch (error) {
       if (startEpoch !== _captureStartEpoch) {
         releaseProLeaseAttempt(proLeaseAttempt);
-        return;
+        return false;
       }
       if (!isCurrentSystemAudioRoom(startRoom) || !isSelectedCaptureTrackLive()) {
         abortPreparedStart();
         releaseProLeaseAttempt(proLeaseAttempt);
-        return;
+        return false;
       }
       log.warn('[SystemAudio] PRO publication failed:', error);
       abortPreparedStart();
@@ -853,12 +887,12 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       } else {
         showProLeaseFailure(error);
       }
-      return;
+      return false;
     }
   } else {
     if (!isCoordinator() || !hasSystemAudioDeviceCapacity() || !isSelectedCaptureTrackLive()) {
       abortPreparedStart();
-      return;
+      return false;
     }
     trackEndLifecycleCommitted = true;
     _debugLastStartBroadcastAt = Date.now();
@@ -883,6 +917,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   bus.emit('visualizer:start');
 
   log.info('[SystemAudio] Capture started (stereo-stream)');
+  return true;
 }
 
 /**
@@ -898,9 +933,14 @@ function stopSystemAudioCapture(opts?: {
   reason?: SystemAudioStopReason;
 }): void {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
-  if (isSystemAudioActive() || _capturedStream || _captureStartPromise) ++_captureRestoreEpoch;
+  const startWasPending = _captureStartPromise !== null;
+  if (isSystemAudioActive() || _capturedStream || startWasPending) ++_captureRestoreEpoch;
   ++_captureStartEpoch;
   _captureStartPromise = null;
+  // Clearing the slot ends the attempt for the picker now, even though its
+  // native picker or PRO request may settle later; that late result is thrown
+  // away and its own finally no longer owns the slot, so it stays quiet.
+  if (startWasPending) bus.emit('system-audio:start-settled', { started: false });
   if (!isSystemAudioActive() && !_capturedStream) {
     // A pending start may already have snapshotted the previous owner while
     // awaiting renderer teardown. Its local snapshot remains identity-guarded,

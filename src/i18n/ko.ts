@@ -899,6 +899,7 @@ const ko = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': '시스템 오디오 공유',
+  'system_audio.button_preparing': '공유 준비 중...',
   'system_audio.sharing': '시스템 오디오 공유 중',
   'system_audio.receiving': '시스템 오디오 수신 중',
   'system_audio.owner_active': '{{name}} 님이 시스템 오디오를 공유 중이에요',

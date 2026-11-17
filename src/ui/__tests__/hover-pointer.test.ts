@@ -616,15 +616,22 @@ describe('keyboard navigation owner', () => {
     expect(keyboardNavigation()).toBe('on');
   });
 
-  it('leaves a focus move alone once the key is up, after a pointer press or another key, or when the window loses focus', () => {
+  it('leaves a focus move alone once the key is up, after a pointer press, another key or a scroll, or when the window loses focus', () => {
     // A window that opens by itself focuses its control: that is no
     // navigation, even just after an arrow that only scrolled.
     const opened = mount('<button type="button">Stay</button>');
+    const panel = mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>');
     const between: [string, () => void][] = [
       ['the key up', () => releaseKey(document.body, 'ArrowDown')],
       ['a pointer press', () => document.dispatchEvent(pointer('pointerdown', 'mouse'))],
       ['the window losing focus', () => window.dispatchEvent(new Event('blur'))],
       ['another key', () => press(document.body, 'a')],
+      // Any scroll ends the key's turn, the key's own or another, the page's
+      // or an element's (whose scroll event does not bubble): a focus move
+      // that a scroll brings about, such as a button that hides under focus
+      // (the chat's scroll-down button), is the page's, not the key's.
+      ['the page scrolling', () => document.dispatchEvent(new Event('scroll', { bubbles: true }))],
+      ['a panel scrolling', () => panel.dispatchEvent(new Event('scroll'))],
     ];
     for (const [label, step] of between) {
       opened.blur();

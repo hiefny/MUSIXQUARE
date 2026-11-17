@@ -350,6 +350,78 @@ describe('the local-file PLAY clock check after a foreground return (real owners
     expect(bus.rejoins).toEqual([]);
   });
 
+  it('announces again when the next PLAY meets a clock still frozen after a notice no dialog took (F-2501)', async () => {
+    const { fake, o, transport, bus, requests, sources } = await openFile('paused');
+    await returnToForeground();
+    fake.freezeClock();
+    const before = fake.ops.length;
+
+    // The first PLAY parks the context and announces its one request. Nothing
+    // takes its restart in this row: the notice never becomes a dialog (in
+    // the app: the page hidden when it came, the PLAY replaced, a forced
+    // update pending).
+    const first = transport.play(5);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(first).resolves.toBe(false);
+    expect(fake.ops.slice(before)).toEqual(ONE_SUSPEND);
+    expect(bus.needed).toEqual(['play:clock-stalled']);
+
+    // The next PLAY: its ensureRunning wakes the parked context, its clock
+    // check finds the clock still frozen, and the owner parks the context
+    // again for a new restart, which this PLAY announces. Before F-2501
+    // this PLAY stopped with no notice, and so did every PLAY after it.
+    const second = transport.play(5);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(second).resolves.toBe(false);
+    const parkedAgain = [
+      ...ONE_SUSPEND,
+      'resume()',
+      'statechange:running',
+      'resume:resolved',
+      ...ONE_SUSPEND,
+    ];
+    expect(fake.ops.slice(before)).toEqual(parkedAgain);
+    expect(fake.state).toBe('suspended');
+    expect(sources()).toBe(0);
+    expect(bus.needed).toEqual(['play:clock-stalled', 'play:clock-stalled']);
+    const request = requests[1]!;
+    const attemptToken = request.playRequestAttemptToken!;
+    expect(attemptToken).not.toBe(requests[0]!.playRequestAttemptToken);
+    expect(requests[0]!.isCurrent?.()).toBe(false);
+    expect(request.isCurrent?.()).toBe(true);
+
+    // That request's dialog takes its restart, and its tap recovers on a
+    // clock that runs again (app.ts's calls, made here as in the row above).
+    o.context.claimPlayRequestAttemptForDialog(attemptToken);
+    const gesture = o.recovery.beginAudioOutputGestureRecovery(
+      { intent: 'retry-failed-play', playRequestAttemptToken: attemptToken },
+      {
+        isCurrent: () => true,
+        signal: new AbortController().signal,
+        confirm: (token: object) => request.confirmPlayRequestAttempt!(token),
+        unhealthy: () => undefined,
+      },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    fake.runClock();
+    const finished = gesture!.finish();
+    await vi.advanceTimersByTimeAsync(AUDIO_CLOCK_SAMPLE_MS);
+    await expect(finished).resolves.toEqual({ kind: 'recovered', rejoinEmitted: false });
+
+    const retry = request.retry!();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(retry).resolves.toBe(true);
+    expect(sources()).toBe(1);
+    expect(fake.ops.slice(before)).toEqual([
+      ...parkedAgain,
+      'resume()',
+      'statechange:running',
+      'resume:resolved',
+    ]);
+    expect(bus.needed).toEqual(['play:clock-stalled', 'play:clock-stalled']);
+    expect(bus.rejoins).toEqual([]);
+  });
+
   it('does not block PLAY on an inconclusive foreground clock sample', async () => {
     const { fake, transport, bus, sources } = await openFile('paused');
     await returnToForeground();

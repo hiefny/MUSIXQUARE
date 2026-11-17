@@ -786,7 +786,7 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     });
   });
 
-  it('the ordinary branch on a frozen clock whose dialog stops acting while the restart prepares: it answers stopped, not a restart to queue', async () => {
+  it('the ordinary branch on a frozen clock whose dialog stops acting on a visible page while the restart prepares: it answers stopped, not a restart to queue, and leaves the restart to the PLAY or the dialog that follows', async () => {
     const s = await scene();
     s.fake.freezeClock();
     // The restart's suspend takes effect 300 ms after the clock check asked for it.
@@ -802,11 +802,87 @@ describe('RO-01 the playback-scope and ordinary branches after the dialog closed
     await vi.advanceTimersByTimeAsync(2_000);
 
     // No 'clock-stalled' answer for a dialog that no longer acts: app.ts
-    // queues no request for it. This row pins the answer only; what becomes
-    // of the restart the branch prepared is not asserted here.
+    // queues no request for it. On a visible page (a pause, another track, a
+    // newer PLAY or request ended the dialog) the restart stays, parked and
+    // holding nothing, for the PLAY or the newer request's dialog that
+    // follows: that PLAY's clock check takes it (F-2501), and giving it up
+    // here would clear the incident a newer PLAY may be sampling.
     expect(outcome.value).toEqual({ kind: 'stopped' });
     expect(side.unhealthy).toEqual(['clock-stalled']);
+    expect(ownerView(s.o).request).toBe('owned');
+    expect(s.fake.state).toBe('suspended');
+    expect(s.o.recovery.isAudioOutputRecoveryHolding()).toBe(false);
   });
+
+  it.each([
+    [
+      'still frozen at the return: the inspection parks the output and asks for a gesture',
+      { suspendMs: 300, runsAgain: false },
+      { status: 'needs-gesture', reason: 'clock-stalled' },
+      { attempt: 'file', gesture: true },
+      'suspended',
+    ],
+    [
+      'running again at the return: the inspection answers healthy with a rejoin to make',
+      { suspendMs: 300, runsAgain: true },
+      { status: 'healthy', rejoinRequired: true },
+      { attempt: 'none', gesture: false },
+      'running',
+    ],
+    [
+      'still frozen at the return, the restart still preparing when the branch gave it up',
+      { suspendMs: 700, runsAgain: false },
+      { status: 'needs-gesture', reason: 'clock-stalled' },
+      { attempt: 'file', gesture: true },
+      'suspended',
+    ],
+  ] as const)(
+    "the ordinary branch on a frozen clock whose page is hidden while the restart prepares: it gives the restart up, so the return's inspection is not deferred (F-2502); the clock %s",
+    async (_label, { suspendMs, runsAgain }, inspected, scope, state) => {
+      const s = await scene();
+      const health = await import('../output-health.ts');
+      s.fake.freezeClock();
+      // Two frozen samples end at 360 ms; the restart's suspend lands
+      // `suspendMs` later, inside its 500 ms window or after it.
+      s.fake.planSuspend({ latencyMs: suspendMs });
+      const bus = recordBus(s.o);
+      const side = dialog();
+
+      const outcome = settled(tap(s, dialogSelector('restore-playing-output'), side)!.finish());
+      await vi.advanceTimersByTimeAsync(500);
+      expect(side.unhealthy).toEqual(['clock-stalled']);
+      setVisibility('hidden');
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      // No dialog can show the restart's request for a hidden page, so the
+      // branch gives it up as the play-request branch gives its attempt up:
+      // nothing owns the context, and a hidden page arms no clock check and
+      // undoes no suspend. Before F-2502 the restart stayed parked with no
+      // dialog, the return's inspection deferred to it, and a file that
+      // played stayed silent while the screen showed it playing.
+      expect(outcome.value).toEqual({ kind: 'stopped' });
+      expect(ownerView(s.o)).toEqual({
+        request: 'none',
+        scope: { attempt: 'none', gesture: false },
+      });
+      expect(foregroundIncident(s.o)).toBeNull();
+      expect(s.fake.state).toBe('suspended');
+      expect(bus.needed).toEqual([]);
+
+      // The return: the binding arms the next clock check, and the app's
+      // inspection of a playing file runs as with no restart.
+      await vi.advanceTimersByTimeAsync(30_000);
+      if (runsAgain) s.fake.runClock();
+      setVisibility('visible');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(foregroundIncident(s.o)).not.toBeNull();
+      const inspection = health.inspectBackgroundFileOutput();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(inspection).resolves.toMatchObject(inspected);
+      expect(playbackScope.view(s.o)).toEqual(scope);
+      expect(s.fake.state).toBe(state);
+    },
+  );
 
   it("a failed PLAY's retry with no restart cancels a pending playback-scope attempt inside its tap, before its resume, and carries none", async () => {
     const s = await scene();

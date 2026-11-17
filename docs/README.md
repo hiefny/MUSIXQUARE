@@ -129,7 +129,7 @@ runbooks. Neither belongs in a general setup document.
   black or white loading screen. The loading screen's sheet now holds the root's background on the loading screen's
   colour while the splash holds (`boot-splash-root-hold`) and raises it with the splash in the same 0.3 s
   (`boot-splash-root-rise`, no fill), and body follows the root there; CSS only, the preflight and its CSP pin
-  unchanged, RO-55 updated as text. Not verified on a physical device, with the browser's real share window, in a
+  unchanged, RO-55 updated as text. After the deploy the owner confirmed the refresh on a physical iPhone, in the home-screen app (2026-11-17, 14:20 to 14:29 KST), which settles (D)'s device check; (A) to (C) are not verified on a physical device, nor with the browser's real share window, in a
   real PRO room or with a real screen reader. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.53 / v828 train: the installed iPhone and iPad app's first open keeps the wordmark in place and hides the home indicator strip, and every loader turns with Google's Material motion inside a still ring mask (2026-11-16)](design/app-9-0-53-train-2026-11-16.md):
   released on 2026-11-17 02:08 KST in Release 43914550117 (PR #605, squash `9fb7c8a8`) as App 9.0.53 / v828 (App build

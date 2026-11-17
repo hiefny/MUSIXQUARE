@@ -22,7 +22,7 @@ import {
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
 import { roomCapabilityFeedbackTip } from '../../rooms/permission-feedback.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { DataConnection, TrackMeta } from '../../types/index.ts';
 import { registerYouTubeStartClaim } from '../../youtube/start-ownership.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import {
@@ -41,8 +41,10 @@ import { initSettings } from '../settings.ts';
 import { __resetModalStackForTests } from '../dom.ts';
 import {
   configureSystemAudioCaptureActivityProbe,
+  configureSystemAudioCapturedStartProbe,
   configureSystemAudioCaptureStartProbe,
 } from '../../audio/system-audio-policy.ts';
+import type { SystemAudioSurface } from '../../core/system-audio-profile.ts';
 import { keepUiTouchSoundForPress } from '../../audio/ui-sounds.ts';
 import { createSharingActionMotion } from '../sharing-action-motion.ts';
 import { registerSharingActionMotion } from '../sharing-action-motion-port.ts';
@@ -2087,13 +2089,17 @@ describe('PRO room media-source capabilities', () => {
   });
 });
 
-// Owner proposal 2026-11-03: the picker stays open until the shared audio
-// arrives, as it stays open until a chosen file arrives, and the option reads
-// the same preparing label in both room kinds. The picker follows the start
-// attempt the capture owns (system-audio-policy.ts) and its one settlement.
+// Owner proposal 2026-11-03: the picker stays open while the browser's share
+// window is open, as it stays open until a chosen file arrives, and the option
+// reads the same preparing label in both room kinds. Owner decision
+// 2026-11-17: it closes once the capture holds live audio, while the start
+// goes on. The picker follows the start attempt the capture owns
+// (system-audio-policy.ts), the moment it captures and its one settlement.
 describe('system audio option while a share prepares', () => {
   let pending = false;
+  let captured: SystemAudioSurface | null = null;
   let disposeStartProbe: (() => void) | null = null;
+  let disposeCapturedProbe: (() => void) | null = null;
   let disposeActivityProbe: (() => void) | null = null;
   let transitionDescriptor: PropertyDescriptor | undefined;
   let stubbedTransition = false;
@@ -2103,13 +2109,30 @@ describe('system audio option while a share prepares', () => {
     __resetModalStackForTests();
     platform.systemAudioCapture = true;
     pending = false;
+    captured = null;
     disposeStartProbe = configureSystemAudioCaptureStartProbe(() => pending);
   });
 
+  /** Stands in for the capture: the attempt now holds live audio. */
+  function captureLiveAudio(surface: SystemAudioSurface = 'display'): void {
+    captured = surface;
+    disposeCapturedProbe ??= configureSystemAudioCapturedStartProbe(() => captured);
+    bus.emit('system-audio:start-captured');
+  }
+
+  /** Stands in for the capture: it clears its slot, then settles the attempt. */
+  function settleStart(started: boolean): void {
+    pending = false;
+    captured = null;
+    bus.emit('system-audio:start-settled', { started });
+  }
+
   afterEach(() => {
     disposeStartProbe?.();
+    disposeCapturedProbe?.();
     disposeActivityProbe?.();
     disposeStartProbe = null;
+    disposeCapturedProbe = null;
     disposeActivityProbe = null;
     if (stubbedTransition) {
       if (transitionDescriptor)
@@ -2247,21 +2270,33 @@ describe('system audio option while a share prepares', () => {
     expect(document.activeElement).toBe(elements.option);
   });
 
-  it('closes the picker and returns focus to the opener only when the share starts', async () => {
+  // Adapted for owner decision 2026-11-17: the picker used to close when the
+  // share was on (the settlement); it now closes when the capture holds live
+  // audio, and the start goes on with the option still preparing.
+  it('closes the picker and returns focus to the opener once the capture holds live audio, while the start goes on', async () => {
     const elements = setup();
     openPicker(elements);
     pressOption(elements);
     expect(elements.overlay.classList.contains('active')).toBe(true);
 
-    pending = false;
-    bus.emit('system-audio:start-settled', { started: true });
+    captureLiveAudio();
 
     expect(elements.overlay.classList.contains('active')).toBe(false);
     await Promise.resolve();
     expect(document.activeElement).toBe(elements.opener);
+    expectPreparing(elements.option);
+
+    // The share comes on later; the closed picker stays closed.
+    settleStart(true);
+
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    expect(document.activeElement).toBe(elements.opener);
     expectReady(elements.option);
   });
 
+  // Adapted for owner decision 2026-11-17: the close now comes from the
+  // capture, and the option keeps preparing after the fade until the start
+  // settles.
   it('keeps the preparing label on the closing picker until its close update runs', async () => {
     const elements = setup();
     openPicker(elements);
@@ -2279,8 +2314,7 @@ describe('system audio option while a share prepares', () => {
       }),
     });
 
-    pending = false;
-    bus.emit('system-audio:start-settled', { started: true });
+    captureLiveAudio();
     await Promise.resolve();
 
     expect(document.startViewTransition).toHaveBeenCalledOnce();
@@ -2291,6 +2325,31 @@ describe('system audio option while a share prepares', () => {
     updates.forEach((update) => update());
 
     expect(elements.overlay.classList.contains('active')).toBe(false);
+    expectPreparing(elements.option);
+
+    settleStart(true);
+
+    expectReady(elements.option);
+  });
+
+  // Owner decision 2026-11-17: the picker closes once per start, at the
+  // capture. A picker the person opens again while the start goes on (from
+  // the playlist's add button) is theirs: the share coming on leaves it open.
+  it('leaves a picker opened again while the share gets ready open when the share comes on', () => {
+    const elements = setup();
+    openPicker(elements);
+    pressOption(elements);
+    captureLiveAudio();
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+
+    openPicker(elements, elements.addMedia);
+    expectPreparing(elements.option);
+    elements.option.focus();
+
+    settleStart(true);
+
+    expect(elements.overlay.classList.contains('active')).toBe(true);
+    expect(document.activeElement).toBe(elements.option);
     expectReady(elements.option);
   });
 
@@ -2337,6 +2396,8 @@ describe('system audio option while a share prepares', () => {
     },
   );
 
+  // Adapted for owner decision 2026-11-17: the capture that now closes the
+  // picker also finds it already closed here, and reopens nothing.
   it('closing the picker while the share prepares leaves the share running', async () => {
     const stopSpy = vi.fn();
     const forceStopSpy = vi.fn();
@@ -2363,8 +2424,12 @@ describe('system audio option while a share prepares', () => {
     const focusAfterClose = document.activeElement;
     expect(focusAfterClose).toBe(elements.addMedia);
 
-    pending = false;
-    bus.emit('system-audio:start-settled', { started: true });
+    captureLiveAudio();
+    await Promise.resolve();
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    expect(document.activeElement).toBe(focusAfterClose);
+
+    settleStart(true);
     await Promise.resolve();
 
     // Nothing reopens and focus stays where the person left it.
@@ -3728,6 +3793,197 @@ describe('initPlayerControls track metadata subtitle', () => {
 
     expect(subtitle.textContent).toBe('');
     expect(subtitle.hasAttribute('title')).toBe(false);
+  });
+});
+
+// Owner decision 2026-11-17: from the moment this device's share holds live
+// audio until the share is on, the play tab's title reads the picker's
+// preparing label. Owner decision 2026-11-18: the row under it already shows
+// the share's profile label, the text it keeps once the share is on, so the
+// row never empties (css/style.css hides an empty row and the column moves)
+// and, when the share is on, only the title changes. The capture owns the
+// start attempt; these rows stand in for it through its probes and events.
+describe('initPlayerControls track title while a captured share gets ready', () => {
+  let pending = false;
+  let captured: SystemAudioSurface | null = null;
+  let disposeStartProbe: (() => void) | null = null;
+  let disposeCapturedProbe: (() => void) | null = null;
+
+  const NIGHT_DRIVE: TrackMeta = { type: 'file', name: 'night-drive.flac', title: 'Night Drive' };
+  const LIVE_SESSION: TrackMeta = {
+    type: 'youtube',
+    name: 'Live Session',
+    title: 'Live Session',
+    artist: 'MUSIXQUARE Live',
+    videoId: 'video-1',
+    playlistId: null,
+  };
+
+  beforeEach(() => {
+    pending = false;
+    captured = null;
+    disposeStartProbe = configureSystemAudioCaptureStartProbe(() => pending);
+  });
+
+  afterEach(() => {
+    disposeStartProbe?.();
+    disposeCapturedProbe?.();
+    disposeStartProbe = null;
+    disposeCapturedProbe = null;
+  });
+
+  function renderTrackTitle(meta: TrackMeta) {
+    document.body.innerHTML = `
+      <div class="track-title-wrapper" dir="auto">
+        <div class="track-title" id="track-title" data-i18n="player.no_media">${t('player.no_media')}</div>
+      </div>
+      <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">${t('player.select_file_hint')}</div>
+    `;
+    initPlayerControls();
+    setState('player.currentTrackMeta', meta);
+    // jsdom keeps what updateTitleWithMarquee writes to innerText as is.
+    return {
+      title: document.getElementById('track-title')!,
+      subtitle: document.getElementById('track-artist')!,
+    };
+  }
+
+  /** The press: the browser's share window is open, nothing is captured yet. */
+  function pressShare(): void {
+    pending = true;
+  }
+
+  /** The capture now holds live audio from that surface; the start goes on. */
+  function captureLiveAudio(surface: SystemAudioSurface): void {
+    captured = surface;
+    disposeCapturedProbe ??= configureSystemAudioCapturedStartProbe(() => captured);
+    bus.emit('system-audio:start-captured');
+  }
+
+  /** The capture clears its slot, then settles the attempt. */
+  function settleStart(started: boolean): void {
+    pending = false;
+    captured = null;
+    bus.emit('system-audio:start-settled', { started });
+  }
+
+  /** Every write that left the row empty, even for a moment. */
+  function observeEmptiedRows(subtitle: HTMLElement): () => MutationRecord[] {
+    const observer = new MutationObserver(() => {});
+    observer.observe(subtitle, { childList: true, characterData: true, subtree: true });
+    return () => {
+      const records = observer.takeRecords();
+      observer.disconnect();
+      return records.filter(
+        (record) =>
+          record.type === 'childList' &&
+          record.removedNodes.length > 0 &&
+          record.addedNodes.length === 0,
+      );
+    };
+  }
+
+  it('changes nothing while the browser share window is open', () => {
+    const { title, subtitle } = renderTrackTitle(NIGHT_DRIVE);
+
+    pressShare();
+    bus.emit('ui:player-panel-visible');
+
+    expect(title.innerText).toBe('Night Drive');
+    expect(subtitle.textContent).toBe('FLAC');
+  });
+
+  it('reads the preparing label over the share profile from the capture until the share is on, and then only the title changes', () => {
+    const { title, subtitle } = renderTrackTitle(NIGHT_DRIVE);
+    expect(title.innerText).toBe('Night Drive');
+    expect(subtitle.textContent).toBe('FLAC');
+    const emptiedRows = observeEmptiedRows(subtitle);
+    pressShare();
+
+    captureLiveAudio('window');
+
+    expect(title.innerText).toBe(t('system_audio.button_preparing'));
+    expect(subtitle.textContent).toBe('≤256 kbps · WINDOW');
+    expect(subtitle.title).toBe('≤256 kbps · WINDOW');
+
+    // A PRO share claims the player before it publishes; it is not on yet.
+    claimPlaybackOwner('system-audio', {
+      currentTrackMeta: createSystemAudioTrackMeta('sharing', undefined, 'window'),
+    });
+    bus.emit('ui:player-panel-visible');
+
+    expect(title.innerText).toBe(t('system_audio.button_preparing'));
+    expect(subtitle.textContent).toBe('≤256 kbps · WINDOW');
+
+    settleStart(true);
+
+    expect(title.innerText).toBe(t('system_audio.sharing'));
+    expect(subtitle.textContent).toBe('≤256 kbps · WINDOW');
+    expect(subtitle.title).toBe('≤256 kbps · WINDOW');
+    expect(emptiedRows()).toEqual([]);
+  });
+
+  it('returns the title and the row to what they showed before the start when it ends after the capture', () => {
+    const { title, subtitle } = renderTrackTitle(LIVE_SESSION);
+    expect(title.innerText).toBe('Live Session');
+    expect(subtitle.textContent).toBe('MUSIXQUARE Live');
+    const emptiedRows = observeEmptiedRows(subtitle);
+    pressShare();
+    captureLiveAudio('browser');
+    expect(title.innerText).toBe(t('system_audio.button_preparing'));
+    expect(subtitle.textContent).toBe('≤256 kbps · BROWSER');
+
+    // Refused, failed or replaced after the picker closed: the capture keeps
+    // or restores the previous media, and the play tab shows it again.
+    settleStart(false);
+
+    expect(title.innerText).toBe('Live Session');
+    expect(subtitle.textContent).toBe('MUSIXQUARE Live');
+    expect(subtitle.title).toBe('MUSIXQUARE Live');
+    expect(emptiedRows()).toEqual([]);
+  });
+
+  it('follows a language change while the share gets ready', async () => {
+    const { title, subtitle } = renderTrackTitle(NIGHT_DRIVE);
+    pressShare();
+    captureLiveAudio('display');
+    expect(title.innerText).toBe('Preparing to share...');
+
+    setLanguageMode('ko');
+    try {
+      await vi.waitFor(() => {
+        expect(getResolvedLanguage()).toBe('ko');
+        expect(title.innerText).toBe('공유 준비 중...');
+      });
+      expect(subtitle.textContent).toBe('≤256 kbps · DISPLAY');
+    } finally {
+      setLanguageMode('en');
+      await vi.waitFor(() => expect(getResolvedLanguage()).toBe('en'));
+    }
+  });
+
+  // The preparing label is the picker's status moved onto the play tab. The
+  // browser tab title (like the Media Session) keeps naming the media: the
+  // previous media until the share claims the player, then the share.
+  it('leaves the browser tab title on the media until the share claims the player', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    const { title } = renderTrackTitle(NIGHT_DRIVE);
+    expect(document.title).toBe('Night Drive · MUSIXQUARE');
+    pressShare();
+
+    captureLiveAudio('display');
+
+    expect(title.innerText).toBe(t('system_audio.button_preparing'));
+    expect(document.title).toBe('Night Drive · MUSIXQUARE');
+
+    claimPlaybackOwner('system-audio', {
+      currentTrackMeta: createSystemAudioTrackMeta('sharing', undefined, 'display'),
+    });
+    expect(document.title).toBe(`${t('system_audio.sharing')} · MUSIXQUARE`);
+
+    settleStart(true);
+    expect(document.title).toBe(`${t('system_audio.sharing')} · MUSIXQUARE`);
   });
 });
 

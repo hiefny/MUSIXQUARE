@@ -24,7 +24,10 @@ import {
   registerSystemCaptureListeners,
   startSystemAudioCapture,
 } from '../system-capture.ts';
-import { isSystemAudioCaptureStartPending } from '../system-audio-policy.ts';
+import {
+  getSystemAudioCapturedStartSurface,
+  isSystemAudioCaptureStartPending,
+} from '../system-audio-policy.ts';
 import type { ProRoomSystemAudioPublication } from '../../pro-room/contracts.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import {
@@ -2346,5 +2349,206 @@ describe('capture start pending and settlement', () => {
     expect(settled).toHaveBeenCalledTimes(1);
     expect(settled).toHaveBeenCalledWith({ started: false });
     expect(isSystemAudioCaptureStartPending()).toBe(false);
+  });
+
+  // Owner decision 2026-11-17: once the share window returns a capture with
+  // live audio, the picker closes and the play tab shows the share preparing
+  // while the attempt goes on. The capture says when (start-captured) and
+  // keeps the captured surface with its slot until the attempt settles.
+  function observeCaptures(): ReturnType<typeof vi.fn<() => void>> {
+    const captured = vi.fn<() => void>();
+    bus.on('system-audio:start-captured', captured);
+    return captured;
+  }
+
+  function preparingLease(): unknown {
+    return {
+      generation: 1,
+      status: 'preparing',
+      ownerParticipantId: 'member-1',
+      claimExpiresAt: Date.now() + 45_000,
+      liveExpiresAt: null,
+      publication: null,
+    };
+  }
+
+  it('reports the capture once it holds live audio, before the standard start stops the previous media, and clears it with the settlement', async () => {
+    stubDisplayMedia(undefined, { displaySurface: 'browser' });
+    const order: string[] = [];
+    const captured = vi.fn(() => {
+      order.push(
+        `captured ${String(getSystemAudioCapturedStartSurface())} pending ${String(
+          isSystemAudioCaptureStartPending(),
+        )}`,
+      );
+    });
+    bus.on('system-audio:start-captured', captured);
+    transport.stopAllMediaAsync.mockImplementationOnce(async () => {
+      order.push('previous media stopped');
+      return true;
+    });
+    bus.on('system-audio:streams-ready', () => order.push('share on'));
+    bus.on('system-audio:start-settled', ({ started }) => {
+      order.push(`settled ${String(started)} ${String(getSystemAudioCapturedStartSurface())}`);
+    });
+
+    await startSystemAudioCapture();
+
+    expect(captured).toHaveBeenCalledTimes(1);
+    expect(order).toEqual([
+      'captured browser pending true',
+      'previous media stopped',
+      'share on',
+      'settled true null',
+    ]);
+    expect(getSystemAudioCapturedStartSurface()).toBeNull();
+    bus.emit('system-audio:stop');
+  });
+
+  it('reports a PRO capture while its lease is unanswered and keeps it through the publish until the share is on', async () => {
+    setProRoom();
+    let resolveLease!: (state: unknown) => void;
+    proAudio.acquire.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLease = resolve;
+        }),
+    );
+    stubDisplayMedia(undefined, { displaySurface: 'window' });
+    const captured = observeCaptures();
+    let surfaceAtSettlement: unknown = 'unread';
+    const settled = vi.fn<(event: Settlement) => void>(() => {
+      surfaceAtSettlement = getSystemAudioCapturedStartSurface();
+    });
+    bus.on('system-audio:start-settled', settled);
+
+    const startPromise = startSystemAudioCapture();
+    expect(getSystemAudioCapturedStartSurface()).toBeNull();
+    await vi.waitFor(() => expect(captured).toHaveBeenCalledTimes(1));
+
+    // Captured while the room has not answered the lease.
+    expect(getSystemAudioCapturedStartSurface()).toBe('window');
+    expect(isSystemAudioCaptureStartPending()).toBe(true);
+    expect(transport.stopAllMediaAsync).not.toHaveBeenCalled();
+    expect(proAudio.publish).not.toHaveBeenCalled();
+
+    let resolvePublish!: (state: unknown) => void;
+    proAudio.publish.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePublish = resolve;
+        }),
+    );
+    resolveLease(preparingLease());
+    await vi.waitFor(() => expect(proAudio.publish).toHaveBeenCalledTimes(1));
+
+    // Claimed and publishing is not yet on.
+    expect(getState('playback.mode')).toBe('system-audio');
+    expect(getSystemAudioCapturedStartSurface()).toBe('window');
+    expect(settled).not.toHaveBeenCalled();
+
+    resolvePublish({
+      generation: 1,
+      status: 'live',
+      ownerParticipantId: 'member-1',
+      claimExpiresAt: null,
+      liveExpiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+      publication: { publicationId: 'publication-1', sessionId: 'session-1', tracks: [] },
+    });
+    await startPromise;
+
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ started: true });
+    expect(surfaceAtSettlement).toBeNull();
+    expect(captured).toHaveBeenCalledTimes(1);
+    bus.emit('system-audio:stop');
+  });
+
+  it.each([
+    {
+      ending: 'the share window is cancelled',
+      stub: () =>
+        stubDisplayMedia(() =>
+          Promise.reject(new DOMException('Permission denied', 'NotAllowedError')),
+        ),
+    },
+    {
+      ending: 'the picked surface has no audio',
+      stub: () => stubDisplayMedia(undefined, undefined, { withoutAudio: true }),
+    },
+    {
+      ending: 'the shared audio ends before the start',
+      stub: () =>
+        stubDisplayMedia((stream) => {
+          lastDisplayCapture!.dispatchEnded();
+          return Promise.resolve(stream);
+        }),
+    },
+  ])('reports no capture when $ending', async ({ stub }) => {
+    stub();
+    const captured = observeCaptures();
+    const settled = observeSettlements();
+
+    await startSystemAudioCapture();
+
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ started: false });
+    expect(captured).not.toHaveBeenCalled();
+    expect(getSystemAudioCapturedStartSurface()).toBeNull();
+  });
+
+  it('reports no capture for a share window that answers after a stop', async () => {
+    let resolvePicker!: () => void;
+    stubDisplayMedia(
+      (stream) =>
+        new Promise<MediaStream>((resolve) => {
+          resolvePicker = () => resolve(stream);
+        }),
+    );
+    const captured = observeCaptures();
+
+    const startPromise = startSystemAudioCapture();
+    bus.emit('system-audio:force-stop');
+    resolvePicker();
+    await startPromise;
+
+    expect(captured).not.toHaveBeenCalled();
+    expect(getSystemAudioCapturedStartSurface()).toBeNull();
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the reported capture before a stop settles the captured start', async () => {
+    setProRoom();
+    let resolveLease!: (state: unknown) => void;
+    proAudio.acquire.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLease = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const captured = observeCaptures();
+    let surfaceAtSettlement: unknown = 'unread';
+    const settled = vi.fn<(event: Settlement) => void>(() => {
+      surfaceAtSettlement = getSystemAudioCapturedStartSurface();
+    });
+    bus.on('system-audio:start-settled', settled);
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(captured).toHaveBeenCalledTimes(1));
+    expect(getSystemAudioCapturedStartSurface()).toBe('display');
+
+    bus.emit('system-audio:force-stop');
+
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ started: false });
+    expect(surfaceAtSettlement).toBeNull();
+    expect(getSystemAudioCapturedStartSurface()).toBeNull();
+
+    // The lease the stopped start asked for answers late: nothing more.
+    resolveLease(preparingLease());
+    await startPromise;
+
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(captured).toHaveBeenCalledTimes(1);
+    expect(getSystemAudioCapturedStartSurface()).toBeNull();
+    expect(isSystemAudioActive()).toBe(false);
   });
 });

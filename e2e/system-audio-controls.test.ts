@@ -12,10 +12,12 @@ import {
   navigateToSubtab,
   navigateToTab,
   readState,
+  waitForAppFonts,
   waitForDeviceCount,
   waitForFilePlaybackReady,
   waitForPlaylistCount,
   waitForState,
+  waitForViewTransitionEnd,
   waitUntilPressReaches,
 } from './helpers/wait.ts';
 import {
@@ -146,7 +148,7 @@ for (const viewport of [
     await media.click();
     await page.locator('#btn-system-audio').click();
     await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
-    // The picker closes once the share is on, a frame or two after the audio.
+    // The picker closes once the capture holds live audio, a frame or two later.
     await expect(page.locator('#media-source-overlay')).not.toHaveClass(/\bactive\b/);
     await expect(row).toHaveAttribute('data-sharing', 'true');
     await expect(media).toHaveAccessibleName('Stop Sharing');
@@ -524,9 +526,12 @@ test('remote YouTube selection supersedes a pending system audio picker', async 
   }
 });
 
-// Owner proposal 2026-11-03: the media picker stays open until the shared
-// audio arrives, as it stays open until a chosen file arrives, and the option
-// reads "Preparing to share..." the same way in standard and PRO rooms.
+// Owner proposal 2026-11-03: the media picker stays open while the browser's
+// share window is open, as it stays open until a chosen file arrives, and the
+// option reads "Preparing to share..." the same way in standard and PRO rooms.
+// Owner decision 2026-11-17: once that window returns a capture with live
+// audio, the picker closes and the start goes on under the play tab's title
+// (the rows at the end of this file).
 type PickerRecord = {
   key: string | null;
   open: boolean;
@@ -575,7 +580,49 @@ async function openSystemAudioOption(page: Page) {
   return { option, label: option.locator('.media-source-label-text') };
 }
 
-test('keeps the media picker open with the preparing label until the shared audio arrives', async ({
+type TrackTitleRecord = {
+  title: string;
+  subtitle: string;
+  /** The row under the title takes its line; css/style.css hides it empty. */
+  shown: boolean;
+  /** The batch wrote an empty row, even if text came back in the same batch. */
+  emptied: boolean;
+};
+
+type TrackTitleRecordWindow = Window & { __trackTitleRecord?: TrackTitleRecord[] };
+
+/** Record the play tab's title and the row under it, one entry per batch. */
+async function recordTrackTitle(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const title = document.getElementById('track-title')!;
+    const subtitle = document.getElementById('track-artist')!;
+    const record: TrackTitleRecord[] = [];
+    (window as TrackTitleRecordWindow).__trackTitleRecord = record;
+    const observer = new MutationObserver((mutations) => {
+      record.push({
+        title: title.textContent ?? '',
+        subtitle: subtitle.textContent ?? '',
+        shown: getComputedStyle(subtitle).display !== 'none',
+        emptied: mutations.some(
+          (mutation) =>
+            mutation.target === subtitle &&
+            mutation.type === 'childList' &&
+            mutation.removedNodes.length > 0 &&
+            mutation.addedNodes.length === 0,
+        ),
+      });
+    });
+    for (const target of [title, subtitle]) {
+      observer.observe(target, { characterData: true, childList: true, subtree: true });
+    }
+  });
+}
+
+function readTrackTitleRecord(page: Page): Promise<TrackTitleRecord[]> {
+  return page.evaluate(() => (window as TrackTitleRecordWindow).__trackTitleRecord ?? []);
+}
+
+test('keeps the media picker open with the preparing label while the share window is open, and closes it once the shared audio is captured', async ({
   page,
 }) => {
   await injectPeerServer(page);
@@ -587,6 +634,7 @@ test('keeps the media picker open with the preparing label until the shared audi
   const overlay = page.locator('#media-source-overlay');
   const { option, label } = await openSystemAudioOption(page);
   await recordSystemAudioPicker(page);
+  await recordTrackTitle(page);
 
   await option.click();
   await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
@@ -620,14 +668,19 @@ test('keeps the media picker open with the preparing label until the shared audi
       .slice(firstBusy)
       .filter(({ key, open }) => open && key !== 'system_audio.button_preparing'),
   ).toEqual([]);
-  // The page under the picker, the toast included, is inert while the picker
-  // is on top, so the picker's own status repeated the advice toast for
-  // screen readers before it closed.
+  // The picker closed when the capture held live audio, a moment before a
+  // standard share is on, so the page under it is no longer inert and its own
+  // toast is the one status that gives screen readers the advice.
+  const advice = 'Lower the source volume as much as possible';
+  await expect(page.locator('#toast')).toContainText(advice);
+  await expect(page.getByRole('status').filter({ hasText: advice })).toHaveCount(1);
+  // The title reads the share over its profile label, and the row under the
+  // title never emptied on the way (owner decision 2026-11-18).
+  await expect(page.locator('#track-title')).toHaveText('Sharing System Audio');
+  await expect(page.locator('#track-artist')).toHaveText('≤256 kbps · DISPLAY');
   expect(
-    record.some(
-      ({ open, status }) => open && status?.includes('Lower the source volume as much as possible'),
-    ),
-  ).toBe(true);
+    (await readTrackTitleRecord(page)).filter(({ emptied, shown }) => emptied || !shown),
+  ).toEqual([]);
 
   await page.locator('#btn-media-source').click();
   await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(0);
@@ -995,4 +1048,338 @@ test('a PRO owner sees the preparing label for the whole start and, after a canc
   releaseAnswers.shift()!();
   await expect(label).toHaveAttribute('data-i18n', 'system_audio.button');
   expect(calls.acquire).toBe(2);
+});
+
+type HeldProAnswer = 'grant' | 'refuse';
+
+/**
+ * Open the page as the owner of a mocked PRO room, as the row above does,
+ * where the room answers each system-audio acquire and commit only when the
+ * test does. The owner is alone in the room, so a granted lease publishes
+ * LAN-direct to no listener, and the room's live answer to that commit puts
+ * the share on without an SFU.
+ */
+async function openHeldProShareRoom(page: Page) {
+  await page.addInitScript((signalingUrl) => {
+    (window as unknown as Record<string, unknown>).__MUSIXQUARE_TRANSPORT__ = {
+      provider: 'cloudflare',
+      signalingUrl,
+    };
+  }, `${PRO_SIGNALING_ORIGIN}/api/rooms`);
+  await page.routeWebSocket(
+    (url) => url.pathname.includes('/api/pro-rooms/'),
+    (socket) => {
+      socket.onMessage((raw) => {
+        if (typeof raw !== 'string') return;
+        const frame = JSON.parse(raw) as Record<string, unknown>;
+        if (frame.type === 'pro-clock') {
+          socket.send(JSON.stringify({ ...frame, serverTimeMs: Date.now() }));
+        }
+      });
+    },
+  );
+  const idle = (generation: number) => ({
+    generation,
+    status: 'idle',
+    ownerParticipantId: null,
+    claimExpiresAt: null,
+    liveExpiresAt: null,
+    publication: null,
+  });
+  let generation = 0;
+  let systemAudio: Record<string, unknown> = idle(0);
+  const calls = { acquire: 0, commit: 0, release: 0 };
+  const held: Record<'acquire' | 'commit', Array<(answer: HeldProAnswer) => void>> = {
+    acquire: [],
+    commit: [],
+  };
+  const answerOf = (kind: 'acquire' | 'commit') =>
+    new Promise<HeldProAnswer>((resolve) => held[kind].push(resolve));
+  const snapshot = ownerSnapshot();
+  await page.route('**/api/pro-room/**', async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    const room = `/v1/rooms/${PRO_ROOM_CODE}`;
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
+    } else if (pathname.endsWith(`${room}/bootstrap`)) {
+      await fulfillProJson(page, route, {
+        roomCode: PRO_ROOM_CODE,
+        status: 'pin_required',
+        passwordRequired: true,
+      });
+    } else if (
+      pathname.endsWith(`${room}/owner-recovery`) ||
+      pathname.endsWith(`${room}/snapshot`)
+    ) {
+      await fulfillProJson(page, route, { snapshot });
+    } else if (pathname.endsWith(`${room}/signaling-tickets`)) {
+      await fulfillProJson(page, route, {
+        ticket: `${'c'.repeat(32)}.${'D'.repeat(43)}`,
+        expiresAtMs: Date.now() + 60_000,
+        role: 'member',
+        coordinatorEpoch: 2,
+        presenceIncarnationId: PRESENCE_INCARNATION_ID,
+        ticketSequence: 1,
+        pendingPlaybackTransition: null,
+      });
+    } else if (pathname.endsWith(`${room}/presence/heartbeat`)) {
+      await fulfillProJson(page, route, { snapshot, systemAudio });
+    } else if (
+      pathname.endsWith(`${room}/system-audio`) ||
+      pathname.endsWith(`${room}/system-audio/heartbeat`)
+    ) {
+      await fulfillProJson(page, route, { systemAudio });
+    } else if (pathname.endsWith(`${room}/system-audio/acquire`)) {
+      calls.acquire += 1;
+      if ((await answerOf('acquire')) === 'refuse') {
+        await fulfillProJson(page, route, { error: 'TEST_ACQUIRE_REFUSED' }, 503);
+        return;
+      }
+      generation += 1;
+      systemAudio = {
+        generation,
+        status: 'preparing',
+        ownerParticipantId: PARTICIPANT_ID,
+        claimExpiresAt: Date.now() + 45_000,
+        liveExpiresAt: null,
+        publication: null,
+      };
+      await fulfillProJson(page, route, { systemAudio, leaseId: 'L'.repeat(43) });
+    } else if (pathname.endsWith(`${room}/system-audio/commit`)) {
+      calls.commit += 1;
+      const { publication } = request.postDataJSON() as { publication: unknown };
+      if ((await answerOf('commit')) === 'refuse') {
+        await fulfillProJson(page, route, { error: 'TEST_COMMIT_REFUSED' }, 503);
+        return;
+      }
+      systemAudio = {
+        generation,
+        status: 'live',
+        ownerParticipantId: PARTICIPANT_ID,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication,
+      };
+      await fulfillProJson(page, route, { systemAudio });
+    } else if (pathname.endsWith(`${room}/system-audio/release`)) {
+      calls.release += 1;
+      systemAudio = idle(generation);
+      await fulfillProJson(page, route, { systemAudio });
+    } else {
+      await fulfillProJson(page, route, { error: 'TEST_ADJUNCT_UNAVAILABLE' }, 503);
+    }
+  });
+  await page.goto(`/${PRO_ROOM_CODE}#pro-recovery=${OWNER_RECOVERY_CLAIM}`);
+  await page.locator('#btn-setup-confirm:not([disabled])').click();
+  await expect(page.locator('#setup-overlay')).not.toHaveClass(/active/);
+  await expect
+    .poll(async () => {
+      const context = (await readState(page, 'room.context')) as {
+        kind?: string;
+        capabilities?: string[];
+      };
+      return context?.kind === 'pro' && context.capabilities?.includes('system-audio.publish');
+    })
+    .toBe(true);
+  return {
+    calls,
+    /** Let the oldest held request of that kind through, or refuse it. */
+    answer(kind: 'acquire' | 'commit', answer: HeldProAnswer): void {
+      const next = held[kind].shift();
+      if (!next) throw new Error(`No ${kind} request is held`);
+      next(answer);
+    },
+  };
+}
+
+type PlayTabLayout = {
+  title: string;
+  subtitle: string;
+  subtitleShown: boolean;
+  stageY: number;
+  titleY: number;
+  controlsY: number;
+};
+
+/** The play tab's title and row, and where its stage, title and controls sit. */
+function readPlayTabLayout(page: Page): Promise<PlayTabLayout> {
+  return page.evaluate(() => {
+    const top = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().y;
+    const subtitle = document.getElementById('track-artist')!;
+    return {
+      title: document.getElementById('track-title')!.textContent ?? '',
+      subtitle: subtitle.textContent ?? '',
+      subtitleShown: getComputedStyle(subtitle).display !== 'none',
+      stageY: top('#tab-play .playback-stage'),
+      titleY: top('#track-title'),
+      controlsY: top('#tab-play .controls-area'),
+    };
+  });
+}
+
+/** The largest move of the stage, the title or the controls between two reads. */
+function playTabMove(from: PlayTabLayout, to: PlayTabLayout): number {
+  return Math.max(
+    Math.abs(from.stageY - to.stageY),
+    Math.abs(from.titleY - to.titleY),
+    Math.abs(from.controlsY - to.controlsY),
+  );
+}
+
+const PREPARING_TITLE = 'Preparing to share...';
+const SHARING_TITLE = 'Sharing System Audio';
+const PROFILE_LABEL = '≤256 kbps · DISPLAY';
+
+// Owner decision 2026-11-17: once the browser's share window returns a capture
+// with live audio, the media picker closes at once while the start goes on (a
+// PRO lease and its LAN-direct or SFU publication), and the play tab's title
+// reads "Preparing to share..." until the share is on. Owner decision
+// 2026-11-18: from that moment the row under the title already shows the
+// share's profile label, the text it keeps once the share is on, so the row
+// never empties and nothing on the play tab moves (an empty row hides itself,
+// which moved the stage 11 px and the title 17 px in the 2026-11-17 photos).
+// The 1280 x 800 window is the one those photos measured.
+test.describe('the play tab while a captured share gets ready', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test('a PRO capture with live audio closes the picker while the lease and the live answer are held, the title reads Preparing to share... over the profile label in place, and only the title changes when the share is on', async ({
+    page,
+  }, testInfo) => {
+    await injectPeerServer(page);
+    await installSyntheticSystemAudio(page);
+    const room = await openHeldProShareRoom(page);
+    await navigateToTab(page, 'play');
+    await holdSyntheticSystemAudioPicker(page);
+    await waitForAppFonts(page);
+    const before = await readPlayTabLayout(page);
+    expect(before).toMatchObject({
+      title: 'No media playing',
+      subtitle: 'Select a file or check the playlist',
+      subtitleShown: true,
+    });
+    const overlay = page.locator('#media-source-overlay');
+    const opener = page.locator('#btn-media-source');
+    const title = page.locator('#track-title');
+    const subtitle = page.locator('#track-artist');
+    const { option, label } = await openSystemAudioOption(page);
+    await recordTrackTitle(page);
+
+    await option.click();
+    await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+    await expect.poll(() => room.calls.acquire).toBe(1);
+    // While the browser's share window is open nothing changes.
+    await expect(overlay).toHaveClass(/\bactive\b/);
+    await expect(label).toHaveAttribute('data-i18n', 'system_audio.button_preparing');
+    await expect(title).toHaveText('No media playing');
+
+    await selectHeldSystemAudioPicker(page);
+    await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+    // The capture holds live audio while the room has not answered the lease:
+    // the picker closes and focus returns to its opener, as the started close
+    // did, and the start goes on with the option still preparing.
+    await expect(overlay).not.toHaveClass(/\bactive\b/);
+    await expect(opener).toBeFocused();
+    await expect(option).toHaveAttribute('aria-busy', 'true');
+    await expect(label).toHaveAttribute('data-i18n', 'system_audio.button_preparing');
+    await expect(title).toHaveText(PREPARING_TITLE);
+    await expect(subtitle).toHaveText(PROFILE_LABEL);
+    await waitForViewTransitionEnd(page);
+    const captured = await readPlayTabLayout(page);
+
+    // The lease is granted: the share claims the player and publishes, and the
+    // room's live answer to its commit is held. Still preparing.
+    room.answer('acquire', 'grant');
+    await expect.poll(() => room.calls.commit).toBe(1);
+    await expect.poll(() => readState(page, 'playback.mode')).toBe('system-audio');
+    await expect(title).toHaveText(PREPARING_TITLE);
+    await expect(subtitle).toHaveText(PROFILE_LABEL);
+    const claimed = await readPlayTabLayout(page);
+
+    room.answer('commit', 'grant');
+    await expect(title).toHaveText(SHARING_TITLE);
+    await expect(subtitle).toHaveText(PROFILE_LABEL);
+    await expect(option).toHaveAttribute('aria-busy', 'false');
+    await expect(overlay).not.toHaveClass(/\bactive\b/);
+    await expect(page.locator('#toast')).toContainText(
+      'Lower the source volume as much as possible',
+    );
+    const shared = await readPlayTabLayout(page);
+    await testInfo.attach('play-tab-layout', {
+      body: JSON.stringify({ before, captured, claimed, shared }, null, 2),
+      contentType: 'application/json',
+    });
+
+    // Measured in place: preparing sits exactly where the share then sits, as
+    // the room before the start did with its own row.
+    expect(playTabMove(captured, shared)).toBeLessThanOrEqual(0.5);
+    expect(playTabMove(claimed, shared)).toBeLessThanOrEqual(0.5);
+    expect(playTabMove(before, shared)).toBeLessThanOrEqual(0.5);
+    expect([captured, claimed, shared].every(({ subtitleShown }) => subtitleShown)).toBe(true);
+
+    const record = await readTrackTitleRecord(page);
+    const firstPreparing = record.findIndex(({ title }) => title === PREPARING_TITLE);
+    const firstShared = record.findIndex(({ title }) => title === SHARING_TITLE);
+    expect(firstPreparing).toBeGreaterThanOrEqual(0);
+    expect(firstShared).toBeGreaterThan(firstPreparing);
+    // From the capture until the share is on, only the preparing title over the
+    // profile label: no "Sharing System Audio" at the claim before the share.
+    expect(
+      record
+        .slice(firstPreparing, firstShared)
+        .filter((entry) => entry.title !== PREPARING_TITLE || entry.subtitle !== PROFILE_LABEL),
+    ).toEqual([]);
+    // When the share came on, only the title changed; the row never emptied.
+    expect(record.slice(firstShared).filter(({ subtitle }) => subtitle !== PROFILE_LABEL)).toEqual(
+      [],
+    );
+    expect(record.filter(({ emptied, shown }) => emptied || !shown)).toEqual([]);
+
+    // Stop Sharing ends the share; the room answers its release.
+    await opener.click();
+    await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(0);
+    await expect.poll(() => room.calls.release).toBe(1);
+  });
+
+  test('a PRO start refused after the capture closed the picker shows its toast, returns the title and the row to what they were and does not reopen the picker', async ({
+    page,
+  }) => {
+    await injectPeerServer(page);
+    await installSyntheticSystemAudio(page);
+    const room = await openHeldProShareRoom(page);
+    await navigateToTab(page, 'play');
+    await holdSyntheticSystemAudioPicker(page);
+    await waitForAppFonts(page);
+    const before = await readPlayTabLayout(page);
+    const overlay = page.locator('#media-source-overlay');
+    const title = page.locator('#track-title');
+    const subtitle = page.locator('#track-artist');
+    const { option, label } = await openSystemAudioOption(page);
+    await recordTrackTitle(page);
+
+    await option.click();
+    await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+    await expect.poll(() => room.calls.acquire).toBe(1);
+    await selectHeldSystemAudioPicker(page);
+    await expect(overlay).not.toHaveClass(/\bactive\b/);
+    await expect(title).toHaveText(PREPARING_TITLE);
+    await expect(subtitle).toHaveText(PROFILE_LABEL);
+    await waitForViewTransitionEnd(page);
+
+    room.answer('acquire', 'refuse');
+    await expect(page.locator('#toast')).toContainText('Could not start system audio sharing');
+    await expect(title).toHaveText(before.title);
+    await expect(subtitle).toHaveText(before.subtitle);
+    await expect(option).toHaveAttribute('aria-busy', 'false');
+    await expect(label).toHaveAttribute('data-i18n', 'system_audio.button');
+    // The person already left the picker; a later failure does not reopen it.
+    await expect(overlay).not.toHaveClass(/\bactive\b/);
+    expect((await readSyntheticSystemAudio(page)).activeCaptures).toBe(0);
+    expect(playTabMove(before, await readPlayTabLayout(page))).toBeLessThanOrEqual(0.5);
+    expect(
+      (await readTrackTitleRecord(page)).filter(({ emptied, shown }) => emptied || !shown),
+    ).toEqual([]);
+    // No lease was granted, so there is none to release.
+    expect(room.calls.release).toBe(0);
+  });
 });

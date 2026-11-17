@@ -273,12 +273,12 @@ function loadSheet(id: AppFontSheetId): Promise<boolean> {
 }
 
 /**
- * The attempt a later Han family waits for: the first family's attempt in
- * flight, or one started now when the first family's first attempt has
- * failed or been abandoned (or it was never asked for). That one retry at
- * once keeps a failed first attempt from leaving the later families to draw
- * its Han until the timer retry. Nothing once the family has loaded, or has
- * failed its retry too.
+ * What a Han family waits for from a family ahead of it in the turn: that
+ * family's attempt in flight, or one started now when its first attempt has
+ * failed or been abandoned, or it was never asked for. That one retry at once
+ * keeps a failed first attempt from leaving the later families to draw its
+ * Han until the timer retry. Nothing once it has loaded, or has failed its
+ * retry too.
  */
 function hanTurnAttempt(id: AppFontSheetId): Promise<boolean> | null {
   const state = sheetState(id);
@@ -510,8 +510,8 @@ function pageHas(selector: string): boolean {
  * The Han families that take their turn before the others, in order: the
  * current UI's first family, then each family that marked user text on the
  * page draws Han with first. Read at each check of the turn, so text shown
- * while the other families wait counts. The families marked text names are
- * declared together after the UI's first, since lines of two Han orders
+ * while the other families wait counts. The families marked text names first
+ * are declared together after the UI's first, since lines of two Han orders
  * shown at once each want their own family before the other's. The language
  * picker marks nothing, since its three Han names each want a different
  * family first and no order serves all three.

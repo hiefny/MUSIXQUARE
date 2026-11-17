@@ -268,9 +268,10 @@ never waits for a font (the initial transfer budget holds eager font bytes at
 text needs one of its characters.
 
 - Phase A, when a language applies: Inter, the UI's own script sheet,
-  MUSIXQUARE Hangul and Noto Sans KR for every UI that is not Japanese or
-  Chinese, and the first family of its Han order. The Korean and English UIs declare the same sheets at the
-  same moment under every Han order.
+  MUSIXQUARE Hangul for every UI that is not Japanese or Chinese, the first
+  family of its Han order, then Noto Sans KR for every UI that is not
+  Japanese or Chinese. The Korean and English UIs declare the same sheets,
+  in the same order and at the same moments, under every Han order.
 - Phase B, after window load and the first idle slice: every other sheet, so
   every family is declared in every UI. It ignores data saver.
 - The Han turn, in both phases, the retries and the language picker: each of

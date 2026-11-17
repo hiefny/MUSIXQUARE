@@ -679,12 +679,20 @@ test.describe('app font identity', () => {
           );
         }
 
-        // The start screen: Inter's Latin face in English; Inter and MUSIXQUARE
-        // Hangul in Korean, and no Noto Sans KR shard.
+        // The start screen: Inter's Latin face in English, and Inter's spaces
+        // face, which no English text on it shows: for the buttons' hyphens:
+        // auto (.adaptive-action-group) in a language it hyphenates, Chromium
+        // looks up the hyphen ‐ (U+2010), which only that face has (1.6 KB),
+        // though it still draws the hyphen-minus at a break. Inter and
+        // MUSIXQUARE Hangul in Korean, which Chromium does not hyphenate, and
+        // no Noto Sans KR shard.
         const startFonts = requests.filter(({ kind }) => kind === 'font');
         const startFamilies = new Set(startFonts.map(({ stem }) => FAMILY_BY_STEM.get(stem)));
         if (ui === 'en') {
-          expect(startFonts.map(({ stem }) => stem)).toEqual(['inter-latin']);
+          expect(startFonts.map(({ stem }) => stem).sort()).toEqual([
+            'inter-latin',
+            'inter-symbols-spaces',
+          ]);
         } else {
           expect([...startFamilies].sort()).toEqual(['Inter', 'MUSIXQUARE Hangul']);
         }

@@ -16,6 +16,14 @@
  * asked for has applied and drawn. It then requires that no face of another
  * Han family was asked for and that the UI's own family draws the Han.
  *
+ * Two rows fail the first request for that sheet: at once, before phase B,
+ * or once phase B has left the other Han families waiting for it. The font
+ * owner tries the sheet again at once and the other families wait for that
+ * attempt too, so the test holds the second request instead. On App 9.0.829's
+ * first Han turn a failed first attempt let the other families be declared
+ * at once (phase B asked for Noto Sans KR before the retry, or the retry
+ * waited 10 s for its timer), and Noto Sans KR drew the Japanese start screen.
+ *
  * An installed family of the same name (a Windows 11 PC can have Noto Sans
  * KR, SC and TC) would draw the Han while its sheet is held and hide the
  * race, so each CJK name gets a face that never loads, as on a phone without
@@ -24,12 +32,15 @@
  * range is the app faces' 100 to 900; with another range Chromium still drew
  * with the installed font.
  *
- * Chromium only: WebKit holds window load for the font owner and holds
- * rendering while any sheet loads, so a later sheet never draws first there.
- * A local verification spec, not part of the critical set.
+ * Chromium only: WebKit holds window load while the font owner loads, so the
+ * test cannot hold the owner past load there, and the faces are read over
+ * CDP. WebKit draws nothing while a sheet is pending, but it can still draw
+ * Han with a later family while the first family's sheet is not pending, as
+ * after a failed first attempt; the failure rows cover that path in
+ * Chromium. A local verification spec, not part of the critical set.
  */
 import { readdirSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { E2E_APP_ORIGIN } from './config.ts';
 import { waitForAppFonts } from './helpers/wait.ts';
@@ -70,6 +81,11 @@ interface Row {
   readonly sheet: string;
   /** Han the start screen does not show, laid out over it. */
   readonly content?: string;
+  /**
+   * The held sheet's first request fails at once (before phase B), or once
+   * phase B has left the other Han families waiting for it.
+   */
+  readonly failFirst?: 'at once' | 'while they wait';
 }
 
 const ROWS: readonly Row[] = [
@@ -100,12 +116,36 @@ const ROWS: readonly Row[] = [
     sheet: 'font-noto-jp',
     content: '漢字 海 返 曜 花 雪',
   },
+  {
+    name: 'the Japanese start screen whose sheet fails first',
+    locale: 'ja-JP',
+    family: 'Noto Sans JP',
+    sheet: 'font-noto-jp',
+    failFirst: 'at once',
+  },
+  {
+    name: 'the Japanese start screen whose sheet fails while the other families wait',
+    locale: 'ja-JP',
+    family: 'Noto Sans JP',
+    sheet: 'font-noto-jp',
+    failFirst: 'while they wait',
+  },
 ];
+
+/** Two of the page's idle slices: one requested before them has run. */
+async function idleSlices(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestIdleCallback(() => requestIdleCallback(() => resolve()));
+      }),
+  );
+}
 
 test.describe('the first Han family applies first', () => {
   test.skip(
     ({ browserName }) => browserName !== 'chromium',
-    'WebKit holds rendering while a sheet loads, and the faces are read over CDP',
+    'WebKit holds window load while the font owner loads, and the faces are read over CDP',
   );
 
   for (const row of ROWS) {
@@ -168,7 +208,8 @@ test.describe('the first Han family applies first', () => {
         });
 
         // Gates: the font owner until window load, the first Han sheet until
-        // every other requested sheet has applied and drawn.
+        // every other requested sheet has applied and drawn. A failing row
+        // fails the sheet's first request and holds its second instead.
         let releaseRuntime!: () => void;
         const runtimeGate = new Promise<void>((resolve) => {
           releaseRuntime = resolve;
@@ -181,11 +222,27 @@ test.describe('the first Han family applies first', () => {
         const sheetSeen = new Promise<void>((resolve) => {
           sheetAsked = resolve;
         });
+        let failFirstRequest!: () => void;
+        const failGate = new Promise<void>((resolve) => {
+          failFirstRequest = resolve;
+        });
+        let firstAsked!: () => void;
+        const firstSeen = new Promise<void>((resolve) => {
+          firstAsked = resolve;
+        });
         await page.route('**/assets/locale-fonts-*.js', async (route) => {
           await runtimeGate;
           await route.continue();
         });
+        let sheetRequests = 0;
         await page.route(`**/assets/${row.sheet}-*.css`, async (route) => {
+          sheetRequests += 1;
+          if (row.failFirst && sheetRequests === 1) {
+            firstAsked();
+            if (row.failFirst === 'while they wait') await failGate;
+            await route.abort('failed');
+            return;
+          }
           sheetAsked();
           await sheetGate;
           await route.continue();
@@ -207,16 +264,16 @@ test.describe('the first Han family applies first', () => {
         }
 
         releaseRuntime();
-        // Phase A asked for the held sheet, so it has armed phase B; idle
+        // Phase A asked for the sheet, so it has armed phase B; idle
         // callbacks run in the order they were requested, so after two of the
         // test's own, phase B's slice has run.
+        if (row.failFirst === 'while they wait') {
+          await firstSeen;
+          await idleSlices(page);
+          failFirstRequest();
+        }
         await sheetSeen;
-        await page.evaluate(
-          () =>
-            new Promise<void>((resolve) => {
-              requestIdleCallback(() => requestIdleCallback(() => resolve()));
-            }),
-        );
+        await idleSlices(page);
         // Every other app sheet the page asked for applies, and two frames
         // lay the text out with it.
         await page.evaluate(async (held) => {

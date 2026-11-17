@@ -226,7 +226,7 @@ test.describe('iPhone WebKit compatibility smoke', () => {
     const activeLanguage = overlay.locator('.language-option.active');
     await expect(overlay).toHaveClass(/show/);
     await expect(activeLanguage).toBeFocused();
-    await expect(activeLanguage).toHaveClass(/language-option-initial-pointer-focus/);
+    // A press opened it: no ring until a key moves focus (src/ui/hover-pointer.ts).
     await expect
       .poll(() => activeLanguage.evaluate((option) => getComputedStyle(option).outlineStyle))
       .toBe('none');
@@ -267,12 +267,15 @@ test.describe('iPhone WebKit compatibility smoke', () => {
     expect(topGeometry.overscan).toBeCloseTo(1, 1);
     expect(topGeometry.fadeEndDelta).toBeCloseTo(0, 1);
 
+    // A keyboard user reaches the trigger with Tab and opens the list with
+    // Enter: the active language keeps its ring.
     await page.locator('#btn-language-dialog-done').click();
     await trigger.focus();
-    await trigger.press('Enter');
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(activeLanguage).toBeFocused();
-    await expect(activeLanguage).not.toHaveClass(/language-option-initial-pointer-focus/);
-    await expect(activeLanguage).toHaveClass(/language-option-initial-keyboard-focus/);
     await expect
       .poll(() => activeLanguage.evaluate((option) => getComputedStyle(option).outlineStyle))
       .toBe('solid');

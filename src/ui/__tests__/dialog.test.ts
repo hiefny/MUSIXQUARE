@@ -1272,8 +1272,6 @@ describe('Dialog System', () => {
       expect(frame().hidden).toBe(false);
       expect(document.activeElement).toBe(radios()[0]);
       expect(onPrimaryActivation).not.toHaveBeenCalled();
-      // Keyboard activation keeps the normal focus ring.
-      expect(frame().querySelector('.dialog-choice-pointer-focus')).toBeNull();
 
       afterSwap();
       radios()[1]!.click();
@@ -1431,7 +1429,7 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
     });
 
-    it('suppresses the keyboard ring after a pointer Next until the next key', async () => {
+    it('focuses the checked option after a pointer Next and leaves its ring to the input owner', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       const promise = showDialog({
         title: 'PIN',
@@ -1445,9 +1443,11 @@ describe('Dialog System', () => {
       ok().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
       const list = frame().querySelector('.dialog-choice-list')!;
       expect(document.activeElement).toBe(radios()[0]);
-      expect(list.classList.contains('dialog-choice-pointer-focus')).toBe(true);
+      // No mark of its own: html[data-keyboard-navigation], written by
+      // src/ui/hover-pointer.ts, decides whether the checked row shows a ring.
+      expect([...list.classList]).toEqual(['dialog-choice-list']);
       key(radios()[0]!, 'ArrowDown');
-      expect(list.classList.contains('dialog-choice-pointer-focus')).toBe(false);
+      expect([...list.classList]).toEqual(['dialog-choice-list']);
       closeDialog();
       await promise;
       vi.advanceTimersByTime(10);
@@ -1608,8 +1608,9 @@ describe('Dialog System', () => {
       expect(
         block('.dialog-choice-radio:checked + .dialog-choice-surface .dialog-choice-check'),
       ).toContain('opacity: 1');
-      expect(block('.dialog-choice-radio:focus-visible + .dialog-choice-surface')).toContain(
-        'outline: 2px solid var(--primary)',
+      // Its ring is for keyboard navigation only (src/ui/hover-pointer.ts).
+      expect(STYLE_SOURCE).toMatch(
+        /\n {2}:where\(html:not\(\[data-keyboard-navigation='off'\]\)\)\s+\.dialog-choice-radio:focus-visible\s+\+ \.dialog-choice-surface \{\s*outline: 2px solid var\(--primary\);/,
       );
       // The native radio stays focusable and announced but is not painted. It
       // covers the whole row, so touch exploration, the screen reader's focus

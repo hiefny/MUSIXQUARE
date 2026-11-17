@@ -908,32 +908,24 @@ describe('initSettings language controls', () => {
     );
   });
 
-  it('suppresses only the initial pointer focus ring and restores keyboard focus styling', async () => {
+  it('focuses the active language for a click and a keyboard press alike, marking no ring of its own', async () => {
     setLanguageMode('ko');
     installLanguageSettingsDom();
     initSettings();
 
     const trigger = document.getElementById('btn-language-select')!;
-    trigger.focus();
-    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
-
     const active = document.querySelector<HTMLElement>('.language-option[data-lang="ko"]')!;
-    await vi.waitFor(() => {
-      expect(document.activeElement).toBe(active);
-      expect(active.classList).toContain('language-option-initial-pointer-focus');
-    });
-
-    active.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
-    expect(active.classList).not.toContain('language-option-initial-pointer-focus');
-
-    document.getElementById('btn-language-dialog-done')?.click();
-    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
-
-    await vi.waitFor(() =>
-      expect(active.classList).toContain('language-option-initial-keyboard-focus'),
-    );
-    expect(document.activeElement).toBe(active);
-    expect(active.classList).not.toContain('language-option-initial-pointer-focus');
+    const classes = [...active.classList];
+    // Whether the row shows a ring is html[data-keyboard-navigation], which
+    // src/ui/hover-pointer.ts alone writes (hover-pointer.test.ts).
+    for (const detail of [1, 0]) {
+      trigger.focus();
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail }));
+      await vi.waitFor(() => expect(document.activeElement).toBe(active));
+      expect([...active.classList], `detail ${detail}`).toEqual(classes);
+      document.getElementById('btn-language-dialog-done')?.click();
+      expect(document.activeElement).toBe(trigger);
+    }
   });
 
   it('warms every native name in its own face on pointer intent before opening', async () => {
@@ -1093,15 +1085,12 @@ describe('initSettings language controls', () => {
     initSettings();
 
     setupTrigger.focus();
-    openLanguageDialog(new MouseEvent('click', { detail: 1 }));
+    openLanguageDialog();
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       true,
     );
     const active = document.querySelector<HTMLElement>('.language-option.active')!;
-    await vi.waitFor(() => {
-      expect(document.activeElement).toBe(active);
-      expect(active.classList).toContain('language-option-initial-pointer-focus');
-    });
+    await vi.waitFor(() => expect(document.activeElement).toBe(active));
 
     document.getElementById('btn-language-dialog-done')?.click();
     expect(document.activeElement).toBe(setupTrigger);

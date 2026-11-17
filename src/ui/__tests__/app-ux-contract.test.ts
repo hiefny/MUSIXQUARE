@@ -23,7 +23,7 @@ function declarationsForSelector(selector: string): string[] {
     const selectors = (match[1] ?? '')
       .replace(/\/\*[\s\S]*?\*\//gu, '')
       .split(',')
-      .map((candidate) => candidate.trim());
+      .map((candidate) => candidate.replace(/\s+/gu, ' ').trim());
     if (selectors.includes(selector)) declarations.push(match[2] ?? '');
   }
 
@@ -600,7 +600,10 @@ describe('app UX markup contract', () => {
       expect(disabledRule, `${selector} disabled style`).toHaveLength(1);
       expect(disabledRule[0]).toMatch(/opacity:\s*0\.42\s*;/u);
 
-      const focusRule = declarationsForSelector(`${selector}[aria-disabled='true']:focus-visible`);
+      // Keyboard focus sits behind the keyboard gate (src/ui/hover-pointer.ts).
+      const focusRule = declarationsForSelector(
+        `:where(html:not([data-keyboard-navigation='off'])) ${selector}[aria-disabled='true']:focus-visible`,
+      );
       expect(focusRule, `${selector} focus-visible style`).toHaveLength(1);
       expect(focusRule[0]).toMatch(/opacity:\s*1\s*;/u);
     }

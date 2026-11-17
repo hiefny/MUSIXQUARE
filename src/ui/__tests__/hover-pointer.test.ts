@@ -361,7 +361,7 @@ describe('playlist row icons on the hover gate', () => {
     expect(rulesFor(`${GATE} .btn-playlist-select:hover`)).toEqual([
       { conditions: [], declarations: ['color: var(--primary)'] },
     ]);
-    const focus = rulesFor('.btn-playlist-select:focus-visible');
+    const focus = rulesFor(`${RING} .btn-playlist-select:focus-visible`);
     expect(focus).toHaveLength(1);
     expect(focus[0]!.conditions).toEqual([]);
     expect(focus[0]!.declarations).toContain('color: var(--primary)');
@@ -371,7 +371,7 @@ describe('playlist row icons on the hover gate', () => {
     const hover = rulesFor(`${GATE} .expand-toggle:hover`);
     expect(hover).toHaveLength(1);
     expect(hover[0]!.declarations).toContain('color: var(--primary)');
-    const focus = rulesFor('.expand-toggle:focus-visible');
+    const focus = rulesFor(`${RING} .expand-toggle:focus-visible`);
     expect(focus).toHaveLength(1);
     expect(focus[0]!.conditions).toEqual([]);
     expect(focus[0]!.declarations).toContain('color: var(--primary)');
@@ -387,10 +387,10 @@ describe('playlist row icons on the hover gate', () => {
       ]);
     }
     // Keyboard focus reveals the grip whatever the pointer can do.
-    expect(rulesFor('.playlist-reorder-handle:focus-visible .playlist-reorder-grip')).toEqual([
-      { conditions: [], declarations: ['opacity: 1', 'transform: scale(1)'] },
-    ]);
-    expect(rulesFor('.playlist-reorder-handle:focus-visible .track-idx')).toEqual([
+    expect(
+      rulesFor(`${RING} .playlist-reorder-handle:focus-visible .playlist-reorder-grip`),
+    ).toEqual([{ conditions: [], declarations: ['opacity: 1', 'transform: scale(1)'] }]);
+    expect(rulesFor(`${RING} .playlist-reorder-handle:focus-visible .track-idx`)).toEqual([
       { conditions: [], declarations: ['opacity: 0', 'transform: scale(0.82)'] },
     ]);
   });

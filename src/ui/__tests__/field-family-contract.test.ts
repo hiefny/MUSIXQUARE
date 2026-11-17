@@ -62,6 +62,10 @@ const FORCED_INVALID =
 const FORCED_FIELDS =
   ":is(input:not([type='range']):not([type='hidden']), textarea, select, [contenteditable='true'], [contenteditable='plaintext-only'], [role='textbox'], [role='combobox'])";
 const HALF_TEXT = 'color-mix(in srgb, var(--text-main) 50%, transparent)';
+// The app's rings are keyboard navigation's (src/ui/hover-pointer.ts). The
+// design-system page has no input owner and keeps the browser's
+// :focus-visible, so its mirrored rules stay ungated.
+const KEYBOARD = ":where(html:not([data-keyboard-navigation='off']))";
 const YOUTUBE_STATUS_WEIGHT =
   ".yt-preview-meta:is([data-i18n='youtube.searching'], [data-i18n='youtube.fetching_info'], [data-i18n='youtube.search_no_results'], [data-i18n='youtube.invalid_link'], [data-i18n='youtube.search_failed'], [data-i18n='youtube.fetch_failed'])";
 
@@ -563,16 +567,22 @@ describe('one field family (owner decision 2026-11-03)', () => {
   it('makes the blue underline the only focus mark and draws button rings inside', () => {
     const segmentFocus = theRule('.dialog-input-segment:focus-visible', BASE);
     expect(segmentFocus.declarations).toEqual({ outline: 'none' });
+    // The ring is keyboard navigation's, behind a gate of no specificity
+    // (src/ui/hover-pointer.ts); the field's own suppression still outranks it.
     expect(
       higher(specificity('.dialog-input-segment:focus-visible'), specificity(':focus-visible')),
     ).toBe(true);
-    expect(theRule(':focus-visible', BASE).declarations.outline).toBe('2px solid var(--primary)');
-    expect(theRule('.clearable-editor-button:focus-visible', BASE).declarations).toEqual({
+    expect(theRule(`${KEYBOARD} :focus-visible`, BASE).declarations.outline).toBe(
+      '2px solid var(--primary)',
+    );
+    expect(
+      theRule(`${KEYBOARD} .clearable-editor-button:focus-visible`, BASE).declarations,
+    ).toEqual({
       color: 'var(--text-main)',
       outline: '2px solid var(--primary)',
       'outline-offset': '-2px',
     });
-    expect(theRule('.chat-send-btn:focus-visible', BASE).declarations).toEqual({
+    expect(theRule(`${KEYBOARD} .chat-send-btn:focus-visible`, BASE).declarations).toEqual({
       outline: '2px solid var(--primary)',
       'outline-offset': '-2px',
     });
@@ -617,8 +627,8 @@ describe('one field family (owner decision 2026-11-03)', () => {
       ['.dialog-input-segment:focus-visible', BASE],
       ['.dialog-input-separator', BASE],
       [ENTRY_LINE, BASE],
-      ['.chat-send-btn:focus-visible', BASE],
-      ['.clearable-editor-button:focus-visible', BASE],
+      [`${KEYBOARD} .chat-send-btn:focus-visible`, BASE],
+      [`${KEYBOARD} .clearable-editor-button:focus-visible`, BASE],
       ['.setup-code-label', BASE],
       ['.sync-col-label', BASE],
       ['.sync-col-value', BASE],
@@ -960,7 +970,7 @@ describe('the design-system page mirrors the field family', () => {
       ],
       ['.yt-search-submit-btn svg', COMPONENTS, '.yt-search-submit-btn svg', ['width', 'height']],
       [
-        '.yt-search-submit-btn:focus-visible',
+        `${KEYBOARD} .yt-search-submit-btn:focus-visible`,
         COMPONENTS,
         '.yt-search-submit-btn:focus-visible',
         ['outline', 'outline-offset'],
@@ -974,13 +984,13 @@ describe('the design-system page mirrors the field family', () => {
       ],
       ['.chat-send-btn svg', BASE, '.chat-send-btn svg', ['width', 'height']],
       [
-        '.chat-send-btn:focus-visible',
+        `${KEYBOARD} .chat-send-btn:focus-visible`,
         BASE,
         '.chat-send-btn:focus-visible',
         ['outline', 'outline-offset'],
       ],
       [
-        '.chat-send-btn:focus-visible',
+        `${KEYBOARD} .chat-send-btn:focus-visible`,
         BASE,
         `.chat-send-btn${FOCUS_SPECIMEN}`,
         ['outline', 'outline-offset'],
@@ -988,10 +998,10 @@ describe('the design-system page mirrors the field family', () => {
       ['.clearable-editor-button', BASE, '.clearable-editor-button', ['color', 'border-radius']],
       ['.clearable-editor-button svg', BASE, '.clearable-editor-button svg', ['width', 'height']],
       [
-        '.clearable-editor-button:focus-visible',
+        `${KEYBOARD} .clearable-editor-button:focus-visible`,
         BASE,
         '.clearable-editor-button:focus-visible',
-        all('.clearable-editor-button:focus-visible', BASE),
+        all(`${KEYBOARD} .clearable-editor-button:focus-visible`, BASE),
       ],
     ];
     const drift: string[] = [];

@@ -208,9 +208,14 @@ test.describe('Settings Panel', () => {
 
     const activeLanguage = pair.hostPage.locator('.language-option.active');
     await expect(activeLanguage).toBeFocused();
-    await expect(activeLanguage).toHaveClass(/language-option-initial-pointer-focus/);
+    // A click opened the list: no ring until a key moves focus
+    // (src/ui/hover-pointer.ts), then the ring follows it.
+    const focusedOutline = () =>
+      pair.hostPage.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle);
+    await expect.poll(focusedOutline).toBe('none');
     await activeLanguage.press('Tab');
-    await expect(activeLanguage).not.toHaveClass(/language-option-initial-pointer-focus/);
+    await expect(activeLanguage).not.toBeFocused();
+    await expect.poll(focusedOutline).toBe('solid');
 
     const list = pair.hostPage.locator('#language-list');
     const topEdge = pair.hostPage.locator('.language-list-edge-top');

@@ -316,8 +316,13 @@ test.describe('OS contrast CSS integration', () => {
       controlStructure(await controlStyles(page, '#setup-role-grid .ch-opt:first-child')),
     ).toEqual(flatControlStructure);
 
+    // A ring is for keyboard navigation (src/ui/hover-pointer.ts): reach the
+    // button by Tab, as a keyboard user does.
     const setupButton = page.locator('#ob-next');
     await setupButton.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(setupButton).toBeFocused();
     const focused = await controlStyles(page, '#ob-next');
     expect(focused.outlineStyle).toBe('solid');
     expect(parseFloat(focused.outlineWidth)).toBeGreaterThanOrEqual(2);

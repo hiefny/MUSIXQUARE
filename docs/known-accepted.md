@@ -335,6 +335,12 @@ another matter: Chromium 79 predates `:focus-visible` (Chrome 86), so no `:focus
 applies on those TVs, with or without the gate, as before 9.0.19. Corrected on 2026-10-29: this
 entry first said that every focus rule was kept there
 ([9.0.20 report](design/ui-followup-920-2026-10-29.md#v4-멤버-내보내기-아이콘의-키보드-포커스)).
+Since the owner's request of 2026-11-18, every rule that draws for `:focus-visible` sits under a
+second gate from the same owner, `:where(html:not([data-keyboard-navigation='off']))`, so a ring
+shows for keyboard navigation only. Chromium 79 drops those rules as before; an engine that knows
+`:focus-visible` but not `:where()` (Chromium 86 and 87, for example 2022 LG webOS TVs) drops
+them too and draws the browser's own focus ring, on the browser's own `:focus-visible` rule,
+in place of the app's blue one. Plain `:focus` rules (the skip link) stay outside both gates.
 No control depends on hover alone.
 Revisit if a TV report shows a control that only hover reveals or the gate starts to carry more
 than hover styles. [Report](design/ui-bundle-2026-10-27.md#u3-호버-관문-하나-추천표-410)

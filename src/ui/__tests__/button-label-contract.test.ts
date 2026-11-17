@@ -3271,16 +3271,18 @@ describe('action button label contract', () => {
       ]);
     }
     // The revoke icon and both device kick icons turn red for keyboard focus
-    // as well as for a hover pointer.
+    // as well as for a hover pointer. Keyboard focus sits behind the keyboard
+    // gate (src/ui/hover-pointer.ts).
+    const keyboard = ":where(html:not([data-keyboard-navigation='off']))";
     for (const icon of [
       ':where(html[data-hover-pointer]) .clearable-editor-button:hover',
       ':where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover',
       ':where(html[data-hover-pointer]) .administrator-action-button.revoke:hover',
-      '.administrator-action-button.revoke:focus-visible',
+      `${keyboard} .administrator-action-button.revoke:focus-visible`,
       ':where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover',
-      '.btn-kick-physical-device:focus-visible',
+      `${keyboard} .btn-kick-physical-device:focus-visible`,
       ':where(html[data-hover-pointer]) .device-row:hover .btn-kick-device:hover',
-      '.btn-kick-device:focus-visible',
+      `${keyboard} .btn-kick-device:focus-visible`,
     ]) {
       expect(ruleValues(appCss, icon, 'color'), icon).toEqual(['var(--danger-foreground)']);
     }

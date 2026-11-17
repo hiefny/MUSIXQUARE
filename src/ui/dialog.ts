@@ -810,24 +810,11 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (choice) choice.list.scrollTop = 0;
   };
 
-  // A pointer activation must not paint a keyboard ring on the checked row
-  // (iOS keeps focus-visible from the PIN input). The next key, or focus
-  // leaving the group, restores the normal ring.
-  const suppressPointerFocusRing = () => {
-    if (!choice) return;
-    const { list } = choice;
-    list.classList.add('dialog-choice-pointer-focus');
-    const restore = () => {
-      list.classList.remove('dialog-choice-pointer-focus');
-      list.removeEventListener('focusout', restore);
-      overlay.removeEventListener('keydown', restore, true);
-    };
-    list.addEventListener('focusout', restore);
-    overlay.addEventListener('keydown', restore, true);
-    cleanup.push(restore);
-  };
-
-  const showChoicePage = (viaPointer: boolean) => {
+  // The checked row takes focus. Whether it shows a ring is the input owner's
+  // answer (src/ui/hover-pointer.ts): none after a tap or click on Next, even
+  // where iOS keeps focus-visible from the PIN field, and a ring for a person
+  // navigating by keyboard.
+  const showChoicePage = () => {
     if (!choice) return;
     choicePageShown = true;
     pageSwappedAt = Date.now();
@@ -839,10 +826,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     alignStepPanel();
     resetPageScroll();
     choice.updateEdges();
-    const target = choice.focusTarget();
-    if (!target) return;
-    if (viaPointer) suppressPointerFocusRing();
-    target.focus();
+    choice.focusTarget()?.focus();
   };
 
   const showInputPage = () => {
@@ -859,11 +843,11 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     target.focus({ preventScroll: true });
   };
 
-  const activatePrimary = (viaPointer = false) => {
+  const activatePrimary = () => {
     if (justSwappedPage()) return;
     if (!choicePageShown && !validateInput()) return;
     if (choice && !choicePageShown) {
-      showChoicePage(viaPointer);
+      showChoicePage();
       return;
     }
     try {
@@ -940,7 +924,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       if (justSwappedPage() && (e as MouseEvent).detail > 0) e.preventDefault();
     });
   }
-  on(okBtn, 'click', (e) => activatePrimary((e as MouseEvent).detail > 0));
+  on(okBtn, 'click', activatePrimary);
   if ((hasSecondary || choice) && secondaryBtn) {
     on(secondaryBtn, 'click', activateSecondary);
   }

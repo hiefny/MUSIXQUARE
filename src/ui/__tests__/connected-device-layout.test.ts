@@ -48,9 +48,10 @@ describe('connected-device list layout', () => {
       /:where\(html\[data-hover-pointer\]\) \.device-subrow:hover \.btn-kick-physical-device:hover\s*\{[^}]*color:\s*var\(--danger-foreground\);/s,
     );
     // Keyboard focus colors it and the member kick icon in one rule of their
-    // own, apart from the gated hover rules.
+    // own, apart from the gated hover rules, behind the keyboard gate
+    // (src/ui/hover-pointer.ts).
     expect(stylesheet).toMatch(
-      /(?:\}|\*\/)\s*\.btn-kick-device:focus-visible,\s*\.btn-kick-physical-device:focus-visible\s*\{\s*color:\s*var\(--danger-foreground\);\s*\}/,
+      /(?:\}|\*\/)\s*:where\(html:not\(\[data-keyboard-navigation='off'\]\)\) \.btn-kick-device:focus-visible,\s*:where\(html:not\(\[data-keyboard-navigation='off'\]\)\) \.btn-kick-physical-device:focus-visible\s*\{\s*color:\s*var\(--danger-foreground\);\s*\}/,
     );
   });
 });

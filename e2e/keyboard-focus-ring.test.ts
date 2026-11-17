@@ -334,7 +334,7 @@ test.describe('focus rings follow keyboard navigation', () => {
     expect(await ringOn(page, leave(page))).toMatchObject({ ring: true });
     await page.keyboard.press('Shift+Tab');
     expect(await ringOn(page, stay(page))).toMatchObject({ ring: true });
-    // Space and Enter press the focused control; they keep the ring.
+    // Escape navigates nowhere itself, but it keeps a keyboard user's ring.
     await page.keyboard.press('Escape');
     await expect(dialog(page)).toHaveCount(0);
     expect(await ringOn(page, logo), 'back on the opener').toMatchObject({ ring: true });

@@ -90,6 +90,10 @@ replay. Only the incoming page fades (0.24 s, off under reduced motion).
   because it returns to step 1, where 취소 leaves
   (`src/ui/__tests__/window-exit-guard.test.ts`,
   [9.0.20 report](ui-followup-920-2026-10-29.md#대화상자-나가기-조사-f1--f15)).
+  Changed 2026-11-18 (owner request): the checked row's ring follows the
+  app-wide keyboard navigation rule of `src/ui/hover-pointer.ts` instead of a
+  class of its own. A pointer 다음 still paints no ring; Tab or an arrow key
+  brings it, while Enter, Space or typing alone does not.
 - Double press: 다음/확인 and 취소/이전 share their buttons, and the taller
   step 2 moves them down under the cursor. For 400 ms after a page swap the
   dialog ignores action presses and pointer clicks on rows, and it ignores

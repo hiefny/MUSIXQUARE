@@ -107,11 +107,7 @@ export function installRangeDragGuard(root: ParentNode = document): void {
     syncRangeProgress(range);
     range.addEventListener('input', () => syncRangeProgress(range));
     range.addEventListener('change', () => syncRangeProgress(range));
-    range.addEventListener('blur', () => range.classList.remove('is-pointer-focused'));
-    range.addEventListener('keydown', (event) => {
-      range.classList.remove('is-pointer-focused');
-      applyRtlHorizontalArrow(range, event);
-    });
+    range.addEventListener('keydown', (event) => applyRtlHorizontalArrow(range, event));
 
     const finishDrag = (event?: PointerEvent, commit = true) => {
       if (activePointerId === null) return;
@@ -137,7 +133,8 @@ export function installRangeDragGuard(root: ParentNode = document): void {
 
       activePointerId = event.pointerId;
       range.classList.add('is-dragging');
-      range.classList.add('is-pointer-focused');
+      // A press focuses the slider without a ring, and its arrows bring the
+      // ring back: the input owner decides (src/ui/hover-pointer.ts).
       range.focus({ preventScroll: true });
 
       try {

@@ -2791,6 +2791,69 @@ describe('capture start pending and settlement', () => {
     },
   );
 
+  // The window can also end without a capture after a stop or a newer load:
+  // the person cancels it, or the browser cannot start the source. The start
+  // ends without a toast, as when the window returns a capture then, and its
+  // line carries the browser's error in place of the failure warning.
+  it.each([
+    {
+      room: 'standard',
+      ending: 'a newer load, then a source the browser cannot start',
+      supersede: () => stopAllMedia({ cancelInFlight: true, silent: true }),
+      failure: new DOMException('Could not start audio source', 'NotReadableError'),
+      reason: 'newer playback',
+    },
+    {
+      room: 'standard',
+      ending: 'a stop, then a cancelled share window',
+      supersede: () => bus.emit('system-audio:force-stop'),
+      failure: new DOMException('Permission denied', 'NotAllowedError'),
+      reason: 'stopped',
+    },
+    {
+      room: 'PRO',
+      ending: 'a newer load, then a source the browser cannot start',
+      supersede: () => stopAllMedia({ cancelInFlight: true, silent: true }),
+      failure: new DOMException('Could not start audio source', 'NotReadableError'),
+      reason: 'newer playback',
+    },
+  ])('logs why a $room start ends quietly after $ending', async (row) => {
+    const superseded = observeSupersededStarts();
+    const warn = vi.spyOn(log, 'warn');
+    onTestFinished(() => warn.mockRestore());
+    if (row.room === 'PRO') setProRoom();
+    let rejectPicker!: (error: unknown) => void;
+    stubDisplayMedia(
+      () =>
+        new Promise<MediaStream>((_resolve, reject) => {
+          rejectPicker = reject;
+        }),
+    );
+    const settled = observeSettlements();
+    const toasts = observeToasts();
+
+    const startPromise = startSystemAudioCapture();
+    await Promise.resolve();
+    row.supersede();
+    rejectPicker(row.failure);
+    await startPromise;
+
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ started: false });
+    expect(toasts).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalledWith(
+      '[SystemAudio] getDisplayMedia denied or failed:',
+      row.failure,
+    );
+    expect(proAudio.release).toHaveBeenCalledTimes(row.room === 'PRO' ? 1 : 0);
+    expect(superseded()).toEqual([
+      [
+        '[SystemAudio] Capture start superseded after the share window was cancelled or failed:',
+        row.reason,
+        row.failure,
+      ],
+    ]);
+  });
+
   it('logs why a PRO start ends quietly when a newer load arrives while the room lease is unanswered', async () => {
     const superseded = observeSupersededStarts();
     setProRoom();

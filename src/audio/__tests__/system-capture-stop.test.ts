@@ -2975,4 +2975,86 @@ describe('capture start pending and settlement', () => {
       ['[SystemAudio] Capture start superseded during publication:', 'stopped'],
     ]);
   });
+
+  // Two stages refuse, in the same check, a start that is no longer allowed,
+  // and log the refusal on the same line. The device limit shows its own
+  // toast, which the log does not hold, so the line names it; lost authority
+  // reads "no longer allowed", with its own toast where it has one.
+  it.each([
+    {
+      refusal: 'a fifth device connects while the share window is open',
+      setup: () => setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1),
+      whileWindowOpen: () => setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES),
+      whileStopping: null,
+      line: ['[SystemAudio] Capture start superseded before audio setup:', 'device limit'],
+      toast: () => t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }),
+    },
+    {
+      refusal: 'a fifth device connects while the previous media stops',
+      setup: () => setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1),
+      whileWindowOpen: null,
+      whileStopping: () => setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES),
+      line: [
+        '[SystemAudio] Capture start superseded after stopping the previous media:',
+        'device limit',
+      ],
+      toast: () => t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }),
+    },
+    {
+      refusal: 'the host is no longer the coordinator when the share window returns',
+      setup: () => undefined,
+      whileWindowOpen: () => {
+        setState('network.appRole', 'guest');
+        setState('network.hostConn', { peer: 'successor-host', open: true } as DataConnection);
+      },
+      whileStopping: null,
+      line: ['[SystemAudio] Capture start superseded before audio setup:', 'no longer allowed'],
+      toast: null,
+    },
+    {
+      refusal: "the PRO room's coordinator needs an update while the previous media stops",
+      setup: () => setProRoom(),
+      whileWindowOpen: null,
+      whileStopping: () => {
+        proAudio.coordinatorCompatible = false;
+      },
+      line: [
+        '[SystemAudio] Capture start superseded after stopping the previous media:',
+        'no longer allowed',
+      ],
+      toast: () => t('system_audio.coordinator_update_required'),
+    },
+  ])('names the refusal in its line when $refusal', async (row) => {
+    const superseded = observeSupersededStarts();
+    row.setup();
+    let resolvePicker!: () => void;
+    stubDisplayMedia(
+      (stream) =>
+        new Promise<MediaStream>((resolve) => {
+          resolvePicker = () => resolve(stream);
+        }),
+    );
+    const whileStopping = row.whileStopping;
+    if (whileStopping) {
+      transport.stopAllMediaAsync.mockImplementationOnce(async () => {
+        whileStopping();
+        return true;
+      });
+    }
+    const settled = observeSettlements();
+    const toasts = observeToasts();
+
+    const startPromise = startSystemAudioCapture();
+    await Promise.resolve();
+    row.whileWindowOpen?.();
+    resolvePicker();
+    await startPromise;
+
+    expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(whileStopping ? 1 : 0);
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ started: false });
+    expect(isSystemAudioActive()).toBe(false);
+    if (row.toast) expect(toasts).toHaveBeenCalledExactlyOnceWith(row.toast());
+    else expect(toasts).not.toHaveBeenCalled();
+    expect(superseded()).toEqual([row.line]);
+  });
 });

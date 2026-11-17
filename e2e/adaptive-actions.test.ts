@@ -1853,6 +1853,7 @@ test.describe('content-based adaptive action groups', () => {
       page,
     }) => {
       const worse: string[] = [];
+      const outside: string[] = [];
       let probedLocales = 0;
       // Right-to-left locales on a right-to-left page, so the direction rules
       // (the tracking reset among them) apply as in the app, in both themes
@@ -1874,7 +1875,7 @@ test.describe('content-based adaptive action groups', () => {
           await probeSweptSlots(
             page,
             localesWithFonts,
-            worse,
+            { worse, outside },
             theme,
             isDesktopLayoutSize(viewportWidth, viewportHeight) ? DESKTOP_SWEPT_SLOTS : undefined,
           );
@@ -1890,6 +1891,10 @@ test.describe('content-based adaptive action groups', () => {
         unaccepted,
         `swept slots worse than 9.0.18 at ${viewportWidth}x${viewportHeight}`,
       ).toEqual([]);
+      expect(
+        outside,
+        `preparing labels outside their option at ${viewportWidth}x${viewportHeight}`,
+      ).toEqual([]);
     });
   }
 
@@ -1900,7 +1905,7 @@ test.describe('content-based adaptive action groups', () => {
   async function probeSweptSlots(
     page: Page,
     localesWithFonts: Awaited<ReturnType<typeof localizedActionsWithFonts>>,
-    worse: string[],
+    { worse, outside }: { worse: string[]; outside: string[] },
     theme: string,
     only?: readonly string[],
   ): Promise<void> {
@@ -2208,6 +2213,7 @@ test.describe('content-based adaptive action groups', () => {
               }
               return {
                 id: `${probe.dataset.slot} ${lang} #${probe.dataset.instance} ${label.textContent?.trim()}`,
+                preparing: label.closest('#btn-system-audio[aria-busy="true"]') !== null,
                 lines: lineCount(glyphs),
                 broken,
                 horizontal: Math.max(0, pill.left - left, right - pill.right),
@@ -2273,13 +2279,22 @@ test.describe('content-based adaptive action groups', () => {
     shipped.forEach((entry, index) => {
       const before = reference[index]! as Record<string, unknown>;
       for (const [metric, value] of Object.entries(entry)) {
-        if (metric === 'id') continue;
+        if (metric === 'id' || metric === 'preparing') continue;
         const tolerance = ['lines', 'broken', 'rows'].includes(metric) ? 0 : 0.5;
         if ((value as number) > (before[metric] as number) + tolerance) {
           worse.push(`${theme} ${entry.id} ${metric}: ${value} (9.0.18 type ${before[metric]})`);
         }
       }
     });
+    // The preparing System Audio label also has to stay inside its option
+    // outright: the 9.0.18 type reaches further past the option where the
+    // label needs more lines than the option holds, so the comparison above
+    // cannot see it run over the option beside it.
+    for (const entry of shipped) {
+      if (!('preparing' in entry) || !entry.preparing) continue;
+      const reach = Math.max(entry.horizontal, entry.vertical);
+      if (reach > 0.5) outside.push(`${theme} ${entry.id} reach: ${reach.toFixed(1)}px`);
+    }
   }
 
   test('CSS hover and pressed selectors preserve the locked sharing surface', async ({ page }) => {

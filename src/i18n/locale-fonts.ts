@@ -36,12 +36,16 @@
  * the first family's sheet is in flight. When the first family's first
  * attempt fails or is abandoned at its deadline, the turn tries it again at
  * once, not after the timer retry's delay, and waits for that attempt too;
- * once that one fails as well, the other families are declared. Otherwise a
- * later family whose sheet applied first drew the visible Han and had its
- * shards fetched, then the first family's (in App 9.0.829 a first visit's
- * Japanese start screen fetched 30 Noto Sans KR shards that way). Phase A,
- * phase B, the retries and the language picker all take the turn, and phase
- * B and the retries ask for the first family before the others.
+ * once that one fails as well, the other families are declared. Text the app
+ * marks as Japanese or Chinese user text (src/ui/user-text-font.ts) draws Han
+ * with its own family first, so a family that marked text on the page names
+ * takes the turn right after the UI's first one, and the remaining families
+ * wait for it the same way. Otherwise a later family whose sheet applied
+ * first drew the visible Han and had its shards fetched, then the first
+ * family's (in App 9.0.829 a first visit's Japanese start screen fetched 30
+ * Noto Sans KR shards that way). Phase A, phase B, the retries and the
+ * language picker all take the turn, and phase B and the retries ask for the
+ * turn's families before the others.
  *
  * A sheet attempt that does not settle within its deadline
  * (FONT_SHEET_ATTEMPT_TIMEOUT_MS, doubled for each later attempt of the sheet)
@@ -284,33 +288,40 @@ function hanTurnAttempt(id: AppFontSheetId): Promise<boolean> | null {
 }
 
 /**
- * loadSheet in the sheet's Han turn. A Han family other than the current UI's
- * first one, neither loaded nor loading, waits while an attempt of the first
- * family is in flight (hanTurnAttempt), and then looks again: a language
- * change that made another family first meanwhile holds it until that
- * family's attempt has settled too. Each wait is bounded by the deadline of
- * the attempt it waits for. Every other sheet, and a Han family with nothing
- * to wait for, goes to loadSheet in the same call, so concurrent requests
- * still share one attempt.
+ * loadSheet in the sheet's Han turn (hanTurnSheets). A Han family neither
+ * loaded nor loading waits while an attempt of a family ahead of it is in
+ * flight (hanTurnAttempt): the UI's first family waits for none, a family
+ * that marked user text draws with first waits for the UI's first family,
+ * and every other waits for them all. It then looks again: a language change
+ * or a line shown meanwhile can put another family ahead. Each wait is
+ * bounded by the deadline of the attempt it waits for. Every other sheet, and
+ * a Han family with nothing to wait for, goes to loadSheet in the same call,
+ * so concurrent requests still share one attempt.
  */
 function loadSheetInHanTurn(id: AppFontSheetId): Promise<boolean> {
   const state = sheetState(id);
-  const first =
-    HAN_SHEETS.has(id) && !state.loaded && !state.inFlight ? currentHanFirstSheet() : null;
-  const turn = first && first !== id ? hanTurnAttempt(first) : null;
-  if (!turn) return loadSheet(id);
-  const next = () => loadSheetInHanTurn(id);
-  return turn.then(next, next);
+  if (HAN_SHEETS.has(id) && !state.loaded && !state.inFlight) {
+    const turn = hanTurnSheets();
+    const place = turn.indexOf(id);
+    const ahead = place === 0 ? [] : place > 0 ? turn.slice(0, 1) : turn;
+    for (const sheet of ahead) {
+      const attempt = hanTurnAttempt(sheet);
+      if (!attempt) continue;
+      const next = () => loadSheetInHanTurn(id);
+      return attempt.then(next, next);
+    }
+  }
+  return loadSheet(id);
 }
 
 /**
  * Load sheets in their Han turn in the background, then run onSettled;
- * loadSheet never rejects. The UI's first Han family is asked for first, so
- * the families that wait for it find its attempt in flight.
+ * loadSheet never rejects. The families of the Han turn are asked for first,
+ * so the families that wait for them find their attempts in flight.
  */
 function declareSheets(ids: readonly AppFontSheetId[], onSettled?: () => void): void {
-  const first = currentHanFirstSheet();
-  const ordered = first && ids.includes(first) ? [first, ...ids.filter((id) => id !== first)] : ids;
+  const turn = hanTurnSheets().filter((id) => ids.includes(id));
+  const ordered = [...turn, ...ids.filter((id) => !turn.includes(id))];
   Promise.all(ordered.map((id) => loadSheetInHanTurn(id)))
     .then(() => onSettled?.())
     .catch((error: unknown) => {
@@ -473,6 +484,46 @@ function hanFirstSheet(code: LanguageCode, hanOrder: HanOrder): AppFontSheetId {
 /** The current UI's Han-first sheet, once a language has applied. */
 function currentHanFirstSheet(): AppFontSheetId | null {
   return uiLanguage && startupHanOrder ? hanFirstSheet(uiLanguage, startupHanOrder) : null;
+}
+
+/**
+ * The order class src/ui/user-text-font.ts gives text it detects as
+ * Japanese, Simplified or Traditional Chinese, and the family whose Han that
+ * class's stack draws first (css/style.css). locale-fonts.test.ts marks its
+ * lines with that module, so the class names cannot drift apart.
+ */
+const USER_TEXT_HAN_FIRST: readonly (readonly [selector: string, sheet: AppFontSheetId])[] = (
+  ['ja', 'zh-hans', 'zh-hant'] as const
+).map((code) => [`.user-text-font-${code}`, HAN_ORDER_FONT_SHEET[code]] as const);
+
+/** Whether an element on the page matches the selector. */
+function pageHas(selector: string): boolean {
+  if (typeof document === 'undefined') return false;
+  try {
+    return document.querySelector(selector) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The Han families that take their turn before the others, in order: the
+ * current UI's first family, then each family that marked user text on the
+ * page draws Han with first. Read at each check of the turn, so text shown
+ * while the other families wait counts. The families marked text names are
+ * declared together after the UI's first, since lines of two Han orders
+ * shown at once each want their own family before the other's. The language
+ * picker marks nothing, since its three Han names each want a different
+ * family first and no order serves all three.
+ */
+function hanTurnSheets(): AppFontSheetId[] {
+  const first = currentHanFirstSheet();
+  if (!first) return [];
+  const sheets: AppFontSheetId[] = [first];
+  for (const [selector, sheet] of USER_TEXT_HAN_FIRST) {
+    if (!sheets.includes(sheet) && pageHas(selector)) sheets.push(sheet);
+  }
+  return sheets;
 }
 
 /**

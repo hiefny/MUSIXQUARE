@@ -3,8 +3,9 @@
  * Every number the design system's Typography section prints, and every
  * number its drawings are built from, comes from the app's own record: the
  * line box and the face sizes from src/i18n/font-metrics.ts, the subsets from
- * fonts/app-faces.json and fonts/hangul-faces.json, Inter's version and axes
- * from fonts/font-sources.json, the device-font gap from
+ * fonts/app-faces.json and fonts/hangul-faces.json, Inter's symbol faces from
+ * fonts/inter-symbol-faces.json, Inter's version and axes from
+ * fonts/font-sources.json, the device-font gap from
  * scripts/fonts/uncovered-code-points.txt, the script faces from
  * src/i18n/app-font-contract.ts, and the sizes, leading, tracking and weights
  * from the app's stylesheets. A change to any of them fails here until the
@@ -148,11 +149,20 @@ describe('the Typography section numbers', () => {
       families: { family: string; faces: unknown[] }[];
     };
     const interSubsets = appFaces.families.find(({ family }) => family === 'Inter')?.faces.length;
-    // The copy spells the count out.
+    // fonts/app-faces.json lists Google's subsets only. The symbol faces cut
+    // from the full Inter, which draw its symbols on the same optical size
+    // axis, have their own record.
+    const symbols = JSON.parse(read('fonts/inter-symbol-faces.json')) as {
+      source: { axes: { opsz: number[] } };
+      faces: unknown[];
+    };
+    // The copy spells both counts out.
     expect(interSubsets).toBe(7);
+    expect(symbols.faces).toHaveLength(7);
+    expect(symbols.source.axes.opsz).toEqual([Number(OPSZ_MIN), Number(OPSZ_MAX)]);
     expect(faces[0]).toEqual({
       name: `Inter ${inter.version.split('.')[0]}`,
-      use: `Latin, Cyrillic, Greek, Vietnamese and digits. Seven subsets, with an optical size axis from ${OPSZ_MIN} to ${OPSZ_MAX}.`,
+      use: `Latin, Cyrillic, Greek, Vietnamese, digits and its symbols. Seven subsets and seven symbol faces, with an optical size axis from ${OPSZ_MIN} to ${OPSZ_MAX}.`,
     });
 
     const hangul = JSON.parse(read('fonts/hangul-faces.json')) as {

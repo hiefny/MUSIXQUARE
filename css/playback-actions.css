@@ -57,8 +57,13 @@
 
   /* While a share gets ready, in both room kinds. The option stays focusable
      (aria-disabled, never native disabled), so the busy look keys on
-     aria-busy. */
+     aria-busy. The preparing label takes more lines than System Audio in
+     most locales: where it needs more than the 72px option holds (desktop
+     Chromium zoomed to 360 CSS px or narrower), the option grows to hold it
+     instead of letting it run over the YouTube option above. */
   #btn-system-audio[aria-busy='true'] {
+    min-height: 72px;
+    height: auto;
     cursor: wait;
     opacity: 0.72;
     transform: none;

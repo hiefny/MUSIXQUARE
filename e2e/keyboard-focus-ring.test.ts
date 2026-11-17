@@ -369,6 +369,27 @@ test.describe('focus rings follow keyboard navigation', () => {
       expectRingOnOwnEdge(await ringInk(page, column), panel);
     }
   });
+
+  test('the chat log and the playlist ring on their own edges where focus waits on them', async ({
+    page,
+  }) => {
+    await openRoomWithTrack(page, DESKTOP);
+    await tabToSkipLink(page);
+    // Focus waits on the chat log when its scroll-down button hides under
+    // focus, and on the list when the last rows picked for removal go.
+    for (const selector of ['#chat-messages', '#playlist-ui']) {
+      const container = page.locator(selector);
+      await container.evaluate((element) => {
+        (element as HTMLElement).tabIndex = -1;
+        (element as HTMLElement).focus({ preventScroll: true });
+      });
+      expect(await ringOn(page, container), selector).toMatchObject({
+        ring: true,
+        outline: 'solid 2px -2px',
+      });
+      expectRingOnOwnEdge(await ringInk(page, container), selector);
+    }
+  });
 });
 
 test.describe('focus rings follow keyboard navigation on a phone', () => {

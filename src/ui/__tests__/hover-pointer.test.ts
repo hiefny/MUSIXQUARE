@@ -673,6 +673,18 @@ describe('one keyboard gate for focus rings in the app stylesheets', () => {
     expect(ownLooks).toEqual([]);
   });
 
+  it('draws the chat log and playlist rings on their own edges, as on the panels', () => {
+    // Focus waits on them after a keyboard action: the chat log when its
+    // scroll-down button hides under focus, the list when the last rows
+    // picked for removal go. A ring outside them is clipped by the chat
+    // drawer and by the playlist's scroller.
+    for (const container of ['.chat-drawer-messages', '.playlist-ul']) {
+      expect(compactRulesFor(`${RING} ${container}:focus-visible`), container).toEqual([
+        { conditions: [], declarations: ['outline-offset: -2px'] },
+      ]);
+    }
+  });
+
   it('keeps a field focus mark on every focus in forced colours and rings controls by keyboard only', () => {
     expect(compactRulesFor(`${FORCED_FIELDS}:focus-visible`)).toEqual([
       {

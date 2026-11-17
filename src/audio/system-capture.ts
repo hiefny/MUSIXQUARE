@@ -143,6 +143,31 @@ function captureSystemAudioRoomIdentity(): SystemAudioRoomIdentity {
   });
 }
 
+// A start that a stop, a newer playback choice, a room change or an ended
+// track supersedes ends without a toast, because the newer state is what the
+// person sees. Its info line names the stage and the reason, so a shared log
+// shows the ending instead of a gap where the share should be (2026-11-18).
+// After this attempt's own STOP the load epoch moved by its own hand, so the
+// stages from there on pass null and leave it out.
+function logSupersededStart(
+  stage: string,
+  startEpoch: number,
+  startLoadEpoch: number | null,
+  startRoom: Readonly<SystemAudioRoomIdentity>,
+  isTrackLive?: () => boolean,
+): void {
+  const newerPlayback = startLoadEpoch !== null && !isCurrentLoadEpoch(startLoadEpoch);
+  const reasons: string[] = [];
+  if (startEpoch !== _captureStartEpoch) reasons.push('stopped');
+  if (newerPlayback) reasons.push('newer playback');
+  if (!isCurrentSystemAudioRoom(startRoom)) reasons.push('room changed');
+  if (isTrackLive && !isTrackLive()) reasons.push('track ended');
+  log.info(
+    `[SystemAudio] Capture start superseded ${stage}:`,
+    reasons.length > 0 ? reasons.join(', ') : 'no longer allowed',
+  );
+}
+
 function isCurrentSystemAudioRoom(expected: Readonly<SystemAudioRoomIdentity>): boolean {
   const current = getRoomContext();
   const currentRoomId =
@@ -525,11 +550,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   // when the native picker eventually resolves, discard its tracks and release
   // any lease instead of resurrecting a capture after teardown.
   if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) {
+    logSupersededStart('after the share window', startEpoch, startLoadEpoch, startRoom);
     releaseProLeaseAttempt(proLeaseAttempt);
     discardPendingCapture(stream);
     return false;
   }
   if (!isCurrentSystemAudioRoom(startRoom)) {
+    logSupersededStart('after the share window', startEpoch, startLoadEpoch, startRoom);
     releaseProLeaseAttempt(proLeaseAttempt);
     discardPendingCapture(stream);
     return false;
@@ -634,6 +661,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       !isCurrentSystemAudioRoom(startRoom) ||
       !isSelectedCaptureTrackLive()
     ) {
+      logSupersededStart(
+        'after the room lease',
+        startEpoch,
+        startLoadEpoch,
+        startRoom,
+        isSelectedCaptureTrackLive,
+      );
       discardSelectedCapture();
       if (leaseResult.ok) releaseProLeaseAttempt(proLeaseAttempt);
       return false;
@@ -657,6 +691,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     !isCurrentSystemAudioRoom(startRoom) ||
     (!isProRoom && (!isCoordinator() || !hasSystemAudioDeviceCapacity()))
   ) {
+    logSupersededStart('before audio setup', startEpoch, startLoadEpoch, startRoom);
     discardSelectedCapture();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     if (!isProRoom && !hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
@@ -676,6 +711,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       !isCurrentLoadEpoch(startLoadEpoch) ||
       !isCurrentSystemAudioRoom(startRoom)
     ) {
+      logSupersededStart('during audio setup', startEpoch, startLoadEpoch, startRoom);
       return false;
     }
     throw error;
@@ -691,6 +727,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     !isCurrentSystemAudioRoom(startRoom) ||
     !isSelectedCaptureTrackLive()
   ) {
+    logSupersededStart(
+      'after audio setup',
+      startEpoch,
+      startLoadEpoch,
+      startRoom,
+      isSelectedCaptureTrackLive,
+    );
     discardSelectedCapture();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     return false;
@@ -790,6 +833,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     !proStillAuthorized ||
     !captureTrackStillLive
   ) {
+    logSupersededStart(
+      'after stopping the previous media',
+      startEpoch,
+      null,
+      startRoom,
+      isSelectedCaptureTrackLive,
+    );
     // A force-stop, room transition, coordinator change, or PRO authority
     // change transfers ownership and must not resurrect local media. Only a
     // same-room standard coordinator rejected solely by the device limit can
@@ -876,6 +926,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     !isCurrentSystemAudioRoom(startRoom) ||
     !isSelectedCaptureTrackLive()
   ) {
+    logSupersededStart(
+      'before publication',
+      startEpoch,
+      null,
+      startRoom,
+      isSelectedCaptureTrackLive,
+    );
     abortPreparedStart();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     return false;
@@ -892,6 +949,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       if (!track) throw new Error('PRO_SYSTEM_AUDIO_TRACK_UNAVAILABLE');
       const liveState = await publishLocalProSystemAudio(track);
       if (startEpoch !== _captureStartEpoch) {
+        logSupersededStart('during publication', startEpoch, null, startRoom);
         releaseProLeaseAttempt(proLeaseAttempt);
         return false;
       }
@@ -900,6 +958,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
         !isSelectedCaptureTrackLive() ||
         !canPublishProSystemAudioWithCurrentCoordinator()
       ) {
+        logSupersededStart(
+          'during publication',
+          startEpoch,
+          null,
+          startRoom,
+          isSelectedCaptureTrackLive,
+        );
         abortPreparedStart();
         releaseProLeaseAttempt(proLeaseAttempt);
         return false;
@@ -911,10 +976,18 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
           : null;
     } catch (error) {
       if (startEpoch !== _captureStartEpoch) {
+        logSupersededStart('during publication', startEpoch, null, startRoom);
         releaseProLeaseAttempt(proLeaseAttempt);
         return false;
       }
       if (!isCurrentSystemAudioRoom(startRoom) || !isSelectedCaptureTrackLive()) {
+        logSupersededStart(
+          'during publication',
+          startEpoch,
+          null,
+          startRoom,
+          isSelectedCaptureTrackLive,
+        );
         abortPreparedStart();
         releaseProLeaseAttempt(proLeaseAttempt);
         return false;
@@ -934,6 +1007,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     }
   } else {
     if (!isCoordinator() || !hasSystemAudioDeviceCapacity() || !isSelectedCaptureTrackLive()) {
+      logSupersededStart(
+        'during publication',
+        startEpoch,
+        null,
+        startRoom,
+        isSelectedCaptureTrackLive,
+      );
       abortPreparedStart();
       return false;
     }

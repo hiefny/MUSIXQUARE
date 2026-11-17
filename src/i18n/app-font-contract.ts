@@ -69,7 +69,7 @@ export const SCRIPT_FONT_SHEET_BY_LANGUAGE: Readonly<
 /**
  * The family that draws Han first under each Han order, which phase A loads
  * too; the Japanese and Chinese UIs put their own family first. Every other
- * Han family waits until the first family's first sheet attempt has settled
+ * Han family waits while an attempt of the first family's sheet is in flight
  * (locale-fonts.ts, loadSheetInHanTurn).
  */
 export const HAN_ORDER_FONT_SHEET: Readonly<Record<HanOrder, AppFontSheetId>> = {

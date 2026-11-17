@@ -6,8 +6,9 @@
  * Phase A loads the UI's sheets when a language applies. Phase B declares
  * every other app family after window load and the first idle slice, so every
  * script has its face in every UI. A Han family other than the UI's first one
- * waits until the first one's first sheet attempt has settled, which the
- * attempt deadline below bounds; that wait has no value of its own. A sheet
+ * waits while an attempt of the first one's sheet is in flight, and a failed
+ * first attempt of the first one is tried again at once; the attempt
+ * deadlines below bound each wait, which has no value of its own. A sheet
  * attempt that does not settle within a deadline is abandoned. A sheet that
  * fails is retried by a timer a bounded number of times, and again whenever
  * the browser comes back online or the page becomes visible. Phase C loads

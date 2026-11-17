@@ -277,14 +277,16 @@ text needs one of its characters.
   the four CJK families draws Han, and the browser draws a character with the
   first family in the stack whose declared faces have it. So a Han family
   other than the UI's first one (Noto Sans JP in Japanese, SC or TC in
-  Chinese, the Han order's first family in every other UI) is declared only
-  once that family's first sheet attempt has settled: loaded, failed or
-  abandoned at its deadline. A retry of the first family holds nothing. In
-  phase A this puts Noto Sans KR after the first family under a Japanese or
-  Chinese Han order. In App 9.0.829 a first visit could declare a later
-  family first when window load came before the font owner: the Japanese
-  start screen then fetched 30 Noto Sans KR shards (1.19 MB) before its Noto
-  Sans JP ones.
+  Chinese, the Han order's first family in every other UI) waits while an
+  attempt of that family's sheet is in flight. When its first attempt fails
+  or is abandoned at its deadline, the owner tries it again at once instead
+  of after the 10 s timer retry, and the other families wait for that
+  attempt too; once it fails as well they are declared. Phase B and the
+  retries ask for the first family before the others. In phase A this puts
+  Noto Sans KR after the first family under a Japanese or Chinese Han order.
+  In App 9.0.829 a first visit could declare a later family first when window
+  load came before the font owner: the Japanese start screen then fetched 30
+  Noto Sans KR shards (1.19 MB) before its Noto Sans JP ones.
 - Phase C, 10 s after phase B starts: the Korean, Japanese and Chinese UIs
   load the most frequent shards of the family that draws their own words
   (MUSIXQUARE Hangul #119-#100, 360,288 B, for Korean)
@@ -459,7 +461,9 @@ both scripts everywhere).
   has run and every other requested sheet has drawn, and requires that the
   Japanese, Simplified and Traditional Chinese start screens, and Han in the
   English UI under a Japanese Han order, ask for no shard of another Han
-  family and draw their Han with their own. It gives each CJK name a face
+  family and draw their Han with their own. Two Japanese rows fail that
+  sheet's first request, at once or while the other families wait for it,
+  and hold the owner's second attempt instead. It gives each CJK name a face
   that never loads, so an installed Noto Sans KR, SC or TC (a Windows 11 PC
   can have them) cannot draw the Han meanwhile.
 

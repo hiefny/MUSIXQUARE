@@ -389,7 +389,14 @@ describe('Han turn', () => {
     },
   );
 
-  it('declares them once the Han-first sheet fails', async () => {
+  // A failed or abandoned first attempt of the Han-first sheet is tried again
+  // at once while the other families wait, and they wait for that attempt
+  // too. On App 9.0.829's first turn they were declared as soon as the first
+  // attempt settled while the retry waited FONT_SHEET_RETRY_DELAY_MS, so a
+  // later family drew the Japanese start screen's Han for about 10 s.
+  const jpRequests = () => sheets.requests.filter((id) => id === 'font-noto-jp').length;
+
+  it('tries the Han-first sheet again at once when its first attempt fails, and declares them once that attempt settles', async () => {
     setLanguages(['ja-JP']);
     const sheet = held('font-noto-jp');
     const runtime = await freshRuntime();
@@ -398,11 +405,31 @@ describe('Han turn', () => {
 
     sheet.reject();
     await settle();
+    expect(jpRequests()).toBe(2);
+    expect(HAN.filter((id) => id !== 'font-noto-jp' && requested(id))).toEqual([]);
 
+    sheet.resolve();
+    await settle();
     expect(HAN.filter((id) => !requested(id))).toEqual([]);
   });
 
-  it('waits no longer than the Han-first sheet attempt deadline', async () => {
+  it('declares them once that second attempt fails too, and tries the Han-first sheet no more at once', async () => {
+    setLanguages(['ja-JP']);
+    const sheet = held('font-noto-jp');
+    const runtime = await freshRuntime();
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+    await runIdle();
+
+    sheet.reject();
+    await settle();
+    sheet.reject();
+    await settle();
+
+    expect(jpRequests()).toBe(2);
+    expect(HAN.filter((id) => !requested(id))).toEqual([]);
+  });
+
+  it('tries an abandoned first attempt again at once and waits for each attempt no longer than its deadline', async () => {
     useFakeTimers();
     setLanguages(['ja-JP']);
     sheets.behaviour.set('font-noto-jp', () => new Promise<void>(() => undefined));
@@ -411,30 +438,74 @@ describe('Han turn', () => {
     await runIdle();
 
     await vi.advanceTimersByTimeAsync(FONT_SHEET_ATTEMPT_TIMEOUT_MS - 1);
+    expect(sheets.abandoned).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    await settle();
+    expect(sheets.abandoned).toEqual(['font-noto-jp']);
+    expect(jpRequests()).toBe(2);
+    expect(requested('font-noto-kr')).toBe(false);
+
+    // The second attempt's deadline is twice the first's.
+    await vi.advanceTimersByTimeAsync(2 * FONT_SHEET_ATTEMPT_TIMEOUT_MS - 1);
     expect(requested('font-noto-kr')).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-
-    expect(sheets.abandoned).toEqual(['font-noto-jp']);
+    await settle();
+    expect(sheets.abandoned).toEqual(['font-noto-jp', 'font-noto-jp']);
     expect(HAN.filter((id) => !requested(id))).toEqual([]);
   });
 
-  it("holds them for the Han-first sheet's first attempt only, never for a retry", async () => {
-    // A later attempt's deadline doubles, up to FONT_SHEET_ATTEMPT_TIMEOUT_MAX_MS,
-    // so on a failing network the other families load beside the retry.
+  it('phase B tries a Han-first sheet that failed before it again first, and the other Han families wait for that attempt', async () => {
     setLanguages(['ja-JP']);
-    let attempts = 0;
-    sheets.behaviour.set('font-noto-jp', () => {
-      attempts += 1;
-      return attempts === 1
-        ? Promise.reject(new Error('sheet failed'))
-        : new Promise<void>(() => undefined);
-    });
+    const sheet = held('font-noto-jp');
     const runtime = await freshRuntime();
-    await runtime.loadLanguageFonts('ja');
-    await runIdle();
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+    sheet.reject();
+    await settle();
+    // Nothing waits yet, so the failure alone starts no second attempt.
+    expect(jpRequests()).toBe(1);
 
-    // Phase B tried the sheet again and declared the other families beside it.
-    expect(sheets.requests.filter((id) => id === 'font-noto-jp')).toHaveLength(2);
+    await runIdle();
+    expect(sheets.requests.filter((id) => HAN.includes(id))).toEqual([
+      'font-noto-jp',
+      'font-noto-jp',
+    ]);
+
+    sheet.resolve();
+    await settle();
+    expect(HAN.filter((id) => !requested(id))).toEqual([]);
+  });
+
+  it('a later retry asks for the Han-first sheet first, and the other Han families that failed with it wait for that attempt', async () => {
+    // Every Han sheet fails while the network is down: the first family's
+    // first attempt and its retry at once, then the families that waited.
+    setLanguages(['ja-JP']);
+    let jpAttempts = 0;
+    let finishJp!: () => void;
+    sheets.behaviour.set('font-noto-jp', () => {
+      jpAttempts += 1;
+      if (jpAttempts <= 2) return Promise.reject(new Error('offline'));
+      return new Promise<void>((resolve) => {
+        finishJp = resolve;
+      });
+    });
+    for (const id of ['font-noto-kr', 'font-noto-sc', 'font-noto-tc']) {
+      sheets.behaviour.set(id, failing(1));
+    }
+    const runtime = await freshRuntime();
+    runtime.loadLanguageFonts('ja').catch(() => undefined);
+    await settle();
+    await runIdle();
+    await settle();
+    expect(jpRequests()).toBe(2);
+    expect(HAN.filter((id) => !requested(id))).toEqual([]);
+    sheets.requests.length = 0;
+
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(sheets.requests.filter((id) => HAN.includes(id))).toEqual(['font-noto-jp']);
+
+    finishJp();
+    await settle();
     expect(HAN.filter((id) => !requested(id))).toEqual([]);
   });
 

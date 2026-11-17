@@ -1323,4 +1323,14 @@ describe('System audio option while a share prepares', () => {
     }
     expect(ko[KEY]).not.toContain('곡');
   });
+
+  it('names sharing in Persian with the word the locale uses when it stands alone', () => {
+    // pro_preparing's shorter word needs its object ('... system audio');
+    // standing alone it reads closer to 'subscription', so the label uses the
+    // word Stop Sharing and the cancelled-share toast use.
+    const fa = dictionaries['fa']!;
+    const sharing = fa['system_audio.stop']!.split(/\s+/u).at(-1)!;
+    expect(fa['system_audio.capture_denied']!.split(/\s+/u)[0]).toBe(sharing);
+    expect(fa[KEY]).toContain(sharing);
+  });
 });

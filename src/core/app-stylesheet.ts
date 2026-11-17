@@ -11,8 +11,16 @@
  * the boot splash's screen to the app. So the bootstrap waits for the sheet
  * itself, as Chromium would have.
  *
- * It adds no deadline of its own: a sheet that never settles leaves the boot
- * to the same 15 s fallbacks as in Chromium (style.css and fouc-cleanup.js).
+ * It adds no deadline of its own. style.css's 15 s reveal of the failure
+ * surface lives in the very sheet that is late, so a sheet that never settles
+ * leaves the boot to fouc-cleanup.js, which fails it open at 15 s, and to the
+ * boot splash's last-resort fade at 20 s (index.html). The end is not
+ * Chromium's: WebKit has parsed the page and shows it unstyled, with the
+ * failure surface's Retry; Chromium's parser waits on the sheet, so the
+ * surface does not exist yet and the page stays blank. A sheet that arrives
+ * after that fail-open leaves the boot failed, as setup never puts the guard
+ * back over a failed root (src/ui/setup.ts).
+ *
  * A sheet that failed before the wait began fires nothing more. Chromium and
  * WebKit give it an empty sheet, so nothing waits; where it stays null, the
  * page's load event, which follows every stylesheet the parser placed, ends

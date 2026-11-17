@@ -48,7 +48,9 @@
          preflight's data-boot-hold makes that release wait until
          src/core/platform.ts ends the hold (once the screen has grown, at the
          latest when its boot window ends); boot failure and the last-resort
-         fade are never held. -->
+         fade are never held. There it also keeps the page's own background,
+         which iOS paints that strip with, on the splash's colour while the
+         splash holds, and raises it with the splash. -->
     <style data-boot-splash>
       .boot-splash {
         --boot-splash-bg: #121212;
@@ -90,13 +92,16 @@
       }
 
       /* The installed iOS app (data-boot-installed, from the preflight): iOS
-         paints the strip under a short first screen in its own background,
-         pure black in the dark theme and pure white in the light one (the
-         owner's report, 2026-11-16), so there the splash starts on that colour
-         and the strip blends in; the app's own background shows through the
-         splash's 0.3 s fade over the app (owner decision, same day). This sets
-         the background itself: the app stylesheet's --bg would replace the
-         --boot-splash-bg fallback in the middle of the boot. */
+         paints the strip under a short first screen with the page's own
+         background, which is the system's pure black in the dark theme and
+         pure white in the light one until a stylesheet gives the page one
+         (inferred from the owner's reports, 2026-11-16 and 2026-11-17). There
+         the splash starts on that colour, and the root keeps the page's
+         background on it while the splash holds (below), so the strip blends
+         in; the app's own background shows through the splash's 0.3 s fade
+         over the app (owner decision, 2026-11-16). This sets the background
+         itself: the app stylesheet's --bg would replace the --boot-splash-bg
+         fallback in the middle of the boot. */
       html[data-boot-installed] .boot-splash {
         background: #000000;
       }
@@ -133,6 +138,49 @@
         animation:
           boot-splash-out 0.3s ease-out forwards,
           boot-splash-rise 0.3s ease-out forwards;
+      }
+
+      /* The page's own background, which iOS paints the strip with, keeps the
+         splash's colour in the installed app: on a refresh the app stylesheet
+         gave html and body the app's --bg near the end of the boot while the
+         held splash was still pure black or white, and that band showed at the
+         home indicator (owner report, 2026-11-17). The root takes the splash's
+         colour condition for condition (data-theme first, the device's scheme
+         only without one) and holds it for as long as data-boot-hold lasts;
+         style.css lets body inherit it there (its states layer), since WebKit
+         paints body's background over the root's. Animations, because one
+         outranks every normal declaration, and the build lowers style.css's
+         own html background into selectors this sheet cannot outrank. */
+      html[data-boot-installed] {
+        --boot-splash-strip: #000000;
+      }
+
+      @media (prefers-color-scheme: light) {
+        html[data-boot-installed] {
+          --boot-splash-strip: #ffffff;
+        }
+      }
+
+      html[data-boot-installed][data-theme='dark'] {
+        --boot-splash-strip: #000000;
+      }
+
+      html[data-boot-installed][data-theme='light'] {
+        --boot-splash-strip: #ffffff;
+      }
+
+      html[data-boot-installed][data-boot-hold] {
+        animation: boot-splash-root-hold 0s forwards;
+      }
+
+      /* Then it rises with the splash: keyed as the splash's rise, on its
+         duration and curve, so the two match on every frame. With no fill, so
+         style.css's own background (which follows theme and contrast changes)
+         is back once it ends. It weighs as much as the hold, so it comes after
+         it: boot failure is never held. */
+      html[data-boot-installed]:not([data-boot-hold]),
+      html[data-boot-installed].setup-boot-failed {
+        animation: boot-splash-root-rise 0.3s ease-out;
       }
 
       /* Fades over the app as it takes the screen. This is an animation
@@ -473,6 +521,18 @@
         }
       }
 
+      @keyframes boot-splash-root-hold {
+        to {
+          background-color: var(--boot-splash-strip);
+        }
+      }
+
+      @keyframes boot-splash-root-rise {
+        from {
+          background-color: var(--boot-splash-strip);
+        }
+      }
+
       @keyframes boot-splash-ink-fallback {
         to {
           opacity: 1;
@@ -576,7 +636,9 @@
         html:not([data-boot-splash-runtime]) .boot-splash-mark,
         .boot-splash .boot-splash-spinner,
         .boot-splash[data-phase='loader'] .boot-splash-spinner,
-        html:not([data-boot-splash-runtime]) .boot-splash .boot-splash-spinner {
+        html:not([data-boot-splash-runtime]) .boot-splash .boot-splash-spinner,
+        html[data-boot-installed]:not([data-boot-hold]),
+        html[data-boot-installed].setup-boot-failed {
           animation-duration: 0s;
         }
 

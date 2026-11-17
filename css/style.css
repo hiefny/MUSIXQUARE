@@ -5153,9 +5153,10 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 
   /* In the installed iOS app the refresh screen ends on the colour the next
      page's boot splash starts on there (index.html, data-boot-installed: pure
-     black in the dark theme, pure white in the light one, the colour iOS
-     paints the strip under a short first screen with), so the strip blends in
-     and the two screens stay one. */
+     black in the dark theme, pure white in the light one, the page background
+     iOS paints the strip under a short first screen with before any
+     stylesheet, which that page's root keeps while its splash holds), so the
+     strip blends in and the two screens stay one. */
   html[data-boot-installed] .session-reset-overlay {
     background: #000000;
   }
@@ -13046,6 +13047,18 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 /* Active UI states own presentation while mounted: playback mode, entrance, overlay stacking, demo chrome and fullscreen. */
 
 @layer states {
+  /* In the installed iOS app body paints the root's background: iOS paints
+     the strip under a short first screen with the page's background, body's
+     over the root's, and the boot splash sheet (index.html) holds the root's
+     on the splash's colour while the splash holds and raises it with the
+     splash (owner report 2026-11-17: the app's --bg showed at the strip near
+     the end of loading). Otherwise the root's is var(--bg) like body's own, so
+     body paints what it did; a body background from a lower layer yields to
+     this one there (legacy-tv-compatibility test). */
+  html[data-boot-installed] body {
+    background-color: inherit;
+  }
+
   /* The setup controller owns visibility; responsive rules own block/flex layout. */
   .ob-slider-block[hidden] {
     display: none;

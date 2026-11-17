@@ -920,9 +920,10 @@ test.describe('installed iOS app', () => {
   // under the short first screen showed the app's own background (dark in the
   // dark theme, light in the light one) around the time the app finished
   // loading, under a splash still pure black or white. iOS paints the strip with
-  // the page's own background, body's over the root's: the system's black or
-  // white until the app stylesheet gives both the app's --bg. Every frame from
-  // the splash's first to its last reads what iOS reads there.
+  // the page's own background, body's over the root's (inferred: no tool here
+  // reproduces the strip): the system's black or white until the app stylesheet
+  // gives both the app's --bg. Every frame from the splash's first to its last
+  // reads those colours.
   type StripFrame = {
     held: boolean;
     /** The app stylesheet has applied: the root has its --bg. */

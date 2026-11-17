@@ -307,9 +307,10 @@ describe('boot splash', () => {
   // showed the app's own background (dark in the dark theme, light in the light
   // one) around the time the app finished loading, under a splash still pure
   // black or white. iOS paints the strip with the page's own background, body's
-  // over html's: the system's black or white until the app stylesheet gives
-  // both the app's --bg. So while the splash holds, the page's background holds
-  // the splash's colour, and it rises with the splash once nothing holds it.
+  // over html's (inferred): the system's black or white until the app
+  // stylesheet gives both the app's --bg. So while the splash holds, the page's
+  // background holds the splash's colour, and it rises with the splash once
+  // nothing holds it.
   it("holds an installed app's page background on the strip's colour while the splash holds, and raises it with the splash", () => {
     const systemLight = (opener: string) =>
       SPLASH_CSS.slice(SPLASH_CSS.indexOf(`@media (prefers-color-scheme: light) {\n${opener}`));

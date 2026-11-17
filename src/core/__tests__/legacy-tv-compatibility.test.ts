@@ -292,10 +292,10 @@ describe('legacy smart-TV app compatibility', () => {
   });
 
   // Owner report 2026-11-17: in the installed iOS app the strip under a short
-  // first screen shows the page's background, body's over html's. The boot
-  // splash sheet (index.html) holds the root's background on the strip's
-  // colour with an animation, which outranks every normal declaration however
-  // the build lowers it, and body takes the root's from @layer states.
+  // first screen shows the page's background, body's over html's (inferred).
+  // The boot splash sheet (index.html) holds the root's background on the
+  // strip's colour with an animation, which outranks every normal declaration
+  // however the build lowers it, and body takes the root's from @layer states.
   it("lets the installed app's body take the root's background over every body background the build lowers, and leaves the root's animation to the splash sheet", async () => {
     const sheets = [
       ...readFileSync('css/app.css', 'utf8').matchAll(/@import\s+['"]\.\/([^'"]+)['"]/gu),

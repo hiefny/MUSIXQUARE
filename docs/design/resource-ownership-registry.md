@@ -4505,7 +4505,12 @@ entry needs the owner's acceptance and is not implied by this registry.
   ([App 9.0.51 train report](app-9-0-51-train-2026-11-16.md)), and, in the installed iOS app,
   the first open's marks: `data-boot-installed`, the splash's kept height
   `--boot-splash-height` and the hold `data-boot-hold` that keeps the splash over the app while
-  iOS gives that first screen short ([App 9.0.53 train report](app-9-0-53-train-2026-11-16.md)).
+  iOS gives that first screen short ([App 9.0.53 train report](app-9-0-53-train-2026-11-16.md)),
+  and the page's background under the splash there (the root's and body's background colours,
+  which iOS paints the strip under that short first screen with, body's over the root's), held on
+  the strip's colour while `data-boot-hold` lasts and raised with the splash (owner report
+  2026-11-17: the app's background showed at the strip near the end of a refresh's boot; inferred
+  cause: the app stylesheet had given html and body `--bg` under the still-held splash).
 - **Current owners/flows:** two machines on the drawing and the phase, kept on purpose, two
   start-up steps that show and settle the splash after a reset, and the viewport owner that ends
   the installed app's hold:
@@ -4521,7 +4526,18 @@ entry needs the owner's acceptance and is not implied by this registry.
     `data-wordmark-runtime-ready` and waits for a start event nothing sends now), and that page
     keeps the fallbacks. The wordmark's and the loader's sizes are fixed lengths: WebKit renders
     nothing until a page holds over 32x32 px of fixed-size SVG or 200 text characters, and the
-    splash has no text (an auto-width wordmark kept a slow first visit blank in WebKit);
+    splash has no text (an auto-width wordmark kept a slow first visit blank in WebKit). In the
+    installed iOS app it also owns the root's background: `boot-splash-root-hold`, a 0 s forwards
+    fill of `--boot-splash-strip` (the splash's installed colour, condition for condition), for
+    exactly as long as `data-boot-hold` lasts, from the first frame and before any stylesheet;
+    then `boot-splash-root-rise`, from that colour with no fill, keyed as the splash's rise (once
+    nothing holds it, or boot fails), so the page's background matches the splash on every frame
+    and the stylesheet's own `var(--bg)` is back, following theme and contrast changes, once it
+    ends. Both are animations because an animation outranks every normal declaration, and the
+    build lowers `css/style.css`'s html background into selectors no plain rule here outranks.
+    `css/style.css`'s `html[data-boot-installed] body { background-color: inherit }` in
+    `@layer states` (which the lowering weighs above body's base and desktop backgrounds) lets
+    body follow it: a static follower, not a machine;
   - the runtime `browser/classic-runtime/wordmark-anim.ts` (`wordmark-anim.js`, async, after the
     two start-up scripts): it reads the sheet's own clock (the mark's fade-in start, on the
     document timeline; navigation timing without the Web Animations API), draws the wordmark from
@@ -4553,7 +4569,8 @@ entry needs the owner's acceptance and is not implied by this registry.
     on the strip's colour (#000000 dark, #ffffff light) and raises its background to the app's in
     0.3 s (`boot-splash-rise`) once nothing holds it, whether or not setup has released the splash
     yet (from the first frame when the preflight sets no hold), keeping that rise through the fade
-    over the app;
+    over the app, and keys the sheet's root hold and rise above, which keep the page's background
+    with the splash;
     without a kept box it sets `--boot-splash-height` to the screen's height while this first
     screen is as wide as the screen and up to that 64 px shorter (that app's first open gets the
     same short first screen); and while the kept height is taller than this first screen it marks
@@ -4590,8 +4607,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   removes the stamp and the box.
 - **Lifecycle operations:** mark the root continued and keep the reset screen's height (head
   preflight, before the first paint); in the installed iOS app, mark it installed, keep the
-  screen's height and hold the splash over the app (head preflight), and end the hold
-  (`src/core/platform.ts`); set the phase (start-up step after a reset, else the
+  screen's height and hold the splash over the app (head preflight), hold the page's background
+  on the splash's colour while that hold lasts and raise it with the splash (sheet), and end the
+  hold (`src/core/platform.ts`); set the phase (start-up step after a reset, else the
   runtime, once); stop or finish the drawing (runtime); fade (sheet); `hidden` after the fade
   (runtime); write and remove the stamp and the box (reset screen); read them (head preflight);
   read and remove the stamp, remove the box (start-up step).
@@ -4599,7 +4617,8 @@ entry needs the owner's acceptance and is not implied by this registry.
   the drawing's start on the sheet's clock, for the loader's rise 0.3 s after the drawing's end
   from its real start when no frame reports that end (a hidden tab), and for `hidden`
   `SPLASH_FADE + 100` ms after a runtime that arrives once the splash was already released;
-  `src/core/platform.ts` for the hold's end, at the latest its boot window's end.
+  `src/core/platform.ts` for the hold's end (the root's background hold ends with it), at the
+  latest its boot window's end.
 - **Timing-constant home:** the sheet's animation times. The runtime's `SPLASH_MARK_DELAY` (300),
   `SPLASH_INK_FALLBACK` (1800), `SPLASH_RISE_FALLBACK` (3200) and `SPLASH_FADE` (300) copy them,
   because a classic runtime cannot import the page's sheet; the start-up step's `continuityKey`
@@ -4617,6 +4636,10 @@ entry needs the owner's acceptance and is not implied by this registry.
   splash sheet" pins the four times and the key copy, and "keeps the copies it carries equal to
   their homes" pins the preflight's, among them both copies of the 64 px window and the hold's
   attribute in `platform.ts` and the runtime; `navigation-contract.test.ts` pins the key string.
+  The root's background rise retypes the splash rise's 0.3 s ease-out in the same sheet, and
+  `boot-splash.test.ts` "holds an installed app's page background on the strip's colour while the
+  splash holds, and raises it with the splash" pins it to both of the splash's installed rise
+  rules (and the root's four strip colours to the splash's and the refresh screen's).
 - **Anchor tests:**
   - Supersession (the first release wins; a stamp counts once; this release's runtime only):
     `src/core/__tests__/wordmark-reveal-runtime.test.ts` "stops the drawing where it is when %s
@@ -4650,6 +4673,16 @@ entry needs the owner's acceptance and is not implied by this registry.
     holds a splash boot failure releases"; `e2e/boot-splash.test.ts` "installed iOS app" (keeps
     the splash over the app while the first screen is short and fades it only once the hold ends;
     ends the hold with the boot window when the first screen never grows).
+  - The installed app's page background (owner report 2026-11-17): `boot-splash.test.ts` "holds
+    an installed app's page background on the strip's colour while the splash holds, and raises
+    it with the splash"; `src/core/__tests__/legacy-tv-compatibility.test.ts` "lets the installed
+    app's body take the root's background over every body background the build lowers, and leaves
+    the root's animation to the splash sheet"; `e2e/boot-splash.test.ts` "installed iOS app"
+    "keeps the page's background on the splash's colour while it holds, and raises it with the
+    splash: %s" (first opens whose screen grows and never grows, and session refreshes in an app
+    theme opposite to the device's, every frame from the splash's first to its last) and "boot
+    splash" "keeps the page and the splash on the app's background outside the installed iOS app"
+    (default suite and WebKit lane).
   - User pause/stop: n/a (the splash has no control); reduced motion: "settles safely on %s
     motion interruption" and "lets the loader join when %s before the drawing starts".
   - Teardown: "retires the splash after its last-resort fade"; `session-reset.test.ts` "takes the
@@ -4670,7 +4703,8 @@ entry needs the owner's acceptance and is not implied by this registry.
   became a second machine on the splash beside its sheet. The App 9.0.49 train added the head
   preflight ahead of the start-up step, which still owns the stamp and the phase. The App 9.0.53
   train added the installed app's hold, which the head preflight marks and `platform.ts` alone
-  ends.
+  ends. The fix for the owner's 2026-11-17 report put the installed app's page background under
+  that same hold in the sheet (its hold and rise), with no new owner and no new timer.
 
 ## Checked side flows without a record
 

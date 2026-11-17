@@ -262,7 +262,10 @@ RO-55 accepted-exception
   takes it when it shows the attempt's request (`claimPlayRequestAttemptForDialog`).
   An attempt whose one notice never became a dialog (a hidden page, a replaced PLAY, a pending
   forced update) is neither parked again nor holding, and the next PLAY's clock check retires it,
-  as before 7B-2.
+  as before 7B-2: on a clock that runs it consumes the incident, and on a clock still frozen it
+  replaces the woken attempt with a new one for the same incident, which that PLAY announces
+  (F-2501; the check answered with no preparation there before, so that PLAY and every PLAY
+  after it stopped with no notice).
   Since Phase 7 7B-5 both resume an attempt through one recovery resume
   (`requestAudioContextResume`, in `context.ts` until 7C-4): one native `resume()` inside the
   caller's activation, raced with
@@ -298,7 +301,11 @@ RO-55 accepted-exception
   the dialog's AbortSignal and currency end it), probes the clock, retires the play-request
   attempt and arms the next PLAY's clock check, commits through the caller's confirm (RO-36) or
   the owner's own, runs the playback scope's second step, or prepares a play-request restart for
-  a frozen clock, which `app.ts` queues. The ordinary branch carries no playback-scope attempt
+  a frozen clock, which `app.ts` queues. When the page was hidden while that restart prepared,
+  the branch gives it up as the play-request branch gives its attempt up, so the return's
+  inspection is not deferred to a restart no dialog shows (F-2502); any other ending of the
+  dialog leaves the restart to the PLAY or the dialog that follows.
+  The ordinary branch carries no playback-scope attempt
   (Phase 7 7C-K8; it was Known gap C1-I6): it cancels a pending one that accepts the gesture
   before the resume, a failed PLAY's retry so the exact failed PLAY owns the gesture, and since
   App 9.0.42 (the owner's decision of 2026-11-10) a restore too, which takes the branch only

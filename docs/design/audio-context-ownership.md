@@ -61,7 +61,8 @@ own rejoin (Decision 4).
       parked context instead of being refused. The rule serves an attempt a recovery dialog has
       taken (`app.ts` takes it when it shows the request,
       `claimPlayRequestAttemptForDialog`); an attempt whose notice never became a
-      dialog keeps no context, and the next PLAY's clock check retires it, as before 7B-2.
+      dialog keeps no context, and the next PLAY's clock check retires it, as before 7B-2 (on a
+      clock still frozen it starts over with a new attempt, which that PLAY announces, F-2501).
    2. `probeAudioContextHealth` with `attemptResume: true` has one caller,
       `src/audio/output-health.ts`, and runs only after both ownership checks in that file report
       no attempt.

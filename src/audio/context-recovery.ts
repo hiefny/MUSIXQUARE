@@ -1066,7 +1066,9 @@ export function consumeForegroundAudioContextClockHealthCheck(token: object): bo
  * Prepare an identity-less restart for a frozen clock discovered by the first
  * local-file PLAY after foreground. The initial call is bounded at 500 ms;
  * `whenPrepared` remains exact so a late native suspend can safely trigger the
- * recovery UI without granting an early gesture resume.
+ * recovery UI without granting an early gesture resume. The incident's own
+ * attempt is reused while it prepares or is parked; one that no dialog took
+ * and an outside resume has woken since is replaced by a new one (F-2501).
  */
 async function preparePlayRequestRestart(
   checkToken: object,
@@ -1078,6 +1080,21 @@ async function preparePlayRequestRestart(
 
   let attempt = pendingPlayRequestAttempt;
   if (attempt && attempt.checkToken !== checkToken) {
+    retirePlayRequestAttempt(attempt, false, 'superseded');
+    attempt = null;
+  }
+  if (
+    attempt &&
+    !attempt.dialog &&
+    attempt.phase === 'awaiting-gesture' &&
+    !isAudioContextPrepared(attempt.context)
+  ) {
+    // This incident's own attempt that no dialog took, woken since by an
+    // outside resume (a PLAY's ensureRunning; it is not parked again, Phase 7
+    // 7B-2). The PLAY that asks now found the clock still frozen, so it
+    // starts over with a new attempt, which its one notice announces. The
+    // answer was null here before (F-2501): that PLAY, and every PLAY after
+    // it while the clock stayed frozen, stopped with no notice.
     retirePlayRequestAttempt(attempt, false, 'superseded');
     attempt = null;
   }
@@ -2373,7 +2390,8 @@ function recoverPlaybackScopeFromGesture(
  * the clock once it runs and the dialog realigns once, with no new dialog
  * (App 9.0.42, the owner's decision of 2026-11-11; the shape the playback
  * scope keeps since 7B-5). Then the clock probe, and a frozen clock prepares
- * a play-request restart for a new tap.
+ * a play-request restart for a new tap, given up at once when the page was
+ * hidden while it prepared (F-2502).
  */
 function recoverUnownedContextFromGesture(
   caller: AudioOutputGestureCaller,
@@ -2415,6 +2433,16 @@ function recoverUnownedContextFromGesture(
         if (health.reason === 'clock-stalled' && context && caller.isCurrent()) {
           const preparation = await preparePlayRequestRestartAfterClockStall(context);
           if (preparation && caller.isCurrent()) return { kind: 'clock-stalled', preparation };
+          // The page was hidden while the restart prepared: no dialog can
+          // show its request, the return's inspection would defer to the
+          // parked restart, and a file that plays has no PLAY to take it
+          // (F-2502). Give it up as the play-request branch gives its
+          // attempt up. Any other ending (a pause, another track, a newer
+          // PLAY or request) leaves the restart to the PLAY, or the newer
+          // request's dialog, that follows.
+          if (preparation && document.visibilityState !== 'visible') {
+            retirePlayRequestAttemptForNextPlay(preparation.attemptToken, context);
+          }
         }
         return GESTURE_STOPPED;
       }

@@ -147,6 +147,8 @@ function captureSystemAudioRoomIdentity(): SystemAudioRoomIdentity {
 // track supersedes ends without a toast, because the newer state is what the
 // person sees. Its info line names the stage and the reason, so a shared log
 // shows the ending instead of a gap where the share should be (2026-11-18).
+// A share window cancelled or failing after such a supersession passes the
+// browser's error too, and the line carries it in place of the warning.
 // After this attempt's own STOP the load epoch moved by its own hand, so the
 // stages from there on pass null and leave it out.
 function logSupersededStart(
@@ -155,6 +157,7 @@ function logSupersededStart(
   startLoadEpoch: number | null,
   startRoom: Readonly<SystemAudioRoomIdentity>,
   isTrackLive?: () => boolean,
+  failure?: unknown,
 ): void {
   const newerPlayback = startLoadEpoch !== null && !isCurrentLoadEpoch(startLoadEpoch);
   const reasons: string[] = [];
@@ -165,6 +168,7 @@ function logSupersededStart(
   log.info(
     `[SystemAudio] Capture start superseded ${stage}:`,
     reasons.length > 0 ? reasons.join(', ') : 'no longer allowed',
+    ...(failure === undefined ? [] : [failure]),
   );
 }
 
@@ -540,7 +544,17 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     });
   } catch (e) {
     releaseProLeaseAttempt(proLeaseAttempt);
-    if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) return false;
+    if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) {
+      logSupersededStart(
+        'after the share window was cancelled or failed',
+        startEpoch,
+        startLoadEpoch,
+        startRoom,
+        undefined,
+        e,
+      );
+      return false;
+    }
     log.warn('[SystemAudio] getDisplayMedia denied or failed:', e);
     bus.emit('ui:show-toast', t('system_audio.capture_denied'));
     return false;

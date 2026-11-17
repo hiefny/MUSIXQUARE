@@ -2390,8 +2390,8 @@ function recoverPlaybackScopeFromGesture(
  * the clock once it runs and the dialog realigns once, with no new dialog
  * (App 9.0.42, the owner's decision of 2026-11-11; the shape the playback
  * scope keeps since 7B-5). Then the clock probe, and a frozen clock prepares
- * a play-request restart for a new tap, given up at once when the page was
- * hidden while it prepared (F-2502).
+ * a play-request restart for a new tap, given up at once when the dialog no
+ * longer acts and the page is hidden as that preparation answers (F-2502).
  */
 function recoverUnownedContextFromGesture(
   caller: AudioOutputGestureCaller,
@@ -2433,13 +2433,20 @@ function recoverUnownedContextFromGesture(
         if (health.reason === 'clock-stalled' && context && caller.isCurrent()) {
           const preparation = await preparePlayRequestRestartAfterClockStall(context);
           if (preparation && caller.isCurrent()) return { kind: 'clock-stalled', preparation };
-          // The page was hidden while the restart prepared: no dialog can
-          // show its request, the return's inspection would defer to the
-          // parked restart, and a file that plays has no PLAY to take it
-          // (F-2502). Give it up as the play-request branch gives its
-          // attempt up. Any other ending (a pause, another track, a newer
-          // PLAY or request) leaves the restart to the PLAY, or the newer
-          // request's dialog, that follows.
+          // The dialog no longer acts and the page is hidden as the
+          // preparation answers: no dialog can show its request, the
+          // return's inspection would defer to the parked restart, and a
+          // file that plays has no PLAY to take it (F-2502). Give it up as
+          // the play-request branch gives its attempt up. The suspension it
+          // leaves goes to the return's inspection, or to the playback
+          // scope where its statechange comes after the suspend promise
+          // (an interruption of the playing file), or is undone by the
+          // retired-suspend cleanup when it lands on a visible page. A PLAY
+          // whose clock check is sampling this incident at that moment
+          // stops with no notice, as a check does that a hidden moment
+          // interrupts. An ending on a visible page (a pause, another
+          // track, a newer PLAY or request) leaves the restart to the PLAY,
+          // or the newer request's dialog, that follows.
           if (preparation && document.visibilityState !== 'visible') {
             retirePlayRequestAttemptForNextPlay(preparation.attemptToken, context);
           }

@@ -301,10 +301,15 @@ RO-55 accepted-exception
   the dialog's AbortSignal and currency end it), probes the clock, retires the play-request
   attempt and arms the next PLAY's clock check, commits through the caller's confirm (RO-36) or
   the owner's own, runs the playback scope's second step, or prepares a play-request restart for
-  a frozen clock, which `app.ts` queues. When the page was hidden while that restart prepared,
-  the branch gives it up as the play-request branch gives its attempt up, so the return's
-  inspection is not deferred to a restart no dialog shows (F-2502); any other ending of the
-  dialog leaves the restart to the PLAY or the dialog that follows.
+  a frozen clock, which `app.ts` queues. When the dialog no longer acts and the page is hidden
+  as that preparation answers, the branch gives the restart up as the play-request branch gives
+  its attempt up, so the return is not deferred to a restart no dialog shows (F-2502). The
+  suspension it leaves goes to the return's inspection, or, where its statechange comes after
+  the suspend promise (the order Chromium ran in the browser lab), to the playback scope as an
+  interruption of the playing file, or is undone by the retired-suspend cleanup when it lands on
+  a visible page; a PLAY whose clock check is sampling that incident at the give-up stops with
+  no notice, as a check does that a hidden moment interrupts. An ending of the dialog on a
+  visible page leaves the restart to the PLAY or the dialog that follows.
   The ordinary branch carries no playback-scope attempt
   (Phase 7 7C-K8; it was Known gap C1-I6): it cancels a pending one that accepts the gesture
   before the resume, a failed PLAY's retry so the exact failed PLAY owns the gesture, and since

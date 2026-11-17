@@ -227,7 +227,11 @@ describe('CI quality and supply-chain gates', () => {
 
   it('verifies registry signatures independently of the vulnerability audit', () => {
     expect(packageJson.scripts['security:signatures']).toBe('npm audit signatures');
-    expect(ciWorkflow).toContain('run: npm run security:audit');
+    // Owner decision 2026-11-18: CI blocks on high advisories in what the App
+    // ships, and leaves the build and test tools (devDependencies) to the
+    // Dependabot alerts. The script itself stays the full audit for local runs.
+    expect(packageJson.scripts['security:audit']).toBe('npm audit --audit-level=high');
+    expect(ciWorkflow).toContain('run: npm run security:audit -- --omit=dev');
     expect(ciWorkflow).toContain('run: npm run security:signatures');
   });
 

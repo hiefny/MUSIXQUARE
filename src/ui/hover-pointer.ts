@@ -31,13 +31,13 @@
  *   select and the ARIA widget roles (the phone's tab bar, the chat sheet's
  *   resize handle).
  * - Any of those keys, wherever it was pressed, that moves focus while it is
- *   down and before it has scrolled anything: a TV remote's D-pad under
- *   spatial navigation moves focus from the page, a panel or a plain button,
- *   and the playlist's keyboard reorder refocuses the row it moves. Pressed
- *   on a plain button, link, switch or checkbox, on the page, a panel or the
- *   chat log, they otherwise only scroll, and in a text field they move the
- *   caret, so there they do not count: a mouse user who clicks a track and
- *   scrolls with Page Down gets no ring.
+ *   down, before any scroll: a TV remote's D-pad under spatial navigation
+ *   moves focus from the page, a panel or a plain button, and the playlist's
+ *   keyboard reorder refocuses the row it moves. Pressed on a plain button,
+ *   link, switch or checkbox, on the page, a panel or the chat log, they
+ *   otherwise only scroll, and in a text field they move the caret, so there
+ *   they do not count: a mouse user who clicks a track and scrolls with Page
+ *   Down gets no ring.
  * Every pointer press, mouse, pen or touch, turns it `off` again; moving a
  * pointer does not. Other keys leave it as it is, so a keyboard user keeps
  * every ring: Space and Enter press the focused control or, on the page or a
@@ -58,8 +58,8 @@
  * every focus. A page where this script never ran has no attribute, so the
  * browser's :focus-visible decides there, as before; so it does on an engine
  * without :where() (docs/known-accepted.md #20). No timer is involved: a key
- * is down from its keydown until its keyup, the next key, a pointer press, a
- * scroll or the window losing focus.
+ * is down from its keydown until its keyup, the next key, a pointer press,
+ * any scroll in the document or the window losing focus.
  */
 let installed = false;
 
@@ -239,8 +239,11 @@ export function initHoverPointer(): void {
     { capture: true },
   );
   document.addEventListener('keyup', releaseKey, { capture: true });
-  // A key that scrolled has done its work: a focus move a scroll brings
-  // about (a button that hides under focus) is not that key's.
+  // Any scroll in the document ends the key's turn, the key's own or another
+  // (capture: an element's scroll event does not bubble). A focus move that a
+  // scroll brings about (a button that hides under focus) is the page's, not
+  // the key's, and a scroll event fires only with the next frame, after any
+  // focus move the key makes in its own task.
   document.addEventListener('scroll', releaseKey, { capture: true, passive: true });
   window.addEventListener('blur', releaseKey);
   document.addEventListener(

@@ -5,12 +5,15 @@
  *
  * Phase A loads the UI's sheets when a language applies. Phase B declares
  * every other app family after window load and the first idle slice, so every
- * script has its face in every UI. A sheet attempt that does not settle within
- * a deadline is abandoned. A sheet that fails is retried by a timer a bounded
- * number of times, and again whenever the browser comes back online or the
- * page becomes visible. Phase C loads the most frequent shards of the
- * Korean, Japanese and Chinese UIs' own family in idle time, within a face and
- * byte budget per page load (src/i18n/font-prefetch-samples.ts lists them).
+ * script has its face in every UI. A Han family other than the UI's first one
+ * waits until the first one's first sheet attempt has settled, which the
+ * attempt deadline below bounds; that wait has no value of its own. A sheet
+ * attempt that does not settle within a deadline is abandoned. A sheet that
+ * fails is retried by a timer a bounded number of times, and again whenever
+ * the browser comes back online or the page becomes visible. Phase C loads
+ * the most frequent shards of the Korean, Japanese and Chinese UIs' own
+ * family in idle time, within a face and byte budget per page load
+ * (src/i18n/font-prefetch-samples.ts lists them).
  */
 
 /** Phase B waits for an idle slice after window load, but no longer than this. */

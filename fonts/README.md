@@ -273,6 +273,18 @@ text needs one of its characters.
   same moment under every Han order.
 - Phase B, after window load and the first idle slice: every other sheet, so
   every family is declared in every UI. It ignores data saver.
+- The Han turn, in both phases, the retries and the language picker: each of
+  the four CJK families draws Han, and the browser draws a character with the
+  first family in the stack whose declared faces have it. So a Han family
+  other than the UI's first one (Noto Sans JP in Japanese, SC or TC in
+  Chinese, the Han order's first family in every other UI) is declared only
+  once that family's first sheet attempt has settled: loaded, failed or
+  abandoned at its deadline. A retry of the first family holds nothing. In
+  phase A this puts Noto Sans KR after the first family under a Japanese or
+  Chinese Han order. In App 9.0.829 a first visit could declare a later
+  family first when window load came before the font owner: the Japanese
+  start screen then fetched 30 Noto Sans KR shards (1.19 MB) before its Noto
+  Sans JP ones.
 - Phase C, 10 s after phase B starts: the Korean, Japanese and Chinese UIs
   load the most frequent shards of the family that draws their own words
   (MUSIXQUARE Hangul #119-#100, 360,288 B, for Korean)
@@ -442,6 +454,14 @@ both scripts everywhere).
   UI fetches. Its line of symbols no self-hosted face draws (☺ ℹ ∼ ◈ ‣) is
   recorded for both UIs and kept out of the comparison until a face draws
   them.
+- `e2e/font-han-turn.test.ts` (local, on the e2e build, Chromium) holds the
+  font owner until window load and the UI's first Han sheet until phase B
+  has run and every other requested sheet has drawn, and requires that the
+  Japanese, Simplified and Traditional Chinese start screens, and Han in the
+  English UI under a Japanese Han order, ask for no shard of another Han
+  family and draw their Han with their own. It gives each CJK name a face
+  that never loads, so an installed Noto Sans KR, SC or TC (a Windows 11 PC
+  can have them) cannot draw the Han meanwhile.
 
 ## Licensing and fallback behavior
 

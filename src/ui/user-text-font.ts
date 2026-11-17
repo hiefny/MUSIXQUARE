@@ -8,7 +8,10 @@
  * nickname or message wants. When the text itself says it is Japanese,
  * Simplified Chinese or Traditional Chinese, the element gets one order class
  * and css/style.css draws its Han from that language's family first. Han alone
- * cannot tell the three apart, so undetected Han follows the UI's order.
+ * cannot tell the three apart, so undetected Han follows the UI's order. The
+ * font owner (src/i18n/locale-fonts.ts) reads the order classes too, and
+ * declares the family marked text on the page draws first before the other
+ * Han families that are not the UI's first.
  *
  * Detection reads only the text, so the same text is marked the same way in
  * every UI.

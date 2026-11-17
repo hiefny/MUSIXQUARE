@@ -10891,11 +10891,15 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     outline-offset: 2px;
   }
 
-  /* A tab panel takes focus from the skip link (src/ui/tabs.ts) and from
-     script when its content leaves under focus. Its ring lies on the panel's
-     own edge, over the 1px dividers the desktop columns draw as borders, so
-     every panel shows the same box inside the screen. */
-  :where(html:not([data-keyboard-navigation='off'])) .tab-content:focus-visible {
+  /* A container where focus waits draws its ring on its own edge: a tab panel
+     from the skip link (src/ui/tabs.ts) or when its content leaves under
+     focus, the chat log when its scroll-down button hides under focus, the
+     playlist when the last rows picked for removal go. The ring then covers
+     the 1px dividers the desktop columns draw as borders, no scroller or
+     drawer edge clips it, and every container shows the same box. */
+  :where(html:not([data-keyboard-navigation='off'])) .tab-content:focus-visible,
+  :where(html:not([data-keyboard-navigation='off'])) .chat-drawer-messages:focus-visible,
+  :where(html:not([data-keyboard-navigation='off'])) .playlist-ul:focus-visible {
     outline-offset: -2px;
   }
 

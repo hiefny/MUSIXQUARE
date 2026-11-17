@@ -89,12 +89,12 @@ export const FONT_PREFETCH_BY_LANGUAGE: Readonly<Partial<Record<LanguageCode, Fo
     'zh-hans': {
       family: 'Noto Sans SC',
       shards: [
-        { shard: 119, face: 94, sample: 'ㄧ', bytes: 76664 },
-        { shard: 118, face: 93, sample: '三', bytes: 46168 },
-        { shard: 117, face: 92, sample: '万', bytes: 52492 },
-        { shard: 116, face: 91, sample: '世', bytes: 53060 },
-        { shard: 115, face: 90, sample: '且', bytes: 56560 },
-        { shard: 114, face: 89, sample: '七', bytes: 57940 },
+        { shard: 119, face: 93, sample: 'ㄧ', bytes: 76664 },
+        { shard: 118, face: 92, sample: '三', bytes: 46168 },
+        { shard: 117, face: 91, sample: '万', bytes: 52492 },
+        { shard: 116, face: 90, sample: '世', bytes: 53060 },
+        { shard: 115, face: 89, sample: '且', bytes: 56560 },
+        { shard: 114, face: 88, sample: '七', bytes: 57940 },
       ],
     },
     'zh-hant': {

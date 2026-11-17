@@ -68,11 +68,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --radius-m: 20px;
     --radius-s: 14px;
     --radius-pill: 999px;
-    /* App fonts (owner decisions 2026-10-31 and 2026-11-02). Inter draws
-       Latin, digits, Cyrillic and Greek, MUSIXQUARE Hangul (the app's own
-       Hangul faces, fonts/hangul-faces.json) Hangul in every stack, Noto
-       Sans KR the Hangul that family lacks and Noto Sans JP kana; Han, CJK
-       punctuation and the symbols Inter lacks come from the four CJK
+    /* App fonts (owner decisions 2026-10-31, 2026-11-02 and 2026-11-17).
+       Inter draws Latin, digits, Cyrillic, Greek and the symbols it has (its
+       symbol faces, fonts/inter-symbol-faces.json), MUSIXQUARE Hangul (the
+       app's own Hangul faces, fonts/hangul-faces.json) Hangul in every stack,
+       Noto Sans KR the Hangul that family lacks and Noto Sans JP kana; Han,
+       CJK punctuation and the symbols Inter lacks come from the four CJK
        families in an order. The Japanese and Chinese UIs put their own
        family first; every other UI reads --font-cjk-default, which the Han
        order chosen once at startup from the browser's languages swaps

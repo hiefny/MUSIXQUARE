@@ -10,20 +10,25 @@
  * ranges), Google's sheets css/fonts/noto-{jp,sc,tc,thai}.css (read, never
  * changed; only their numbered CJK shards and the Thai face are in the
  * repository), the cmaps of the input files,
- * the descriptors in src/i18n/font-metrics.ts, fonts/app-faces.json and
- * fonts/hangul-faces.json.
+ * the descriptors in src/i18n/font-metrics.ts, fonts/app-faces.json,
+ * fonts/hangul-faces.json and fonts/inter-symbol-faces.json.
  *
  * The Inter and CJK faces point at the copies in fonts/app/ that
  * scripts/fonts/build-app-faces.mts bakes the line box of
  * src/i18n/font-metrics.ts into; the cuts below read the input files, whose
- * cmaps the copies keep. The Hangul faces are the subsets in
- * fonts/app/hangul/ that scripts/fonts/build-hangul-faces.mts cuts from
- * Pretendard. The write mode first runs those two generators, which build
- * only new or changed faces (the Hangul faces first: the CJK cuts read them).
+ * cmaps the copies keep. Inter's symbol faces are the subsets in
+ * fonts/app/inter-symbols/ that scripts/fonts/build-inter-symbol-faces.mts
+ * cuts from the full Inter with the same box. The Hangul faces are the
+ * subsets in fonts/app/hangul/ that scripts/fonts/build-hangul-faces.mts cuts
+ * from Pretendard. The write mode first runs those three generators, which
+ * build only new or changed faces (the Hangul and symbol faces first: the CJK
+ * cuts read them).
  *
  * The range edits give every script exactly one family, so no browser can
  * draw one script from two families:
- * - Inter keeps Google's subsets and ranges unchanged.
+ * - Inter keeps Google's subsets and ranges unchanged, and after them its
+ *   symbol faces (owner decisions 2026-11-17 and 2026-11-18), each declaring
+ *   its cmap: the symbols the full Inter has and the subsets lack.
  * - MUSIXQUARE Hangul (owner decision 2026-11-02) draws the Hangul
  *   Pretendard has: each face declares exactly its cmap, which is Hangul
  *   only. Its file holds the line box every other face is sized to, and its
@@ -35,19 +40,20 @@
  *   Devanagari letters), and with every CJK family in every UI's stack the
  *   browser would download such a shard for nothing before moving on. Each
  *   face also loses every code point Inter draws, which is Inter's cmap
- *   inside Inter's own ranges (cutting by Inter's declared ranges would drop
- *   marks Inter lacks, such as U+203B and U+203C, to a device font chosen by
- *   html lang). Hangul that MUSIXQUARE Hangul draws leaves all four; the
- *   Hangul it lacks that Noto Sans KR draws (the archaic compatibility jamo,
- *   ㉠ and the other parenthesized and circled Hangul but ㈜) stays only in
- *   KR, and kana that Noto Sans JP draws only in JP, each
- *   found by block or by Unicode Script (㈜, ㉠, ㋖ and ㌔ sit outside the
- *   blocks); a character both owners lack stays in the family that draws
- *   it. The invisible and space marks U+200B-200F, U+202F, U+2060-2064 and
- *   U+FEFF leave all four, so the device font draws them. A face left with
- *   nothing is dropped. No face declares the conjoining jamo U+1100-11FF or
- *   Jamo Extended-A and -B (Google's ranges never did), so a device font
- *   draws them, as before the Hangul faces.
+ *   inside Inter's own ranges, its symbol faces' included (cutting by
+ *   Inter's declared ranges would drop a mark no Inter face has, such as
+ *   U+00AD, to a device font chosen by html lang). Hangul that MUSIXQUARE
+ *   Hangul draws leaves all four; the Hangul it lacks that Noto Sans KR
+ *   draws (the archaic compatibility jamo, ㉠ and the other parenthesized
+ *   and circled Hangul but ㈜) stays only in KR, and kana that Noto Sans JP
+ *   draws only in JP, each found by block or by Unicode Script (㈜, ㉠, ㋖
+ *   and ㌔ sit outside the blocks); a character both owners lack stays in
+ *   the family that draws it. The invisible and space marks U+200B-200F,
+ *   U+202F, U+2060-2064 and U+FEFF leave all four: Inter, a script face or
+ *   the device font draws them. A face left with nothing is dropped. No face
+ *   declares the conjoining jamo U+1100-11FF or Jamo Extended-A and -B
+ *   (Google's ranges never did), so a device font draws them, as before the
+ *   Hangul faces.
  * - Noto Sans Thai keeps only its Thai face, unchanged.
  * - Inter, the Hangul and the CJK faces carry the size-adjust and metric
  *   overrides of src/i18n/font-metrics.ts; the script faces carry none.
@@ -78,6 +84,7 @@ import {
 import {
   APP_FACES_PATH,
   HANGUL_FACES_PATH,
+  INTER_FULL_PATH,
   appFaceOutputs,
   fontCodePoints,
   formatUnicodeRange,
@@ -94,6 +101,12 @@ import {
   type FontSources,
   type HangulFaces,
 } from './font-files.mts';
+import {
+  INTER_SYMBOL_FACES_PATH,
+  readInterSymbolFaces,
+  verifyInterSymbolFaces,
+  type InterSymbolFaces,
+} from './inter-symbol-faces.mts';
 
 export interface GeneratedFontSheet {
   readonly path: string;
@@ -241,21 +254,41 @@ function repoPathOf(sheetPath: string, url: string): string {
 /** The repository path of a face's baked copy, by its input's path. */
 type BakedPath = (input: string) => string;
 
-/** Inter's faces (input files and Google's ranges) and the code points they draw. */
+/**
+ * An Inter face of the app sheet: a Google subset (its input file, which
+ * build-app-faces.mts bakes) or a symbol face (its file, baked already).
+ */
+interface InterFace {
+  readonly file: string;
+  readonly unicodeRange: string;
+  /** Whether the file holds the line box already (a symbol face), so the sheet names it as it is. */
+  readonly baked: boolean;
+}
+
+/**
+ * Inter's faces, Google's subsets (input files and Google's ranges) and then
+ * the symbol faces (their files and cmaps), and the code points they draw.
+ */
 async function interFaces(
   repoRoot: string,
   sources: FontSources,
-): Promise<{ faces: { file: string; unicodeRange: string }[]; drawn: Set<number> }> {
+  symbols: InterSymbolFaces,
+): Promise<{ faces: InterFace[]; drawn: Set<number> }> {
   const { inter } = sources;
   const drawn = new Set<number>();
-  const faces: { file: string; unicodeRange: string }[] = [];
-  for (const face of inter.faces) {
-    const file = `${inter.directory}/${face.file}`;
-    const declared = parseUnicodeRange(face.unicodeRange);
+  const faces: InterFace[] = [];
+  const add = async (file: string, unicodeRange: string, baked: boolean) => {
+    const declared = parseUnicodeRange(unicodeRange);
     for (const codePoint of fontCodePoints(await openFontFile(path.join(repoRoot, file)))) {
       if (declared.has(codePoint)) drawn.add(codePoint);
     }
-    faces.push({ file, unicodeRange: face.unicodeRange });
+    faces.push({ file, unicodeRange, baked });
+  };
+  for (const face of inter.faces) {
+    await add(`${inter.directory}/${face.file}`, face.unicodeRange, false);
+  }
+  for (const face of symbols.faces) {
+    await add(`${symbols.directory}/${face.file}`, face.unicodeRange, true);
   }
   if (drawn.size === 0) throw new Error('Inter draws no code point');
   return { faces, drawn };
@@ -263,7 +296,8 @@ async function interFaces(
 
 function interSheet(
   sources: FontSources,
-  faces: readonly { file: string; unicodeRange: string }[],
+  symbols: InterSymbolFaces,
+  faces: readonly InterFace[],
   baked: BakedPath,
 ): string {
   const { inter } = sources;
@@ -271,13 +305,20 @@ function interSheet(
   return sheetText(
     [
       'Inter for the app.',
-      `Generated by ${GENERATOR} from fonts/font-sources.json and ${APP_FACES_PATH}. Do not edit by hand.`,
+      `Generated by ${GENERATOR} from fonts/font-sources.json, ${APP_FACES_PATH} and ${INTER_SYMBOL_FACES_PATH}. Do not edit by hand.`,
       `Faces: Inter ${inter.version}, one per Google subset of ${inter.sourceCss}, with Google's unicode-range. Each file is Google's with the line box of src/i18n/font-metrics.ts baked in, and the file that holds the digits 0-9 maps them to Inter's tabular glyphs (scripts/fonts/build-app-faces.mts).`,
+      `Symbol faces: the symbols the full Inter (${INTER_FULL_PATH}, the subsets' build) has and the Google subsets lack, but private use, combining marks, emoji, the enclosed alphanumerics and U+21A9, U+21AA, U+23CF and U+2764, in ${symbols.faces.length} faces cut by scripts/fonts/build-inter-symbol-faces.mts with the same line box baked in. Each face's unicode-range is its cmap.`,
       'Metrics: src/i18n/font-metrics.ts',
       `License: ${inter.license} (SIL OFL 1.1)`,
     ],
-    faces.map(({ file, unicodeRange }) =>
-      fontFace(sheet.family, INTER_FACE_METRICS, sheet.path, baked(file), unicodeRange),
+    faces.map(({ file, unicodeRange, baked: cut }) =>
+      fontFace(
+        sheet.family,
+        INTER_FACE_METRICS,
+        sheet.path,
+        cut ? file : baked(file),
+        unicodeRange,
+      ),
     ),
   );
 }
@@ -505,14 +546,16 @@ function hangulSheet(record: HangulFaces): string {
 interface KeptAppFaces {
   readonly sources: FontSources;
   readonly hangul: HangulFaces;
-  readonly inter: readonly { file: string; unicodeRange: string }[];
+  readonly symbols: InterSymbolFaces;
+  readonly inter: readonly InterFace[];
   readonly cjk: readonly { family: CjkFaces; faces: { file: string; kept: number[] }[] }[];
 }
 
 async function computeKeptFaces(repoRoot: string): Promise<KeptAppFaces> {
   const sources = await readFontSources(repoRoot);
   const hangul = await readHangulFaces(repoRoot);
-  const inter = await interFaces(repoRoot, sources);
+  const symbols = await readInterSymbolFaces(repoRoot);
+  const inter = await interFaces(repoRoot, sources, symbols);
   const families: CjkFaces[] = [];
   for (const recipe of CJK_FAMILIES) {
     families.push(await cjkFaces(repoRoot, sources, recipe, inter.drawn));
@@ -539,6 +582,7 @@ async function computeKeptFaces(repoRoot: string): Promise<KeptAppFaces> {
   return {
     sources,
     hangul,
+    symbols,
     inter: inter.faces,
     cjk: families.map((family) => ({ family, faces: keptFaces(family, owned) })),
   };
@@ -547,14 +591,17 @@ async function computeKeptFaces(repoRoot: string): Promise<KeptAppFaces> {
 /**
  * The input files of the faces the app sheets keep, by sheet id (Inter and the
  * four CJK families, in sheet order): the files scripts/fonts/build-app-faces.mts
- * bakes.
+ * bakes. Inter's symbol faces are baked already, so they are not inputs.
  */
 export async function appFaceInputs(
   repoRoot: string,
 ): Promise<{ readonly sheet: string; readonly files: readonly string[] }[]> {
   const kept = await computeKeptFaces(repoRoot);
   return [
-    { sheet: 'font-inter', files: kept.inter.map(({ file }) => file) },
+    {
+      sheet: 'font-inter',
+      files: kept.inter.filter(({ baked }) => !baked).map(({ file }) => file),
+    },
     ...kept.cjk.map(({ family, faces }) => ({
       sheet: family.recipe.id,
       files: faces.map(({ file }) => file),
@@ -581,7 +628,7 @@ export async function buildFontSheets(repoRoot: string): Promise<GeneratedFontSh
   const kept = await computeKeptFaces(repoRoot);
   const baked = await bakedPaths(repoRoot);
   const built = new Map<string, string>([
-    ['font-inter', interSheet(kept.sources, kept.inter, baked)],
+    ['font-inter', interSheet(kept.sources, kept.symbols, kept.inter, baked)],
     ['font-hangul', hangulSheet(kept.hangul)],
   ]);
   for (const { family, faces } of kept.cjk) {
@@ -741,10 +788,14 @@ export async function findStaleFontSheets(repoRoot: string): Promise<string[]> {
 async function main(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   if (process.argv.includes('--check')) {
-    const faces = [...(await verifyHangulFaces(repoRoot)), ...(await verifyAppFaces(repoRoot))];
+    const faces = [
+      ...(await verifyHangulFaces(repoRoot)),
+      ...(await verifyInterSymbolFaces(repoRoot)),
+      ...(await verifyAppFaces(repoRoot)),
+    ];
     if (faces.length) {
       console.error(
-        `The app faces do not match ${HANGUL_FACES_PATH} and ${APP_FACES_PATH}:\n${faces.map((line) => `  - ${line}`).join('\n')}`,
+        `The app faces do not match ${HANGUL_FACES_PATH}, ${INTER_SYMBOL_FACES_PATH} and ${APP_FACES_PATH}:\n${faces.map((line) => `  - ${line}`).join('\n')}`,
       );
       process.exitCode = 1;
     }
@@ -757,15 +808,17 @@ async function main(): Promise<void> {
     }
     if (faces.length || stale.length) return;
     console.log(
-      'The Hangul and baked app faces match their records and the app font sheets the generator.',
+      'The Hangul, Inter symbol and baked app faces match their records and the app font sheets the generator.',
     );
     return;
   }
   // The faces first: the sheets name their files, and the CJK cuts read the
-  // Hangul faces. Dynamic imports, as the baked face generator reads
-  // appFaceInputs from this module.
+  // Hangul and symbol faces. Dynamic imports, as the baked face generator
+  // reads appFaceInputs from this module.
   const { buildHangulFaces } = await import('./build-hangul-faces.mts');
   await buildHangulFaces(repoRoot, 'write');
+  const { buildInterSymbolFaces } = await import('./build-inter-symbol-faces.mts');
+  await buildInterSymbolFaces(repoRoot, 'write');
   const { buildAppFaces } = await import('./build-app-faces.mts');
   await buildAppFaces(repoRoot, 'write');
   await mkdir(path.join(repoRoot, OUTPUT_DIRECTORY), { recursive: true });

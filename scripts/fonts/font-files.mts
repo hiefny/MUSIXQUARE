@@ -1,13 +1,16 @@
 /**
- * Shared helpers for the app's self-hosted font files and their two records.
+ * Shared helpers for the app's self-hosted font files and their records.
  *
  * fonts/font-sources.json lists every Inter and Noto Sans KR file the
  * repository keeps from Google: the Google URL it came from, Google's
  * unicode-range for it, and the sha256 and size of both the downloaded bytes
  * ("source") and the committed bytes ("shipped"). Inter keeps the downloaded
  * bytes. Noto Sans KR keeps copies without the Korean locl lookup
- * (scripts/fonts/build-noto-kr-nolocl.mts). It is written only by
- * scripts/fonts/record-font-sources.mts and that builder.
+ * (scripts/fonts/build-noto-kr-nolocl.mts). It also records the full Inter
+ * (fonts/inter-full.ttf, interFull), the same build as the subsets, which
+ * Inter's symbol faces are cut from (scripts/fonts/inter-symbol-faces.mts).
+ * It is written only by scripts/fonts/record-font-sources.mts and that
+ * builder.
  *
  * fonts/app-faces.json lists the faces the app serves: for each Inter and CJK
  * face of the app sheets, the copy in fonts/app/ with the line box of
@@ -23,7 +26,8 @@
  * scripts/fonts/build-hangul-faces.mts.
  *
  * scripts/check-app-font.mts and the unit tests verify the files against all
- * three.
+ * three, and Inter's symbol faces in fonts/app/inter-symbols/ against their
+ * own record, fonts/inter-symbol-faces.json (scripts/fonts/inter-symbol-faces.mts).
  */
 import { createHash } from 'node:crypto';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
@@ -56,6 +60,11 @@ export const FONT_SOURCES_PATH = 'fonts/font-sources.json';
 export const APP_FACES_PATH = 'fonts/app-faces.json';
 /** The directory of the baked app faces, one folder per family. */
 export const APP_FACES_DIRECTORY = 'fonts/app';
+/**
+ * The directory of Inter's symbol faces, which scripts/fonts/inter-symbol-faces.mts
+ * owns inside fonts/app/ (fonts/inter-symbol-faces.json records them).
+ */
+export const INTER_SYMBOL_FACES_DIRECTORY = `${APP_FACES_DIRECTORY}/inter-symbols`;
 
 export interface FileDigest {
   readonly sha256: string;
@@ -84,10 +93,34 @@ export interface RecordedFontFamily {
   readonly faces: readonly RecordedFontFace[];
 }
 
+/**
+ * A whole upstream font file the repository keeps as the source of faces cut
+ * from it, under a name of its own: nothing serves it.
+ */
+export interface RecordedSourceFont {
+  readonly family: string;
+  /** The file's version and build, from its name ID 5: "4.001 (git-66647c0bb)". */
+  readonly version: string;
+  /** The download URL. */
+  readonly url: string;
+  /** The repository and the path of the file there, under its upstream name. */
+  readonly upstream: string;
+  /** The Git blob id of the downloaded bytes, which the upstream repository lists for the file. */
+  readonly gitBlob: string;
+  readonly license: string;
+  /** The committed file. */
+  readonly file: string;
+  readonly processing: string;
+  readonly source: FileDigest;
+  readonly shipped: FileDigest;
+}
+
 export interface FontSources {
   readonly note: string;
   readonly tools: Readonly<Record<string, string>>;
   readonly inter: RecordedFontFamily;
+  /** The full Inter, which Inter's symbol faces are cut from. */
+  readonly interFull: RecordedSourceFont;
   readonly notoSansKr: RecordedFontFamily;
 }
 
@@ -175,15 +208,54 @@ function readTools(value: unknown, file = FONT_SOURCES_PATH): Readonly<Record<st
   return tools;
 }
 
-export function parseFontSources(text: string): FontSources {
+const GIT_BLOB_RE = /^[0-9a-f]{40}$/u;
+
+function readSourceFont(value: unknown, where: string): RecordedSourceFont {
+  if (!isRecord(value)) throw new TypeError(`${FONT_SOURCES_PATH}: ${where} must be an object`);
+  const gitBlob = readString(value, 'gitBlob', where);
+  if (!GIT_BLOB_RE.test(gitBlob)) {
+    throw new TypeError(`${FONT_SOURCES_PATH}: ${where}.gitBlob must be a Git blob id`);
+  }
+  return {
+    family: readString(value, 'family', where),
+    version: readString(value, 'version', where),
+    url: readString(value, 'url', where),
+    upstream: readString(value, 'upstream', where),
+    gitBlob,
+    license: readString(value, 'license', where),
+    file: readString(value, 'file', where),
+    processing: readString(value, 'processing', where),
+    source: readDigest(value.source, `${where}.source`),
+    shipped: readDigest(value.shipped, `${where}.shipped`),
+  };
+}
+
+/**
+ * fonts/font-sources.json as scripts/fonts/record-font-sources.mts reads it
+ * before it records the full Inter: interFull may be missing.
+ */
+export function parseFontSourcesDraft(
+  text: string,
+): Omit<FontSources, 'interFull'> & { readonly interFull: RecordedSourceFont | null } {
   const value: unknown = JSON.parse(text);
   if (!isRecord(value)) throw new TypeError(`${FONT_SOURCES_PATH} must hold an object`);
   return {
     note: readString(value, 'note', 'root'),
     tools: readTools(value.tools),
     inter: readFamily(value.inter, 'inter'),
+    interFull: value.interFull === undefined ? null : readSourceFont(value.interFull, 'interFull'),
     notoSansKr: readFamily(value.notoSansKr, 'notoSansKr'),
   };
+}
+
+export function parseFontSources(text: string): FontSources {
+  const draft = parseFontSourcesDraft(text);
+  if (!draft.interFull) {
+    throw new TypeError(
+      `${FONT_SOURCES_PATH}: interFull must record the full Inter (node scripts/fonts/record-font-sources.mts --inter-full <file>)`,
+    );
+  }
+  return { ...draft, interFull: draft.interFull };
 }
 
 export async function readFontSources(repoRoot: string): Promise<FontSources> {
@@ -204,6 +276,11 @@ export function sha256Hex(bytes: Uint8Array): string {
 
 export function digestOf(bytes: Uint8Array): FileDigest {
   return { sha256: sha256Hex(bytes), bytes: bytes.byteLength };
+}
+
+/** The Git blob id of a file's bytes, as `git hash-object` gives it. */
+export function gitBlobId(bytes: Uint8Array): string {
+  return createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex');
 }
 
 export function isWoff2(bytes: Uint8Array): boolean {
@@ -318,9 +395,108 @@ export function parseFontFaceRules(css: string): FontFaceRule[] {
   return rules;
 }
 
-const INTER_AXES = { opsz: [14, 32], wght: [100, 900] } as const;
+/** The axes of every Inter file: Google's subsets, the full Inter and the symbol faces. */
+export const INTER_AXES = { opsz: [14, 32], wght: [100, 900] } as const;
 const INTER_FACE_COUNT = 7;
 const NOTO_SANS_KR_FACE_COUNT = 120;
+/** The full Inter, the source of Inter's symbol faces. Nothing serves it. */
+export const INTER_FULL_PATH = 'fonts/inter-full.ttf';
+const OFL_TEXT = 'SIL OPEN FONT LICENSE Version 1.1';
+
+/**
+ * The Inter instances at which two Inter files must draw a code point alike:
+ * the default (opsz 14, wght 400) and every corner of opsz 14 and 32 with
+ * wght 100, 400, 700 and 900.
+ */
+export const INTER_INSTANCES: readonly (readonly (readonly [string, number])[])[] = [
+  [],
+  ...[100, 400, 700, 900].flatMap((wght) =>
+    [14, 32].map(
+      (opsz) =>
+        [
+          ['wght', wght],
+          ['opsz', opsz],
+        ] as const,
+    ),
+  ),
+];
+
+/** One instance of INTER_INSTANCES as text, for a message. */
+export function interInstanceLabel(variations: readonly (readonly [string, number])[]): string {
+  return variations.length
+    ? variations.map(([tag, value]) => `${tag} ${value}`).join(' ')
+    : 'the default instance';
+}
+
+/** A font of a face at each of INTER_INSTANCES. */
+export function interInstanceFonts(face: hb.Face): hb.Font[] {
+  return INTER_INSTANCES.map((variations) => {
+    const font = new hb.Font(face);
+    if (variations.length) {
+      font.setVariations(variations.map(([tag, value]) => new hb.Variation(tag, value)));
+    }
+    return font;
+  });
+}
+
+/** A code point's advance and outline in a font, or null when the font does not map it. */
+export function drawnGlyph(font: hb.Font, codePoint: number): string | null {
+  const glyph = font.nominalGlyph(codePoint);
+  return glyph === undefined ? null : `${font.glyphHAdvance(glyph)} ${font.glyphToPath(glyph)}`;
+}
+
+/**
+ * The version and build an Inter file names in its name ID 5: "Version
+ * 4.001;git-66647c0bb" gives "4.001 (git-66647c0bb)".
+ */
+export function interBuild(face: hb.Face): string {
+  const name = face.getName(5, 'en') ?? '';
+  const match = /^Version (\S+?);(\S+)$/u.exec(name);
+  if (!match) throw new Error(`name ID 5 "${name}" is not "Version <version>;<build>"`);
+  return `${match[1]} (${match[2]})`;
+}
+
+/**
+ * What tells the full Inter from the build the subsets were cut from: another
+ * name ID 5, or a code point a subset maps whose outline or advance differs
+ * from the full file's at one of INTER_INSTANCES. Empty for the same build.
+ * A Google refresh of the subsets alone would otherwise mix two builds of
+ * Inter in one stack.
+ */
+export function interBuildProblems(
+  full: hb.Face,
+  subsets: readonly { readonly file: string; readonly face: hb.Face }[],
+): string[] {
+  const problems: string[] = [];
+  const fullName = full.getName(5, 'en');
+  const fullFonts = interInstanceFonts(full);
+  for (const { file, face } of subsets) {
+    const name = face.getName(5, 'en');
+    if (name !== fullName) {
+      problems.push(`${file} names "${name}" in its name ID 5, the full Inter "${fullName}"`);
+      continue;
+    }
+    const fonts = interInstanceFonts(face);
+    const differing: string[] = [];
+    // A copy: drawing outlines can grow harfbuzz's memory, which detaches a view into it.
+    for (const codePoint of [...fontCodePoints(face)].sort((left, right) => left - right)) {
+      const at = INTER_INSTANCES.findIndex((_, index) => {
+        const [subset, whole] = [fonts[index], fullFonts[index]];
+        const glyph = subset ? drawnGlyph(subset, codePoint) : null;
+        return glyph === null || !whole || glyph !== drawnGlyph(whole, codePoint);
+      });
+      if (at >= 0) {
+        differing.push(`U+${hex(codePoint)} at ${interInstanceLabel(INTER_INSTANCES[at] ?? [])}`);
+      }
+    }
+    if (differing.length) {
+      problems.push(
+        `${file} draws ${differing.length} code points unlike the full Inter: ${differing.slice(0, 4).join(', ')}`,
+      );
+    }
+  }
+  return problems;
+}
 
 async function readOptional(file: string): Promise<Buffer | null> {
   try {
@@ -343,7 +519,7 @@ async function verifyFamily(
     );
   }
   const license = await readOptional(path.join(repoRoot, family.license));
-  if (!license?.toString('utf8').includes('SIL OPEN FONT LICENSE Version 1.1')) {
+  if (!license?.toString('utf8').includes(OFL_TEXT)) {
     failures.push(`${family.family}: ${family.license} is missing or is not the OFL 1.1 text`);
   }
   const listed = new Set(family.faces.map(({ file }) => file));
@@ -389,18 +565,98 @@ async function verifyFamily(
  * Check every shipped Inter and Noto Sans KR file against the record: present,
  * WOFF2, the recorded sha256 and size, nothing unrecorded in their folders,
  * Inter unchanged from its download with its opsz and wght axes and its Latin
- * contextual alternates, and no locl lookup left in Noto Sans KR.
+ * contextual alternates, and no locl lookup left in Noto Sans KR; and the
+ * full Inter (verifyInterFull).
  */
 export async function verifyShippedFontFiles(
   repoRoot: string,
   sources?: FontSources,
-  families: readonly ('inter' | 'notoSansKr')[] = ['inter', 'notoSansKr'],
+  families: readonly ('inter' | 'interFull' | 'notoSansKr')[] = [
+    'inter',
+    'interFull',
+    'notoSansKr',
+  ],
 ): Promise<string[]> {
   const record = sources ?? (await readFontSources(repoRoot));
   const failures: string[] = [];
   if (families.includes('inter')) failures.push(...(await verifyInter(repoRoot, record.inter)));
+  if (families.includes('interFull')) {
+    failures.push(...(await verifyInterFull(repoRoot, record.interFull, record.inter)));
+  }
   if (families.includes('notoSansKr')) {
     failures.push(...(await verifyNotoSansKr(repoRoot, record.notoSansKr)));
+  }
+  return failures;
+}
+
+/**
+ * The full Inter against its record: the downloaded bytes unchanged at
+ * INTER_FULL_PATH (sha256, size and the upstream Git blob), its OFL text
+ * beside it, a TrueType file named Inter with the version the record states
+ * and Inter's opsz and wght axes, and the build of the recorded subsets
+ * (interBuildProblems).
+ */
+export async function verifyInterFull(
+  repoRoot: string,
+  full: RecordedSourceFont,
+  inter: RecordedFontFamily,
+): Promise<string[]> {
+  const failures: string[] = [];
+  if (full.file !== INTER_FULL_PATH || full.family !== 'Inter') {
+    failures.push(`${FONT_SOURCES_PATH} records the full Inter as ${full.family} ${full.file}`);
+  }
+  const license = await readOptional(path.join(repoRoot, full.license));
+  if (full.license !== inter.license || !license?.toString('utf8').includes(OFL_TEXT)) {
+    failures.push(`${full.license} is missing or is not Inter's OFL 1.1 text`);
+  }
+  const bytes = await readOptional(path.join(repoRoot, INTER_FULL_PATH));
+  if (!bytes) return [...failures, `${INTER_FULL_PATH} is missing`];
+  const digest = digestOf(bytes);
+  for (const [label, recorded] of [
+    ['source', full.source],
+    ['shipped', full.shipped],
+  ] as const) {
+    if (digest.sha256 !== recorded.sha256 || digest.bytes !== recorded.bytes) {
+      failures.push(
+        `${INTER_FULL_PATH} (${digest.bytes} B, sha256 ${digest.sha256}) differs from its ${label} digest in ${FONT_SOURCES_PATH}`,
+      );
+    }
+  }
+  if (gitBlobId(bytes) !== full.gitBlob) {
+    failures.push(`${INTER_FULL_PATH} is not the Git blob ${full.gitBlob} of its record`);
+  }
+  if (isWoff2(bytes)) {
+    failures.push(`${INTER_FULL_PATH} is WOFF2, not the downloaded TrueType file`);
+  }
+  let face: hb.Face;
+  try {
+    face = await openFontBytes(bytes);
+    if (interBuild(face) !== full.version) {
+      failures.push(`${INTER_FULL_PATH} is Inter ${interBuild(face)}, the record ${full.version}`);
+    }
+  } catch (error) {
+    return [
+      ...failures,
+      `${INTER_FULL_PATH}: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+  }
+  if (face.getName(1, 'en') !== 'Inter') failures.push(`${INTER_FULL_PATH} is not named Inter`);
+  const axes = face.getAxisInfos();
+  for (const [tag, [min, max]] of Object.entries(INTER_AXES)) {
+    const axis = axes[tag];
+    if (axis?.min !== min || axis.max !== max) {
+      failures.push(`${INTER_FULL_PATH}: axis ${tag} must span ${min}-${max}`);
+    }
+  }
+  const subsets: { file: string; face: hb.Face }[] = [];
+  for (const recorded of inter.faces) {
+    const file = `${inter.directory}/${recorded.file}`;
+    const subset = await readOptional(path.join(repoRoot, file));
+    // verifyInter reports a missing subset.
+    if (subset) subsets.push({ file, face: await openFontBytes(subset) });
+  }
+  for (const problem of interBuildProblems(face, subsets)) {
+    failures.push(`${INTER_FULL_PATH} is not the build of the subsets: ${problem}`);
   }
   return failures;
 }
@@ -659,10 +915,13 @@ export async function verifyAppFaces(
     );
   }
 
-  // fonts/app/hangul/ holds the Hangul faces, which verifyHangulFaces checks.
+  // fonts/app/hangul/ holds the Hangul faces, which verifyHangulFaces checks,
+  // and fonts/app/inter-symbols/ Inter's symbol faces, which
+  // verifyInterSymbolFaces (scripts/fonts/inter-symbol-faces.mts) checks.
   const recordedOutputs = new Set(appFaceOutputs(faces).values());
   for (const file of await listRepoFiles(repoRoot, APP_FACES_DIRECTORY)) {
     if (file.startsWith(`${HANGUL_FACES_DIRECTORY}/`)) continue;
+    if (file.startsWith(`${INTER_SYMBOL_FACES_DIRECTORY}/`)) continue;
     if (!recordedOutputs.has(file)) failures.push(`${file} is not in ${APP_FACES_PATH}`);
   }
 

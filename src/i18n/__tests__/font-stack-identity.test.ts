@@ -322,9 +322,15 @@ describe('one family per script', () => {
         ),
     },
     {
+      // But ฿ (U+0E3F), a currency sign set beside digits, which Inter's
+      // symbol faces draw in every UI.
       script: 'Thai',
       family: 'Noto Sans Thai',
-      codePoints: (): number[] => codePointsIn([[0x0e01, 0x0e5b]]),
+      codePoints: (): number[] =>
+        codePointsIn([
+          [0x0e01, 0x0e3a],
+          [0x0e40, 0x0e5b],
+        ]),
     },
     {
       script: 'Arabic letters',

@@ -131,6 +131,7 @@ const FAMILY_BY_STEM: ReadonlyMap<string, string> = (() => {
     }
   };
   add('fonts/app/inter', 'Inter');
+  add('fonts/app/inter-symbols', 'Inter');
   add('fonts/app/hangul', 'MUSIXQUARE Hangul');
   add('fonts/app/noto-sans-kr', 'Noto Sans KR');
   add('fonts/app/noto-sans-jp', 'Noto Sans JP');

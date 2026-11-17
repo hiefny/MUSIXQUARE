@@ -229,7 +229,7 @@ describe('the dev server serves the public font sheets from the source sheets', 
     expect(urls.length).toBeGreaterThan(0);
     for (const url of urls) {
       expect(url, url).toMatch(
-        /^\/fonts\/(?:app\/(?:inter|hangul|noto-sans-(?:kr|jp|sc|tc))|noto\/noto-sans-[a-z]+)\/[^/]+\.woff2$/u,
+        /^\/fonts\/(?:app\/(?:inter|inter-symbols|hangul|noto-sans-(?:kr|jp|sc|tc))|noto\/noto-sans-[a-z]+)\/[^/]+\.woff2$/u,
       );
       expect(existsSync(resolve(ROOT, url.slice(1))), url).toBe(true);
     }

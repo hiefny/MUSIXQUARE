@@ -463,13 +463,17 @@ describe('app font guard: the characters coverage requires beyond Pretendard', (
     }
   });
 
-  it('records the characters the review measured drawing differently in the Korean and English UIs', () => {
+  it('records the characters the review measured drawing differently in the Korean and English UIs, but those Inter now draws', () => {
     const recorded = new Set(
       parseCodePointList(readFileSync('scripts/fonts/uncovered-code-points.txt', 'utf8'))
         .codePoints,
     );
-    const measured = ['☺', '☻', 'ℹ', '∼', '≒', '◈', '‣', '☼', '⌂', 'ℋ', 'ℍ', 'ℝ'];
+    const measured = ['☺', '☻', 'ℹ', '∼', '≒', '◈', '⌂', 'ℋ', 'ℍ', 'ℝ'];
     expect(measured.filter((character) => !recorded.has(character.codePointAt(0) ?? 0))).toEqual(
+      [],
+    );
+    // Inter's symbol faces draw ‣ and ☼ (owner decision 2026-11-17), so they left the list.
+    expect(['‣', '☼'].filter((character) => recorded.has(character.codePointAt(0) ?? 0))).toEqual(
       [],
     );
   });

@@ -737,6 +737,87 @@ test('the press that starts a share keeps the UI touch sound, and a press while 
   await expect(option).toHaveAttribute('aria-busy', 'false');
 });
 
+/** The drawn colours of the picker's icons and the preparing spinner, once
+ *  every colour transition on the icon tiles has finished. */
+function readPickerIconColours(page: Page) {
+  return page.evaluate(async () => {
+    const tiles = [...document.querySelectorAll('#media-source-overlay .btn-icon-bg')];
+    // Reading the style starts any colour transition the last pointer move
+    // caused, so the wait below sees it.
+    for (const tile of tiles) getComputedStyle(tile).getPropertyValue('color');
+    await Promise.all(
+      tiles.flatMap((tile) =>
+        tile.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+      ),
+    );
+    const fill = (selector: string) => {
+      const svg = document.querySelector(`#media-source-overlay ${selector} .btn-icon-bg > svg`);
+      return svg ? getComputedStyle(svg).fill : null;
+    };
+    const spinner = document.querySelector('#btn-system-audio .system-audio-loading-spinner');
+    return {
+      local: fill('.file-select-btn:first-of-type'),
+      youtube: fill('.file-select-btn:has(.btn-icon-bg.youtube)'),
+      system: fill('#btn-system-audio'),
+      spinner: spinner ? getComputedStyle(spinner).color : null,
+    };
+  });
+}
+
+// Owner decision 2026-11-17: the picker's options already lighten their
+// surface under the mouse, so their icons keep their own colour there, in the
+// dark theme as in the light one, and the preparing spinner keeps it under the
+// mouse that pressed the option. The YouTube mark stays brand red.
+for (const theme of ['dark', 'light'] as const) {
+  test.describe(`media picker icons in the ${theme} theme`, () => {
+    test.use({ colorScheme: theme });
+
+    test('keep their own colour under the mouse and while pressed, the preparing spinner included', async ({
+      page,
+    }) => {
+      await injectPeerServer(page);
+      await installSyntheticSystemAudio(page);
+      await useAnonymousAccountSession(page);
+      await setupHostAndStart(page);
+      await navigateToTab(page, 'play');
+      await holdSyntheticSystemAudioPicker(page);
+      const { option } = await openSystemAudioOption(page);
+      const local = page.locator('#media-source-overlay .file-select-btn').first();
+      await page.mouse.move(1, 1);
+      const rest = await readPickerIconColours(page);
+      expect(rest.local).toBe(rest.system);
+      expect(rest.youtube).toBe('rgb(255, 0, 51)');
+
+      await local.hover();
+      expect(await readPickerIconColours(page)).toMatchObject({
+        local: rest.local,
+        youtube: rest.youtube,
+      });
+
+      // Held down, then released on the card's empty top corner, so the
+      // press opens no file dialog and reaches no option.
+      await page.mouse.down();
+      expect((await readPickerIconColours(page)).local).toBe(rest.local);
+      const card = (await page.locator('#media-source-overlay .setup-card').boundingBox())!;
+      await page.mouse.move(card.x + 6, card.y + 6);
+      await page.mouse.up();
+
+      await option.hover();
+      expect((await readPickerIconColours(page)).system).toBe(rest.system);
+
+      await option.click();
+      await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+      await expect(option).toHaveAttribute('aria-busy', 'true');
+      await option.hover();
+      // The spinner draws with the icon's colour, so it matches the resting icon.
+      expect((await readPickerIconColours(page)).spinner).toBe(rest.system);
+
+      await cancelHeldSystemAudioPicker(page);
+      await expect(option).toHaveAttribute('aria-busy', 'false');
+    });
+  });
+}
+
 test('a PRO owner sees the preparing label for the whole start and, after a cancel, until the room releases the lease', async ({
   page,
 }) => {

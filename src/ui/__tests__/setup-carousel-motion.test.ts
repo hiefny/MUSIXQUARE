@@ -274,6 +274,22 @@ describe('onboarding carousel motion preference', () => {
     expect(mocks.setManagedTimer).not.toHaveBeenCalled();
   });
 
+  it('lifts a guard left on a boot that has already failed', () => {
+    // The guard's rules outrank the failure surface's: left on a failed root,
+    // they hide Retry again until the stylesheet's own 15 s reveal.
+    document.documentElement.className = 'setup-boot-failed setup-boot-block';
+    document.body.innerHTML = '<div id="setup-overlay"></div>';
+
+    showSetupOverlay();
+
+    expect(document.documentElement.classList.contains('setup-boot-failed')).toBe(true);
+    expect(document.documentElement.classList.contains('setup-boot-block')).toBe(false);
+    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
+    expect(document.getElementById('setup-overlay')?.classList.contains('active')).toBe(false);
+    expect(mocks.animateTransition).not.toHaveBeenCalled();
+    expect(mocks.setManagedTimer).not.toHaveBeenCalled();
+  });
+
   it('exposes buttons/current state and hides inactive slides from interaction', async () => {
     const markup = await readFile('index.html', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');

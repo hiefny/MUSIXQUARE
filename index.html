@@ -140,15 +140,16 @@
           boot-splash-rise 0.3s ease-out forwards;
       }
 
-      /* The page's own background, which iOS paints the strip with, keeps the
-         splash's colour in the installed app: on a refresh the app stylesheet
-         gave html and body the app's --bg near the end of the boot while the
-         held splash was still pure black or white, and that band showed at the
-         home indicator (owner report, 2026-11-17). The root takes the splash's
+      /* The page's own background, which iOS paints the strip with (inferred),
+         keeps the splash's colour in the installed app: on a refresh, once the
+         app stylesheet applied, html and body took the app's --bg under the
+         still-held pure black or white splash, and that band showed at the home
+         indicator (owner report, 2026-11-17). The root takes the splash's
          colour condition for condition (data-theme first, the device's scheme
          only without one) and holds it for as long as data-boot-hold lasts;
-         style.css lets body inherit it there (its states layer), since WebKit
-         paints body's background over the root's. Animations, because one
+         style.css lets body inherit it there (its states layer), since the
+         page colour WebKit reports for the area outside the page puts body's
+         background over the root's. Animations, because one
          outranks every normal declaration, and the build lowers style.css's
          own html background into selectors this sheet cannot outrank. */
       html[data-boot-installed] {
@@ -174,7 +175,8 @@
       }
 
       /* Then it rises with the splash: keyed as the splash's rise, on its
-         duration and curve, so the two match on every frame. With no fill, so
+         duration and curve, so the two match on every frame once the app
+         stylesheet has applied. With no fill, so
          style.css's own background (which follows theme and contrast changes)
          is back once it ends. It weighs as much as the hold, so it comes after
          it: boot failure is never held. */

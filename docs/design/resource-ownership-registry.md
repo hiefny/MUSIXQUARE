@@ -4531,9 +4531,10 @@ entry needs the owner's acceptance and is not implied by this registry.
     fill of `--boot-splash-strip` (the splash's installed colour, condition for condition), for
     exactly as long as `data-boot-hold` lasts, from the first frame and before any stylesheet;
     then `boot-splash-root-rise`, from that colour with no fill, keyed as the splash's rise (once
-    nothing holds it, or boot fails), so the page's background matches the splash on every frame
-    and the stylesheet's own `var(--bg)` is back, following theme and contrast changes, once it
-    ends. Both are animations because an animation outranks every normal declaration, and the
+    nothing holds it, or boot fails), so, once the app stylesheet has applied, the page's
+    background matches the splash on every frame and the stylesheet's own `var(--bg)` is back,
+    following theme and contrast changes, once it ends. Both are animations because an animation
+    outranks every normal declaration, and the
     build lowers `css/style.css`'s html background into selectors no plain rule here outranks.
     `css/style.css`'s `html[data-boot-installed] body { background-color: inherit }` in
     `@layer states` (which the lowering weighs above body's base and desktop backgrounds) lets

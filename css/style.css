@@ -13049,7 +13049,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
 @layer states {
   /* In the installed iOS app body paints the root's background: iOS paints
      the strip under a short first screen with the page's background, body's
-     over the root's, and the boot splash sheet (index.html) holds the root's
+     over the root's (inferred), and the boot splash sheet (index.html) holds the root's
      on the splash's colour while the splash holds and raises it with the
      splash (owner report 2026-11-17: the app's --bg showed at the strip near
      the end of loading). Otherwise the root's is var(--bg) like body's own, so

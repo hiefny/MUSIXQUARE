@@ -358,6 +358,52 @@ describe('one family per script', () => {
   });
 });
 
+describe("Inter's symbols", () => {
+  let faces: FaceResolver;
+
+  beforeAll(async () => {
+    faces = await readFaceResolver(ROOT, APP_FONT_SHEETS);
+  }, 60_000);
+
+  /** The family that draws a character in every UI and Han order, by family, with where. */
+  function familiesOf(character: string): Map<string, string[]> {
+    const codePoint = character.codePointAt(0) ?? 0;
+    const families = new Map<string, string[]>();
+    for (const { code, hanOrder } of everyState) {
+      const family = faces.faceFor(uiStack(code, hanOrder), codePoint)?.family ?? 'a device font';
+      families.set(family, [...(families.get(family) ?? []), `${code} (${String(hanOrder)})`]);
+    }
+    return families;
+  }
+
+  // Owner decision 2026-11-17: Latin and the symbols Inter has in Inter's own
+  // forms. The player's "≤256 kbps · DISPLAY" and "≈320 kbps · MP3", the help
+  // lists' arrows, and the marks and shapes of chat and track titles drew from
+  // Noto Sans KR or JP (or a device font) while ± × ÷ ↑ ↓ beside them drew
+  // from Inter.
+  it.each([...'≤≥≈≠√∞→←↔⇒★☆✓✗※‼⁉‣‡‰―‥℃Ⅱ⅓⁴₂⌘■●▲▶', '\u{202F}'])(
+    'draws %s with Inter in every UI and Han order',
+    (character) => {
+      expect(Object.fromEntries(familiesOf(character)), character).toEqual({
+        [INTER]: everyState.map(({ code, hanOrder }) => `${code} (${String(hanOrder)})`),
+      });
+    },
+  );
+
+  // Owner decision 2026-11-18: the enclosed series keep one family (① to ⑨
+  // and Ⓐ to Ⓩ are in Inter, ⑩ and ⓐ are not), and ❤ ↩ ↪ ⏏ keep the device
+  // font that draws them today (a phone may show them as color emoji).
+  it.each([...'①⑨⑩⓪Ⓐⓐ➀➉❤↩↪⏏', '\u{1F130}'])('leaves %s off Inter', (character) => {
+    expect([...familiesOf(character).keys()], character).not.toContain(INTER);
+  });
+
+  it('leaves ♪, ∼ and ≒ where they are, since the full Inter lacks them', () => {
+    expect([...familiesOf('♪').keys()]).not.toContain(INTER);
+    expect([...familiesOf('∼').keys()]).toEqual(['a device font']);
+    expect([...familiesOf('≒').keys()]).toEqual(['a device font']);
+  });
+});
+
 describe('detected Japanese and Chinese user text', () => {
   const orderRules = stacks.rules.filter((rule) =>
     rule.selectors.some((selector) => selector.includes('user-text-font')),

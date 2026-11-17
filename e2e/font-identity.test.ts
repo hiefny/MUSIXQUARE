@@ -6,13 +6,17 @@
  * The same content draws the same in the Korean and the English UI: the same
  * self-hosted face for every character, the same widths and the same pixels.
  * The fixture is chat in many scripts (Korean, Japanese, Chinese, Han without
- * a language marker, Russian and Greek, Thai, Arabic, the marks Inter lacks
- * ※ ― ‥ ‰ ‼ ⁉, arrows and symbols, parenthesized and circled Hangul, a long
+ * a language marker, Russian and Greek, Thai, Arabic, the marks Inter's Google
+ * subsets lack ※ ― ‥ ‰ ‼ ⁉, arrows and symbols, the player's bitrate labels
+ * with more of Inter's symbols, parenthesized and circled Hangul, a long
  * wrapping line, emoji) and a file track whose name arrived decomposed (NFD),
- * in the player and the playlist. One line holds symbols no self-hosted face
- * draws, which a device font draws by page language; it stays out of the
- * identity comparison until the owner decides on a symbol face, and the test
- * checks that they still draw with a device face, so a fix shows here.
+ * in the player and the playlist. Inter's symbol faces (owner decisions
+ * 2026-11-17 and 2026-11-18) draw those marks and symbols, so each comes from
+ * Inter alone, and no face may end in error (OTS refuses a face it cannot
+ * parse). One line holds symbols no self-hosted face draws, which a device
+ * font draws by page language; it stays out of the identity comparison, and
+ * the test checks that they still draw with a device face, so a fix shows
+ * here.
  * It holds for a browser that lists Korean first and for one that lists
  * Japanese first, which changes the startup Han order of both UIs alike.
  *
@@ -55,10 +59,24 @@ type UiLanguage = 'ko' | 'en';
  * font by page language, so the Korean and English UIs draw them differently
  * (the review measured ☺ in Segoe UI Symbol and Arial on Windows); see the
  * report's owner questions. Remove this line from the exclusion once a face
- * draws them.
+ * draws them. (‣ left it when Inter's symbol faces came.)
  */
-const OPEN_SYMBOL_SPLIT = '☺ ℹ ∼ ◈ ‣';
+const OPEN_SYMBOL_SPLIT = '☺ ℹ ∼ ◈';
 const OPEN_SYMBOLS = [...OPEN_SYMBOL_SPLIT].filter((character) => character.trim());
+
+/**
+ * The player's subtitles for system audio and a local file
+ * (formatSystemAudioProfileLabel, getAverageBitrateLabel), with more of the
+ * symbols Inter's symbol faces draw: punctuation, arrows, math, letterlike,
+ * fractions, super- and subscripts, shapes and technical symbols.
+ */
+const INTER_SYMBOL_LINE = '≤256 kbps · DISPLAY ≈320 kbps ‐ ‣ ⇒ ≠ ℃ Ⅱ ⅓ x⁴ H₂O ☆ ✓ ⌘ ■';
+/**
+ * Graphemes the full Inter draws and its Google subsets lack: Inter alone
+ * draws them (owner decision 2026-11-17), where Noto Sans KR or JP, or a
+ * device font, drew them beside Inter's ± × ÷ ↑ ↓.
+ */
+const INTER_SYMBOLS: ReadonlySet<string> = new Set([...'≤≈‐‣⇒≠℃Ⅱ⅓⁴₂☆✓⌘■※―‥‰‼⁉→★']);
 
 /**
  * Graphemes whose probe may report no face: none while each probe is its own
@@ -77,6 +95,7 @@ const CHAT = [
   'مرحبا بالجميع',
   '※ 공지 ― 아‥ 100‰ 정말‼ 왜⁉',
   'Intro -> Outro 3x4 1:30 → ≈ ♪ ★',
+  INTER_SYMBOL_LINE,
   // Hangul outside the Hangul blocks: ㈜ from MUSIXQUARE Hangul, ㉠ (which
   // Pretendard lacks) from Noto Sans KR, never a JP-first face.
   '㈜카카오 ㉠ ㅋ 한',
@@ -396,6 +415,14 @@ function ruleBreaks(drawn: Drawn, exempted: string[] = []): string[] {
       if (faces.some(({ familyName }) => /pretendard/iu.test(familyName))) {
         breaks.push(`${key} '${grapheme}': Pretendard`);
       }
+      // Before the emoji skip: ‼ and ⁉ without a variation selector are text.
+      if (INTER_SYMBOLS.has(grapheme)) {
+        const [face] = faces;
+        if (!(faces.length === 1 && face?.isCustomFont && /^Inter/u.test(face.familyName))) {
+          breaks.push(`${key} '${grapheme}' should be Inter: ${names.join(', ')}`);
+        }
+        continue;
+      }
       if (/\p{Extended_Pictographic}/u.test(grapheme)) continue;
       const covered = [...grapheme].every(
         (character) => !UNCOVERED.has(character.codePointAt(0) ?? 0),
@@ -488,6 +515,16 @@ async function drawFixture(
       })),
     );
     const chat = await readDrawn(page);
+    // A face OTS refuses (a glyf table of no bytes, say) stays in error and
+    // leaves its characters to the next family.
+    expect(
+      await page.evaluate(() =>
+        [...document.fonts]
+          .filter((face) => face.status === 'error')
+          .map((face) => `${face.family} ${face.unicodeRange}`),
+      ),
+      'faces in error',
+    ).toEqual([]);
 
     const root = await page.evaluate(() => ({
       hanOrder: document.documentElement.getAttribute('data-mxqr-han-order'),

@@ -6,8 +6,11 @@
  * Google's v40 shards with the Korean locl lookup removed
  * (scripts/fonts/build-noto-kr-nolocl.mts), so a mark next to Hangul takes the
  * same glyph in the Korean and the English UI. The record keeps the Google
- * URL and the sha256 of both the downloaded and the shipped bytes.
+ * URL and the sha256 of both the downloaded and the shipped bytes. It also
+ * records the full Inter (fonts/inter-full.ttf), the same build as the
+ * subsets, which Inter's symbol faces are cut from and nothing serves.
  */
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -143,6 +146,47 @@ describe('self-hosted Inter and Noto Sans KR files', () => {
     const latin = await openFontFile(join(ROOT, inter.directory, 'inter-latin.woff2'));
     // The release owner kept Inter's default contextual alternates ('->' as an arrow, 3x4 as 3×4).
     expect(fontLayoutFeatures(latin).has('calt')).toBe(true);
+  });
+
+  it('records the full Inter the symbol faces are cut from: its download, its bytes and the build of the subsets', async () => {
+    // Read raw: the record's own reader is what this pins.
+    const record = JSON.parse(await readFile(join(ROOT, 'fonts/font-sources.json'), 'utf8')) as {
+      interFull?: unknown;
+    };
+    const digest = {
+      sha256: '29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031',
+      bytes: 876_576,
+    };
+    expect(record.interFull).toEqual({
+      family: 'Inter',
+      version: '4.001 (git-66647c0bb)',
+      url: 'https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf',
+      upstream: 'github.com/google/fonts ofl/inter/Inter[opsz,wght].ttf',
+      gitBlob: '047c92f6e2212473dc436020afed689527076d44',
+      license: 'fonts/INTER_LICENSE.txt',
+      file: 'fonts/inter-full.ttf',
+      processing: expect.stringContaining('None.'),
+      source: digest,
+      shipped: digest,
+    });
+    const bytes = await readFile(join(ROOT, 'fonts/inter-full.ttf'));
+    expect({ sha256: sha256Hex(bytes), bytes: bytes.byteLength }).toEqual(digest);
+    // The upstream repository's id for the file, which the URL on main does not pin.
+    expect(
+      createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex'),
+    ).toBe('047c92f6e2212473dc436020afed689527076d44');
+    const full = await openFontFile(join(ROOT, 'fonts/inter-full.ttf'));
+    expect(full.getName(5, 'en')).toBe('Version 4.001;git-66647c0bb');
+    const axes = full.getAxisInfos();
+    expect([axes.opsz?.min, axes.opsz?.max, axes.wght?.min, axes.wght?.max]).toEqual([
+      14, 32, 100, 900,
+    ]);
+    // The build Google's subsets were cut from.
+    const { inter } = await readFontSources(ROOT);
+    for (const face of inter.faces) {
+      const subset = await openFontFile(join(ROOT, inter.directory, face.file));
+      expect(subset.getName(5, 'en'), face.file).toBe('Version 4.001;git-66647c0bb');
+    }
   });
 
   it('carries the Inter license next to the files', async () => {

@@ -22,10 +22,11 @@
  * that the two are equal in every face. Context B serves the app's Inter,
  * Hangul and CJK sheets without the three overrides (size-adjust stays) and
  * must measure what context A measures with the shipped sheets:
- * - the height and baseline of Latin, Hangul, mixed, kana and Han lines at 13,
- *   14.5, 15 and 28 px in weights 400 and 700, drawn by Inter, MUSIXQUARE
- *   Hangul, Noto Sans KR and Noto Sans JP (but the recorded 1 px of the kana
- *   and Han lines at 14.5 px);
+ * - the height and baseline of Latin, Hangul, mixed, kana, Han and symbol
+ *   lines at 13, 14.5, 15 and 28 px in weights 400 and 700, drawn by Inter,
+ *   MUSIXQUARE Hangul, Noto Sans KR and Noto Sans JP (but the recorded 1 px
+ *   of the kana and Han lines at 14.5 px); the symbol line (≤ ※ ★ → ℃) is
+ *   Inter's alone since its symbol faces, so it keeps the Latin box;
  * - the title of every tab header, with the Playlist title in its switch
  *   button as it shows when the room has more than one playlist.
  *
@@ -74,6 +75,9 @@ const SAMPLES = {
   mixed: 'Night Drive 밤의 드라이브',
   kana: 'かなカナのうた',
   han: '漢字海返曜花雪',
+  // The player's system audio subtitle and symbols of Inter's symbol faces
+  // (owner decision 2026-11-17), which Noto Sans KR drew before.
+  symbols: '≤256 kbps · ※ ★ → ℃',
 } as const;
 const SIZES = [13, 14.5, 15, 28] as const;
 const WEIGHTS = [400, 700] as const;
@@ -420,6 +424,7 @@ test.describe('line boxes without the metric overrides', () => {
       mixed: ['Inter', 'MUSIXQUARE Hangul'],
       kana: ['Noto Sans JP'],
       han: ['Noto Sans KR'],
+      symbols: ['Inter'],
     });
     expect(withoutOverrides?.faces).toEqual(shipped?.faces);
     expect(withoutOverrides?.boxes, 'line boxes without the overrides').toEqual({

@@ -16,8 +16,11 @@
  * its input only in head, hhea and OS/2, but Inter's latin face, the one that
  * holds the digits 0-9: its cmap maps them to the glyphs Inter's tnum gives
  * them, zero.tf to nine.tf, so every digit in the app takes one advance (owner
- * decision 2026-11-05). This test reads the tables itself, not through the
- * generator's modules.
+ * decision 2026-11-05). Inter's symbol faces (owner decision 2026-11-17) are
+ * not copies of an input: scripts/fonts/build-inter-symbol-faces.mts cuts them
+ * from the full Inter with the same box baked in, and fonts/inter-symbol-faces.json
+ * records them (inter-symbol-faces.test.ts compares them with the full Inter).
+ * This test reads the tables itself, not through the generator's modules.
  */
 import { readFile, readdir } from 'node:fs/promises';
 import { join, posix, resolve } from 'node:path';
@@ -34,6 +37,7 @@ import { CJK_FACE_METRICS, INTER_FACE_METRICS } from '../font-metrics.ts';
 
 const ROOT = resolve('.');
 const RECORD_PATH = 'fonts/app-faces.json';
+const SYMBOL_RECORD_PATH = 'fonts/inter-symbol-faces.json';
 const OUTPUT_ROOT = 'fonts/app';
 /** MVAR tags that would vary the line box or the win metrics across instances. */
 const LINE_METRIC_MVAR_TAGS = ['hasc', 'hdsc', 'hlgp', 'hcla', 'hcld'];
@@ -57,19 +61,21 @@ type FaceMetrics = typeof INTER_FACE_METRICS;
  * whether the face that holds the digits maps them to its tabular glyphs.
  */
 const BAKED_FAMILIES = [
+  // Google's seven subsets and the seven symbol faces cut from the full Inter.
   {
     id: 'font-inter',
     metrics: INTER_FACE_METRICS,
     win: [2269, 660],
-    faces: 7,
+    faces: 14,
     tabularDigits: true,
   },
-  // 53 of 120: the shards that held only Hangul left with it (MUSIXQUARE Hangul).
+  // 52 of 120: the shards that held only Hangul left with it (MUSIXQUARE
+  // Hangul), and #113 (▲ ▶) with the symbol faces.
   {
     id: 'font-noto-kr',
     metrics: CJK_FACE_METRICS,
     win: [1160, 288],
-    faces: 53,
+    faces: 52,
     tabularDigits: false,
   },
   {
@@ -79,11 +85,12 @@ const BAKED_FAMILIES = [
     faces: 120,
     tabularDigits: false,
   },
+  // 94 of 95: #91 held only symbols Inter's symbol faces draw.
   {
     id: 'font-noto-sc',
     metrics: CJK_FACE_METRICS,
     win: [1160, 288],
-    faces: 95,
+    faces: 94,
     tabularDigits: false,
   },
   {
@@ -132,6 +139,12 @@ interface AppFacesRecord {
   readonly note: string;
   readonly tools: Readonly<Record<string, string>>;
   readonly families: readonly RecordFamily[];
+}
+
+/** fonts/inter-symbol-faces.json, as far as this test reads it. */
+interface SymbolFacesRecord {
+  readonly directory: string;
+  readonly faces: readonly { file: string; sha256: string; bytes: number }[];
 }
 
 interface SfntTable {
@@ -326,6 +339,18 @@ async function readRecord(): Promise<AppFacesRecord | null> {
   }
 }
 
+async function readSymbolRecord(): Promise<SymbolFacesRecord | null> {
+  try {
+    return JSON.parse(await readFile(join(ROOT, SYMBOL_RECORD_PATH), 'utf8')) as SymbolFacesRecord;
+  } catch {
+    return null;
+  }
+}
+
+/** The repository paths of Inter's symbol faces, which have no input file. */
+const symbolPaths = (symbols: SymbolFacesRecord | null): Set<string> =>
+  new Set((symbols?.faces ?? []).map(({ file }) => `${symbols?.directory}/${file}`));
+
 async function listFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
   let entries;
@@ -357,9 +382,11 @@ function tally<T>(faces: readonly Face[], summary: (face: Face) => T): [T, numbe
 
 const faces: Face[] = [];
 let record: AppFacesRecord | null = null;
+let symbols: SymbolFacesRecord | null = null;
 
 beforeAll(async () => {
   record = await readRecord();
+  symbols = await readSymbolRecord();
   for (const { id, metrics, win } of BAKED_FAMILIES) {
     const sheet = sheetOf(id);
     const css = await readFile(join(ROOT, sheet.path), 'utf8');
@@ -469,12 +496,21 @@ describe('the line box baked into the app faces', () => {
     }
   });
 
-  it('serves every face from a recorded copy under fonts/app', async () => {
+  it('serves every face from a recorded copy under fonts/app, or from a recorded symbol face', async () => {
     expect(record, `${RECORD_PATH} is missing`).not.toBeNull();
+    expect(symbols, `${SYMBOL_RECORD_PATH} is missing`).not.toBeNull();
     const outputs = new Map<string, RecordDigest>();
     for (const family of record?.families ?? []) {
       for (const face of family.faces) outputs.set(`${family.output}/${face.file}`, face.output);
     }
+    // Inter's symbol faces: cut from the full Inter with the Inter box baked in.
+    for (const { file, sha256, bytes } of symbols?.faces ?? []) {
+      outputs.set(`${symbols?.directory}/${file}`, { sha256, bytes });
+    }
+    expect(
+      faces.filter(({ path }) => symbolPaths(symbols).has(path)).map(({ family }) => family),
+    ).toEqual((symbols?.faces ?? []).map(() => sheetOf('font-inter').family));
+    expect(symbols?.faces.length).toBe(7);
     const unrecorded = faces
       .filter(({ path }) => !path.startsWith(`${OUTPUT_ROOT}/`) || !outputs.has(path))
       .map(({ path }) => path);
@@ -591,6 +627,9 @@ describe('the line box baked into the app faces', () => {
     }
     expect(changed).toEqual([]);
     expect(mapped).toEqual([TABULAR_DIGIT_FACE]);
-    expect(compared).toBe(faces.length);
+    // Every face but Inter's symbol faces, which have no input file.
+    const cut = symbolPaths(symbols);
+    expect(cut.size).toBe(7);
+    expect(compared).toBe(faces.filter(({ path }) => !cut.has(path)).length);
   }, 180_000);
 });

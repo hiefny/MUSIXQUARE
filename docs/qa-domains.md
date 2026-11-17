@@ -1206,7 +1206,7 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **대표 구현:** [src/i18n/locale-fonts.ts](../src/i18n/locale-fonts.ts), [src/i18n/app-font-contract.ts](../src/i18n/app-font-contract.ts), [src/i18n/startup-han-order.ts](../src/i18n/startup-han-order.ts), [src/ui/user-text-font.ts](../src/ui/user-text-font.ts), [css/fonts/app/](../css/fonts/app/), [fonts/README.md](../fonts/README.md)
 
-**기존 검사 진입점:** [e2e/rtl-player-layout.test.ts](../e2e/rtl-player-layout.test.ts), [e2e/rtl-settings-layout.test.ts](../e2e/rtl-settings-layout.test.ts), [e2e/font-identity.test.ts](../e2e/font-identity.test.ts), [src/i18n/__tests__/font-stack-identity.test.ts](../src/i18n/__tests__/font-stack-identity.test.ts), [src/i18n/__tests__/locale-fonts.test.ts](../src/i18n/__tests__/locale-fonts.test.ts), [scripts/check-app-font.mts](../scripts/check-app-font.mts)
+**기존 검사 진입점:** [e2e/rtl-player-layout.test.ts](../e2e/rtl-player-layout.test.ts), [e2e/rtl-settings-layout.test.ts](../e2e/rtl-settings-layout.test.ts), [e2e/font-identity.test.ts](../e2e/font-identity.test.ts), [e2e/font-han-turn.test.ts](../e2e/font-han-turn.test.ts), [src/i18n/__tests__/font-stack-identity.test.ts](../src/i18n/__tests__/font-stack-identity.test.ts), [src/i18n/__tests__/locale-fonts.test.ts](../src/i18n/__tests__/locale-fonts.test.ts), [scripts/check-app-font.mts](../scripts/check-app-font.mts)
 
 ## 25. 번역 기여·검토·내보내기
 

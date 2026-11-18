@@ -1382,6 +1382,16 @@ export function handOverProSystemAudioPlaybackRestore(): boolean {
   return true;
 }
 
+/**
+ * RO-21 (2026-11-18): this idle view has a post-share restore, this device's
+ * own after a Stop of a share the room had live, or a listener's. The runtime's
+ * re-apply after a start that did not go live yields to it, so the checkpoint
+ * is re-applied once.
+ */
+export function isProSystemAudioPlaybackRestoreCurrent(): boolean {
+  return playbackRestore?.isCurrent() === true;
+}
+
 /** The page is shown again: run a playback restoration retry it held back. */
 export function resumeHiddenProSystemAudioPlaybackRestore(): void {
   const retry = hiddenPlaybackRestoreRetry;

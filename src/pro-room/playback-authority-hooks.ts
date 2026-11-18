@@ -757,6 +757,48 @@ export function hasCancelledProPlaybackCheckpointRecovery(
 }
 
 /**
+ * RO-21 (2026-11-18): a system-audio share replaced this participant's
+ * playback of the committed checkpoint at `authority`'s revision, after its
+ * capture or reception stopped every medium here. Record, without the
+ * endpoint, what that checkpoint's catch-up COMMIT (or the recovery of it
+ * after a cancelled newer PREPARE) would have recorded before the share's
+ * stop: the revision counts as committed here, and its owed recovery is spent.
+ * The share's end then re-arms a video from it, and a file stays stopped.
+ * Refused while a preparation owns the endpoint, for an older revision, once a
+ * newer authority was seen, or for an applied revision with nothing owed.
+ */
+export function recordProPlaybackCheckpointReplacedByShare(
+  authority: ProPlaybackAuthorityToken,
+): boolean {
+  if (
+    !isProPlaybackAuthorityToken(authority) ||
+    authority.transitionId === null ||
+    !activeAuthorityRoomMatches(authority) ||
+    activePreparation
+  ) {
+    return false;
+  }
+  const revision = authority.basePlaybackRevision + 1;
+  if (revision === highestCommittedPlaybackRevision) {
+    if (
+      !hasCancelledProPlaybackCheckpointRecovery(authority.roomId, authority.roomEpoch, revision)
+    ) {
+      return false;
+    }
+    cancelledPreparation = null;
+    return true;
+  }
+  if (revision < highestCommittedPlaybackRevision || isOlderAuthority(authority, highestSeen)) {
+    return false;
+  }
+  highestSeen = authority;
+  cancelledPreparation = null;
+  latestApplied = authority;
+  highestCommittedPlaybackRevision = revision;
+  return true;
+}
+
+/**
  * Recover the exact committed base of a cancelled newer PREPARE. The controller
  * must continuously verify the current canonical checkpoint through isCurrent.
  * Historical highestSeen remains intact, so ordinary old frames stay rejected.

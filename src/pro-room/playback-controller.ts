@@ -37,6 +37,7 @@ import {
   prepareCurrentProPlaybackRendezvousAuthority,
   prepareProPlaybackAuthority,
   reconcileCurrentProPlaybackAuthority,
+  recordProPlaybackCheckpointReplacedByShare,
   recoverCancelledProPlaybackCheckpoint,
   rendezvousCurrentProPlaybackAuthority,
   refreshProPlaybackUiControlTimeout,
@@ -285,6 +286,7 @@ interface ProRoomPlaybackImplementation {
     }>,
   ): Promise<boolean>;
   holdCatchUpForLocalShare(): boolean;
+  settleCheckpointReplacedByShare(): void;
   startLifecycle(): void;
   stopLifecycle(): void;
   resetPlaylistRuntime(): void;
@@ -313,7 +315,8 @@ function createImplementation(
   /**
    * The newest playback revision this device knew at the last press of its own
    * share (holdCatchUpForLocalShare). It holds catch-ups only while RO-21's
-   * hold is on; the next press replaces it.
+   * hold is on, and bounds what a share that replaced the playback settles
+   * (settleCheckpointReplacedByShare); the next press replaces it.
    */
   let localSharePressRevision: number | null = null;
   let commandAuthorityGeneration = 0;
@@ -1789,6 +1792,87 @@ function createImplementation(
     return false;
   }
 
+  /**
+   * RO-21 (2026-11-18): a share replaced this device's playback after its last
+   * press (this device's own share went live, the room had it live before a
+   * Stop settled the start, or another device's share went live), and its
+   * capture or reception stopped every medium here. On eae02e897 the catch-up
+   * or recovery the press now takes over applied before that stop. Settle the
+   * checkpoint this device knew at the press as that stop left it: a catch-up
+   * of it, which the press took over or the hold refused, counts as applied
+   * without the endpoint, and the recovery of the applied checkpoint after a
+   * cancelled PREPARE is spent. The share's end then restores it under the
+   * post-share rule (the post-share or listener restore re-arms a video, and a
+   * file stays stopped) instead of the next heartbeat starting it here alone. A
+   * newer revision, a catch-up still in flight and a preparation that owns the
+   * endpoint are left as they are.
+   */
+  function settleCheckpointReplacedByShare(): void {
+    const pressRevision = localSharePressRevision;
+    const context = getState('room.context');
+    const snapshot = ports.getCanonicalSnapshot();
+    if (
+      pressRevision === null ||
+      !ports.isActive() ||
+      context.kind !== 'pro' ||
+      !context.roomId ||
+      !snapshot ||
+      snapshot.roomCode !== context.roomId
+    ) {
+      return;
+    }
+    const playback = snapshot.playback;
+    if (
+      playback.coordinatorEpoch !== context.epoch ||
+      playback.revision < 1 ||
+      playback.revision > pressRevision ||
+      playback.revision < state.lastAppliedRevision ||
+      playback.revision < state.highestKnownRevision ||
+      state.commitInFlight.has(playback.revision) ||
+      hasNewerServerPlaybackTransition(playback.revision)
+    ) {
+      return;
+    }
+    const authority = playbackAuthorityFor(
+      context.roomId,
+      context.epoch,
+      playback.revision,
+      `snapshot_${playback.revision}`,
+    );
+    if (playback.revision === state.lastAppliedRevision) {
+      if (recordProPlaybackCheckpointReplacedByShare(authority)) {
+        state.cancelledCheckpointRecovery = null;
+      }
+      return;
+    }
+    if (!recordProPlaybackCheckpointReplacedByShare(authority)) return;
+    // As the catch-up's apply would: a server transition to this revision (its
+    // PREPARE, whose preparation the press cancelled) or an older one is over,
+    // or every later re-arm of this checkpoint would wait for its COMMIT.
+    const transition = state.activeTransition;
+    if (transition && transition.event.target.revision <= playback.revision) {
+      settlePlaybackTransitionUi(transition.event.transitionId);
+      clearServerPlaybackTransition(transition);
+    }
+    rememberCommandPlayback(context.roomId, playback);
+    state.highestKnownRevision = Math.max(state.highestKnownRevision, playback.revision);
+    state.cancelledCheckpointRecovery = null;
+    state.commitGeneration += 1;
+    state.lastAppliedRevision = playback.revision;
+    state.lastAppliedUiCheckpoint = {
+      roomCode: context.roomId,
+      roomEpoch: context.epoch,
+      revision: playback.revision,
+      positionSeconds: playback.positionSeconds,
+    };
+    settleLocalPlaybackUiControlsThrough(
+      context.roomId,
+      context.epoch,
+      playback.revision,
+      playback.positionSeconds,
+    );
+  }
+
   function acceptPlaybackCommit(
     event: ProRoomPlaybackCommitEvent,
     isRequestCurrent: PlaybackCommitOwner = canonicalPlaybackCommitOwner,
@@ -3160,6 +3244,7 @@ function createImplementation(
     requestReconciliation,
     reconcile: reconcileActiveProRoomPlayback,
     holdCatchUpForLocalShare,
+    settleCheckpointReplacedByShare,
     startLifecycle,
     stopLifecycle,
     resetPlaylistRuntime,
@@ -3240,6 +3325,15 @@ export class ProRoomPlaybackController {
    */
   holdCatchUpForLocalShare(): boolean {
     return this.implementation.holdCatchUpForLocalShare();
+  }
+
+  /**
+   * RO-21: a share replaced this device's playback after its last press
+   * (runtime.ts). Settles the checkpoint known at the press as the share's
+   * stop left it, so the share's end restores it under the post-share rule.
+   */
+  settleCheckpointReplacedByShare(): void {
+    this.implementation.settleCheckpointReplacedByShare();
   }
 
   startLifecycle(): void {

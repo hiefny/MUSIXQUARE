@@ -187,6 +187,7 @@ import {
   configureProSystemAudioService,
   getProSystemAudioViewState,
   handOverProSystemAudioPlaybackRestore,
+  isProSystemAudioPlaybackRestoreCurrent,
   refreshProSystemAudioState,
   releaseLocalProSystemAudioLease,
   resetProSystemAudioService,
@@ -286,7 +287,10 @@ let visibilityReturnReconciledGeneration = -1;
  * the merged options of the re-apply passes the press stopped, or the hold
  * refused while the start was pending, and the canonical revision they were
  * for. The start's settlement spends it: a share that went live replaced the
- * playback, and a start that did not re-applies it once.
+ * playback (the controller settles what the press took over as the share's
+ * stop left it), and a start that did not re-applies it once. A share that went
+ * live in the room meanwhile narrows it to what a share's end does, and the
+ * service's post-share restore of the idle view, when it runs one, takes it.
  */
 interface OwedCheckpointReapply {
   revision: number | null;
@@ -3653,7 +3657,8 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
 // its capture for, and stops every medium, a live share included. The hold
 // keeps no state of its own: it reads the capture's own start slot and stream
 // through the audio policy boundary (the controller keeps the revision the
-// last press knew, which matters only while the hold is on).
+// last press knew, which holds catch-ups only while the hold is on and bounds
+// what a share that replaced the playback settles).
 
 function holdsCheckpointReapply(): boolean {
   return active && (isSystemAudioCaptureStartPending() || isSystemAudioCaptureActive());
@@ -3803,6 +3808,42 @@ function isOtherDeviceShareLive(view: RoomShareView): boolean {
   return view.phase === 'live' && !view.isLocalOwner;
 }
 
+/**
+ * What a re-apply owes once a share replaced the playback: what the share's
+ * end does on every device (the post-share and listener restores re-arm a
+ * video, and a file stays stopped).
+ */
+function checkpointReapplyAfterShare(
+  owed: OwedCheckpointReapply | null,
+): OwedCheckpointReapply | null {
+  return (
+    owed && {
+      revision: owed.revision,
+      youtubeOnly: true,
+      preparePaused: true,
+      visibilityRepair: owed.visibilityRepair && 'youtube',
+    }
+  );
+}
+
+/**
+ * A share went live in the room after this device's press: its own, after the
+ * capture's STOP of every medium, or another device's, whose reception stopped
+ * every medium here. It replaced the playback the press stopped, as on
+ * eae02e897, where the catch-up or recovery the press now takes over applied
+ * before that stop: the controller settles the checkpoint known at the press
+ * as that stop left it, and what the start owes narrows to what the share's
+ * end does. The share's end, or a start that did not go live, then leaves a
+ * file stopped instead of playing it on this device alone.
+ */
+function replaceCheckpointReapplyWithShare(): void {
+  playbackController.settleCheckpointReplacedByShare();
+  owedCheckpointReapply = checkpointReapplyAfterShare(owedCheckpointReapply);
+  checkpointReapplyAwaitingIdleShare = checkpointReapplyAfterShare(
+    checkpointReapplyAwaitingIdleShare,
+  );
+}
+
 function mergeOwedCheckpointReapply(
   waiting: OwedCheckpointReapply | null,
   owed: OwedCheckpointReapply,
@@ -3822,18 +3863,34 @@ function mergeOwedCheckpointReapply(
  * view is idle: now when it is, or else when the view next turns idle (the
  * share-state listener below). Another device's share can still be preparing,
  * having won the lease race, and a Stop while the share prepared settles the
- * start before the room answers its release. Another device's live share
- * leaves it to the listener restore.
+ * start before the room answers its release. A share the room had live
+ * replaced this device's playback instead, and the controller settles what the
+ * press took over as that share's stop left it: another device's live share
+ * leaves the re-apply to the listener restore, and an idle view the service
+ * restores after such a share (a Stop after the room committed this device's
+ * share live, before its start settled) to that restore.
  */
 function reapplyCheckpointOnceShareIdle(owed: OwedCheckpointReapply): void {
   if (!active) return;
   const view = getProSystemAudioViewState();
-  if (isOtherDeviceShareLive(view)) return;
+  if (isOtherDeviceShareLive(view)) {
+    // Its reception stopped this device's playback.
+    playbackController.settleCheckpointReplacedByShare();
+    return;
+  }
   if (!isRoomShareViewIdle(view)) {
     checkpointReapplyAwaitingIdleShare = mergeOwedCheckpointReapply(
       checkpointReapplyAwaitingIdleShare,
       owed,
     );
+    return;
+  }
+  if (isProSystemAudioPlaybackRestoreCurrent()) {
+    // The service restores this idle view after a share the room had live:
+    // this device's own, which a Stop ended after the room committed it live
+    // and before its start settled, or another device's. One re-apply, and
+    // that share replaced this device's playback.
+    playbackController.settleCheckpointReplacedByShare();
     return;
   }
   observeProRoomRuntimeTask(
@@ -4373,21 +4430,37 @@ bus.on('settings-sync:changed', (enabled) => {
 bus.on('system-audio:start-settled', ({ started }) => {
   const owed = owedCheckpointReapply;
   owedCheckpointReapply = null;
-  // A share that went live replaced this device's playback; its end restores
-  // the checkpoint through the post-share restore, as before.
-  if (!owed || started || !active) return;
+  if (!active) return;
+  if (started) {
+    // A share that went live replaced this device's playback after its own
+    // STOP of every medium. The controller settles what the press took over,
+    // or the hold refused, as eae02e897 left it after that STOP (applied, then
+    // stopped), and the share's end restores the checkpoint through the
+    // post-share restore, as before.
+    playbackController.settleCheckpointReplacedByShare();
+    return;
+  }
+  if (!owed) return;
   // After the settling stop's own teardown, which can still hold the capture
   // in this turn. Its release is a round trip, which the idle wait covers.
   queueMicrotask(() => reapplyCheckpointOnceShareIdle(owed));
 });
 
-// RO-21: the room's share view turning idle spends what a start that did not
-// go live still owes.
+// RO-21: a share going live in the room replaces what the press stopped, and
+// the room's share view turning idle spends what a start that did not go live
+// still owes.
 bus.on('pro-system-audio:state-changed', (view) => {
+  if (
+    active &&
+    view.phase === 'live' &&
+    (holdsCheckpointReapply() || checkpointReapplyAwaitingIdleShare !== null)
+  ) {
+    replaceCheckpointReapplyWithShare();
+  }
   const owed = checkpointReapplyAwaitingIdleShare;
   if (!owed) return;
   if (!active || isOtherDeviceShareLive(view)) {
-    // Spent with the room, or left to the listener restore.
+    // Spent with the room, or left to the listener restore after that share.
     checkpointReapplyAwaitingIdleShare = null;
     return;
   }

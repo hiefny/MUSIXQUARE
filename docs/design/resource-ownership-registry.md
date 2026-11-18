@@ -3051,24 +3051,40 @@ RO-55 accepted-exception
   before: the hold does not make it stale, its preparation normally started its load epoch before
   the press, and its commit starts none.
   What the press stopped, and what the hold refuses while the start is pending, is owed
-  (merged options and the canonical revision). The start's `system-audio:start-settled` spends it:
-  `started: true` drops it (the share replaced the playback; its end restores through the
-  post-share restore as before), and `started: false` re-applies it once
+  (merged options and the canonical revision). A share that goes live in the room after the press
+  replaces that playback: this device's own, after the capture's STOP of every medium, or another
+  device's, whose reception stops every medium here. On `eae02e897` the catch-up or recovery the
+  press now takes over had applied before that stop, and after the share every device keeps a file
+  stopped and re-arms a video. So when the room's share view turns live while the hold is on or a
+  re-apply waits (`pro-system-audio:state-changed`), and on `started: true`, the runtime
+  (`replaceCheckpointReapplyWithShare`) has the controller settle the checkpoint known at the press
+  as that stop left it (`settleCheckpointReplacedByShare`, through the hooks'
+  `recordProPlaybackCheckpointReplacedByShare`): a catch-up of it that the press took over or the
+  hold refused counts as committed without the endpoint, a server transition to it is over, and the
+  recovery of the applied checkpoint after a cancelled PREPARE is spent. What is owed narrows to
+  what the share's end does (`youtubeOnly`, `preparePaused`, a foreground repair's scope to
+  YouTube). Without it the share's end left the catch-up to the next presence heartbeat, which
+  played a file on this device alone (found by review on 2026-11-18). The start's
+  `system-audio:start-settled` spends what is owed: `started: true` drops it (its end restores
+  through the post-share restore as before), and `started: false` re-applies it once
   (`reapplyCheckpointAfterLocalShareStart`) while the room's share view is idle (initialized, no
   share preparing or live, no lease request of this device pending): in a microtask after the
   settling stop's own teardown when it already is, or else when the view next turns idle
   (`pro-system-audio:state-changed`). That wait covers a press that lost the lease race to another
   device of the owner whose share then ends without going live, and a Stop while the share still
-  prepared, which settles the start a round trip before the room answers its release. A moved
-  revision (a newer playback choice owns the endpoint), another device's share going live (the
-  service's listener restore re-applies after it) and leaving the room drop it; the next press
-  takes it over, and a re-apply that a share in the room interrupts waits for the next idle view
-  again. Applied while the return is shown it marks the return as the restore callback does; not
-  applied, a foreground repair it stood in for resumes its own retry ladder. While a live share
-  holds, a refused pass owes nothing. A newer playback choice after the press (a server
-  PREPARE/COMMIT, a track picked, a playlist advance, the demo), Stop or force-stop, a room
-  change, coordinator or capability loss, a refused or lost lease and an ended track still discard
-  the capture; Standard rooms call nothing new.
+  prepared, which settles the start a round trip before the room answers its release. A re-apply
+  waiting for the idle view yields to the service's post-share restore of that view
+  (`isProSystemAudioPlaybackRestoreCurrent`): a Stop after the room committed this device's share
+  live, before the start settled, schedules that restore, which re-arms the checkpoint once
+  (before, both re-armed it). A moved revision (a newer playback choice owns the endpoint), another
+  device's share going live (the service's listener restore re-applies after it) and leaving the
+  room drop it; the next press takes it over, and a re-apply that a share in the room interrupts
+  waits for the next idle view again. Applied while the return is shown it marks the return as the
+  restore callback does; not applied, a foreground repair it stood in for resumes its own retry
+  ladder. While a live share holds, a refused pass owes nothing. A newer playback choice after the
+  press (a server PREPARE/COMMIT, a track picked, a playlist advance, the demo), Stop or
+  force-stop, a room change, coordinator or capability loss, a refused or lost lease and an ended
+  track still discard the capture; Standard rooms call nothing new.
 - **Target single owner:** reached (`runtime.ts`); the service keeps the decision of when to
   restore.
 - **Allowed requesters:** the runtime's visibility handler, the background-return Sync, the
@@ -3081,8 +3097,10 @@ RO-55 accepted-exception
   (liveness false, no new recovery of the applied checkpoint and no new catch-up of a revision
   known at the press) while this device's own share starts or is live; the press's synchronous
   cancel of the re-apply preparation in flight (a rendezvous, the applied checkpoint's recovery,
-  or a reconciliation pass's catch-up) and hand-over of the post-share restore; the one re-apply
-  after a start that did not go live, once the room's share view is idle.
+  or a reconciliation pass's catch-up) and hand-over of the post-share restore; the settlement of
+  the checkpoint known at the press when a share in the room replaces the playback (no endpoint
+  call); the one re-apply after a start that did not go live, once the room's share view is idle,
+  unless the service's post-share restore takes that view.
 - **Deadline owner:** each ladder; the scheduler serializes them, and a marked return retires the
   foreground ladder. The hold adds no timer: it stops the foreground ladder, its wait for the idle
   share view follows the service's state events, and its re-apply is one pass, after which only a
@@ -3103,7 +3121,12 @@ RO-55 accepted-exception
   (`abortPreparedCapture`); a release whose request fails holds the re-apply until the room's
   share view turns idle (the lease's expiry); and a foreground repair or Sync that applies the
   checkpoint while the re-apply waits for the idle view does not spend it, so the checkpoint is
-  re-applied once more then. Not heard on a device. The S3 sibling found on 2026-11-18 (a
+  re-applied once more then. The settlement when a share replaces the playback leaves a catch-up
+  still in flight at that moment (for example one waiting for its release instant when the room
+  commits the share live) as it is; if it then settles unapplied, the share's end leaves its
+  revision to the next heartbeat as before. A revision this device first learns after the press
+  is not settled, so after the share the next heartbeat still plays a file on this device alone,
+  as on `eae02e897`. Not heard on a device. The S3 sibling found on 2026-11-18 (a
   reconciliation pass's catch-up of a COMMIT this device missed, still preparing at the press,
   going stale on the hold and dropping the capture) is closed by the press's catch-up cancel
   above. Left as before the hold, also not heard on a device: a catch-up the room heartbeat or a
@@ -3111,7 +3134,8 @@ RO-55 accepted-exception
   COMMIT, or preparing again inside its own flight after a failed preparation or release) still
   starts a load epoch after the read and drops the capture, as on `eae02e897`; and a catch-up the
   hold refuses with nothing owed (a press during a heartbeat's clock wait, or after such a
-  catch-up failed) waits for the next heartbeat, return or Sync once the hold ends.
+  catch-up failed) waits for the next heartbeat, return or Sync once the hold ends, unless a share
+  in the room went live meanwhile, which settles it as replaced.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/runtime-server-playback.test.ts` "joins an in-flight
     YouTube visibility pass instead of starting a second rendezvous";
@@ -3127,8 +3151,11 @@ RO-55 accepted-exception
     hide and show (a manual Sync) started, still preparing (waiting for its release) at the press,
     is cancelled in the press turn and the share starts", "S3: a room heartbeat that joins it
     before the press (comes while the share window is open) starts no catch-up until the start
-    settles", the guard "S3: a room heartbeat's own catch-up, still preparing at the press, goes on
-    and the share starts", "re-applies nothing after a newer server choice made after the press,
+    settles", "S3: a COMMIT frame of the caught-up revision that arrives before (after) the press
+    starts no catch-up of it, and the share starts", "S3: a COMMIT frame of the caught-up revision
+    that arrived before the press is applied once when the share window is cancelled", the guard
+    "S3: a room heartbeat's own catch-up, still preparing at the press, goes on and the share
+    starts", "re-applies nothing after a newer server choice made after the press,
     which still discards the capture" and "S3: a COMMIT of a newer revision that arrives after the
     press still discards the capture, and nothing re-applies";
     `src/pro-room/__tests__/playback-authority-hooks.test.ts` "the participant-local preparation
@@ -3168,7 +3195,28 @@ RO-55 accepted-exception
     checkpoint the press stopped once the other share ends without going live", "I1: after a lost
     lease race, a share that goes live leaves the re-apply to its end, once" (the listener restore)
     and "I1: Stop while the share still prepares, after the press took over the paused (playing)
-    post-share restore, re-applies it once the room answers the release".
+    post-share restore, re-applies it once the room answers the release", "I2-2: Stop after the
+    room committed the share live, before the start settled, after the press took over the paused
+    (playing) post-share restore, re-applies it once" and the guard "a publication that fails after
+    the room committed the share live, after the press took over the playing post-share restore,
+    re-arms the video once".
+  - Share replacement (the share's end, as on `eae02e897`): `runtime-local-share-hold.test.ts`
+    "I2-1: a share that goes live over the catch-up of a missed playing file that a hide and show
+    (a manual Sync) started leaves the file stopped when it ends", "I2-1: a share that goes live
+    over the recovery of the applied playing file that a manual Sync (the post-share restore)
+    started leaves the file stopped when it ends", "I2-1: Stop after the room committed the share
+    live over the catch-up of a missed playing file, before the start settled, leaves the file
+    stopped", "I2-1: after a lost lease race over the catch-up of a missed playing file, a share
+    the other device takes live leaves the file stopped when it ends" (and "… takes live and ends
+    while the share window is open leaves the file stopped"), "I2-1: a publication that fails after
+    the room committed the share live over the catch-up of a missed playing file leaves the file
+    stopped", and the guards "I2-1: a share that goes live over the catch-up of a missed playing
+    video re-arms the video once when it ends" and "S3: a share that goes live over a catch-up that
+    joined a server PREPARE this device prepares re-arms the video once when it ends";
+    `playback-authority-hooks.test.ts` "the checkpoint a share replaced" (the catch-up the press
+    cancelled is recorded as committed without the endpoint and re-armed from, the recovery owed
+    after a cancelled PREPARE is spent, and nothing is recorded while a preparation owns the
+    endpoint, for an older revision or once a newer authority was seen).
 - **Status:** `owner-in-place`. Exception RO-41 was deleted with C4-13 (Phase 5 train 5B).
 
 ### RO-22 Waiting service worker activation

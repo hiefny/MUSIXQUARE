@@ -11,7 +11,10 @@
  * none of them may prepare (its playTrack would stop every medium, the share
  * included). The same holds for such a pass's catch-up of a newer revision
  * this device already knew of at the press (a COMMIT it missed); a newer
- * revision it learns of after the press still discards the capture.
+ * revision it learns of after the press still discards the capture. A share
+ * that goes live in the room after the press replaces what the press stopped:
+ * when it ends, a video is re-armed once and a file stays stopped, as on every
+ * other device of the room.
  *
  * The real capture start, bridge, service, runtime, playback controller and
  * authority hooks run here. The media endpoint is a fake that moves the load

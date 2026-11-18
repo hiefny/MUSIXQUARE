@@ -12,7 +12,8 @@
  * through or move, and any of those keys that moves focus), and never only
  * because a click, a tap, a play/pause or typing key, a key that only
  * scrolls, a Tab that a text field keeps for itself, or a window opening
- * moved focus. Keyboard navigation keeps every ring, into dialogs and back.
+ * moved focus, even a window that opens while such a key is still down.
+ * Keyboard navigation keeps every ring, into dialogs and back.
  * e2e/keyboard-focus-ring-spatial-navigation.test.ts covers arrows that move
  * focus as a TV remote does.
  */
@@ -58,6 +59,19 @@ const leave = (page: Page) => page.locator('#btn-dialog-ok');
 /** Opens the leave confirmation from script, with no input of its own. */
 async function openLeaveDialogByItself(page: Page): Promise<void> {
   await page.evaluate(() => document.getElementById('app-logo')!.click());
+  await expect(dialog(page)).toBeVisible();
+}
+
+/**
+ * Opens the leave confirmation from a task of the page's own, queued now. A
+ * window that opens by itself (an update, an audio recovery prompt) opens
+ * from such a task, a timer's or a message's, while page.evaluate runs
+ * ahead of the tasks the page has already queued, a keydown's among them.
+ */
+async function openLeaveDialogFromPageTask(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.setTimeout(() => document.getElementById('app-logo')!.click(), 0);
+  });
   await expect(dialog(page)).toBeVisible();
 }
 
@@ -318,6 +332,46 @@ test.describe('focus rings follow keyboard navigation', () => {
     }
     await openLeaveDialogByItself(page);
     expect(await ringOn(page, stay(page)), 'the next window').toMatchObject({ ring: false });
+  });
+
+  test('a dialog that opens by itself while a caret key, a completion Tab or a page key is still down draws no ring', async ({
+    page,
+  }) => {
+    await openRoomWithTrack(page, DESKTOP);
+    const input = page.locator('#chat-input');
+
+    // The window opens in a task after the key's own and focuses its control
+    // (src/ui/dom.ts at once, src/ui/dialog.ts from a timer), all before the
+    // key is up (review finding H-6).
+    await input.click();
+    await page.keyboard.type('See you');
+    await page.keyboard.down('ArrowLeft');
+    await openLeaveDialogFromPageTask(page);
+    expect(await ringOn(page, stay(page)), 'a caret key held').toMatchObject({ ring: false });
+    await page.keyboard.up('ArrowLeft');
+    await closeDialogByPointer(page);
+
+    await input.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('/us');
+    await page.keyboard.down('Tab');
+    await expect(input).toContainText('/users');
+    await openLeaveDialogFromPageTask(page);
+    expect(await ringOn(page, stay(page)), 'a completion Tab held').toMatchObject({
+      ring: false,
+    });
+    await page.keyboard.up('Tab');
+    await closeDialogByPointer(page);
+
+    // Held on a clicked track with nothing to scroll, the key repeats.
+    const track = page.locator('#playlist-ui button.track-name').first();
+    await track.click();
+    await expect(track).toBeFocused();
+    for (let press = 0; press < 3; press += 1) await page.keyboard.down('PageDown');
+    await openLeaveDialogFromPageTask(page);
+    expect(await ringOn(page, stay(page)), 'a page key held').toMatchObject({ ring: false });
+    await page.keyboard.up('PageDown');
+    await closeDialogByPointer(page);
   });
 
   test('a keyboard reorder started after a click rings the row handle once an arrow moves it', async ({

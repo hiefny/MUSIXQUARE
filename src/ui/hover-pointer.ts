@@ -180,7 +180,7 @@ function movesWithArrows(element: Element): boolean {
 
 /**
  * How a key press counts (see the header): it navigates; it navigates if focus
- * moves while it is down (`moves-focus`); it is a Tab in a text field, which
+ * moves in its turn (`moves-focus`); it is a Tab in a text field, which
  * navigates unless the field keeps it (`field-tab`); or it does not count.
  */
 function countKey(event: KeyboardEvent): 'navigates' | 'moves-focus' | 'field-tab' | null {

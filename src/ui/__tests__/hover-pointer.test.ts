@@ -637,7 +637,7 @@ describe('keyboard navigation owner', () => {
         document.dispatchEvent(pointer('pointerdown', 'mouse'));
         landing.blur();
         press(target, key);
-        // The key's default action or a handler moves focus while it is down.
+        // The key's default action or a handler moves focus in its own task.
         landing.focus();
         releaseKey(target, key);
         expect(keyboardNavigation(), `${key} on ${label}`).toBe('on');

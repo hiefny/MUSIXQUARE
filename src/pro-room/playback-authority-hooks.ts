@@ -448,8 +448,10 @@ let activePreparation: {
   promise: Promise<ProPlaybackPrepareResult>;
   cancelWait: () => void;
   /**
-   * Made by prepareCurrentProPlaybackRendezvousAuthority: a participant-local
-   * re-apply of the committed revision, never a server PREPARE.
+   * A participant-local re-apply of the checkpoint this device already
+   * applied, never a server PREPARE or a COMMIT's catch-up: the rendezvous
+   * prepareCurrentProPlaybackRendezvousAuthority arms, or the recovery of that
+   * checkpoint after a newer PREPARE was cancelled.
    */
   participantLocal: boolean;
 } | null = null;
@@ -706,12 +708,14 @@ export function cancelProPlaybackPreparation(authority?: ProPlaybackAuthorityTok
 }
 
 /**
- * Cancel the participant-local rendezvous preparation in flight, a re-apply of
- * the committed revision that prepareCurrentProPlaybackRendezvousAuthority
- * armed, whether it is still preparing or waiting for its release. A server
- * PREPARE and a cancelled PREPARE's recovery stay. RO-21 calls it when this
- * device presses its own system-audio share (src/pro-room/runtime.ts), so the
- * endpoint cancel's new load epoch comes before the start reads the epoch.
+ * Cancel the participant-local re-apply preparation in flight: the rendezvous
+ * of the committed revision that prepareCurrentProPlaybackRendezvousAuthority
+ * armed, whether it is still preparing or waiting for its release, or the
+ * recovery of the applied checkpoint after a newer PREPARE was cancelled,
+ * which stays owed. A server PREPARE and a COMMIT's catch-up stay. RO-21 calls
+ * it when this device presses its own system-audio share
+ * (src/pro-room/runtime.ts), so the endpoint cancel's new load epoch comes
+ * before the start reads the epoch.
  */
 export function cancelParticipantLocalProPlaybackPreparation(): boolean {
   const pending = activePreparation;
@@ -756,11 +760,15 @@ export function hasCancelledProPlaybackCheckpointRecovery(
  * Recover the exact committed base of a cancelled newer PREPARE. The controller
  * must continuously verify the current canonical checkpoint through isCurrent.
  * Historical highestSeen remains intact, so ordinary old frames stay rejected.
+ * `participantLocal` marks the recovery of the checkpoint this device already
+ * applied (not a COMMIT's catch-up), which the press of this device's own
+ * share may cancel (cancelParticipantLocalProPlaybackPreparation).
  */
 export async function recoverCancelledProPlaybackCheckpoint(
   request: Readonly<ProPlaybackCommitRequest>,
   refreshTiming: () => Pick<ProPlaybackCommitRequest, 'positionSeconds' | 'scheduleDelayMs'>,
   onPrepared?: (result: Extract<ProPlaybackPrepareResult, { status: 'ready' }>) => void,
+  participantLocal = false,
 ): Promise<ProPlaybackCommitResult> {
   if (!isProPlaybackAuthorityToken(request.authority)) {
     throw new TypeError('A server authority token is required');
@@ -827,6 +835,7 @@ export async function recoverCancelledProPlaybackCheckpoint(
       isCurrent,
     },
     endpoint,
+    participantLocal,
   );
   activePreparation = pending;
   try {

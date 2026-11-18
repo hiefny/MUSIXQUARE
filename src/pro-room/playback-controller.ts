@@ -118,6 +118,11 @@ interface ProRoomPlaybackControllerPorts {
   ): ReturnType<ProRoomApiClient['executePlaybackCommand']>;
   recoverTerminalSession(error: ProRoomApiError): Promise<void>;
   reportPlaybackCommandLimit?(): void;
+  /**
+   * RO-21's hold for this device's own system-audio share (runtime.ts): while
+   * it holds, no recovery of the applied checkpoint starts.
+   */
+  holdsCheckpointReapply?(): boolean;
 }
 
 interface ActiveServerPlaybackTransition {
@@ -2376,6 +2381,13 @@ function createImplementation(
     if (!hasCancelledProPlaybackCheckpointRecovery(roomCode, roomEpoch, playback.revision)) {
       return Promise.resolve(null);
     }
+    // RO-21 (2026-11-18): from the press of this device's own share until its
+    // start settles, and while that share is live, the recovery stays owed but
+    // does not start here (a heartbeat's, or a follower's after the press
+    // cancelled the one in flight): its preparation's new load epoch would
+    // drop the capture, and its playTrack would stop a live share. Once the
+    // hold ends, a re-apply pass or the next heartbeat starts it.
+    if (ports.holdsCheckpointReapply?.()) return Promise.resolve(null);
     const authority = playbackAuthorityFor(
       roomCode,
       roomEpoch,
@@ -2411,10 +2423,12 @@ function createImplementation(
       isCurrent,
     };
     const reportRecoveredDuration = captureFileDurationReporter(request, isCurrent);
+    // The checkpoint this device applied: a participant-local re-apply.
     const operation = recoverCancelledProPlaybackCheckpoint(
       request,
       timing,
       reportRecoveredDuration,
+      true,
     )
       .then(async (result) => {
         if (result.reason === 'device-unavailable' && isCurrent()) {

@@ -296,6 +296,14 @@ interface OwedCheckpointReapply {
   visibilityRepair: 'youtube' | 'all' | null;
 }
 let owedCheckpointReapply: OwedCheckpointReapply | null = null;
+/**
+ * What a start that did not go live still owes while the room's share view is
+ * not idle: another device's share preparing, or this device's own lease until
+ * the room answers its release. The view's next idle spends it; another
+ * device's share going live drops it, since the listener restore after that
+ * share re-applies the checkpoint.
+ */
+let checkpointReapplyAwaitingIdleShare: OwedCheckpointReapply | null = null;
 /** The re-apply after a start that did not go live, while it runs. */
 let checkpointRearm: { readonly owed: OwedCheckpointReapply } | null = null;
 /** Manual Sync and local-output rejoin requests still running. */
@@ -2703,6 +2711,7 @@ function stopLifecycle(): void {
   visibilityPlaybackRecoveryScope = 'youtube';
   visibilityPlaybackRecoveryFlight = null;
   owedCheckpointReapply = null;
+  checkpointReapplyAwaitingIdleShare = null;
   checkpointRearm = null;
   playbackController.stopLifecycle();
   accountReconciler.stop();
@@ -2771,6 +2780,7 @@ const playbackController = new ProRoomPlaybackController({
   executePlaybackCommand: (input, signal) => api.executePlaybackCommand(input, signal),
   recoverTerminalSession: (error) => recoverTerminalSession(error),
   reportPlaybackCommandLimit: () => bus.emit('ui:show-toast', t('pro.room_state_limit')),
+  holdsCheckpointReapply: () => holdsCheckpointReapply(),
 });
 
 async function acceptAccountReconciliationSnapshot(
@@ -3562,11 +3572,6 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
   if (visibilityPlaybackRecoveryFlight) return;
   if (holdsCheckpointReapply()) {
     holdVisibilityPlaybackRecovery();
-    // The visibility handler left the presence heartbeat loop to this pass's
-    // forced heartbeat, which a held pass never runs.
-    if (getManagedTimer(HEARTBEAT_TIMER) === null) {
-      observeProRoomRuntimeTask(runHeartbeat(), 'held foreground heartbeat');
-    }
     return;
   }
   const flight = {};
@@ -3640,11 +3645,13 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
 // while the share it started is live, no checkpoint re-apply pass prepares
 // this device's media endpoint: the foreground repair (and the
 // background-return Sync that widens it), manual Sync and the local-output
-// rejoin, the post-share restore and the re-arm below. A preparation's
-// playTrack starts a new load epoch, which the pending start takes for a newer
-// playback choice and drops its capture for, and stops every medium, a live
-// share included. The hold keeps no state of its own: it reads the capture's
-// own start slot and stream through the audio policy boundary.
+// rejoin, the post-share restore and the re-arm below; nor does the
+// controller start the recovery of the applied checkpoint after a cancelled
+// PREPARE (its `holdsCheckpointReapply` port). A preparation's playTrack
+// starts a new load epoch, which the pending start takes for a newer playback
+// choice and drops its capture for, and stops every medium, a live share
+// included. The hold keeps no state of its own: it reads the capture's own
+// start slot and stream through the audio policy boundary.
 
 function holdsCheckpointReapply(): boolean {
   return active && (isSystemAudioCaptureStartPending() || isSystemAudioCaptureActive());
@@ -3696,7 +3703,13 @@ function oweCheckpointReapply(
   };
 }
 
-/** The hold stops the foreground repair: no retry; a pending start owes its pass. */
+/**
+ * The hold stops the foreground repair: no retry; a pending start owes its
+ * pass. The visibility handler left the presence heartbeat loop to the pass's
+ * forced heartbeat, which a held pass never ran when the hold refused it before
+ * it started or the scheduler dropped it from its queue, so the ordinary
+ * heartbeat re-arms the loop when it is not armed.
+ */
 function holdVisibilityPlaybackRecovery(): void {
   const scope = visibilityPlaybackRecoveryScope;
   oweCheckpointReapply({
@@ -3705,6 +3718,9 @@ function holdVisibilityPlaybackRecovery(): void {
     visibilityRepair: scope,
   });
   settleVisibilityPlaybackRecovery();
+  if (getManagedTimer(HEARTBEAT_TIMER) === null) {
+    observeProRoomRuntimeTask(runHeartbeat(), 'held foreground heartbeat');
+  }
 }
 
 /**
@@ -3712,9 +3728,11 @@ function holdVisibilityPlaybackRecovery(): void {
  * capture bridge in the press's own turn, before the start reads the load
  * epoch. From the next turn the start's slot holds every pass; this stops the
  * foreground repair's retry, takes over the post-share restore and cancels
- * the participant-local rendezvous preparation in flight, whose endpoint
- * cancel then starts its new load epoch before the read instead of after it.
- * What they were doing is owed until the start settles.
+ * the participant-local re-apply preparation in flight (a rendezvous, or the
+ * recovery of the applied checkpoint after a cancelled PREPARE), whose
+ * endpoint cancel then starts its new load epoch before the read instead of
+ * after it. What they were doing, and a re-apply still waiting for the room's
+ * share view to turn idle, is owed until the start settles.
  */
 function holdCheckpointReapplyForLocalShare(): void {
   if (!active) return;
@@ -3739,35 +3757,101 @@ function holdCheckpointReapplyForLocalShare(): void {
     oweCheckpointReapply({ youtubeOnly: false, preparePaused: false }, true);
   }
   if (checkpointRearm) oweCheckpointReapply(checkpointRearm.owed, true);
-  // Never a server PREPARE: that is a newer playback choice and stays.
+  if (checkpointReapplyAwaitingIdleShare) {
+    oweCheckpointReapply(checkpointReapplyAwaitingIdleShare, true);
+    checkpointReapplyAwaitingIdleShare = null;
+  }
+  // Never a server PREPARE or a COMMIT's catch-up: those are newer playback
+  // choices and stay. A cancelled recovery stays owed in the authority hooks,
+  // and the controller starts none while the hold is on.
   if (cancelParticipantLocalProPlaybackPreparation()) {
     oweCheckpointReapply({ youtubeOnly: false, preparePaused: false }, true);
   }
 }
 
+type RoomShareView = Readonly<{
+  initialized: boolean;
+  phase: 'idle' | 'preparing' | 'live';
+  isLocalOwner: boolean;
+  localRequestPending: boolean;
+}>;
+
+/**
+ * The room's share view is idle: no share prepares or is live, and no lease
+ * request of this device is pending (the same idle the service's post-share
+ * restore waits for).
+ */
+function isRoomShareViewIdle(view: RoomShareView = getProSystemAudioViewState()): boolean {
+  return view.initialized && view.phase === 'idle' && !view.localRequestPending;
+}
+
+/**
+ * Another device's share is live: this device listens to it, and the
+ * service's listener restore re-applies the checkpoint when it ends.
+ */
+function isOtherDeviceShareLive(view: RoomShareView): boolean {
+  return view.phase === 'live' && !view.isLocalOwner;
+}
+
+function mergeOwedCheckpointReapply(
+  waiting: OwedCheckpointReapply | null,
+  owed: OwedCheckpointReapply,
+): OwedCheckpointReapply {
+  // A re-apply for an older revision is spent: a newer choice owns the endpoint.
+  if (!waiting || waiting.revision !== owed.revision) return owed;
+  return {
+    revision: owed.revision,
+    youtubeOnly: waiting.youtubeOnly && owed.youtubeOnly,
+    preparePaused: waiting.preparePaused || owed.preparePaused,
+    visibilityRepair: widerVisibilityScope(waiting.visibilityRepair, owed.visibilityRepair),
+  };
+}
+
+/**
+ * A start that did not go live re-applies what it owes once the room's share
+ * view is idle: now when it is, or else when the view next turns idle (the
+ * share-state listener below). Another device's share can still be preparing,
+ * having won the lease race, and a Stop while the share prepared settles the
+ * start before the room answers its release. Another device's live share
+ * leaves it to the listener restore.
+ */
+function reapplyCheckpointOnceShareIdle(owed: OwedCheckpointReapply): void {
+  if (!active) return;
+  const view = getProSystemAudioViewState();
+  if (isOtherDeviceShareLive(view)) return;
+  if (!isRoomShareViewIdle(view)) {
+    checkpointReapplyAwaitingIdleShare = mergeOwedCheckpointReapply(
+      checkpointReapplyAwaitingIdleShare,
+      owed,
+    );
+    return;
+  }
+  observeProRoomRuntimeTask(
+    reapplyCheckpointAfterLocalShareStart(owed),
+    'checkpoint re-apply after a local share start',
+  );
+}
+
 /**
  * The re-arm: a start that settled without a share re-applies, once, what the
  * hold stopped, unless a newer playback choice owns the endpoint (a newer
- * revision) or a share is preparing or live in the room. Applied while this
- * return is shown, it repairs the return as the post-share restore does; not
- * applied, a foreground repair it stood in for goes on with its own retries.
+ * revision). It runs while the room's share view is idle, and waits for the
+ * next idle view again when a share starts preparing during it. Applied while
+ * this return is shown, it repairs the return as the post-share restore does;
+ * not applied, a foreground repair it stood in for goes on with its own
+ * retries.
  */
 async function reapplyCheckpointAfterLocalShareStart(owed: OwedCheckpointReapply): Promise<void> {
   if (!active || owed.revision !== currentCheckpointRevision()) return;
   const rearm = { owed };
   checkpointRearm = rearm;
   const returnGeneration = visibilityReturnGeneration;
-  const isCurrent = (): boolean => {
-    const share = getProSystemAudioViewState();
-    return (
-      active &&
-      checkpointRearm === rearm &&
-      !holdsCheckpointReapply() &&
-      currentCheckpointRevision() === owed.revision &&
-      share.phase === 'idle' &&
-      !share.localRequestPending
-    );
-  };
+  const isCurrent = (): boolean =>
+    active &&
+    checkpointRearm === rearm &&
+    !holdsCheckpointReapply() &&
+    currentCheckpointRevision() === owed.revision &&
+    isRoomShareViewIdle();
   let applied = false;
   try {
     applied = await playbackController.reconcile({
@@ -3780,9 +3864,23 @@ async function reapplyCheckpointAfterLocalShareStart(owed: OwedCheckpointReapply
   } catch (error) {
     log.warn('[PRO Playback] Re-apply after a local share start failed', error);
   }
-  const current = isCurrent();
-  if (checkpointRearm === rearm) checkpointRearm = null;
-  if (!current) return;
+  const owner = checkpointRearm === rearm;
+  if (owner) checkpointRearm = null;
+  // A press during the pass took over what it owed; a newer revision or the
+  // room's end spends it.
+  if (
+    !owner ||
+    !active ||
+    holdsCheckpointReapply() ||
+    currentCheckpointRevision() !== owed.revision
+  ) {
+    return;
+  }
+  if (!isRoomShareViewIdle()) {
+    // Another device's share began during the pass.
+    reapplyCheckpointOnceShareIdle(owed);
+    return;
+  }
   if (applied) {
     if (isPageVisible() && returnGeneration === visibilityReturnGeneration) {
       visibilityReturnReconciledGeneration = returnGeneration;
@@ -3859,6 +3957,7 @@ function startLifecycle(): void {
   visibilityPlaybackRecoveryScope = 'youtube';
   visibilityPlaybackRecoveryFlight = null;
   owedCheckpointReapply = null;
+  checkpointReapplyAwaitingIdleShare = null;
   checkpointRearm = null;
   if (visibilityPlaybackRecoveryPending) visibilityReturnGeneration += 1;
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
@@ -4267,13 +4366,25 @@ bus.on('system-audio:start-settled', ({ started }) => {
   // A share that went live replaced this device's playback; its end restores
   // the checkpoint through the post-share restore, as before.
   if (!owed || started || !active) return;
-  // After the settling stop's own teardown, which can still hold the capture.
-  queueMicrotask(() => {
-    observeProRoomRuntimeTask(
-      reapplyCheckpointAfterLocalShareStart(owed),
-      'checkpoint re-apply after a local share start',
-    );
-  });
+  // After the settling stop's own teardown, which can still hold the capture
+  // in this turn. Its release is a round trip, which the idle wait covers.
+  queueMicrotask(() => reapplyCheckpointOnceShareIdle(owed));
+});
+
+// RO-21: the room's share view turning idle spends what a start that did not
+// go live still owes.
+bus.on('pro-system-audio:state-changed', (view) => {
+  const owed = checkpointReapplyAwaitingIdleShare;
+  if (!owed) return;
+  if (!active || isOtherDeviceShareLive(view)) {
+    // Spent with the room, or left to the listener restore.
+    checkpointReapplyAwaitingIdleShare = null;
+    return;
+  }
+  if (!isRoomShareViewIdle(view)) return;
+  checkpointReapplyAwaitingIdleShare = null;
+  // After the service's own handling of this idle view.
+  queueMicrotask(() => reapplyCheckpointOnceShareIdle(owed));
 });
 
 bus.on('state:room.context', () => {

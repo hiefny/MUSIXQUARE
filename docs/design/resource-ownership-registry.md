@@ -3018,29 +3018,42 @@ RO-55 accepted-exception
   started is live (`holdsCheckpointReapply`: the capture's own start slot and stream, read through
   `src/audio/system-audio-policy.ts`, no state of its own): their liveness is false, so a running
   pass ends at its next boundary without preparing, a queued one is dropped, and the foreground
-  repair settles instead of scheduling a retry (when the hold refuses it before its pass, it runs
-  the ordinary heartbeat if the loop is not armed, since the visibility handler left the loop to
-  the pass's forced heartbeat). The press is a requester: `startSystemAudioCapture` in a PRO room
-  calls `holdProPlaybackRepairForLocalShare` (`system-audio-bridge.ts`, through the service) after
-  its refusals and before its lease attempt and its load-epoch read. That operation
+  repair settles instead of scheduling a retry (when the hold refuses it before its pass, or the
+  scheduler drops it from its queue, it runs the ordinary heartbeat if the loop is not armed, since
+  the visibility handler left the loop to the pass's forced heartbeat). The controller starts no
+  recovery of the applied checkpoint after a cancelled PREPARE while the hold is on (its
+  `holdsCheckpointReapply` port, read in `recoverCancelledAppliedPlaybackCheckpoint`): a
+  heartbeat's, or a follower's after the press cancelled the one in flight, would prepare again.
+  The recovery stays owed, and once the hold ends a re-apply pass or the next heartbeat starts it.
+  The press is a requester: `startSystemAudioCapture` in a PRO room calls
+  `holdProPlaybackRepairForLocalShare` (`system-audio-bridge.ts`, through the service) after its
+  refusals and before its lease attempt and its load-epoch read. That operation
   (`holdCheckpointReapplyForLocalShare`) clears the foreground retry timer, takes over the
   service's current post-share restore (`handOverProSystemAudioPlaybackRestore`, which also drops
   the listener record so the next idle view does not restore it again) and cancels the
-  participant-local rendezvous preparation in flight
-  (`cancelParticipantLocalProPlaybackPreparation` in `playback-authority-hooks.ts`: only one
-  `prepareCurrentProPlaybackRendezvousAuthority` made, never a server PREPARE or a cancelled
-  PREPARE's recovery), so the endpoint cancel's new load epoch comes before the read. What the
-  press stopped, and what the hold refuses while the start is pending, is owed (merged options and
-  the canonical revision). The start's `system-audio:start-settled` spends it: `started: true`
-  drops it (the share replaced the playback; its end restores through the post-share restore as
-  before), and `started: false` re-applies it once (`reapplyCheckpointAfterLocalShareStart`, after
-  the settling stop's own teardown) unless the revision moved (a newer playback choice owns the
-  endpoint) or a share is preparing or live in the room. Applied while the return is shown it
-  marks the return as the restore callback does; not applied, a foreground repair it stood in for
-  resumes its own retry ladder. While a live share holds, a refused pass owes nothing. A newer
-  playback choice after the press (a server PREPARE/COMMIT, a track picked, a playlist advance,
-  the demo), Stop or force-stop, a room change, coordinator or capability loss, a refused or lost
-  lease and an ended track still discard the capture; Standard rooms call nothing new.
+  participant-local re-apply preparation in flight (`cancelParticipantLocalProPlaybackPreparation`
+  in `playback-authority-hooks.ts`: one `prepareCurrentProPlaybackRendezvousAuthority` made, or
+  the recovery of the applied checkpoint after a cancelled PREPARE, which stays owed; never a
+  server PREPARE or a COMMIT's catch-up), so the endpoint cancel's new load epoch comes before the
+  read. What the press stopped, and what the hold refuses while the start is pending, is owed
+  (merged options and the canonical revision). The start's `system-audio:start-settled` spends it:
+  `started: true` drops it (the share replaced the playback; its end restores through the
+  post-share restore as before), and `started: false` re-applies it once
+  (`reapplyCheckpointAfterLocalShareStart`) while the room's share view is idle (initialized, no
+  share preparing or live, no lease request of this device pending): in a microtask after the
+  settling stop's own teardown when it already is, or else when the view next turns idle
+  (`pro-system-audio:state-changed`). That wait covers a press that lost the lease race to another
+  device of the owner whose share then ends without going live, and a Stop while the share still
+  prepared, which settles the start a round trip before the room answers its release. A moved
+  revision (a newer playback choice owns the endpoint), another device's share going live (the
+  service's listener restore re-applies after it) and leaving the room drop it; the next press
+  takes it over, and a re-apply that a share in the room interrupts waits for the next idle view
+  again. Applied while the return is shown it marks the return as the restore callback does; not
+  applied, a foreground repair it stood in for resumes its own retry ladder. While a live share
+  holds, a refused pass owes nothing. A newer playback choice after the press (a server
+  PREPARE/COMMIT, a track picked, a playlist advance, the demo), Stop or force-stop, a room
+  change, coordinator or capability loss, a refused or lost lease and an ended track still discard
+  the capture; Standard rooms call nothing new.
 - **Target single owner:** reached (`runtime.ts`); the service keeps the decision of when to
   restore.
 - **Allowed requesters:** the runtime's visibility handler, the background-return Sync, the
@@ -3050,12 +3063,14 @@ RO-55 accepted-exception
   `holdProPlaybackRepairForLocalShare` (2026-11-18), and the re-apply after a start that did not go
   live.
 - **Lifecycle operations:** reconcile with `rendezvous`, `youtubeOnly` and `preparePaused`; hold
-  (liveness false) while this device's own share starts or is live; the press's synchronous
-  cancel of the participant-local rendezvous preparation and hand-over of the post-share restore;
-  the one re-apply after a start that did not go live.
+  (liveness false, and no new recovery of the applied checkpoint) while this device's own share
+  starts or is live; the press's synchronous cancel of the participant-local re-apply preparation
+  (a rendezvous, or the applied checkpoint's recovery) and hand-over of the post-share restore;
+  the one re-apply after a start that did not go live, once the room's share view is idle.
 - **Deadline owner:** each ladder; the scheduler serializes them, and a marked return retires the
-  foreground ladder. The hold adds no timer: it stops the foreground ladder, and its re-apply is
-  one pass, after which only a stopped foreground repair resumes its own ladder.
+  foreground ladder. The hold adds no timer: it stops the foreground ladder, its wait for the idle
+  share view follows the service's state events, and its re-apply is one pass, after which only a
+  stopped foreground repair resumes its own ladder.
 - **Timing-constant home:** `VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS` (`runtime.ts`) and
   `PLAYBACK_RESTORE_DELAYS_MS` (`system-audio-service.ts`), both capped at 15 s, unchanged by
   C4-13.
@@ -3067,9 +3082,18 @@ RO-55 accepted-exception
   heard on a device. Revisit if Phase 5 device step 5P-5 still reports a second stop after 5B.
   The hold's re-apply after a start that did not go live is one pass: when it fails and no
   foreground repair was stopped, nothing retries it until the next transition, return or Sync; a
-  start that fails after its own STOP of the previous media, with nothing owed, stays fail-closed
-  as before (`abortPreparedCapture`); and a release whose request fails leaves the room not idle
-  at the settlement, so the re-apply is skipped. Not heard on a device.
+  start that ends after its own STOP of the previous media with nothing owed (a Stop while the
+  share prepares over an applied checkpoint among them) stays fail-closed as before
+  (`abortPreparedCapture`); a release whose request fails holds the re-apply until the room's
+  share view turns idle (the lease's expiry); and a foreground repair or Sync that applies the
+  checkpoint while the re-apply waits for the idle view does not spend it, so the checkpoint is
+  re-applied once more then. Not heard on a device. Open (found 2026-11-18 while fixing the hold's
+  review; `eae02e897` started the share here): a foreground repair or manual Sync whose forced
+  heartbeat is catching up a newer revision this device missed (a COMMIT it never received, for
+  example while its control channel was down), still preparing at the press, goes stale on the
+  hold, and the catch-up's own cancel starts a new load epoch after the press read it, so the
+  capture is dropped with no toast; the next press starts the share. The press does not cancel a
+  catch-up (a newer choice), and the room heartbeat's own catch-up is not held.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/runtime-server-playback.test.ts` "joins an in-flight
     YouTube visibility pass instead of starting a second rendezvous";
@@ -3078,10 +3102,17 @@ RO-55 accepted-exception
     and the PRO endpoint cancel do) "R1: the post-share restore of a paused (and playing) YouTube
     checkpoint, still preparing at the press, neither swallows the share nor prepares again", "B:
     a press during the foreground repair preparation in a playing room cancels it in the press
-    turn, and no retry prepares it again" and "re-applies nothing after a newer server choice made
-    after the press, which still discards the capture"; `src/audio/__tests__/system-capture-stop.test.ts`
-    "the press and the PRO checkpoint re-apply hold" (in the press turn, before the lease attempt
-    and the load-epoch read; nothing for a Standard press or a refused PRO press).
+    turn, and no retry prepares it again", "I3: the recovery that the post-share restore (a hide
+    and show, a manual Sync) started is cancelled in the press turn and does not prepare again",
+    "I3: a room heartbeat that joins it before the press (comes while the share window is open)
+    starts no recovery until the start settles" and "re-applies nothing after a newer server choice
+    made after the press, which still discards the capture";
+    `src/pro-room/__tests__/playback-authority-hooks.test.ts` "the participant-local preparation
+    cancel" (nothing in flight, a server PREPARE and a COMMIT catch-up's recovery left alone, a
+    rendezvous taken while it prepares or waits for its release, the applied checkpoint's recovery
+    taken and still owed); `src/audio/__tests__/system-capture-stop.test.ts` "the press and the PRO
+    checkpoint re-apply hold" (in the press turn, before the lease attempt and the load-epoch read;
+    nothing for a Standard press or a refused PRO press).
   - User pause/stop: `system-audio-service.test.ts` "does not revive an old explicit stop after a
     newer share generation is observed".
   - Teardown: `runtime-local-share-hold.test.ts` "teardown: a room left while the start is pending
@@ -3091,11 +3122,12 @@ RO-55 accepted-exception
     while hidden and resumes them when shown, without a cap"; `runtime-local-share-hold.test.ts`
     "A: a press after a hide and show, before the foreground repair prepares, …", "A: a manual
     Sync …" and "A: a background-return Sync of a playing file …", "C: with a shared tab, the
-    foreground repair queued behind the post-share restore prepares nothing after the press", the
-    three "D: … prepares nothing, keeps the share and keeps the presence heartbeat" rows, "restores
-    the checkpoint once when the share ends: the hold ends with the share", and the two re-apply
-    rows after a cancelled share window (the paused checkpoint the press replaced; the playing
-    checkpoint a stopped foreground repair was for), each once.
+    foreground repair queued behind the post-share restore prepares nothing after the press and
+    keeps the presence heartbeat", the three "D: … prepares nothing, keeps the share and keeps the
+    presence heartbeat" rows, "restores the checkpoint once when the share ends: the hold ends with
+    the share", and the three re-apply rows after a cancelled share window (the paused checkpoint
+    the press replaced; the playing checkpoint a stopped foreground repair was for; the recovered
+    checkpoint of a cancelled PREPARE), each once.
   - Browser: `e2e/system-audio-controls.test.ts` "a PRO share pressed again while the paused video
     it replaced comes back" (the share before it ended from the browser bar, or from Stop
     Sharing).
@@ -3106,7 +3138,12 @@ RO-55 accepted-exception
     return"; guards in the same file: a restore that applies while the page is hidden leaves the
     repair to the show, a restore that began before a hide and show does not reconcile the newer
     return, a later hide and show repairs again, and a file item, whose restore completes without
-    applying, is still repaired by the background-return Sync.
+    applying, is still repaired by the background-return Sync. The service's share view:
+    `runtime-local-share-hold.test.ts` "I1: after a lost lease race, re-applies the playing
+    checkpoint the press stopped once the other share ends without going live", "I1: after a lost
+    lease race, a share that goes live leaves the re-apply to its end, once" (the listener restore)
+    and "I1: Stop while the share still prepares, after the press took over the paused (playing)
+    post-share restore, re-applies it once the room answers the release".
 - **Status:** `owner-in-place`. Exception RO-41 was deleted with C4-13 (Phase 5 train 5B).
 
 ### RO-22 Waiting service worker activation
@@ -3793,8 +3830,9 @@ RO-55 accepted-exception
 - **Current owners/flows:** the ordinary presence loop (`runHeartbeat` every
   `HEARTBEAT_INTERVAL_MS`) and control-channel recovery (`runControlChannelRecovery`, which takes
   the slot until it succeeds or exhausts) share the slot; the visibility handler clears and re-arms
-  it. Both live in `runtime.ts`; `src/pro-room/heartbeat-single-flight.ts` single-flights the
-  presence request itself.
+  it (through the foreground repair's forced heartbeat, or the ordinary heartbeat when RO-21's hold
+  stops that repair before its heartbeat ran). Both live in `runtime.ts`;
+  `src/pro-room/heartbeat-single-flight.ts` single-flights the presence request itself.
 - **Target single owner:** unchanged (`runtime.ts`).
 - **Allowed requesters:** none outside `runtime.ts`.
 - **Lifecycle operations:** set and clear the timer, run a heartbeat, begin and complete
@@ -3812,7 +3850,10 @@ RO-55 accepted-exception
   - User pause/stop: n/a.
   - Teardown: `heartbeat-single-flight.test.ts` "does not let a reset flight enqueue work into the
     next room lifecycle".
-  - Visibility: missing (the slot's clear and re-arm on visibility, and recovery holding the slot).
+  - Visibility: partly. `src/pro-room/__tests__/runtime-local-share-hold.test.ts` row "C: …
+    keeps the presence heartbeat" and the two hide-and-show "D: … keeps the presence heartbeat" rows
+    pin the slot armed again after RO-21's hold stops the foreground repair (2026-11-18); the clear
+    and re-arm on an ordinary return, and recovery holding the slot, are still missing.
 - **Status:** `owner-in-place`. Copy triage (Phase 0d): the Standard copy moved to its home in
   Phase 4 (C5-2); the PRO copy stays separate and the guard keeps the pair listed.
 

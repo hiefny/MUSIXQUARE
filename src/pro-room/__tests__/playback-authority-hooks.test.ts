@@ -8,6 +8,7 @@ import {
   cancelProPlaybackPreparation,
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
+  hasCancelledProPlaybackCheckpointRecovery,
   isProPlaybackTrackSelectionPending,
   prepareCurrentProPlaybackRendezvousAuthority,
   prepareProPlaybackAuthority,
@@ -1259,5 +1260,81 @@ describe('the participant-local preparation cancel', () => {
     resolveRelease({ status: 'superseded', authority: releasing, reason: 'superseded' });
     await expect(release).resolves.toMatchObject({ status: 'superseded' });
     expect(cancel).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * Revision 9 is applied, a server PREPARE of revision 10 is cancelled, and
+   * the recovery of revision 9 starts: its preparation waits for the test.
+   */
+  async function startCancelledPrepareRecovery(participantLocal: boolean) {
+    let resolvePrepare!: (result: ProPlaybackPrepareResult) => void;
+    const prepare = vi.fn<ProPlaybackMediaEndpoint['prepare']>(async (request) =>
+      ready(request.authority),
+    );
+    const commit = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) => ({
+      status: 'applied' as const,
+      authority: request.authority,
+    }));
+    const cancel = vi.fn();
+    await commitRevisionNine({ prepare, commit, cancel });
+    const cancelled = authority(9, 'server-transition-cancelled');
+    await prepareProPlaybackAuthority({
+      authority: cancelled,
+      queueItemId: Q1,
+      positionSeconds: 0,
+    });
+    expect(cancelProPlaybackPreparation(cancelled)).toBe(true);
+    cancel.mockClear();
+    prepare.mockImplementationOnce(
+      () =>
+        new Promise<ProPlaybackPrepareResult>((resolve) => {
+          resolvePrepare = resolve;
+        }),
+    );
+    const token = authority(8, 'snapshot_9');
+    const request: ProPlaybackCommitRequest = {
+      authority: token,
+      committedPlaybackRevision: 9,
+      queueItemId: Q1,
+      state: 'paused',
+      positionSeconds: 12,
+      scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
+      isCurrent: () => true,
+    };
+    const timing = () => ({ positionSeconds: 12, scheduleDelayMs: 0 });
+    const recovery = recoverCancelledProPlaybackCheckpoint(
+      request,
+      timing,
+      undefined,
+      participantLocal,
+    );
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalledTimes(2));
+    return { prepare, commit, cancel, token, request, timing, recovery, resolvePrepare };
+  }
+
+  it('cancels the recovery of the applied checkpoint after a cancelled PREPARE, which stays owed', async () => {
+    const h = await startCancelledPrepareRecovery(true);
+
+    expect(cancelParticipantLocalProPlaybackPreparation()).toBe(true);
+    expect(h.cancel).toHaveBeenCalledExactlyOnceWith(h.token);
+    h.resolvePrepare(ready(h.token));
+    await expect(h.recovery).resolves.toMatchObject({ status: 'superseded' });
+    expect(h.cancel).toHaveBeenCalledOnce();
+    expect(h.commit).toHaveBeenCalledOnce();
+    expect(hasCancelledProPlaybackCheckpointRecovery('000001', 7, 9)).toBe(true);
+    await expect(
+      recoverCancelledProPlaybackCheckpoint(h.request, h.timing, undefined, true),
+    ).resolves.toMatchObject({ status: 'applied' });
+    expect(h.commit).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves a COMMIT catch-up's recovery alone", async () => {
+    const h = await startCancelledPrepareRecovery(false);
+
+    expect(cancelParticipantLocalProPlaybackPreparation()).toBe(false);
+    expect(h.cancel).not.toHaveBeenCalled();
+    h.resolvePrepare(ready(h.token));
+    await expect(h.recovery).resolves.toMatchObject({ status: 'applied' });
   });
 });

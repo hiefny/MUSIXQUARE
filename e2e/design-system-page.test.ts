@@ -392,6 +392,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
             return {
               height: rect.height,
               width: rect.width,
+              // Layout position in the header, unaffected by the rail cycle's transform.
+              bodyTop: logo.offsetTop,
               maskPosition: style.maskPosition,
               maskSize: style.maskSize,
             };
@@ -628,10 +630,15 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.interfacePatterns.spinnerSize).toBe(36);
     expect(components.interfacePatterns.spinnerBackground).toBe('rgb(32, 32, 32)');
     expect(components.interfacePatterns.headerHeight).toBe(60);
-    expect(components.interfacePatterns.headerLogo.height).toBe(16);
+    // The app header's 214:24 logo lets the Q's tail hang below its 16px box. A
+    // mask cannot draw outside its box, so the demo's box holds the editorial
+    // mask's whole 214:26 canvas, tail included, and gives the extra 1.333px back
+    // with a negative margin: the letter body keeps the app's centred top.
+    expect(components.interfacePatterns.headerLogo.height).toBeCloseTo(17.333, 1);
     expect(components.interfacePatterns.headerLogo.width).toBeCloseTo(142.667, 1);
+    expect(components.interfacePatterns.headerLogo.bodyTop).toBe(22);
     expect(components.interfacePatterns.headerLogo.maskPosition).toBe('0% 0%');
-    expect(components.interfacePatterns.headerLogo.maskSize).toBe('100% 108.333%');
+    expect(components.interfacePatterns.headerLogo.maskSize).toBe('100% 100%');
     expect(components.interfacePatterns.headerBadge).toEqual({
       fontSize: '11px',
       fontWeight: '600',

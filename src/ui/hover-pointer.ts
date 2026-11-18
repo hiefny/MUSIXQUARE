@@ -30,14 +30,14 @@
  *   through or move: a slider, a radio (the PIN dialog's choice rows), a
  *   select and the ARIA widget roles (the phone's tab bar, the chat sheet's
  *   resize handle).
- * - Any of those keys, wherever it was pressed, that moves focus while it is
- *   down, before any scroll: a TV remote's D-pad under spatial navigation
- *   moves focus from the page, a panel or a plain button, and the playlist's
- *   keyboard reorder refocuses the row it moves. Pressed on a plain button,
- *   link, switch or checkbox, on the page, a panel or the chat log, they
- *   otherwise only scroll, and in a text field they move the caret, so there
- *   they do not count: a mouse user who clicks a track and scrolls with Page
- *   Down gets no ring.
+ * - Any of those keys, wherever it was pressed, that moves focus in its own
+ *   turn (below): a TV remote's D-pad under spatial navigation moves focus
+ *   from the page, a panel or a plain button, and the playlist's keyboard
+ *   reorder refocuses the row it moves. Pressed on a plain button, link,
+ *   switch or checkbox, on the page, a panel or the chat log, they otherwise
+ *   only scroll, and in a text field they move the caret, so there they do
+ *   not count: a mouse user who clicks a track and scrolls with Page Down
+ *   gets no ring.
  * Every pointer press, mouse, pen or touch, turns it `off` again; moving a
  * pointer does not. Other keys leave it as it is, so a keyboard user keeps
  * every ring: Space and Enter press the focused control or, on the page or a
@@ -57,9 +57,26 @@
  * underline, and its forced-colours outline) is not a ring and shows on
  * every focus. A page where this script never ran has no attribute, so the
  * browser's :focus-visible decides there, as before; so it does on an engine
- * without :where() (docs/known-accepted.md #20). No timer is involved: a key
- * is down from its keydown until its keyup, the next key, a pointer press,
- * any scroll in the document or the window losing focus.
+ * without :where() (docs/known-accepted.md #20).
+ *
+ * A key's turn. A focus move counts for an arrow, Home, End or page key, or
+ * for a Tab in a text field, only in that key's turn, which ends with its
+ * keydown's task. Every focus move such a key makes happens in that task:
+ * the browser's default action (spatial navigation, a Tab), an app
+ * handler's focus() (the playlist's keyboard reorder) and a dialog's focus
+ * trap. A message posted at the keydown ends the turn: the browser runs it
+ * after the key's task, in order with the page's other tasks (a timer's, a
+ * network or service worker message's). No timer is involved. The keyup,
+ * the next key, a pointer press, any scroll in the document or the window
+ * losing focus end it too, should one come first. So a window that opens by
+ * itself while the key is still down draws no ring (review finding H-6): it
+ * opens from a task queued after the message and focuses its control there
+ * (src/ui/dom.ts) or later (src/ui/dialog.ts, from a timer). A mouse user's
+ * caret key or completion Tab in the chat field is down for about a tenth
+ * of a second, and a page key held on a list or panel with nothing left to
+ * scroll for the whole hold. A window can still come before the message only
+ * from a task queued before the key's, or from one that the browser runs
+ * ahead of its queue (a frame's callbacks, a DevTools command).
  */
 let installed = false;
 
@@ -186,13 +203,17 @@ export function initHoverPointer(): void {
     else query.addListener(follow);
   }
   setKeyboardNavigation(false);
-  /** The key down now whose focus move counts as navigation (see the header). */
+  /** The key in its turn, whose focus move counts as navigation (see the header). */
   let heldKey: string | null = null;
   /** A Tab in a text field: it navigates unless the field keeps it. */
   let fieldTab: { event: KeyboardEvent; field: Element } | null = null;
   const releaseKey = (): void => {
     heldKey = null;
   };
+  // A message posted at a keydown arrives in a later task, so it ends the
+  // key's turn with the keydown's task.
+  const keyTask = new MessageChannel();
+  keyTask.port1.onmessage = releaseKey;
   // Added during the Tab's own dispatch, this runs after every window
   // listener already there, a dialog's focus trap among them.
   const settleFieldTab = (event: KeyboardEvent): void => {
@@ -231,6 +252,7 @@ export function initHoverPointer(): void {
       }
       if (count === null) return;
       heldKey = event.key;
+      keyTask.port2.postMessage(null);
       if (count === 'field-tab' && event.target instanceof Element) {
         fieldTab = { event, field: event.target };
         window.addEventListener('keydown', settleFieldTab, { once: true });

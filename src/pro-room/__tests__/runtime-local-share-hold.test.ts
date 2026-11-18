@@ -9,7 +9,9 @@
  * background-return Sync, manual Sync) must therefore neither cancel itself
  * later nor prepare again until the start settles, and while the share is live
  * none of them may prepare (its playTrack would stop every medium, the share
- * included).
+ * included). The same holds for such a pass's catch-up of a newer revision
+ * this device already knew of at the press (a COMMIT it missed); a newer
+ * revision it learns of after the press still discards the capture.
  *
  * The real capture start, bridge, service, runtime, playback controller and
  * authority hooks run here. The media endpoint is a fake that moves the load
@@ -395,6 +397,7 @@ describe(
   () => {
     const restoreSpies: Array<{ mockRestore(): void }> = [];
     const prepareGates: Gate[] = [];
+    const commitGates: Gate[] = [];
     const heartbeatGates: Gate[] = [];
     const openedGates: Gate[] = [];
     let roomSnapshot: ProRoomSnapshot;
@@ -418,6 +421,7 @@ describe(
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
       resetState();
       prepareGates.length = 0;
+      commitGates.length = 0;
       heartbeatGates.length = 0;
       openedGates.length = 0;
       pendingWindows = [];
@@ -528,10 +532,15 @@ describe(
         }
         return ready(request);
       });
-      commitMedia = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) => ({
-        status: 'applied' as const,
-        authority: request.authority,
-      }));
+      commitMedia = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) => {
+        // A held commit waits for its release instant, as a YouTube release does.
+        const held = commitGates.shift();
+        if (held) {
+          openedGates.push(held);
+          await held.reached;
+        }
+        return { status: 'applied' as const, authority: request.authority };
+      });
       // As playlist.ts's endpoint cancel: a new load epoch.
       cancelMedia = vi.fn<NonNullable<ProPlaybackMediaEndpoint['cancel']>>(() => {
         newLoadEpoch();
@@ -550,6 +559,7 @@ describe(
       for (const cancel of pendingWindows.splice(0)) cancel();
       for (const held of [
         ...prepareGates.splice(0),
+        ...commitGates.splice(0),
         ...heartbeatGates.splice(0),
         ...openedGates.splice(0),
       ]) {
@@ -935,6 +945,189 @@ describe(
         await sleep(RETRY_WINDOW_MS);
         expect(prepareMedia).toHaveBeenCalledTimes(prepares);
         expect(commitMedia).toHaveBeenCalledTimes(commits);
+      });
+    });
+
+    describe('a press while a re-apply pass catches up a newer revision starts the share', () => {
+      type CatchUpOwner = 'a hide and show' | 'a manual Sync' | 'the room heartbeat';
+      type CatchUpStage = 'preparing' | 'waiting for its release';
+
+      /**
+       * The room moved to revision 2 while this device missed its COMMIT (its
+       * control channel was down, for example). The next heartbeat snapshot says
+       * so, and the catch-up of revision 2 it starts stalls, still preparing or
+       * waiting for its release instant.
+       */
+      async function startCatchUp(
+        owner: CatchUpOwner,
+        stage: CatchUpStage = 'preparing',
+      ): Promise<{ held: Gate; sync: Promise<boolean> | null }> {
+        await establishCheckpoint('playing');
+        const missed = playback(2, {
+          state: 'playing',
+          positionSeconds: 0,
+          updatedAtMs: Date.now(),
+        });
+        roomSnapshot = { ...snapshot(missed), revision: 3 };
+        const held = gate(stage === 'preparing' ? prepareGates : commitGates);
+        let sync: Promise<boolean> | null = null;
+        if (owner === 'a hide and show') {
+          setDocumentVisibility('hidden');
+          setDocumentVisibility('visible');
+        } else if (owner === 'a manual Sync') {
+          sync = requestActiveProRoomPlaybackReconciliation();
+        } else {
+          acceptProRoomRealtimeFrameForTests(
+            serverFrame({ type: 'pro-room-invalidated', roomRevision: 3 }),
+          );
+        }
+        await vi.waitFor(() =>
+          expect(stage === 'preparing' ? prepareMedia : commitMedia).toHaveBeenCalledOnce(),
+        );
+        expect(prepareMedia).toHaveBeenCalledOnce();
+        expect(prepareMedia.mock.calls[0]?.[0].authority).toMatchObject({
+          basePlaybackRevision: 1,
+          transitionId: 'snapshot_2',
+        });
+        return { held, sync };
+      }
+
+      it.each([
+        ['a hide and show', 'preparing'],
+        ['a manual Sync', 'preparing'],
+        ['a hide and show', 'waiting for its release'],
+        ['a manual Sync', 'waiting for its release'],
+      ] as const)(
+        'S3: the catch-up of a missed newer COMMIT that %s started, still %s at the press, is cancelled in the press turn and the share starts',
+        async (owner, stage) => {
+          const { held, sync } = await startCatchUp(owner, stage);
+
+          const share = pressSystemAudio();
+          // Its endpoint cancel starts the load epoch the start reads.
+          expect.soft(cancelMedia).toHaveBeenCalledOnce();
+          held.open();
+          await sleep(20);
+          share.select();
+
+          await expect(share.settled).resolves.toBe(true);
+          expect(superseded).not.toHaveBeenCalled();
+          if (sync) await expect(sync).resolves.toBe(false);
+          await sleep(RETRY_WINDOW_MS);
+          // Nothing prepares the newer revision again, which would stop the share.
+          expect(prepareMedia).toHaveBeenCalledOnce();
+          expect(cancelMedia).toHaveBeenCalledOnce();
+          expect(commitMedia).toHaveBeenCalledTimes(stage === 'preparing' ? 0 : 1);
+          expect(isSystemAudioActive()).toBe(true);
+        },
+      );
+
+      it.each(['joins it before the press', 'comes while the share window is open'] as const)(
+        'S3: a room heartbeat that %s starts no catch-up until the start settles',
+        async (when) => {
+          const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+          const { held } = await startCatchUp('a hide and show');
+          // A room invalidation runs the ordinary presence heartbeat, whose
+          // snapshot restore catches the newer revision up too.
+          const invalidate = async () => {
+            const before = heartbeat.mock.calls.length;
+            acceptProRoomRealtimeFrameForTests(
+              serverFrame({ type: 'pro-room-invalidated', roomRevision: 3 }),
+            );
+            await vi.waitFor(() => expect(heartbeat.mock.calls.length).toBeGreaterThan(before));
+            await sleep(20);
+          };
+          if (when === 'joins it before the press') await invalidate();
+
+          const share = pressSystemAudio();
+          held.open();
+          await sleep(20);
+          if (when === 'comes while the share window is open') await invalidate();
+          expect(prepareMedia).toHaveBeenCalledOnce();
+          share.select();
+
+          await expect(share.settled).resolves.toBe(true);
+          expect(superseded).not.toHaveBeenCalled();
+          await sleep(RETRY_WINDOW_MS);
+          expect(prepareMedia).toHaveBeenCalledOnce();
+          expect(commitMedia).not.toHaveBeenCalled();
+          expect(isSystemAudioActive()).toBe(true);
+        },
+      );
+
+      it("S3: a room heartbeat's own catch-up, still preparing at the press, goes on and the share starts", async () => {
+        const { held } = await startCatchUp('the room heartbeat');
+
+        const share = pressSystemAudio();
+        // Not the press's to cancel: its load epoch came before the press, and
+        // its commit starts none.
+        expect.soft(cancelMedia).not.toHaveBeenCalled();
+        held.open();
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+        share.select();
+
+        await expect(share.settled).resolves.toBe(true);
+        expect(superseded).not.toHaveBeenCalled();
+        expect(commitMedia.mock.calls[0]?.[0].committedPlaybackRevision).toBe(2);
+        await sleep(RETRY_WINDOW_MS);
+        expect(prepareMedia).toHaveBeenCalledOnce();
+        expect(cancelMedia).not.toHaveBeenCalled();
+        expect(isSystemAudioActive()).toBe(true);
+      });
+
+      it('S3: applies the newer checkpoint once when the share window is cancelled', async () => {
+        const { held } = await startCatchUp('a hide and show');
+
+        const share = pressSystemAudio();
+        held.open();
+        await sleep(20);
+        share.cancel();
+
+        await expect(share.settled).resolves.toBe(false);
+        // A cancelled share window says so; it was not superseded.
+        expect.soft(superseded).not.toHaveBeenCalled();
+        expect.soft(toasts).toContain(t('system_audio.capture_denied'));
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+        expect(commitMedia.mock.calls[0]?.[0]).toMatchObject({
+          committedPlaybackRevision: 2,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+        });
+        await sleep(RETRY_WINDOW_MS);
+        expect(prepareMedia).toHaveBeenCalledTimes(2);
+        expect(commitMedia).toHaveBeenCalledOnce();
+        expect(getManagedTimer(VISIBILITY_RECOVERY_TIMER)).toBeNull();
+      });
+
+      it('S3: a COMMIT of a newer revision that arrives after the press still discards the capture, and nothing re-applies', async () => {
+        const { held } = await startCatchUp('a hide and show');
+
+        const share = pressSystemAudio();
+        held.open();
+        await sleep(20);
+        // Another member picks a newer revision while the share window is open;
+        // this device applies it from its COMMIT (the PREPARE never reached it).
+        const newest = playback(3, {
+          state: 'playing',
+          positionSeconds: 0,
+          updatedAtMs: Date.now(),
+        });
+        roomSnapshot = { ...snapshot(newest), revision: 4 };
+        acceptProRoomRealtimeFrameForTests(
+          serverFrame({ ...commitEvent(TRANSITION_NEWER, newest) }),
+        );
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+        share.select();
+
+        await expect(share.settled).resolves.toBe(false);
+        expect(superseded).toHaveBeenCalledWith(
+          '[SystemAudio] Capture start superseded after the share window:',
+          'newer playback',
+        );
+        expect(isSystemAudioActive()).toBe(false);
+        await sleep(RETRY_WINDOW_MS);
+        expect(prepareMedia).toHaveBeenCalledTimes(2);
+        expect(commitMedia).toHaveBeenCalledOnce();
+        expect(commitMedia.mock.calls[0]?.[0].committedPlaybackRevision).toBe(3);
       });
     });
 

@@ -15,7 +15,8 @@
  * moved focus, even a window that opens while such a key is still down.
  * Keyboard navigation keeps every ring, into dialogs and back.
  * e2e/keyboard-focus-ring-spatial-navigation.test.ts covers arrows that move
- * focus as a TV remote does.
+ * focus as a TV remote does, and e2e/keyboard-focus-ring-key-turn.test.ts a
+ * window that opens while a caret key is still down, in WebKit too.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import postcss, { type AtRule } from 'postcss';

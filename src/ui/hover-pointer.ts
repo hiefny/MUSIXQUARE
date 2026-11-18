@@ -64,19 +64,24 @@
  * keydown's task. Every focus move such a key makes happens in that task:
  * the browser's default action (spatial navigation, a Tab), an app
  * handler's focus() (the playlist's keyboard reorder) and a dialog's focus
- * trap. A message posted at the keydown ends the turn: the browser runs it
- * after the key's task, in order with the page's other tasks (a timer's, a
- * network or service worker message's). No timer is involved. The keyup,
- * the next key, a pointer press, any scroll in the document or the window
- * losing focus end it too, should one come first. So a window that opens by
- * itself while the key is still down draws no ring (review finding H-6): it
- * opens from a task queued after the message and focuses its control there
- * (src/ui/dom.ts) or later (src/ui/dialog.ts, from a timer). A mouse user's
- * caret key or completion Tab in the chat field is down for about a tenth
- * of a second, and a page key held on a list or panel with nothing left to
- * scroll for the whole hold. A window can still come before the message only
- * from a task queued before the key's, or from one that the browser runs
- * ahead of its queue (a frame's callbacks, a DevTools command).
+ * trap. The keydown posts a message and sets a 0 ms timer, both of which run
+ * in later tasks, and the first of them to run ends the turn. Chromium runs
+ * the message first. WebKit hands it over a task later, after a 0 ms timer
+ * set behind the post (review finding H6-R1), so there the timer ends the
+ * turn. Timers keep their order, so in every browser a timer set after the
+ * key's own runs once the turn has ended. The keyup, the next key, a pointer
+ * press, any scroll in the document or the window losing focus end it too,
+ * should one come first. So a window that opens by itself while the key is
+ * still down draws no ring (review finding H-6): it opens from a later task
+ * (a timer's, a network or service worker message's) and focuses its control
+ * there (src/ui/dom.ts) or later (src/ui/dialog.ts, from a timer). A mouse
+ * user's caret key or completion Tab in the chat field is down for about a
+ * tenth of a second, and a page key held on a list or panel with nothing
+ * left to scroll for the whole hold. A window can still come first from a
+ * task queued before the key's, from one that the browser runs ahead of its
+ * queue (a frame's callbacks, a DevTools command), or from a network or
+ * service worker message that it runs ahead of the key's timer and message:
+ * the HTML standard orders no task source against another.
  */
 let installed = false;
 
@@ -210,8 +215,9 @@ export function initHoverPointer(): void {
   const releaseKey = (): void => {
     heldKey = null;
   };
-  // A message posted at a keydown arrives in a later task, so it ends the
-  // key's turn with the keydown's task.
+  // A message posted at a keydown and a 0 ms timer set there each run in a
+  // later task, so the first of them ends the key's turn with the keydown's
+  // task: the message in Chromium, the timer in WebKit (see the header).
   const keyTask = new MessageChannel();
   keyTask.port1.onmessage = releaseKey;
   // Added during the Tab's own dispatch, this runs after every window
@@ -253,6 +259,7 @@ export function initHoverPointer(): void {
       if (count === null) return;
       heldKey = event.key;
       keyTask.port2.postMessage(null);
+      window.setTimeout(releaseKey, 0);
       if (count === 'field-tab' && event.target instanceof Element) {
         fieldTab = { event, field: event.target };
         window.addEventListener('keydown', settleFieldTab, { once: true });

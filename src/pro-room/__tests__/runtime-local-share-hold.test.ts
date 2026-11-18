@@ -1280,6 +1280,70 @@ describe(
         expect(commitMedia).not.toHaveBeenCalled();
       });
 
+      it('I2-1: after a lost lease race over the catch-up of a missed playing file, a share the other device takes live and ends while the share window is open leaves the file stopped', async () => {
+        const { held, sync } = await startCatchUp('a manual Sync', 'preparing', 'file');
+        vi.mocked(ProRoomApiClient.prototype.acquireSystemAudioLease).mockImplementation(
+          async () => {
+            throw new ProRoomApiError('SYSTEM_AUDIO_OWNER_ACTIVE', 409);
+          },
+        );
+        systemAudioGeneration += 1;
+        systemAudio = otherOwnerShareState(systemAudioGeneration, 'preparing');
+
+        const share = pressSystemAudio();
+        held.open();
+        await sleep(20);
+        if (sync) await expect(sync).resolves.toBe(false);
+        // While this device's share window is open, the other device's share
+        // goes live (this device listens to it) and ends.
+        systemAudio = otherOwnerShareState(systemAudioGeneration, 'live');
+        await refreshProSystemAudioState();
+        await sleep(50);
+        systemAudioGeneration += 1;
+        systemAudio = shareState(systemAudioGeneration, 'idle');
+        await refreshProSystemAudioState();
+        await sleep(50);
+        prepareMedia.mockClear();
+        commitMedia.mockClear();
+        share.cancel();
+        await expect(share.settled).resolves.toBe(false);
+        await sleep(RETRY_WINDOW_MS);
+        await runRoomHeartbeat();
+        await sleep(RETRY_WINDOW_MS);
+
+        expect(prepareMedia).not.toHaveBeenCalled();
+        expect(commitMedia).not.toHaveBeenCalled();
+      });
+
+      it('I2-1: a publication that fails after the room committed the share live over the catch-up of a missed playing file leaves the file stopped', async () => {
+        const { held, sync } = await startCatchUp('a manual Sync', 'preparing', 'file');
+        const publication = holdPublicationAfterLiveCommit();
+
+        const share = pressSystemAudio();
+        held.open();
+        await sleep(20);
+        share.select();
+        await vi.waitFor(() => expect(fakes.publish).toHaveBeenCalledOnce());
+        if (sync) await expect(sync).resolves.toBe(false);
+        systemAudio = shareState(systemAudioGeneration, 'live');
+        await refreshProSystemAudioState();
+        expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', isLocalOwner: true });
+        prepareMedia.mockClear();
+        commitMedia.mockClear();
+
+        // The publication fails after the room had it live: the capture
+        // releases the lease and the start settles without a share.
+        publication.end();
+        await expect(share.settled).resolves.toBe(false);
+        await sleep(RETRY_WINDOW_MS);
+        await runRoomHeartbeat();
+        await sleep(RETRY_WINDOW_MS);
+
+        // The room's other devices keep the file stopped after that share.
+        expect(prepareMedia).not.toHaveBeenCalled();
+        expect(commitMedia).not.toHaveBeenCalled();
+      });
+
       it('S3: a share that goes live over a catch-up that joined a server PREPARE this device prepares re-arms the video once when it ends', async () => {
         await establishCheckpoint('playing');
         const target = playback(2, {
@@ -1711,6 +1775,38 @@ describe(
           }
         },
       );
+
+      it('a publication that fails after the room committed the share live, after the press took over the playing post-share restore, re-arms the video once', async () => {
+        await establishCheckpoint('playing');
+        const restore = gate(prepareGates);
+        await endEarlierLocalShare();
+        await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+        const publication = holdPublicationAfterLiveCommit();
+
+        const share = pressSystemAudio();
+        restore.open();
+        await sleep(20);
+        share.select();
+        await vi.waitFor(() => expect(fakes.publish).toHaveBeenCalledOnce());
+        systemAudio = shareState(systemAudioGeneration, 'live');
+        await refreshProSystemAudioState();
+        prepareMedia.mockClear();
+        commitMedia.mockClear();
+
+        // No Stop schedules the post-share restore here: the start that did not
+        // settle live re-applies what it owes once the room answers the release.
+        publication.end();
+        await expect(share.settled).resolves.toBe(false);
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+        expect(commitMedia.mock.calls[0]?.[0]).toMatchObject({
+          committedPlaybackRevision: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+        });
+        await sleep(RETRY_WINDOW_MS);
+        expect(prepareMedia).toHaveBeenCalledOnce();
+        expect(commitMedia).toHaveBeenCalledOnce();
+      });
 
       it('re-applies nothing after a newer server choice made after the press, which still discards the capture', async () => {
         await establishCheckpoint('paused');

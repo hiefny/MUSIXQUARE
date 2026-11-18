@@ -107,7 +107,12 @@ runbooks. Neither belongs in a general setup document.
   hashing to it, and v831; headless Chromium and WebKit iPhone first visits reached the start screen with no CSP
   violation or page error, Japanese, Simplified Chinese and Traditional Chinese first visits loaded only their own Han
   family, and the English start screen fetched only the symbol spaces face (and the math face once ≤ was drawn) while
-  the Korean one fetched none. Its post-merge Full E2E 44368926825: @FULLE2E@. The release record also closes the 9.0.27
+  the Korean one fetched none. Its post-merge Full E2E 44368926825 failed: the R2 smoke
+  and the Chromium e2e (1,170) passed, and the WebKit job failed on attempt 1 and on a rerun of that job alone, in the
+  installed app's strip colour rows whose screen grows (two mid-colour frames of the 0.3 s rise where the test asks for
+  three). The record reads it as a slow runner (inferred: on local Windows WebKit the 9.0.829 and 9.0.831 builds caught
+  about as many frames, 7 to 8 and 6 to 10, and both CI jobs also ran their unrelated steps slower than 9.0.829's job)
+  and keeps it as an open item that holds the next App train's merge. The release record also closes the 9.0.27
   LAN-direct open item with the owner's five same-Wi-Fi shares on production 9.0.829 (2026-11-17), all proven
   LAN-direct by native-host on both ends with good sound (the refined-host path was not seen on a device). The App
   update after 9.0.829 / v829, first on main `d86c2bde` (the 9.0.829 release record). Nine increments; A to C were built and reviewed on their own branches first, E to H
@@ -2027,7 +2032,7 @@ runbooks. Neither belongs in a general setup document.
   report about 20 s old), one Production Release whose smokes all passed on the first try, the
   public service worker at v800, the public floor at 795 with live App 800, and the Drift Audit at
   32 pass / 0 fail / 5 manual-only. The owner delegated the release before going to sleep, so the
-  blind post-deploy check did not run then; it was for the morning, and 9.0.28 to 9.0.831 shipped
+  blind post-deploy check did not run then; it was for the morning, and 9.0.28 to 9.0.41 shipped
   first (2026-10-31 11:29 and 23:39 KST, 2026-11-01 05:17 and 23:17 KST, 2026-11-02 05:34, 13:12 and 21:20 KST, 2026-11-03 16:40 and 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 and 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST, entries above), so the
   rest of the blind check now runs on 9.0.41 reading only its build line; the 9.0.28 to 9.0.35 records have no result for
   it. On the evening of 2026-11-03 the owner ran three same-Wi-Fi shares with its set-up on 9.0.35
@@ -2035,7 +2040,7 @@ runbooks. Neither belongs in a general setup document.
   `no-lan-candidate`: all three ended on the SFU without a break in the sound and none proved
   LAN-direct (two read as the reading table's row for a sharer that sent no mDNS candidate, with
   the site's camera permission granted in Edge; the third, after the site permissions were reset,
-  is not in the table), so the five-share check stays open and a read-only diagnosis is running; the
+  is not in the table), so the five-share check stayed open and a read-only diagnosis ran; the
   9.0.37 to 9.0.41 records add no result. On the night of 2026-11-17 the owner ran five same-Wi-Fi shares on
   production 9.0.829 (an Edge sharer and the iPhone home-screen app as the listener, info logs on both ends, not the
   blind handout): all five proved LAN-direct by native-host on both ends with no SFU publish and good sound, so the
@@ -2072,7 +2077,7 @@ runbooks. Neither belongs in a general setup document.
   `no-lan-candidate` were first seen in production on 9.0.35 on the evening of 2026-11-03, in
   three same-Wi-Fi shares of the blind check's set-up (not its full list): all three ended on the
   SFU and none proved the new pair judgement, so the five-share check stayed open (the rest of it
-  was to run on 9.0.41; 9.0.28 to 9.0.831 shipped first). On 2026-11-17 the owner's five same-Wi-Fi shares on
+  was to run on 9.0.41; 9.0.28 to 9.0.41 shipped first). On 2026-11-17 the owner's five same-Wi-Fi shares on
   production 9.0.829 all proved the pair judgement by native-host on both ends, which closes the release record's item
   in the 9.0.831 record (the refined-host path was not seen on a device). Its post-deploy reading table now names the
   `no-lan-candidate` gathering lines the train added on the owner's answer of 2026-10-31. The

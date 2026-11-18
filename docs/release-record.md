@@ -38,7 +38,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 | 검증 범위              | Exact-main CI [44366229615](https://github.com/hiefny/MUSIXQUARE/actions/runs/44366229615) success(push, attempt 1, 11 jobs, 03:07:30 KST 생성, job 03:07:33 ~ 03:17:54 KST): Production release candidate(~ 03:09:33), Release tooling coverage(~ 03:08:58, 14 파일 434행), Worker runtime coverage(~ 03:09:39, 69 파일 3,331행), Critical runtime coverage(~ 03:10:57, 119 파일 4,868행), Types and source guards(~ 03:10:58), Lint and formatting(~ 03:10:37), Static checks(03:11:00 ~ 03:11:03), Unit tests (1/2)와 (2/2)(03:12:34, 03:15:03에 끝남, 397 파일 8,838행과 397 파일 10,514행·1 건너뜀), Broad unit coverage(03:15:05 ~ 03:15:49, 794 파일 19,352행·1 건너뜀), Critical browser gate(03:09:35 ~ 03:17:54, 운영 후보 브라우저·서비스 워커 smoke 19 / 19, critical 경로 101 / 101). Production release candidate의 로그는 release identity와 `guard:sw-cache-version` PASS v831, 옛 TV 빌드 검사 통과(`main-D9sHg3Bm.js`, `main-DxFJZr4y.css`), `guard:initial-transfer-budget` 통과(진입 842.5 KiB raw / 249.3 KiB gzip, eager JS 459.6 KiB gzip, eager total 2003.1 KiB raw / 537.3 KiB gzip, eager 글꼴 0.0 KiB)를 냈다. 이 기록은 그 실행의 로그를 읽었다. 로컬 결과(열차 보고서 §18)는 exact-main 후보를 대신하지 않는다 |
 | 잔여 성능 조사         | 리버브 팝 원인은 실기기에서 미확정이다(9.0.0 이후 변화 없음). 9.0.0으로 리버브 Off의 계산은 거의 0이 됐고 켠 상태에서도 가상 저음·익사이터 몫이 빠졌다. 제보 기기 재확인은 §2에 유지한다. 허용 위험 #18은 2026-10-25 운영 9.0.10의 오너 실기기 확인으로 은퇴했다([은퇴 기록](known-accepted.md#retired-risks), §2 최근 해결 근거) |
 | Operations Drift Audit | 배포 뒤 [44368933878](https://github.com/hiefny/MUSIXQUARE/actions/runs/44368933878), `0889df09`(workflow_dispatch, attempt 1, 03:22:07 KST 생성, 03:23:04 KST에 끝남) success, 결과 automated-checks-passed: 요약 표는 32 pass / 0 fail / 5 manual-only다(표의 행을 세어 냄). PASS는 R2 CORS 셋, remote-share lifecycle, pro-media의 짧은 삭제 lifecycle 없음, 여섯 Worker의 비밀 이름 목록, 여섯 Worker의 바인딩·workers.dev와 Preview URL 꺼짐·custom domain, 계정의 custom domain 목록, App build floor('Stored floor 795 (enforced 795) is within the live App build 831 reported 13 s ago.'), GitHub main의 규칙(deletion, non_fast_forward)이고, MANUAL 다섯(zone route, Access와 MFA, WAF와 비용 알림, 두 번째 Git 배포 길, main 리뷰·필수 검사 정책)은 이 저장소가 증명하지 않는 계정 단위 상태다. 9.0.830의 머지 뒤에는 정기 실행 [44301001532](https://github.com/hiefny/MUSIXQUARE/actions/runs/44301001532)(schedule, `eae02e89`)가 success였다 |
-| Full E2E               | 매주 월 18:17 UTC. 9.0.831의 머지 뒤 Full E2E [44368926825](https://github.com/hiefny/MUSIXQUARE/actions/runs/44368926825)(workflow_dispatch, main `0889df09`, 2026-11-19 03:22:05 KST 생성): @FULLE2E@. 9.0.830의 머지(`eae02e89`) 뒤에는 Full E2E가 돌지 않았다(배포 보류, 이 실행이 두 squash를 함께 덮음). `0889df09`의 런타임은 운영 9.0.831과 같고 이 실행은 exact-main 후보가 아니다(후보는 exact-main CI 44366229615). 앞 머지 뒤 실행은 9.0.829의 [44017556798](https://github.com/hiefny/MUSIXQUARE/actions/runs/44017556798)(main `1cd64575`) success였고(`e2e` 1134 passed, `webkit-mobile` 209 passed·10 skipped와 운영 빌드 SW 시험 1 passed, 운영 large-room R2 smoke 1 passed), 최신 정기 main 실행은 [43998792266](https://github.com/hiefny/MUSIXQUARE/actions/runs/43998792266)(schedule, 2026-11-17 10:52:12 KST 생성, main `91f8a396`) success다 |
+| Full E2E               | 매주 월 18:17 UTC. 9.0.831의 머지 뒤 Full E2E [44368926825](https://github.com/hiefny/MUSIXQUARE/actions/runs/44368926825)(workflow_dispatch, main `0889df09`, 2026-11-19 03:22:05 KST 생성): failure. 운영 large-room R2 smoke(03:22:08 ~ 03:23:30 KST) 1 passed와 `e2e`(Linux Chromium, 03:22:08 ~ 04:45:16 KST) 1170 passed는 통과했고, `webkit-mobile`(Linux WebKit iPhone)이 attempt 1(03:22:09 ~ 03:31:15 KST, 210 passed·3 failed·10 skipped)과 실패한 job만 다시 돌린 attempt 2(04:46:01 ~ 04:54:51 KST, 211 passed·2 failed·10 skipped)에서 실패했다(두 번 모두 그 뒤의 운영 빌드 SW 시험은 돌지 않음). 실패는 모두 9.0.829가 더한 `e2e/boot-splash.test.ts:967`(설치 앱의 띠 색)에서 화면이 커지는 행이고(attempt 1은 첫 열기와 세션 새로고침 둘, attempt 2는 세션 새로고침 둘), 띠 색이 0.3초 동안 오르는 사이에 잡힌 중간색 프레임이 2개라 시험의 '3개 이상'에 못 미쳤다. 9.0.829의 실행 44017556798에서는 같은 행이 통과했다. 이 기록의 대조: 로컬 Windows WebKit에서 같은 네 행을 9.0.829(`1cd64575`)와 9.0.831(`3364ccf7`)의 e2e 빌드로 세 번씩 재 보니 화면이 커지는 행의 중간색 프레임은 9.0.829가 7 ~ 8개, 9.0.831이 6 ~ 10개(오르는 동안 프레임 간격 약 20 ~ 60 ms, 앱이 풀린 직후의 작업과 겹침)였고 화면이 커지지 않는 행은 둘 다 12 ~ 14개(약 16 ms)였다. 이번 두 WebKit job은 시험과 무관한 단계도 9.0.829의 job보다 느렸다(의존성 설치 8초 → 14·13초, e2e 빌드 8초 → 11·12초, 두 실행에 같은 시험 219개 358초 → 461·447초로 파일마다 고르게 느림). 그래서 이 열차가 바꾼 것이 아니라 느린 CI 기계에서 이 행의 기준에 걸린 것으로 본다[추론: Linux WebKit에서 두 빌드를 같은 기계로 견주지 않음]. 열린 항목은 §2 9.0.831 절. 9.0.830의 머지(`eae02e89`) 뒤에는 Full E2E가 돌지 않았다(배포 보류, 이 실행이 두 squash를 함께 덮음). `0889df09`의 런타임은 운영 9.0.831과 같고 이 실행은 exact-main 후보가 아니다(후보는 exact-main CI 44366229615). 앞 머지 뒤 실행은 9.0.829의 [44017556798](https://github.com/hiefny/MUSIXQUARE/actions/runs/44017556798)(main `1cd64575`) success였고(`e2e` 1134 passed, `webkit-mobile` 209 passed·10 skipped와 운영 빌드 SW 시험 1 passed, 운영 large-room R2 smoke 1 passed), 최신 정기 main 실행은 [43998792266](https://github.com/hiefny/MUSIXQUARE/actions/runs/43998792266)(schedule, 2026-11-17 10:52:12 KST 생성, main `91f8a396`) success다 |
 | 의존성·호환            | App 9.0.831 열차(9.0.830의 A ~ I와 9.0.831의 공유 씹힘 원인 고침, H-6·H-7, J, target `app`, 2026-11-19 03:20 KST 배포): 신규 npm 의존성·D1 스키마·비밀·바인딩·Wrangler 설정·CORS·응답 헤더(앱 문서 CSP 포함, 미리 실행 핀 `fEshNMQN…` 그대로)·계약 표지·IndexedDB·localStorage·sessionStorage 데이터 모양·신호와 중계 프레임 모양·PRO 요청과 응답·서비스 워커 코드·번역 문구와 키 변경 없음(`package.json`은 버전 줄 하나와 G의 npm 스크립트 한 줄 `generate:inter-symbol-faces`, `package-lock.json`은 버전 줄 둘). 바뀐 것: 버스 사건 하나(`system-audio:start-captured`, 페이지 안에서만, 통신 프레임 아님), `<html>`의 속성 하나(`data-keyboard-navigation`, H), 글꼴(G: Inter 시트의 면 7에서 14와 KR·JP·SC·TC 시트, 새 기호 면 일곱 `fonts/app/inter-symbols/`, 빠진 구운 사본 둘. 전체 Inter `fonts/inter-full.ttf`는 생성기의 입력이고 배포물이 아님), 이 기기의 PRO 재생 다시 맞추기(RO-21)가 이 기기의 공유 누름과 맞물리는 방식(I, PRO 요청과 응답은 그대로), CI의 의존성 보안 검사 범위(`.github/workflows/ci.yml`, 배포물이 아님). 운영(App 9.0.829 `1cd64575`, PRO room R4 `683074bc`, 다른 넷 9.0.22 `71f5b96c`)과 견준 바뀐 런타임 경로는 App 46개(앱 CSS 하나 `css/style.css`, 글꼴 시트 다섯 `css/fonts/app/`, 기호 면 일곱과 빠진 구운 사본 둘 `fonts/app/`, `index.html`의 버전 줄, 공개 페이지 셋 `public/designsystem/index.html`·`public/designsystem/README.md`·`public/editorial-design.css`, TS 스물넷 `src/app.ts`·`src/core/app-stylesheet.ts`(새 파일)·`src/ui/setup.ts`·`src/ui/setup-shared.ts`·`src/audio/context-recovery.ts`·`src/i18n/locale-fonts.ts`·`src/i18n/font-loading-policy.ts`·`src/i18n/app-font-contract.ts`·`src/i18n/font-prefetch-samples.ts`·`src/ui/user-text-font.ts`·`src/network/pro-system-audio-direct.ts`·`src/audio/system-capture.ts`·`src/audio/system-audio-policy.ts`·`src/types/index.ts`·`src/ui/player-controls.ts`·`src/ui/hover-pointer.ts`·`src/ui/dialog.ts`·`src/ui/range-drag.ts`·`src/ui/settings.ts`·`src/pro-room/runtime.ts`·`src/pro-room/playback-controller.ts`·`src/pro-room/playback-authority-hooks.ts`·`src/pro-room/system-audio-bridge.ts`·`src/pro-room/system-audio-service.ts`, 버전 거울 셋 `cloudflare/app-worker.ts`·`browser/classic-runtime/admin.ts`·`scripts/service-worker-asset.ts`)이고 다른 다섯 Worker는 0개다(릴리스의 부분 릴리스 판정 compatible. 46개는 이 기록이 릴리스 도구의 App 경로 목록으로 git에서 셈). 계약 경로(`cloudflare/`, `src/network/`, `src/chat/protocol.ts`, `src/core/`, `src/types/`)의 차이는 `cloudflare/app-worker.ts`의 버전 한 줄, `src/network/pro-system-audio-direct.ts`(E의 증명 창 값 1초에서 2초, 공유자 기기 안의 기다림)와 그 시험 파일 셋, `src/core/app-stylesheet.ts`(A)와 `src/core/__tests__`의 시험 다섯, `src/types/index.ts`(버스 사건 하나)뿐이다(이 기록의 git 대조). 서비스 워커 캐시 epoch는 v831이고 업데이트 창이 한 번 뜬다. 섞인 버전: 9.0.829 이하 탭과 같은 방에서 그대로 함께 쓴다(E의 창은 공유자 기기 안의 값이라 9.0.829 청취자와의 직결도 그대로)[추론: 섞인 방을 따로 시험하지 않음] |
 
 ## 2. 열린 확인 항목
@@ -46,19 +46,19 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### App 9.0.831 / v831 열차(9.0.830 열차를 머지 뒤 보류하고 공유 씹힘의 원인 고침과 키가 눌린 순간의 테두리를 더해 냄: WebKit에서 늦게 온 앱 스타일, 소리 복구 F-2501·F-2502, 일본어·중국어 화면의 한자 글꼴 차례, 미디어 선택 창 아이콘의 마우스 올림 색, PRO 직결 증명 창 2초, 시스템 오디오 선택 창은 소리가 잡히면 닫힘, 기호를 Inter로, 키보드로 움직일 때만 초점 테두리, 안내 없이 끝난 공유의 기록 한 줄과 그 원인 고침, 디자인 시스템 로딩 헤더 로고의 Q, 9.0.831/v831) 배포 뒤 확인: 릴리스 smoke와 공개 읽기(최소 빌드 상태, `/`와 `/ko/`의 `bootstrap.js?cache=v831`과 진입 자산 이름, 그대로인 CSP 핀과 미리 실행 몸통, 서비스 워커)와 헤드리스 Chromium·WebKit 첫 방문(시작 화면과 CSP 위반 0, 일본어·중국어 첫 방문의 한자 가족, 영어·한국어 시작 화면의 기호 면)만 봤고, 기기 판정은 아직, 머지 뒤 Full E2E는 @FULLE2E@, 9.0.830(#613 `eae02e89`)은 혼자 나가지 않고 9.0.831(#614 `0889df09`)과 함께 2026-11-19 03:20 KST에 나감, 이 기록이 9.0.27의 LAN-direct 항목을 오너의 공유 다섯 번으로 닫음(아래 최근 해결 근거)
+### App 9.0.831 / v831 열차(9.0.830 열차를 머지 뒤 보류하고 공유 씹힘의 원인 고침과 키가 눌린 순간의 테두리를 더해 냄: WebKit에서 늦게 온 앱 스타일, 소리 복구 F-2501·F-2502, 일본어·중국어 화면의 한자 글꼴 차례, 미디어 선택 창 아이콘의 마우스 올림 색, PRO 직결 증명 창 2초, 시스템 오디오 선택 창은 소리가 잡히면 닫힘, 기호를 Inter로, 키보드로 움직일 때만 초점 테두리, 안내 없이 끝난 공유의 기록 한 줄과 그 원인 고침, 디자인 시스템 로딩 헤더 로고의 Q, 9.0.831/v831) 배포 뒤 확인: 릴리스 smoke와 공개 읽기(최소 빌드 상태, `/`와 `/ko/`의 `bootstrap.js?cache=v831`과 진입 자산 이름, 그대로인 CSP 핀과 미리 실행 몸통, 서비스 워커)와 헤드리스 Chromium·WebKit 첫 방문(시작 화면과 CSP 위반 0, 일본어·중국어 첫 방문의 한자 가족, 영어·한국어 시작 화면의 기호 면)만 봤고, 기기 판정은 아직, 머지 뒤 Full E2E는 WebKit의 설치 앱 띠 색 행이 다시 돌려도 실패(느린 CI 기계로 봄[추론], 아래 열린 항목), 9.0.830(#613 `eae02e89`)은 혼자 나가지 않고 9.0.831(#614 `0889df09`)과 함께 2026-11-19 03:20 KST에 나감, 이 기록이 9.0.27의 LAN-direct 항목을 오너의 공유 다섯 번으로 닫음(아래 최근 해결 근거)
 
 - [ ] 범위와 상태(오너 결정 2026-11-17 ~ 11-19, PR #613·#614, 배포 뒤): 운영이던 9.0.829 / v829(아래 9.0.829 절) 다음 App 업데이트로 App 9.0.831 / v831(App
       빌드 831, target `app`, 업데이트 창 한 번)이 2026-11-19 03:20 KST에 나갔다. 바닥은 795 그대로다(`raise_app_build_floor` false, Developer API D1
       false). 9.0.830(갈래 `agent/app-9-0-830`, main `d86c2bde` 위 55커밋과 문서)은 #613으로 2026-11-18 09:29 KST에 main `eae02e89`에 머지됐지만(exact-main
-      CI 44208174173 성공) 오너가 dispatch 전에 보류해 9.0.830 / v830은 혼자 나가지 않았고, 9.0.831 갈래 `agent/app-9-0-831`(그 위 커밋 24개: H-6·H-7
+      CI 44208174173 성공) 오너가 dispatch 전에 보류해 9.0.830 / v830은 혼자 나가지 않았고, 9.0.831 갈래 `agent/app-9-0-831`(그 위 커밋 25개: H-6·H-7
       여덟, 공유 씹힘 열셋, 디자인 시스템 로고 둘, 버전 올리기와 문서)이 #614로 2026-11-19 03:07 KST에 main `0889df09`에 머지돼 두 squash가 함께 나갔다.
       배포 조건(배포 전 이 절)은 모두 채웠다: (1) 한 번에 한 열차였고 9.0.829의 기록(#610 `d86c2bde`)과 그 머지 뒤 Full E2E(44017556798, 첫 시도
       통과) 뒤였으며, 두 머지 사이와 9.0.831의 머지에서 deploy job까지 main에 다른 머지(런타임 의존성 변경 포함)는 없었다(릴리스의 'Verify release
       commit is still current main' 통과). (2) 버전 올리기 `3364ccf7`가 마지막 런타임 커밋이고 그 머리의 최종 관문 7회차가 모두 통과했다(보고서
       §18.4). (3) PR CI 44357414954 success 뒤 머지했고, exact-main CI 44366229615 success 뒤 Release target `app`, Developer API D1 false,
       `raise_app_build_floor` false를 dispatch했다(§1). (4) 배포 뒤 공개 읽기, 첫 방문, Operations Drift Audit은 아래 배포 직후 확인과 §1이고, 머지 뒤
-      Full E2E는 아래 다음 단계 (1)이다. 실은 것(배포 전 이 절이 적은 그대로): (A) PR #608: 느린 연결에서 앱 스타일이 앱 모듈보다 늦게 오면 WebKit의 첫 열기가 실패 화면(다시 시도)에서 멈추던 것을, 부트스트랩이
+      Full E2E는 아래 다음 단계 (1)이다(WebKit job이 실패해 아래 열린 항목). 실은 것(배포 전 이 절이 적은 그대로): (A) PR #608: 느린 연결에서 앱 스타일이 앱 모듈보다 늦게 오면 WebKit의 첫 열기가 실패 화면(다시 시도)에서 멈추던 것을, 부트스트랩이
       `<body>`의 앱 스타일을 기다린 뒤 시작하게 고친다(`src/core/app-stylesheet.ts`, `src/app.ts`, 타이머 없음). 검토 후속으로 15초에 실패로 열린
       부팅이 늦게 온 부트스트랩 때문에 약 16초부터 31초까지 비던 것을 다시 시도에 머물게 고친다(`src/ui/setup.ts`, `src/ui/setup-shared.ts`).
       (B) PR #611(25차 오디트): 소리 복구 주인(RO-01)의 두 갈래. F-2501은 알림이 창이 되지 못한 뒤 시계가 여전히 멈췄을 때 다음 PLAY가 복구 창을
@@ -135,12 +135,22 @@ gh run list --workflow e2e.yml --branch main --limit 3
       먼저 새 서비스 워커(v831)인지 다시 보고, 증상의 증분을 적고 위 되돌리기대로 정한다. 닫는 근거: (c)의 판정.
       [배포 뒤 확인](design/app-9-0-830-train-2026-11-17.md#16-배포-뒤-확인-블라인드-기기-후보-게이트-아님).
 - [ ] 다음 단계(게이트 아님): (1) 이 열차의 머지 뒤 Full E2E: main `0889df09`에서
-      [44368926825](https://github.com/hiefny/MUSIXQUARE/actions/runs/44368926825)(workflow_dispatch, 03:22:05 KST 생성)을 돌렸다: @FULLE2E@. 9.0.830의
+      [44368926825](https://github.com/hiefny/MUSIXQUARE/actions/runs/44368926825)(workflow_dispatch, 03:22:05 KST 생성)을 돌렸다: 운영 large-room R2 smoke와 `e2e`(Linux Chromium 1170 passed)는
+      통과했고, `webkit-mobile`이 설치 앱 띠 색의 화면이 커지는 행(오르는 동안의 중간색 프레임 2개, 기준 3개 이상)으로 attempt 1(셋)과 그 job만
+      다시 돌린 attempt 2(둘)에서 실패해 실행은 failure다(§1의 Full E2E 행, 아래 열린 항목). 9.0.830의
       머지(`eae02e89`) 뒤에는 Full E2E가 돌지 않았으므로(배포 보류) 이 실행이 두 squash를 함께 덮는다. 이 실행은 exact-main 후보가 아니다(후보는
       exact-main CI 44366229615). (2) Operations Drift Audit
       [44368933878](https://github.com/hiefny/MUSIXQUARE/actions/runs/44368933878)(`0889df09`, 03:22:07 ~ 03:23:04 KST) success, 32 pass / 0 fail / 5
       manual-only(§1). (3) 다음 App 업데이트는 9.0.832 / v832 이상이고(버전 끝자리가 App 빌드 번호, 둘째 자리는 오너가 정함), 이 열차의 머지 뒤 Full
-      E2E가 통과하고(위 (1)) 이 기록이 머지된 뒤에만 머지한다(한 번에 한 열차). [릴리스 라운드](design/app-9-0-830-train-2026-11-17.md#185-머지-뒤-릴리스-라운드).
+      E2E가 통과하고(위 (1)) 이 기록이 머지된 뒤에만 머지한다(한 번에 한 열차). (1)이 실패했으므로 아래 'WebKit 설치 앱 띠 색' 항목이 닫히거나 오너가 정할 때까지
+      다음 App 열차는 머지하지 않는다. [릴리스 라운드](design/app-9-0-830-train-2026-11-17.md#185-머지-뒤-릴리스-라운드).
+- [ ] 머지 뒤 Full E2E의 WebKit 설치 앱 띠 색(게이트: 다음 App 열차의 머지, 위 다음 단계 (3)): Full E2E 44368926825의 `webkit-mobile`이
+      다시 돌려도 실패했다(§1의 Full E2E 행). `e2e/boot-splash.test.ts:967`(9.0.829가 더한 설치 앱 띠 색)에서 화면이 커지는 행이 띠 색이 0.3초
+      동안 오르는 사이의 중간색 프레임을 2개만 잡았다(기준 3개 이상). 이 기록은 느린 CI 기계 탓으로 본다[추론: 로컬 Windows WebKit에서는 9.0.829와
+      9.0.831 빌드가 비슷한 프레임 수(7 ~ 8개와 6 ~ 10개)였고, 이번 두 job은 시험과 무관한 단계도 9.0.829의 job보다 느렸음. Linux WebKit에서 두 빌드를
+      같은 기계로 견주지는 않음]. 실제 아이폰에서 오르는 모습이 끊겨 보이는지는 보지 않았다. 닫는 근거는 셋 가운데 하나다: (가) 이 열차의 런타임
+      그대로인 main에서 Full E2E가 이 행을 통과함(정기 실행도 됨), (나) 오너가 정한 시험만의 고침(기계 속도에 덜 기대는 기준) 뒤 Full E2E 통과,
+      (다) 오너가 이 실패를 받아들이고 다음 열차의 게이트를 풂. [릴리스 라운드](design/app-9-0-830-train-2026-11-17.md#185-머지-뒤-릴리스-라운드).
 - [ ] 열린 항목과 확인하지 않은 것(게이트 아님): 실제 아이폰, 아이패드, Android, Mac Safari와 실제 느린 망에서 보지 않았다. B는 WebKit을
       브라우저로 돌리지 않았고(로컬 WebKit에 AudioContext 없음), C의 e2e는 Chromium만이고, D와 H는 로컬 Chromium(H는 WebKit 줄도), F는 흉내 낸
       PRO API의 혼자인 방, G는 Chromium과 WebKit 줄의 일부 명세에서만 봤다. B가 main보다 나빠지는 좁은 경우: 보통 갈래가 재시작을 내려놓는 바로
@@ -3704,8 +3714,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       커밋이고 그 뒤는 문서 `ab190ab9`와 시험 설정 `3042b015`뿐이며, 머지까지 main이 `8f171535`에서 움직이지 않았다. (2) bump
       뒤 로컬 `guard:release-identity` 9.0.27 / v800, `guard:sw-cache-version` PASS v800, `build:checked`, 단위, critical
       E2E가 통과했다(QA 라운드 6과 PR 설명의 마지막 로컬 게이트 `ab190ab9`). (3) `8f171535..23f29283`의 `package.json`과
-      `package-lock.json`은 버전 줄 셋뿐이다. (4) 위 PR CI와 리뷰. (5) 오너 답은 2026-10-31에 받아 적었고(아래 LAN-direct
-      항목), 머지 뒤 exact-main CI 41114314407 success를 보고 dispatch했으며, 릴리스의 'Verify release commit is still
+      `package-lock.json`은 버전 줄 셋뿐이다. (4) 위 PR CI와 리뷰. (5) 오너 답은 2026-10-31에 받아 적었고(LAN-direct
+      항목, 2026-11-17 오너의 공유 다섯 번으로 닫혀 지금은 최근 해결 근거), 머지 뒤 exact-main CI 41114314407 success를 보고 dispatch했으며, 릴리스의 'Verify release commit is still
       current main'(04:29:37 KST)이 main이 그대로 `23f29283`임을 확인했고, 그 사이와 이 기록까지 다른 머지는 없다. (6)
       dispatch 직전 공개 상태(04:29:07 KST 생성: 저장·유효 795, revision 3, live App 799, App 보고 약 20초 전)를 읽고 배포
       기록에 남겼다. (7) [Release 41115623163](https://github.com/hiefny/MUSIXQUARE/actions/runs/41115623163)(target `app`,
@@ -3725,7 +3735,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       §1을 덮어썼고, §4에 이 릴리스 항목을 더하고 현재 경계 줄 (5)를 9.0.27로 고쳤으며, hotfix-procedure의 9.0.25 문단에
       9.0.27의 머지 SHA, Release ID, App 버전을 적고,
       §4의 9.0.17 ~ 9.0.26 항목과 §2 9.0.22 ~ 9.0.26 항목의 다음 되돌리기 번호를 9.0.28 / v801로 옮겼고, 9.0.26
-      LAN-direct 절의 '다음 수정'을 아래 LAN-direct 항목으로 옮겼으며, `release-history.md`에 한 행을 더했다. 로컬 결과는
+      LAN-direct 절의 '다음 수정'을 이 절의 LAN-direct 항목(지금은 최근 해결 근거)으로 옮겼으며, `release-history.md`에 한 행을 더했다. 로컬 결과는
       exact-main-SHA 후보를 대신하지 않았다.
       [열차 보고서](design/app-9-0-27-train-2026-10-30.md),
       [배포 조건과 순서](design/app-9-0-27-train-2026-10-30.md#배포-조건과-순서),
@@ -3808,7 +3818,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] SFU 대체 미리 깔기(미디어 보류, 오너 답 2026-10-31, 게이트 아님): App 9.0.28 / v801로 2026-10-31 11:29 KST에
       나갔다(Release 41160043955, PR #545 squash `aa7baad5`, App `89ad188d`). 바뀐 것, 릴리스 오너 결정, 열린 질문, 닫는
       근거는 위 'App 9.0.28 열차' 절의 SFU 대체 항목으로 옮겼고, 그 블라인드 배포 직후 확인은 아직이다(오너가 자리에 없음). 이
-      절의 위 세 항목은 9.0.27의 기록이다.
+      절의 위 두 항목은 9.0.27의 기록이다.
       [9.0.28 열차 보고서](design/app-9-0-28-train-2026-10-31.md),
       [9.0.28 계획(9.0.27 보고서)](design/app-9-0-27-train-2026-10-30.md#9028-계획-오너-답-2026-10-31-이-열차-밖).
 
@@ -3875,7 +3885,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       PLE-03(LAN-direct 공유가 PRO 배포를 건너는지)의 기회이지만, iPhone Safari 청취자 구성은 9.0.26 배포 직후 확인까지 LAN-direct로
       간 근거가 없고, 그 청취자 판정을 고친 9.0.27(2026-10-31 04:31 KST 배포)의 수정은 조건부이며 운영에서 아직 보지 않았다(위
       9.0.27 절). 그 뒤 2026-11-17 오너의 같은 Wi-Fi 공유 다섯 번(운영 9.0.829, Edge 공유와 아이폰 홈 화면 앱 청취)이 모두 두 끝의 `native-host`로
-      직결을 증명해 9.0.27 절의 LAN-direct 항목이 닫혔으므로(최근 해결 근거) 이 구성에서도 LAN-direct 공유를 만들 수 있다. 이 늦은 확인과 PLE-03 자체는
+      직결을 증명해 9.0.27 절의 LAN-direct 항목이 닫혔으므로(최근 해결 근거) 이 구성에서도 LAN-direct 공유를 만들 수 있다[추론: 다섯 번의 청취자는
+      Safari 탭이 아니라 홈 화면 앱]. 이 늦은 확인과 PLE-03 자체는
       아직이다.
       [배포 직후 확인](design/phase5-5-r4-pro-cleanup-2026-10-30.md#배포-직후-확인-블라인드-게이트-아님),
       [9.0.28 열차 보고서](design/app-9-0-28-train-2026-10-31.md),
@@ -4169,7 +4180,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       전에는 배포 직후 확인과 같은 구성(iPhone Safari 청취)이면 같은 Wi-Fi에서도 공유가 SFU로 가서 LAN-direct 부분이 무효가
       되기 쉽다(9.0.26 배포 직후 확인에서 그랬고, 9.0.27의 청취자 판정 수정은 조건부). 2026-11-17 오너의 같은 Wi-Fi 공유 다섯 번(운영 9.0.829, 아이폰 홈
       화면 앱 청취)이 모두 직결로 증명돼 그 LAN-direct 항목이 닫혔으므로(최근 해결 근거) 이제 같은 구성에서 LAN-direct 공유를 만들 수 있다[추론: 이 후보의
-      10분 하트비트는 그 다섯 번에서 보지 않음]. 기기
+      10분 하트비트는 그 다섯 번에서 보지 않았고, 다섯 번의 청취자는 Safari 탭이 아니라 홈 화면 앱]. 기기
       확인은 보고서의 절차와 판정 기준대로 블라인드로 한다. 실기기와 iOS Safari의 PRO 방 들어가기, 관리자 권한 주고
       거두기의 운영 답, WebKit 레인 전체, 9.0.25 런타임의 Full E2E도 보지 않았다. ZS-06의 같은 대상 직접 명령 경쟁은
       알려진 가장자리로 기록만 했고(보고서 R3-2), 전송 계층의 PRO 신호 모드(티켓 role 'coordinator' 포함)는 2026-07-20 뒤
@@ -6042,9 +6053,10 @@ Safari 청취자의 쌍 증명이 막혀(공유자 줄 `receiver-fallback`) 공�
 iOS Safari가 mDNS 이름을 풀기 전에 공유자의 연결 확인을 받아 상대 후보를 prflx로 두고, PRO 규칙이 host가 아닌 형을 첫 판독에서 non-local로 끝낸
 것이었다. 9.0.27은 정제 검사를 잎 모듈 `src/network/ice-selected-pair.ts`로 옮겨 PRO의 두 끝이 같은 규칙(`refined-host`, `native-host`,
 `stats-host`)으로 쌍을 증명하게 하고, 두 끝의 진단 줄과 한 끝이 LAN 후보 없이 ICE 수집을 끝내면 그 경로를 그때 끝내는 `no-lan-candidate`(오너 답
-2026-10-31의 첫 단계)를 더했다. 닫는 근거는 배포 뒤 같은 구성(오너의 Edge 공유와 iPhone 청취, 같은 Wi-Fi, info 기록)의 공유 다섯 번이 모두 9.0.27
-열차 보고서 판정 기준의 통과(공유자의 `Publisher pair check … proven`과 `LAN route to … proven`, 그 공유 뒤 SFU 게시 없음, 청취자의
-`Receiver pair check proven … by refined-host`, `by native-host` 또는 `by stats-host`와 `Receiver LAN pair proven`, 끊김 없는 소리)인 것이었다. 2026-11-03 저녁의 공유
+2026-10-31의 첫 단계)를 더했다. 그 항목이 적은 닫는 근거는 이랬다: '배포 뒤 같은 구성(오너의 Edge 공유와 iPhone Safari 청취, 같은 Wi-Fi,
+`?mxqrLog=info`)의 공유 다섯 번이 모두 열차 보고서 판정 기준의 통과(공유자의 `Publisher pair check … proven`과 `LAN route to … proven`, 그 공유 뒤 SFU
+게시 없음, 청취자의 `Receiver pair check proven … by refined-host`, `by native-host` 또는 `by stats-host`와 `Receiver LAN pair proven`, 끊김 없는 소리)다.
+판정은 그 보고서의 블라인드 절차로 하고 판정 기준은 확인하는 사람에게 건네지 않는다.' 2026-11-03 저녁의 공유
 셋(9.0.35 위)은 모두 SFU로 끝나 그때는 열어 두었다(§2 9.0.27 절의 배포 직후 확인). 2026-11-17 23:06 ~ 23:07 KST에 오너가 운영 9.0.829(App `79634692`)의
 PRO 방에서 Windows Edge(새로 연 페이지, info 기록)로 공유하고 같은 와이파이의 아이폰 홈 화면 앱(Safari 설치 앱, `/debug console`의 INFO 줄)으로 들으며 공유
 다섯 번(세대 47, 49, 53, 55, 57. 줄이 없는 세대 51은 취소한 선택 창으로 본다[추론])의 두 기기 기록을 보냈다. 공유자는 다섯 번 모두
@@ -6052,13 +6064,17 @@ PRO 방에서 Windows Edge(새로 연 페이지, info 기록)로 공유하고 �
 759 / 839 / 878 / 735 / 793 ms)를 남겼고, 공유마다 `Closed unused SFU fallback for generation … (before it was prepared, …)`가 있었으며 SFU 발행 줄이
 없었다. 청취자는 다섯 번 모두 `Receiver pair check proven after 569 / 565 / 542 / 541 / 570 ms by native-host (native host/mdns to host/mdns)`와
 `Receiver LAN pair proven`을 남겼다. 오너는 23:2x KST에 다섯 번 모두 소리가 잘 들렸다고 알렸다(뜻만 적음). 판정은 릴리스 담당이 받은 줄을 보고서의 판정
-기준과 견줘 했다. 보고서의 블라인드 나눠 줄 절차가 아니라 오너가 스스로 한 공유와 기록이다. 이 항목 밖으로 남는 것: 쌍 줄이 모두 `native-host`라 9.0.27의
+기준과 견줘 했다. 보고서의 블라인드 나눠 줄 절차가 아니라 오너가 스스로 한 공유와 기록이다. 그래서 적힌 닫는 근거와 다른 점이 둘이다: 청취자가
+Safari 탭이 아니라 아이폰 홈 화면 앱(Safari 설치 앱, info 기록은 `/debug console`의 INFO 줄)이었고, 판정이 블라인드 절차가 아니었다(오너가 스스로
+공유하고 두 기기의 줄과 소리를 알렸고, 판정은 릴리스 담당이 그 줄로 함). 이 기록은 홈 화면 앱이 Safari 탭과 같은 WebKit의 WebRTC·mDNS 경로를 쓴다고
+보고 같은 구성으로 받아 항목을 닫는다[추론: Safari 탭 청취로는 보지 않음]. 이 항목 밖으로 남는 것: 쌍 줄이 모두 `native-host`라 9.0.27의
 정제 경로(`refined-host`)는 기기에서 보지 않았다. 다섯 번의 청취자 증명은 응답 뒤 233 ~ 363 ms로 그때의 1초 창에 637 ~ 767 ms를 남겼고, 그 앞에 한 번 한
 공유는 응답 뒤 932 ms로 68 ms만 남겨, 오너가 공유자의 증명 창(`DIRECT_PAIR_PROOF_TIMEOUT_MS`, RO-20)을 2초로 늘리기로 했다(9.0.830 E, 9.0.831 /
 v831로 2026-11-19 03:20 KST에 나감, §2 9.0.831 절). 아이폰은 공유마다 `WebRTC audio decoder primer blocked: AbortError` 경고 한 줄을 남겼다(숨은 음소거
 primer 요소의 재생이 중단된 것. primer는 받은 트랙을 음소거로 두는 Chromium 빌드를 위한 것이고 들리는 소리는 MediaStreamAudioSourceNode가 내므로 치명적이지
 않다[추론: 소스 읽기], 소리는 정상). 그 항목이 적었던 'LAN-direct에 기대는 운영 확인(R2의 null `liveExpiresAt`, 9.0.25의 숫자 거절, R2 후보 PLE-03,
-§2 9.0.25 후보 2)이 iPhone Safari 청취자 구성에서는 무효가 되기 쉽다'는 이제 같은 구성에서 직결로 갈 수 있다[추론: 그 확인들은 이 다섯 번에서 보지 않음].
+§2 9.0.25 후보 2)이 iPhone Safari 청취자 구성에서는 무효가 되기 쉽다'는 이제 같은 구성에서 직결로 갈 수 있다[추론: 그 확인들은 이 다섯 번에서 보지 않았고, 다섯 번의 청취자는 Safari 탭이 아니라
+홈 화면 앱].
 §2 9.0.28 절의 SFU 대체 항목(닫는 근거 (2)의 Wi-Fi 밖 공유)과 §2 9.0.27 절 배포 직후 확인의 나머지는 열린 채다.
 [9.0.27 열차 보고서](design/app-9-0-27-train-2026-10-30.md),
 [5. 오너 답과 no-lan-candidate](design/app-9-0-27-train-2026-10-30.md#5-오너-답과-no-lan-candidate-2026-10-31),
@@ -7435,7 +7451,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     오너가 정한다. 그 전에 다른 앱 업데이트가 나가면 그다음 번호). 가장 최근 main 위에서 이 열차의 squash `1cd64575`를 되돌린다. 이 열차는 다른 App 열차가 그 위에 쌓이기
     전까지 혼자 되돌릴 수 있었고(문서와 버전 줄을 뺀 패치가 `1cd64575`에서 깨끗하게 거꾸로 적용됐음), 9.0.831(위 항목, 2026-11-19 03:20 KST 배포, 9.0.830의 squash `eae02e89`와 9.0.831의
     squash `0889df09`)이 그 위로 나갔다. 9.0.830이 시스템 오디오 캡처와 선택 창(`src/audio/system-capture.ts`, `src/audio/system-audio-policy.ts`, `src/ui/player-controls.ts`,
-    `src/types/index.ts`)과 그 시험들(`src/ui/__tests__/player-controls.test.ts`, `src/ui/__tests__/setup-language-button.test.ts`)을 같은 자리에서 바꿨으므로, 문서와 버전 줄을 뺀 이 열차의
+    `src/types/index.ts`)과 그 시험들(`src/ui/__tests__/player-controls.test.ts`, `src/ui/__tests__/setup-language-button.test.ts`,
+    `src/audio/__tests__/system-capture-stop.test.ts`, `e2e/system-audio-controls.test.ts`)을 같은 자리에서 바꿨으므로, 문서와 버전 줄을 뺀 이 열차의
     패치는 이제 `0889df09`에서 혼자 깨끗하게 거꾸로 적용되지 않고 9.0.831의 두 squash의 패치(9.0.831, 그다음 9.0.830)를 먼저 거꾸로 적용하면 깨끗하다(9.0.831의 패치만 먼저 넣어서는
     깨끗하지 않음, 이 기록의 git 대조). 9.0.831을 먼저, 또는 함께 되돌린다. 증분 하나만 빼는 것도 같은 길이다(보고서 §10). 버전
     규칙만 되돌릴 일은 없다고 보며, 되돌린다면 가드와 문서 둘을 함께 되돌린다.

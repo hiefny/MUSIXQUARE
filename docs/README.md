@@ -96,6 +96,59 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.830 / v830 train: a late app stylesheet no longer stops WebKit's first open on Retry, two rare audio recovery silences show the recovery dialog (F-2501, F-2502), a first visit in Japanese or Chinese no longer draws and downloads another Han font first, the dark theme's media picker icons keep their colour under the mouse, a PRO LAN-direct share waits 2 s for its pair proofs, the media picker closes once shared system audio is captured, symbols draw in Inter, focus rings show only for keyboard navigation, and a share that ends without a notice leaves a log line (2026-11-17)](design/app-9-0-830-train-2026-11-17.md):
+  in progress on `agent/app-9-0-830`, not merged or released. The App update after 9.0.829 / v829, on main `d86c2bde`
+  (the 9.0.829 release record). Nine increments; A to C were built and reviewed on their own branches first, E to H
+  on their own branches tonight with one reviewer and a skeptic per finding, and D and I on the train branch.
+  (A) PR #608, a
+  pre-existing problem the 9.0.829 review found: on a slow network the app stylesheet can arrive after the entry
+  module, which Chromium waits for and WebKit does not, so WebKit read the unstyled failure surface as the stylesheet's
+  timeout and ended the first open on "The app could not start" and Retry; the bootstrap now waits for the body's
+  stylesheet links (`src/core/app-stylesheet.ts`, no timer), and a boot that `fouc-cleanup.js` failed open at 15 s keeps
+  its Retry when a late bootstrap reaches setup, instead of going blank from about 16 s to 31 s. (B) PR #611, two defects
+  of the AudioContext recovery owner (RO-01) from the 25th audit, shipped after the owner saw before and after photos:
+  the next PLAY on a clock still frozen after a notice no dialog took now shows the recovery dialog (F-2501), and a
+  restart the dialog's ordinary branch prepares while the page is hidden is given up so the return can decide
+  (F-2502); one narrow row is worse than main (a PLAY sampling that incident at the moment of the give-up stops with no
+  notice, which needs the page hidden only then and back within about 180 ms of the PLAY's start). (C) PR #612, found by
+  the font-hold measurement: when window load came before the font owner, phase B declared Noto Sans KR, SC and TC
+  beside the UI's own Han family, and the Japanese start screen fetched about 30 Noto Sans KR shards (1.19 MB) and drew
+  its Han in KR first; a Han family other than the UI's first now waits while an attempt of the first family's sheet is
+  in flight, a failed first attempt is tried again at once, and a family that marked Japanese or Chinese user text on the
+  page draws first takes the turn after the UI's first; no timer or timing value, eager fonts stay 0 bytes. (D) The
+  owner's Phase 8 close: the dark theme tinted the media picker's Local File and System Audio icons --primary on hover
+  and press, which the light theme's own #444 fills hid, so 9.0.829's preparing spinner turned blue under the mouse that
+  pressed System Audio; the tint rule and its YouTube companion are deleted (CSS only), the light theme draws the same
+  pixels, and the owner kept the other 22 hover colour rules. The owner also kept the busy look and left the sign-in
+  window's one-word line break as it is (a dialog). (E) The owner's production logs of five LAN-direct shares from
+  Windows Edge to an iPhone PWA on the same Wi-Fi all proved the LAN route with good sound, one receiver proof 932 ms
+  after the answer, so the publisher's pair-proof window (`DIRECT_PAIR_PROOF_TIMEOUT_MS`, RO-20) goes from 1 s to 2 s,
+  the receiver window's length; one route takes at most 4 s, and a route that answers but never proves reaches the held
+  SFU fallback up to 1 s later. (F) The media picker closes once the browser's share window returns a capture with a
+  live audio track, and the play tab reads Preparing to share... over the share's profile label (≤256 kbps · DISPLAY,
+  WINDOW or BROWSER) until the share is on, so its rows never empty; a later failure shows the existing notice and the
+  player's title (a page-internal `system-audio:start-captured` event and one read-only probe, no timer). (G) The owner's
+  font rule (Latin and symbols in Inter's default forms, digits in Inter's tabular forms, the rest as is): the 280
+  symbols Google's Inter subsets lack (≤ ≈ → ★ ※ ✓ and the rest) draw from seven symbol faces (67,472 B, lazy) cut
+  from the full Inter (`fonts/inter-full.ttf`, 876,576 B, recorded in `fonts/font-sources.json`), where Noto Sans KR or
+  JP or a device font drew them; enclosed alphanumerics, ❤ ↩ ↪ ⏏ and ♪ stay as they are, eager fonts stay 0 bytes, and
+  the English start screen fetches the 1.6 KB spaces face for Chromium's `hyphens: auto`. (H) Focus rings show only for
+  keyboard navigation: `src/ui/hover-pointer.ts` writes `data-keyboard-navigation` (a pointer press turns it off; Tab, and
+  an arrow that moves focus or works a widget, turn it on; engines without `:where()` keep an ungated copy of the ring)
+  and 48 `:focus-visible` rules sit under that gate, so a click and Space on a column, a
+  dialog that opens after Space or typing, and a dialog that opens by itself show no ring, while a keyboard user sees
+  every ring; the skip link's panels, the chat log and the playlist ring on their own inner edge, and three ad-hoc
+  pointer-focus marks are gone. (I) The owner reported that a system audio share is sometimes swallowed; a local PRO
+  fixture reproduced it (in a PRO room whose item is YouTube, a press while the post-share restore prepares has that
+  restore's late cancel move the load epoch, and the new capture is dropped with no notice, since `3dd9086c`); the fix
+  needs the RO-21 owner extended and is left for the owner, and this train only logs one info line wherever a start the
+  share window returned ends without a notice. On the train's first PR CI, the dependency audit failed on a new
+  picomatch advisory (every version up to 4.0.7, no fixed version, reached only through vite and vitest), and the owner
+  decided that CI blocks on the dependencies the App ships (`npm run security:audit -- --omit=dev`; the script alone
+  stays the full local audit, and the Dependabot alerts cover the build and test tools). No new flow or owner, registry
+  baselines unchanged (RO-01 and RO-20 text only). Not verified on a physical device or a real slow network; B was not run in WebKit, C's e2e is Chromium only,
+  D and H were seen in local Chromium (H also in the WebKit lane), F with a mocked PRO API in a room of one, and G in
+  Chromium and part of the WebKit lane. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.829 / v829 train: the phone start screen's language button shows whole and every setup step clips at one line, the version's patch number becomes the App build number, the media picker stays open with Preparing to share... until shared system audio arrives, and the installed iPhone and iPad app's home indicator strip keeps the loading screen's colour (2026-11-17)](design/app-9-0-829-train-2026-11-17.md):
   released on 2026-11-17 13:29 KST in Release 44017206355 (PR #607, squash `1cd64575`) as App 9.0.829 / v829 (App build
   829, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

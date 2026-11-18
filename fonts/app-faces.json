@@ -669,17 +669,6 @@
           }
         },
         {
-          "file": "PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.113.woff2",
-          "input": {
-            "sha256": "8d37d8a050e10fbfda7ca2221398eb11208714016bbe85b2785fbc973cc77276",
-            "bytes": 16084
-          },
-          "output": {
-            "sha256": "56cdb39cd8763cf8ad7a38a38b0fb2794aa3d728ba7a852493eedd887c756e38",
-            "bytes": 16100
-          }
-        },
-        {
           "file": "PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.114.woff2",
           "input": {
             "sha256": "c0c1713c08d198f610731abfbd90531e77f2a16a18d79b08c7daaf429162d28f",
@@ -2839,17 +2828,6 @@
           "output": {
             "sha256": "a1ddd5d50973da65c9da20cefd3d940734fb58c6cda8360e58f91f8cf30634ce",
             "bytes": 9368
-          }
-        },
-        {
-          "file": "k3kXo84MPvpLmixcA63oeALhLOCT-xWNm8Hqd37g1OkDRZe7lR4sg1IzSy-MNbE9VH8V.91.woff2",
-          "input": {
-            "sha256": "382f72b98d4bb9d7006109efa128aedf846904490b52a5d4f1db151a73718faf",
-            "bytes": 8704
-          },
-          "output": {
-            "sha256": "fcb9c433142970d075616232d1eb27c2775871afcac600a2c2670383039d4bf3",
-            "bytes": 8664
           }
         },
         {

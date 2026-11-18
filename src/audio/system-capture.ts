@@ -49,6 +49,7 @@ import {
 import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
 import {
   configureSystemAudioCaptureActivityProbe,
+  configureSystemAudioCapturedStartProbe,
   configureSystemAudioCaptureStartProbe,
   hasSystemAudioDeviceCapacity,
 } from './system-audio-policy.ts';
@@ -102,6 +103,14 @@ let _preSysAudioState: PreSystemAudioState | null = null;
 // The one start attempt, from the click until it settles. It resolves true
 // only once the share is on for the room.
 let _captureStartPromise: Promise<boolean> | null = null;
+// The surface that attempt captured live audio from, set once the browser's
+// share window returns audio and cleared with the slot above.
+let _captureStartSurface: SystemAudioSurface | null = null;
+// The load epoch the attempt started in, kept with that surface until the
+// attempt's own STOP starts a new one. A newer load before then supersedes
+// the attempt, which can then only end once its wait returns, so from that
+// moment the surface is no longer reported.
+let _captureStartSurfaceLoadEpoch: number | null = null;
 let _captureStartEpoch = 0;
 let _captureRestoreEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
@@ -132,6 +141,44 @@ function captureSystemAudioRoomIdentity(): SystemAudioRoomIdentity {
     epoch: room.epoch,
     standardPeerId: room.kind === 'standard' ? getState('network.myId') : null,
   });
+}
+
+// A start that a stop, a newer playback choice, a room change or an ended
+// track supersedes ends without a toast, because the newer state is what the
+// person sees. Its info line names the stage and every reason that holds, so
+// a shared log shows the ending instead of a gap where the share should be
+// (2026-11-18). Some stages check in the same condition that the start is
+// still allowed, and a refusal there logs this line too: "device limit" for a
+// standard room over its device limit, otherwise "no longer allowed" (a host
+// that is no longer the coordinator, or a PRO coordinator that needs an
+// update). Such a refusal can show its own toast, which the log does not hold.
+// A share window cancelled or failing after a supersession passes the
+// browser's error too, and the line carries it in place of the warning.
+// After this attempt's own STOP the load epoch moved by its own hand, so the
+// stages from there on pass null and leave it out.
+function logSupersededStart(
+  stage: string,
+  startEpoch: number,
+  startLoadEpoch: number | null,
+  startRoom: Readonly<SystemAudioRoomIdentity>,
+  isTrackLive?: () => boolean,
+  failure?: unknown,
+): void {
+  const newerPlayback = startLoadEpoch !== null && !isCurrentLoadEpoch(startLoadEpoch);
+  const reasons: string[] = [];
+  if (startEpoch !== _captureStartEpoch) reasons.push('stopped');
+  if (newerPlayback) reasons.push('newer playback');
+  if (!isCurrentSystemAudioRoom(startRoom)) reasons.push('room changed');
+  if (isTrackLive && !isTrackLive()) reasons.push('track ended');
+  // A PRO room's lease enforces its device limit, never this local count.
+  if (startRoom.kind === 'standard' && !hasSystemAudioDeviceCapacity()) {
+    reasons.push('device limit');
+  }
+  log.info(
+    `[SystemAudio] Capture start superseded ${stage}:`,
+    reasons.length > 0 ? reasons.join(', ') : 'no longer allowed',
+    ...(failure === undefined ? [] : [failure]),
+  );
 }
 
 function isCurrentSystemAudioRoom(expected: Readonly<SystemAudioRoomIdentity>): boolean {
@@ -306,13 +353,30 @@ export function isSystemAudioActive(): boolean {
   return _capturedStream !== null && _capturedStream.active;
 }
 
+/** The captured surface while the attempt holding it can still become the share. */
+function getCapturedStartSurface(): SystemAudioSurface | null {
+  // The attempt makes the same check once its wait returns. No event marks
+  // the newer load: the newer track's metadata refreshes the play tab.
+  if (
+    _captureStartSurfaceLoadEpoch !== null &&
+    !isCurrentLoadEpoch(_captureStartSurfaceLoadEpoch)
+  ) {
+    return null;
+  }
+  return _captureStartSurface;
+}
+
 // Keep capture state and listener ownership in this module while exposing the
 // exact predicate through the acyclic audio-policy boundary.
 configureSystemAudioCaptureActivityProbe(isSystemAudioActive);
 // The media source picker shows its preparing state from this slot alone and
 // hears its end through system-audio:start-settled, emitted only where the
-// slot is cleared.
+// slot is cleared. Once the attempt holds live audio, the play tab reads its
+// surface (cleared with the slot, and no longer reported once a newer load
+// supersedes the attempt) and hears that moment through
+// system-audio:start-captured.
 configureSystemAudioCaptureStartProbe(() => _captureStartPromise !== null);
+configureSystemAudioCapturedStartProbe(getCapturedStartSurface);
 
 /** Return a stream containing the original captured audio track. */
 export function getCapturedAudioStream(): MediaStream | null {
@@ -416,6 +480,8 @@ export async function startSystemAudioCapture(): Promise<void> {
     // while it is still ours, so the picker hears each attempt end once.
     if (_captureStartPromise === attempt) {
       _captureStartPromise = null;
+      _captureStartSurface = null;
+      _captureStartSurfaceLoadEpoch = null;
       bus.emit('system-audio:start-settled', { started });
     }
   }
@@ -487,7 +553,17 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     });
   } catch (e) {
     releaseProLeaseAttempt(proLeaseAttempt);
-    if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) return false;
+    if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) {
+      logSupersededStart(
+        'after the share window was cancelled or failed',
+        startEpoch,
+        startLoadEpoch,
+        startRoom,
+        undefined,
+        e,
+      );
+      return false;
+    }
     log.warn('[SystemAudio] getDisplayMedia denied or failed:', e);
     bus.emit('ui:show-toast', t('system_audio.capture_denied'));
     return false;
@@ -497,11 +573,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   // when the native picker eventually resolves, discard its tracks and release
   // any lease instead of resurrecting a capture after teardown.
   if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) {
+    logSupersededStart('after the share window', startEpoch, startLoadEpoch, startRoom);
     releaseProLeaseAttempt(proLeaseAttempt);
     discardPendingCapture(stream);
     return false;
   }
   if (!isCurrentSystemAudioRoom(startRoom)) {
+    logSupersededStart('after the share window', startEpoch, startLoadEpoch, startRoom);
     releaseProLeaseAttempt(proLeaseAttempt);
     discardPendingCapture(stream);
     return false;
@@ -583,10 +661,28 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   };
 
   if (!isSelectedCaptureTrackLive()) {
+    // Nothing is committed yet, so the track-ended handler logged nothing.
+    logSupersededStart(
+      'after the share window',
+      startEpoch,
+      startLoadEpoch,
+      startRoom,
+      isSelectedCaptureTrackLive,
+    );
     releaseProLeaseAttempt(proLeaseAttempt);
     discardSelectedCapture();
     return false;
   }
+
+  // The capture holds live audio and this attempt still owns the slot (the
+  // epoch was checked above, with no wait since). The media source picker
+  // closes now and the play tab shows the share preparing, while the attempt
+  // goes on: the PRO lease and publication, or the standard start. A newer
+  // load before this attempt's own STOP shows the newer track at once, and a
+  // later ending settles it as before (owner decision 2026-11-17).
+  _captureStartSurface = selectedSurface;
+  _captureStartSurfaceLoadEpoch = startLoadEpoch;
+  bus.emit('system-audio:start-captured');
 
   if (isProRoom) {
     const leaseResult = await proLeaseAttempt!.result;
@@ -596,6 +692,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       !isCurrentSystemAudioRoom(startRoom) ||
       !isSelectedCaptureTrackLive()
     ) {
+      logSupersededStart(
+        'after the room lease',
+        startEpoch,
+        startLoadEpoch,
+        startRoom,
+        isSelectedCaptureTrackLive,
+      );
       discardSelectedCapture();
       if (leaseResult.ok) releaseProLeaseAttempt(proLeaseAttempt);
       return false;
@@ -619,6 +722,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     !isCurrentSystemAudioRoom(startRoom) ||
     (!isProRoom && (!isCoordinator() || !hasSystemAudioDeviceCapacity()))
   ) {
+    logSupersededStart('before audio setup', startEpoch, startLoadEpoch, startRoom);
     discardSelectedCapture();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     if (!isProRoom && !hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
@@ -638,6 +742,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       !isCurrentLoadEpoch(startLoadEpoch) ||
       !isCurrentSystemAudioRoom(startRoom)
     ) {
+      logSupersededStart('during audio setup', startEpoch, startLoadEpoch, startRoom);
       return false;
     }
     throw error;
@@ -653,6 +758,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     !isCurrentSystemAudioRoom(startRoom) ||
     !isSelectedCaptureTrackLive()
   ) {
+    logSupersededStart(
+      'after audio setup',
+      startEpoch,
+      startLoadEpoch,
+      startRoom,
+      isSelectedCaptureTrackLive,
+    );
     discardSelectedCapture();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     return false;
@@ -710,6 +822,11 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   };
 
   // 3. Stop all current media
+  // This STOP starts a new load epoch itself, and once the capture holds the
+  // stream a newer load force-stops it, so the surface stops following the
+  // epoch the attempt started in. The attempt still owns the slot (checked
+  // above after audio initialization, with no wait since).
+  _captureStartSurfaceLoadEpoch = null;
   let stoppedPreviousMedia: boolean;
   try {
     stoppedPreviousMedia = await stopAllMediaAsync({
@@ -747,6 +864,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     !proStillAuthorized ||
     !captureTrackStillLive
   ) {
+    logSupersededStart(
+      'after stopping the previous media',
+      startEpoch,
+      null,
+      startRoom,
+      isSelectedCaptureTrackLive,
+    );
     // A force-stop, room transition, coordinator change, or PRO authority
     // change transfers ownership and must not resurrect local media. Only a
     // same-room standard coordinator rejected solely by the device limit can
@@ -833,6 +957,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     !isCurrentSystemAudioRoom(startRoom) ||
     !isSelectedCaptureTrackLive()
   ) {
+    logSupersededStart(
+      'before publication',
+      startEpoch,
+      null,
+      startRoom,
+      isSelectedCaptureTrackLive,
+    );
     abortPreparedStart();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     return false;
@@ -849,6 +980,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
       if (!track) throw new Error('PRO_SYSTEM_AUDIO_TRACK_UNAVAILABLE');
       const liveState = await publishLocalProSystemAudio(track);
       if (startEpoch !== _captureStartEpoch) {
+        logSupersededStart('during publication', startEpoch, null, startRoom);
         releaseProLeaseAttempt(proLeaseAttempt);
         return false;
       }
@@ -857,6 +989,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
         !isSelectedCaptureTrackLive() ||
         !canPublishProSystemAudioWithCurrentCoordinator()
       ) {
+        logSupersededStart(
+          'during publication',
+          startEpoch,
+          null,
+          startRoom,
+          isSelectedCaptureTrackLive,
+        );
         abortPreparedStart();
         releaseProLeaseAttempt(proLeaseAttempt);
         return false;
@@ -868,10 +1007,18 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
           : null;
     } catch (error) {
       if (startEpoch !== _captureStartEpoch) {
+        logSupersededStart('during publication', startEpoch, null, startRoom);
         releaseProLeaseAttempt(proLeaseAttempt);
         return false;
       }
       if (!isCurrentSystemAudioRoom(startRoom) || !isSelectedCaptureTrackLive()) {
+        logSupersededStart(
+          'during publication',
+          startEpoch,
+          null,
+          startRoom,
+          isSelectedCaptureTrackLive,
+        );
         abortPreparedStart();
         releaseProLeaseAttempt(proLeaseAttempt);
         return false;
@@ -891,6 +1038,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     }
   } else {
     if (!isCoordinator() || !hasSystemAudioDeviceCapacity() || !isSelectedCaptureTrackLive()) {
+      logSupersededStart(
+        'during publication',
+        startEpoch,
+        null,
+        startRoom,
+        isSelectedCaptureTrackLive,
+      );
       abortPreparedStart();
       return false;
     }
@@ -937,6 +1091,8 @@ function stopSystemAudioCapture(opts?: {
   if (isSystemAudioActive() || _capturedStream || startWasPending) ++_captureRestoreEpoch;
   ++_captureStartEpoch;
   _captureStartPromise = null;
+  _captureStartSurface = null;
+  _captureStartSurfaceLoadEpoch = null;
   // Clearing the slot ends the attempt for the picker now, even though its
   // native picker or PRO request may settle later; that late result is thrown
   // away and its own finally no longer owns the slot, so it stays quiet.

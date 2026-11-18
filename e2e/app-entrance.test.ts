@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { setupHost } from './helpers/setup-flow.ts';
 
 interface EntranceExpectation {
@@ -152,6 +153,95 @@ test.describe('app entrance choreography', () => {
     await expect(page.locator('#bootstrap-failure')).not.toHaveAttribute('inert', '');
     await page.keyboard.press('Tab');
     await expect(page.locator('#bootstrap-retry')).toBeFocused();
+  });
+
+  test('opens setup, not the failure surface, when the app stylesheet arrives after the app module', async ({
+    page,
+  }) => {
+    // A slow mobile network can deliver the app stylesheet after the entry
+    // module's graph. Chromium holds the module until the sheet the parser
+    // placed before it has loaded, as the HTML standard asks; WebKit runs it at
+    // once, and setup then read the still unstyled failure surface as shown.
+    await page.addInitScript(() => {
+      const release: { styled?: boolean } = {};
+      Object.assign(window, { __appSheetAtSetupRelease: release });
+      new MutationObserver((_records, observer) => {
+        const root = document.documentElement;
+        if (!root || root.classList.contains('setup-boot-block')) return;
+        observer.disconnect();
+        release.styled = getComputedStyle(root).getPropertyValue('--bg').trim() !== '';
+      }).observe(document, { attributes: true, attributeFilter: ['class'], subtree: true });
+    });
+    await page.route(/\/assets\/main-[^/?]+\.css(?:\?.*)?$/u, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await route.fallback();
+    });
+
+    await page.goto('/', { waitUntil: 'commit' });
+
+    await expect(page.locator('#setup-overlay')).toHaveClass(/\bactive\b/u);
+    await expect(page.locator('html')).not.toHaveClass(/\bsetup-boot-failed\b/u);
+    await expect(page.locator('#bootstrap-failure')).toBeHidden();
+    // Setup took the screen from the boot splash only once the sheet applied.
+    expect(
+      await page.evaluate(
+        () =>
+          (window as Window & { __appSheetAtSetupRelease?: { styled?: boolean } })
+            .__appSheetAtSetupRelease?.styled,
+      ),
+    ).toBe(true);
+  });
+
+  test('still fails the boot at once when the app stylesheet fails after the app module', async ({
+    page,
+  }) => {
+    // The bootstrap's wait for the sheet ends on its error too, long before
+    // the 15 s boot-failure fallbacks; the unstyled page then fails as before.
+    await page.route(/\/assets\/main-[^/?]+\.css(?:\?.*)?$/u, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await route.abort('failed');
+    });
+
+    await page.goto('/', { waitUntil: 'commit' });
+
+    await expect(page.locator('html')).toHaveClass(/\bsetup-boot-failed\b/u, { timeout: 8_000 });
+    await expect(page.locator('#setup-overlay')).not.toHaveClass(/\bactive\b/u);
+    await expect(page.locator('#bootstrap-retry')).toBeVisible();
+  });
+
+  test('keeps the failure surface when the app stylesheet arrives after the boot failed open', async ({
+    page,
+  }) => {
+    // fouc-cleanup.js fails the boot open at 15 s while the bootstrap has not
+    // reached setup: WebKit's bootstrap waits for the late sheet, Chromium's
+    // module does. The late setup must leave that Retry in place; the guard it
+    // put back outranked the failure surface's rules and blanked the page.
+    let releaseSheet: (() => void) | undefined;
+    let sheetRouteHit = false;
+    const sheetGate = new Promise<void>((resolve) => {
+      releaseSheet = resolve;
+    });
+    await page.clock.install();
+    await page.route(/\/assets\/main-[^/?]+\.css(?:\?.*)?$/u, async (route) => {
+      sheetRouteHit = true;
+      await sheetGate;
+      await route.fallback();
+    });
+
+    try {
+      await page.goto('/', { waitUntil: 'commit' });
+      await expect.poll(() => sheetRouteHit).toBe(true);
+      await page.clock.fastForward(15_000);
+      await expect(page.locator('html')).toHaveClass(/\bsetup-boot-failed\b/u);
+    } finally {
+      releaseSheet?.();
+    }
+
+    await waitForBootstrapReady(page);
+    await expect(page.locator('html')).not.toHaveClass(/\bsetup-boot-block\b/u);
+    await expect(page.locator('#setup-overlay')).not.toHaveClass(/\bactive\b/u);
+    await expect(page.locator('#bootstrap-retry')).toBeVisible();
+    await expect(page.locator('#bootstrap-failure')).toHaveCSS('opacity', '1');
   });
 
   test('reveals metadata and desktop settings as separate 1200ms cascades', async ({

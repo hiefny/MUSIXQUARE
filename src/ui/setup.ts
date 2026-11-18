@@ -289,9 +289,12 @@ function initSetupOverlay(): void {
   updateObSlider();
   showHostGuestSelection();
 
-  if (!getSetupOverlayEverShown()) {
+  // A boot that has already failed keeps its Retry. fouc-cleanup.js fails it
+  // open at 15 s while a late bootstrap has not reached setup; the guard's
+  // rules outrank the failure surface's and would blank the page again.
+  const root = document.documentElement;
+  if (!getSetupOverlayEverShown() && !root.classList.contains('setup-boot-failed')) {
     try {
-      const root = document.documentElement;
       // The boot splash (index.html) follows setup-boot-block for the first
       // boot only. If the app surface already lifted the guard (a room opened
       // before setup was ever shown), latch the splash off before restoring it.
@@ -323,7 +326,7 @@ function initSetupOverlay(): void {
     (event) => {
       const target = event.target;
       if (!(target instanceof Element) || !target.closest('[data-setup-language-trigger]')) return;
-      openLanguageDialog(event);
+      openLanguageDialog();
     },
     { signal },
   );

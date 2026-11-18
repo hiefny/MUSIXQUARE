@@ -9,15 +9,23 @@
  * src/i18n/locale-fonts.ts is the only code that loads the font sheets.
  * Source checks:
  * - the Inter and Noto Sans KR files kept from Google match
- *   fonts/font-sources.json (Noto Sans KR without its Korean locl lookup);
+ *   fonts/font-sources.json (Noto Sans KR without its Korean locl lookup),
+ *   and so does the full Inter (fonts/inter-full.ttf), which must be the
+ *   build of the Inter subsets (the same outlines and advances of every code
+ *   point they map, at the default and every corner of the opsz and wght
+ *   axes);
  *   the app faces in fonts/app/ match fonts/app-faces.json, each a copy of
  *   its input with the line box of src/i18n/font-metrics.ts in hhea and the
  *   OS/2 typo metrics (USE_TYPO_METRICS set), the input's win metrics, valid
  *   checksums and no other change but, in Inter's latin face, the digits
- *   0-9 mapped to Inter's tabular glyphs; the Hangul faces in
- *   fonts/app/hangul/ match fonts/hangul-faces.json, each a subset of
- *   Pretendard with its own name, its source's line box and Hangul only; and
- *   css/fonts/app/ is exactly the output of its generator;
+ *   0-9 mapped to Inter's tabular glyphs; Inter's symbol faces in
+ *   fonts/app/inter-symbols/ match fonts/inter-symbol-faces.json, each a
+ *   subset of the full Inter holding the symbols the Google subsets lack
+ *   (owner decisions 2026-11-17 and 2026-11-18), with the Inter line box
+ *   baked in, a glyf table that holds bytes and Inter's own name; the Hangul
+ *   faces in fonts/app/hangul/ match fonts/hangul-faces.json, each a subset
+ *   of Pretendard with its own name, its source's line box and Hangul only;
+ *   and css/fonts/app/ is exactly the output of its generator;
  * - every face is self-hosted: one sheet-relative url() of a committed WOFF2
  *   file under fonts/, never local(), a remote URL or a second source;
  * - every Inter, Hangul and CJK face carries the metric descriptors of
@@ -74,7 +82,8 @@
  * --dist adds the built output: no font in the initial graph of the app
  * document or its localized copies, each of the 17 app sheets its own lazy
  * CSS asset with the expected descriptors and root-relative WOFF2 files, the built
- * Inter and CJK faces equal to their baked copies and the built Hangul faces to
+ * Inter and CJK faces equal to their baked copies, the built Inter symbol faces
+ * to fonts/app/inter-symbols/ and the built Hangul faces to
  * fonts/app/hangul/, no font sheet or file in
  * the service worker's install manifests (which do install the font owner
  * chunk itself), every About copy linking the shared sheets (rest.css in
@@ -107,6 +116,10 @@ import {
   verifyHangulFaces,
   verifyShippedFontFiles,
 } from './fonts/font-files.mts';
+import {
+  INTER_SYMBOL_FACES_DIRECTORY,
+  verifyInterSymbolFaces,
+} from './fonts/inter-symbol-faces.mts';
 import { readFaceResolver, readFontStacks, type FaceResolver } from './fonts/font-stacks.mts';
 import {
   appFaceMetrics,
@@ -220,6 +233,7 @@ const GOOGLE_SHEETS = [
 failures.push(...(await verifyShippedFontFiles(repoRoot)));
 failures.push(...(await verifyAppFaces(repoRoot)));
 failures.push(...(await verifyHangulFaces(repoRoot)));
+failures.push(...(await verifyInterSymbolFaces(repoRoot)));
 for (const sheet of await findStaleFontSheets(repoRoot)) {
   failures.push(
     `${sheet} is not the output of scripts/fonts/build-font-sheets.mts; run npm run generate:font-sheets`,
@@ -855,12 +869,18 @@ if (distMode) {
     }
   }
 
-  // The built Inter and CJK faces are the baked copies in fonts/app/, and the
+  // The built Inter and CJK faces are the baked copies in fonts/app/, the
+  // built Inter symbol faces the files in fonts/app/inter-symbols/, and the
   // built Hangul faces the files in fonts/app/hangul/.
+  const builtFaceFolders = new Map<string, string[]>();
   for (const { sheet: id, output } of [
     ...APP_FACE_FAMILIES,
+    { sheet: 'font-inter', output: INTER_SYMBOL_FACES_DIRECTORY },
     { sheet: 'font-hangul', output: HANGUL_FACES_DIRECTORY },
   ]) {
+    builtFaceFolders.set(id, [...(builtFaceFolders.get(id) ?? []), output]);
+  }
+  for (const [id, outputs] of builtFaceFolders) {
     const sheetFile = appSheetFiles.get(id);
     if (!sheetFile) continue;
     const urls = woff2Urls(await readFile(sheetFile, 'utf8'));
@@ -868,7 +888,9 @@ if (distMode) {
     for (const url of urls) {
       const fontFile = localDistAssetPath(distDirectory, url);
       if (!fontFile || !distFileSet.has(path.resolve(fontFile))) continue;
-      const source = path.join(repoRoot, output, `${builtAssetStem(fontFile)}.woff2`);
+      const file = `${builtAssetStem(fontFile)}.woff2`;
+      const sources = outputs.map((output) => path.join(repoRoot, output, file));
+      const source = sources.find((candidate) => existsSync(candidate)) ?? sources[0] ?? file;
       const [built, original] = await Promise.all([
         readFile(fontFile),
         readFile(source).catch(() => null),
@@ -1057,6 +1079,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    `App font guard passed (Inter and Noto files, Hangul faces, baked app faces and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps, the public pages and the retired fonts${distMode ? ', built sheets, initial graph, install manifests and nothing retired in the build' : ''}).`,
+    `App font guard passed (Inter and Noto files, the full Inter, Hangul faces, Inter symbol faces, baked app faces and self-hosted sheets, ${textStacks.size} distinct text stacks, one source per script, coverage with ${recordedGapCount} recorded gaps, the public pages and the retired fonts${distMode ? ', built sheets, initial graph, install manifests and nothing retired in the build' : ''}).`,
   );
 }

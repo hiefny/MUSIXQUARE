@@ -829,45 +829,14 @@ function prepareLanguagePickerFonts(): void {
 }
 
 let _languageDialogPreviousFocus: HTMLElement | null = null;
-let _languageDialogInitialFocusCleanup: (() => void) | null = null;
 
-const LANGUAGE_DIALOG_INITIAL_POINTER_FOCUS_CLASS = 'language-option-initial-pointer-focus';
-const LANGUAGE_DIALOG_INITIAL_KEYBOARD_FOCUS_CLASS = 'language-option-initial-keyboard-focus';
-
-function clearLanguageDialogInitialFocus(): void {
-  const cleanup = _languageDialogInitialFocusCleanup;
-  _languageDialogInitialFocusCleanup = null;
-  cleanup?.();
-}
-
-function markLanguageDialogInitialFocus(
-  option: HTMLElement,
-  overlay: HTMLElement,
-  pointerActivation: boolean,
-): void {
-  clearLanguageDialogInitialFocus();
-  const focusClass = pointerActivation
-    ? LANGUAGE_DIALOG_INITIAL_POINTER_FOCUS_CLASS
-    : LANGUAGE_DIALOG_INITIAL_KEYBOARD_FOCUS_CLASS;
-  option.classList.add(focusClass);
-
-  const clear = () => {
-    option.classList.remove(focusClass);
-    option.removeEventListener('blur', clear);
-    overlay.removeEventListener('keydown', clear, true);
-    if (_languageDialogInitialFocusCleanup === clear) {
-      _languageDialogInitialFocusCleanup = null;
-    }
-  };
-
-  option.addEventListener('blur', clear, { once: true });
-  if (pointerActivation) {
-    overlay.addEventListener('keydown', clear, { once: true, capture: true });
-  }
-  _languageDialogInitialFocusCleanup = clear;
-}
-
-export function openLanguageDialog(activationEvent?: Event): void {
+/**
+ * Opens the language list with focus on the active language. Whether that row
+ * shows a ring is the input owner's answer (src/ui/hover-pointer.ts): none
+ * after a click or a tap on the trigger, a ring for a person navigating by
+ * keyboard.
+ */
+export function openLanguageDialog(): void {
   prepareLanguagePickerFonts();
   renderLanguageOptions();
   refreshLanguageControls();
@@ -885,16 +854,10 @@ export function openLanguageDialog(activationEvent?: Event): void {
   setManagedTimer(
     'language-dialog-focus',
     () => {
-      clearLanguageDialogInitialFocus();
       const active =
         document.querySelector<HTMLElement>(
           `.language-option[data-lang="${getResolvedLanguage() as LanguageCode}"]`,
         ) || document.querySelector<HTMLElement>('.language-option');
-      if (active) {
-        const pointerActivation =
-          activationEvent instanceof MouseEvent && activationEvent.detail > 0;
-        markLanguageDialogInitialFocus(active, overlay, pointerActivation);
-      }
       active?.focus();
       bus.emit('ui:scrollbar-relayout');
       updateLanguageScrollMask();
@@ -908,7 +871,6 @@ function closeLanguageDialog(): void {
   if (!overlay) return;
   const wasShown = overlay.classList.contains('show');
   clearManagedTimer('language-dialog-focus');
-  clearLanguageDialogInitialFocus();
   overlay.classList.remove('show');
   overlay.setAttribute('aria-hidden', 'true');
   syncOverlayState();
@@ -973,7 +935,7 @@ export function initSettings(): void {
   const languageSelectButton = getUiElement('btn-language-select');
   languageSelectButton?.addEventListener('pointerdown', prepareLanguagePickerFonts);
   languageSelectButton?.addEventListener('focus', prepareLanguagePickerFonts);
-  $on('btn-language-select', 'click', (event) => openLanguageDialog(event));
+  $on('btn-language-select', 'click', () => openLanguageDialog());
   $on('btn-language-system', 'click', () => setLanguageMode('system'));
   $on('btn-language-dialog-done', 'click', () => closeLanguageDialog());
   const languageOverlay = getUiElement('language-dialog-overlay');

@@ -1,5 +1,5 @@
 {
-  "note": "Provenance of the self-hosted Inter and Noto Sans KR files. source is the downloaded file, shipped is the committed file. Written by scripts/fonts/record-font-sources.mts and scripts/fonts/build-noto-kr-nolocl.mts; checked by scripts/check-app-font.mts. Do not edit by hand.",
+  "note": "Provenance of the self-hosted Inter and Noto Sans KR files, and of the full Inter that Inter's symbol faces are cut from (interFull). source is the downloaded file, shipped is the committed file. Written by scripts/fonts/record-font-sources.mts and scripts/fonts/build-noto-kr-nolocl.mts; checked by scripts/check-app-font.mts. Do not edit by hand.",
   "tools": {
     "subset-font": "2.9.0",
     "harfbuzzjs": "1.6.3",
@@ -113,6 +113,24 @@
         }
       }
     ]
+  },
+  "interFull": {
+    "family": "Inter",
+    "version": "4.001 (git-66647c0bb)",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
+    "upstream": "github.com/google/fonts ofl/inter/Inter[opsz,wght].ttf",
+    "gitBlob": "047c92f6e2212473dc436020afed689527076d44",
+    "license": "fonts/INTER_LICENSE.txt",
+    "file": "fonts/inter-full.ttf",
+    "processing": "None. The committed file is the downloaded file, under a name without [ ] and a comma, which shells expand. Nothing serves it: scripts/fonts/build-inter-symbol-faces.mts cuts Inter's symbol faces from it.",
+    "source": {
+      "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+      "bytes": 876576
+    },
+    "shipped": {
+      "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+      "bytes": 876576
+    }
   },
   "notoSansKr": {
     "family": "Noto Sans KR",

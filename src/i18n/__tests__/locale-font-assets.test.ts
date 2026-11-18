@@ -60,6 +60,17 @@ describe('self-hosted locale font assets', () => {
     expect(localeFontAssetInlineLimit('C:\\workspace\\fonts\\app\\hangul\\hangul.119.woff2')).toBe(
       false,
     );
+    // And Inter's symbol faces: the spaces face is 1.6 KB.
+    expect(
+      localeFontAssetInlineLimit('/workspace/fonts/app/inter-symbols/inter-symbols-spaces.woff2'),
+    ).toBe(false);
+    expect(
+      localeFontAssetInlineLimit(
+        'C:\\workspace\\fonts\\app\\inter-symbols\\inter-symbols-math.woff2',
+      ),
+    ).toBe(false);
+    // The full Inter they are cut from is no asset of the app.
+    expect(localeFontAssetInlineLimit('/workspace/fonts/inter-full.ttf')).toBeUndefined();
     expect(localeFontAssetInlineLimit('/workspace/fonts/app-faces.json')).toBeUndefined();
     expect(localeFontAssetInlineLimit('/workspace/css/fonts/app/notes.txt')).toBeUndefined();
 

@@ -3234,7 +3234,10 @@ describe('action button label contract', () => {
       });
     }
     expect(violations).toEqual([]);
-    expect(brandSeen).toBe(4);
+    // The YouTube mark's colour, its light-theme fill and the pressed chat
+    // card. The media picker's hover tint kept a fourth (YouTube's own red
+    // under the mouse) until the tint went (owner decision 2026-11-17).
+    expect(brandSeen).toBe(3);
 
     // A red cannot hide in a color syntax the guards do not read.
     const unreadable: string[] = [];
@@ -3268,16 +3271,18 @@ describe('action button label contract', () => {
       ]);
     }
     // The revoke icon and both device kick icons turn red for keyboard focus
-    // as well as for a hover pointer.
+    // as well as for a hover pointer. Keyboard focus sits behind the keyboard
+    // gate (src/ui/hover-pointer.ts).
+    const keyboard = ":where(html:not([data-keyboard-navigation='off']))";
     for (const icon of [
       ':where(html[data-hover-pointer]) .clearable-editor-button:hover',
       ':where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover',
       ':where(html[data-hover-pointer]) .administrator-action-button.revoke:hover',
-      '.administrator-action-button.revoke:focus-visible',
+      `${keyboard} .administrator-action-button.revoke:focus-visible`,
       ':where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover',
-      '.btn-kick-physical-device:focus-visible',
+      `${keyboard} .btn-kick-physical-device:focus-visible`,
       ':where(html[data-hover-pointer]) .device-row:hover .btn-kick-device:hover',
-      '.btn-kick-device:focus-visible',
+      `${keyboard} .btn-kick-device:focus-visible`,
     ]) {
       expect(ruleValues(appCss, icon, 'color'), icon).toEqual(['var(--danger-foreground)']);
     }

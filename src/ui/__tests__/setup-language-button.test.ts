@@ -83,7 +83,11 @@ describe('phone start screen language button', () => {
     const css = await readFile('css/style.css', 'utf8');
     const button = ruleBody(css, '.setup-language-button');
     const title = ruleBody(css, '.setup-header-text h2');
-    const focus = ruleBody(css, '.setup-language-button:focus-visible');
+    // The ring is keyboard navigation's (src/ui/hover-pointer.ts).
+    const focus = ruleBody(
+      css,
+      ":where(html:not([data-keyboard-navigation='off'])) .setup-language-button:focus-visible",
+    );
     const height = px(button, 'min-height');
     const lineHeight = Number(title.match(/(?:^|[\s;])line-height: ([\d.]+);/u)?.[1]);
     const line = px(title, 'font-size') * lineHeight;

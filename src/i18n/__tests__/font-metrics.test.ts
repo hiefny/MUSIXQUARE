@@ -151,8 +151,10 @@ describe('app font metric descriptors', () => {
         ] += 1;
       }
     }
-    // none: the 11 script faces.
-    expect(facesByMetrics).toEqual({ inter: 7, hangul: 87, cjk: 366, none: 11 });
+    // inter: Google's 7 subsets and the 7 symbol faces; cjk: KR 52, JP 120,
+    // SC 94 and TC 98 (the symbol faces emptied KR #113 and SC #91); none: the
+    // 11 script faces.
+    expect(facesByMetrics).toEqual({ inter: 14, hangul: 87, cjk: 364, none: 11 });
   });
 
   it("take the line box from Pretendard's own file, which the Hangul faces state as their descriptors", async () => {

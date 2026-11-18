@@ -241,6 +241,11 @@ Playlist/Chat, and Settings occupy a three-column dashboard.
   a global button shape override.
 - Press feedback is compact and immediate; avoid long decorative motion.
 - Use `:focus-visible` and retain semantic buttons, labels, and ARIA state.
+  In the app's stylesheets a focus ring is for keyboard navigation only: start
+  every rule that draws for `:focus-visible` with
+  `:where(html:not([data-keyboard-navigation='off']))`, which
+  `src/ui/hover-pointer.ts` owns. A field's own focus mark (its underline) is
+  not a ring and keeps a plain `:focus` rule.
 - `aria-disabled` is intentional on controls that must remain clickable to
   explain why an action is unavailable.
 - Slider thumbs are visually quiet while their input elements retain generous

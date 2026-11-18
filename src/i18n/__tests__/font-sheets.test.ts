@@ -4,10 +4,13 @@
  * The range edits make each script come from exactly one family, so the
  * browser never picks a second family for it and the Korean and English UIs
  * draw the same content with the same faces:
- * - Inter draws every code point its cmap has inside its Google subset ranges.
- *   Those code points are cut from the four CJK families by Inter's cmap, never
- *   by its declared ranges, so the marks Inter lacks (※ ― ‥ ‰ ‼ ...) stay in
- *   the CJK families instead of falling to a device font.
+ * - Inter draws every code point its cmap has inside its Google subset ranges,
+ *   and, from its symbol faces (owner decision 2026-11-17), the symbols the
+ *   full Inter has that its Google subsets lack (※ ― ‥ ‰ ‼ → ≤ ≈ ★ ...), each
+ *   face declaring its cmap. Those code points are cut from the four CJK
+ *   families by Inter's cmap, never by its declared ranges, so a mark no Inter
+ *   face has (the soft hyphen) stays in the CJK families instead of falling to
+ *   a device font.
  * - Hangul Pretendard draws is only in MUSIXQUARE Hangul (owner decision
  *   2026-11-02), the Hangul it lacks only in Noto Sans KR, and kana only in
  *   Noto Sans JP.
@@ -55,10 +58,27 @@ const INVISIBLE: readonly Range[] = [
   [0x2060, 0x2064],
   [0xfeff, 0xfeff],
 ];
-/** Inside Inter's declared ranges, missing from Inter's cmap, drawn by Noto Sans KR. */
-const MARKS_INTER_LACKS = [
-  0x00ad, 0x2010, 0x2015, 0x2016, 0x2021, 0x2025, 0x2030, 0x2035, 0x203b, 0x203c, 0x2042,
-];
+/**
+ * Inside Inter's declared ranges, missing from every Inter face, drawn by Noto
+ * Sans KR: the soft hyphen, which the full Inter lacks too. Since the symbol
+ * faces (owner decision 2026-11-17), Inter draws the other marks the Google
+ * subsets lack and its ranges claim (‐ ― ‖ ‡ ‥ ‰ ‵ ※ ‼ ⁂ and more).
+ */
+const MARKS_INTER_LACKS = [0x00ad];
+/**
+ * Inter's symbol faces, cut from the full Inter (fonts/inter-symbol-faces.json),
+ * in sheet order after Google's seven, with the number of code points each
+ * declares: its cmap.
+ */
+const SYMBOL_FACES = [
+  ['inter-symbols-spaces.woff2', 15],
+  ['inter-symbols-punctuation.woff2', 49],
+  ['inter-symbols-arrows.woff2', 34],
+  ['inter-symbols-math.woff2', 19],
+  ['inter-symbols-letterlike.woff2', 55],
+  ['inter-symbols-fractions.woff2', 59],
+  ['inter-symbols-shapes.woff2', 49],
+] as const;
 
 const inRanges = (codePoint: number, ranges: readonly Range[]): boolean =>
   ranges.some(([start, end]) => codePoint >= start && codePoint <= end);
@@ -119,12 +139,15 @@ describe('generated app font sheets', () => {
       );
       counts[sheet.id] = rules.length;
     }
+    // Inter: Google's seven subsets and the seven symbol faces. The symbol
+    // faces empty Noto Sans KR #113 (▲ ▶) and Noto Sans SC #91 (‐ ‑ ‒ ― ‖ ‡ ‥ ‰
+    // ‵ ‼ ⁉ ⁴), which are dropped.
     expect(counts).toEqual({
-      'font-inter': 7,
+      'font-inter': 14,
       'font-hangul': 87,
-      'font-noto-kr': 53,
+      'font-noto-kr': 52,
       'font-noto-jp': 120,
-      'font-noto-sc': 95,
+      'font-noto-sc': 94,
       'font-noto-tc': 98,
       'font-noto-thai': 1,
     });
@@ -164,19 +187,44 @@ describe('generated app font sheets', () => {
     }
   }, 60_000);
 
-  it("keep Google's Inter ranges, one face per recorded subset", async () => {
+  it("keep Google's Inter ranges, one face per recorded subset, then the symbol faces, each declaring its cmap", async () => {
     const { inter } = await readFontSources(ROOT);
     const rules = await readRules('font-inter');
-    expect(rules.map(({ file }) => file)).toEqual(inter.faces.map(({ file }) => file));
+    expect(rules.map(({ file }) => file)).toEqual([
+      ...inter.faces.map(({ file }) => file),
+      ...SYMBOL_FACES.map(([file]) => file),
+    ]);
+    const google = new Set<number>();
     for (const face of inter.faces) {
       const rule = rules.find(({ file }) => file === face.file);
       expect(rule?.unicodeRange, face.file).toBe(face.unicodeRange);
+      const file = join(ROOT, inter.directory, face.file);
+      for (const codePoint of fontCodePoints(await openFontFile(file))) google.add(codePoint);
     }
-  });
+    for (const [file, count] of SYMBOL_FACES) {
+      const rule = rules.find((entry) => entry.file === file);
+      expect(rule?.url, file).toBe(`../../../fonts/app/inter-symbols/${file}`);
+      const declared = [...parseUnicodeRange(rule?.unicodeRange ?? '')].sort((a, b) => a - b);
+      expect(declared, file).toHaveLength(count);
+      const cmap = fontCodePoints(
+        await openFontFile(resolve(dirname(join(ROOT, sheetPath('font-inter'))), rule?.url ?? '')),
+      );
+      expect(
+        [...cmap].sort((a, b) => a - b),
+        file,
+      ).toEqual(declared);
+      // Only what no Google subset has: those keep Google's files and ranges.
+      expect(
+        declared.filter((codePoint) => google.has(codePoint)),
+        file,
+      ).toEqual([]);
+    }
+  }, 60_000);
 
   it("give Latin, Cyrillic and Greek to Inter alone, cut by Inter's cmap", async () => {
+    // 1,622 code points of Google's subsets and 280 of the symbol faces.
     const interDrawn = await drawnCodePoints('font-inter');
-    expect(interDrawn.size).toBe(1_622);
+    expect(interDrawn.size).toBe(1_902);
     for (const id of CJK_SHEET_IDS) {
       const declared = await declaredCodePoints(id);
       const overlap = [...interDrawn].filter((codePoint) => declared.has(codePoint));

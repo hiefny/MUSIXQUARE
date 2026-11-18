@@ -2690,8 +2690,9 @@ describe('member-level connection and administrator UI', () => {
     expect(desktopStylesheet).toMatch(
       /#desktop-connect-content \.qr-container,\s*#desktop-connect-content \.administrator-list,\s*#desktop-connect-content \.device-list,/,
     );
+    // Keyboard focus sits behind the keyboard gate (src/ui/hover-pointer.ts).
     expect(stylesheet).toMatch(
-      /:where\(html\[data-hover-pointer\]\) \.administrator-permission-row:hover,\s*\.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
+      /:where\(html\[data-hover-pointer\]\) \.administrator-permission-row:hover,\s*:where\(html:not\(\[data-keyboard-navigation='off'\]\)\) \.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
     );
     expect(stylesheet).not.toContain('.d-device-count');
     expect(deviceSubrowRules).toContain('font-size: 13px');
@@ -2792,7 +2793,7 @@ describe('member-level connection and administrator UI', () => {
       stylesheet.match(/\.administrator-action-button\.revoke svg\s*\{([^}]*)\}/)?.[1] ?? '';
     const revokeHoverRules =
       stylesheet.match(
-        /\.administrator-action-button\.revoke:hover,\s*\.administrator-action-button\.revoke:focus-visible\s*\{([^}]*)\}/,
+        /\.administrator-action-button\.revoke:hover,\s*:where\(html:not\(\[data-keyboard-navigation='off'\]\)\)\s+\.administrator-action-button\.revoke:focus-visible\s*\{([^}]*)\}/,
       )?.[1] ?? '';
     const administratorCrownRules =
       stylesheet.match(/\.administrator-crown\s*\{([^}]*)\}/)?.[1] ?? '';

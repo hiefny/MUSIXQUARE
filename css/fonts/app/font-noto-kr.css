@@ -457,7 +457,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.96.woff2) format('woff2');
-  unicode-range: U+2541-254B, U+25A4-25A9, U+25B1, U+25C1, U+25C9-25CA, U+25CC, U+25CE, U+25D0-25D1, U+25E6, U+25EF, U+260F, U+261D, U+261F, U+262F, U+2660, U+2664, U+2667-2669, U+266D, U+266F, U+271A, U+273D, U+2756, U+2776-277F, U+278A-2793, U+2F00, U+2F04, U+2F06, U+2F08, U+2F0A-2F0B, U+2F11-2F12, U+2F14, U+2F17-2F18, U+2F1C-2F1D, U+2F1F-2F20, U+2F23-2F26, U+2F28-2F29, U+2F2B, U+2F2D, U+2F2F-2F32, U+2F38, U+2F3C-2F40, U+2F42-2F4C, U+2F4F-2F52, U+2F54-2F58, U+2F5A-2F66, U+2F69-2F70, U+2F72-2F76, U+2F78, U+2F7A-2F7C;
+  unicode-range: U+2541-254B, U+25A4-25A9, U+25B1, U+25C9, U+25CC, U+25CE, U+25D0-25D1, U+260F, U+261D, U+261F, U+262F, U+2660, U+2664, U+2667-2669, U+266D, U+266F, U+271A, U+273D, U+2776-277F, U+278A-2793, U+2F00, U+2F04, U+2F06, U+2F08, U+2F0A-2F0B, U+2F11-2F12, U+2F14, U+2F17-2F18, U+2F1C-2F1D, U+2F1F-2F20, U+2F23-2F26, U+2F28-2F29, U+2F2B, U+2F2D, U+2F2F-2F32, U+2F38, U+2F3C-2F40, U+2F42-2F4C, U+2F4F-2F52, U+2F54-2F58, U+2F5A-2F66, U+2F69-2F70, U+2F72-2F76, U+2F78, U+2F7A-2F7C;
 }
 
 @font-face {
@@ -483,7 +483,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.98.woff2) format('woff2');
-  unicode-range: U+2162-2169, U+2170-2179, U+2195-2199, U+21C4-21C5, U+21D0, U+21D2, U+21D4, U+21E6-21E9, U+2200, U+2202-2203, U+2206-2209, U+220B, U+220F, U+2211, U+2213, U+221A, U+221D-2220, U+2225-2227, U+2229-222C, U+222E, U+2234-2237, U+223D, U+2243, U+2245, U+2248, U+2260-2262, U+2264-2267, U+226A-226B, U+226E-226F, U+2272-2273, U+2276-2277, U+2282-2287, U+228A-228B, U+2295-2297, U+22A5, U+22DA-22DB, U+22EF, U+2306, U+2312, U+2467-2478;
+  unicode-range: U+21C4-21C5, U+21E6, U+21E8-21E9, U+2200, U+2203, U+2207-2209, U+220B, U+2213, U+221D, U+221F-2220, U+2225-2227, U+2229-222A, U+222C, U+222E, U+2234-2235, U+2237, U+223D, U+2243, U+2245, U+2261-2262, U+2266-2267, U+226A-226B, U+226E-226F, U+2272-2273, U+2276-2277, U+2282-2287, U+228A-228B, U+22A5, U+22DA-22DB, U+22EF, U+2306, U+2312, U+2467-2478;
 }
 
 @font-face {
@@ -496,7 +496,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.99.woff2) format('woff2');
-  unicode-range: U+00AD, U+02D9, U+2010, U+2015-2016, U+2021, U+2025, U+2030, U+2035, U+203C, U+2042, U+2074, U+2109, U+2121, U+2126, U+212B;
+  unicode-range: U+00AD;
 }
 
 @font-face {
@@ -509,7 +509,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.100.woff2) format('woff2');
-  unicode-range: U+2160, U+2194, U+339D, U+4E3B, U+4F0A, U+4FDD, U+4FE1, U+5409, U+540C, U+5834, U+592A-592B, U+5B9A, U+5DDE, U+5E0C, U+5E73, U+5F0F, U+60F3, U+653F, U+661F, U+662F, U+667A, U+683C, U+6B4C, U+6C11, U+767C, U+76EE, U+76F4, U+77F3, U+79D1, U+7A7A, U+7B2C, U+7D22, U+8207, U+8A00, U+8A71, U+9280, U+9580, U+958B, U+96C6, U+9762, U+98DF, U+9ED1, U+F90A, U+FF02, U+FF1C;
+  unicode-range: U+339D, U+4E3B, U+4F0A, U+4FDD, U+4FE1, U+5409, U+540C, U+5834, U+592A-592B, U+5B9A, U+5DDE, U+5E0C, U+5E73, U+5F0F, U+60F3, U+653F, U+661F, U+662F, U+667A, U+683C, U+6B4C, U+6C11, U+767C, U+76EE, U+76F4, U+77F3, U+79D1, U+7A7A, U+7B2C, U+7D22, U+8207, U+8A00, U+8A71, U+9280, U+9580, U+958B, U+96C6, U+9762, U+98DF, U+9ED1, U+F90A, U+FF02, U+FF1C;
 }
 
 @font-face {
@@ -522,7 +522,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.101.woff2) format('woff2');
-  unicode-range: U+2466, U+25A1, U+25A3, U+261C, U+3008-3009, U+4E4B, U+4E5F, U+4E8C, U+4ECA, U+4ED6, U+4F5B, U+50CF, U+5149, U+5165, U+5171, U+5229, U+529B, U+5316, U+539F, U+53F2, U+571F, U+5728, U+58EB, U+591C, U+5B78, U+5C11, U+5C55, U+5DDD, U+5E02, U+5FB7, U+60C5, U+610F, U+611F, U+6625, U+66F8, U+6797, U+679C, U+682A, U+6D2A, U+706B, U+7406, U+767B, U+76F8, U+77E5, U+7ACB, U+898B, U+8A69, U+8DEF, U+8FD1, U+901A, U+90E8, U+91CD, U+975E, U+FF1E;
+  unicode-range: U+2466, U+25A3, U+261C, U+3008-3009, U+4E4B, U+4E5F, U+4E8C, U+4ECA, U+4ED6, U+4F5B, U+50CF, U+5149, U+5165, U+5171, U+5229, U+529B, U+5316, U+539F, U+53F2, U+571F, U+5728, U+58EB, U+591C, U+5B78, U+5C11, U+5C55, U+5DDD, U+5E02, U+5FB7, U+60C5, U+610F, U+611F, U+6625, U+66F8, U+6797, U+679C, U+682A, U+6D2A, U+706B, U+7406, U+767B, U+76F8, U+77E5, U+7ACB, U+898B, U+8A69, U+8DEF, U+8FD1, U+901A, U+90E8, U+91CD, U+975E, U+FF1E;
 }
 
 @font-face {
@@ -548,7 +548,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.103.woff2) format('woff2');
-  unicode-range: U+2190, U+24D8, U+2502, U+2514, U+2592, U+25C7, U+2663, U+339E, U+4E09, U+4EAC, U+4F5C, U+5167-5168, U+516C, U+51FA, U+5408, U+540D, U+591A, U+5B57, U+6211, U+65B9, U+660E, U+6642, U+6700, U+6B63, U+6E2F, U+7063, U+7532, U+793E, U+81EA, U+8272, U+82B1, U+897F, U+8ECA, U+91CE, U+FF0C;
+  unicode-range: U+24D8, U+2502, U+2514, U+2592, U+2663, U+339E, U+4E09, U+4EAC, U+4F5C, U+5167-5168, U+516C, U+51FA, U+5408, U+540D, U+591A, U+5B57, U+6211, U+65B9, U+660E, U+6642, U+6700, U+6B63, U+6E2F, U+7063, U+7532, U+793E, U+81EA, U+8272, U+82B1, U+897F, U+8ECA, U+91CE, U+FF0C;
 }
 
 @font-face {
@@ -561,7 +561,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.104.woff2) format('woff2');
-  unicode-range: U+2161, U+2228, U+2299, U+2464, U+2517, U+2640, U+4E0B, U+4E0D, U+4EE3, U+53F0, U+548C, U+5B89, U+5BB6, U+5C0F, U+611B, U+6771, U+6AA2, U+6BCD, U+6C34, U+6CD5, U+6D77, U+767D, U+795E, U+8ECD, U+9999, U+9AD8, U+FF1A;
+  unicode-range: U+2228, U+2299, U+2464, U+2517, U+2640, U+4E0B, U+4E0D, U+4EE3, U+53F0, U+548C, U+5B89, U+5BB6, U+5C0F, U+611B, U+6771, U+6AA2, U+6BCD, U+6C34, U+6CD5, U+6D77, U+767D, U+795E, U+8ECD, U+9999, U+9AD8, U+FF1A;
 }
 
 @font-face {
@@ -574,7 +574,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.105.woff2) format('woff2');
-  unicode-range: U+2103, U+2463, U+25C6, U+25CB, U+266C, U+3001, U+300A, U+4E0A, U+570B, U+5730, U+5916, U+5929, U+5C71, U+5E74, U+5FC3, U+601D, U+6027, U+63D0, U+6709, U+6734, U+751F, U+7684, U+82F1, U+9053, U+91D1, U+97F3, U+FF01, U+FF08-FF09, U+FF5C;
+  unicode-range: U+2463, U+266C, U+3001, U+300A, U+4E0A, U+570B, U+5730, U+5916, U+5929, U+5C71, U+5E74, U+5FC3, U+601D, U+6027, U+63D0, U+6709, U+6734, U+751F, U+7684, U+82F1, U+9053, U+91D1, U+97F3, U+FF01, U+FF08-FF09, U+FF5C;
 }
 
 @font-face {
@@ -587,7 +587,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.106.woff2) format('woff2');
-  unicode-range: U+25B3, U+25B7, U+25BD, U+25CF, U+266A, U+3002, U+300B, U+33A1, U+4E00, U+524D, U+5357, U+5B50, U+7121, U+884C, U+9751;
+  unicode-range: U+266A, U+3002, U+300B, U+33A1, U+4E00, U+524D, U+5357, U+5B50, U+7121, U+884C, U+9751;
 }
 
 @font-face {
@@ -613,7 +613,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.108.woff2) format('woff2');
-  unicode-range: U+2460-2461, U+25A0, U+3010-3011, U+5927, U+65B0, U+7E41, U+97D3, U+9AD4;
+  unicode-range: U+2460-2461, U+3010-3011, U+5927, U+65B0, U+7E41, U+97D3, U+9AD4;
 }
 
 @font-face {
@@ -626,7 +626,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.109.woff2) format('woff2');
-  unicode-range: U+2606, U+300C-300D, U+4EBA, U+5317;
+  unicode-range: U+300C-300D, U+4EBA, U+5317;
 }
 
 @font-face {
@@ -639,7 +639,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.110.woff2) format('woff2');
-  unicode-range: U+2192, U+25BC, U+3000, U+7F8E;
+  unicode-range: U+3000, U+7F8E;
 }
 
 @font-face {
@@ -652,7 +652,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.111.woff2) format('woff2');
-  unicode-range: U+203B, U+25C0, U+2605, U+2661, U+672C, U+8A9E;
+  unicode-range: U+672C, U+8A9E;
 }
 
 @font-face {
@@ -665,20 +665,7 @@
   descent-override: 25.66%;
   line-gap-override: 0%;
   src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.112.woff2) format('woff2');
-  unicode-range: U+2665, U+4E2D, U+6587, U+65E5;
-}
-
-@font-face {
-  font-family: 'Noto Sans KR';
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  size-adjust: 94%;
-  ascent-override: 101.29%;
-  descent-override: 25.66%;
-  line-gap-override: 0%;
-  src: url(../../../fonts/app/noto-sans-kr/PbykFmXiEBPT4ITbgNA5Cgm20xz64px_1hVWr0wuPNGmlQNMEfD4.113.woff2) format('woff2');
-  unicode-range: U+25B2, U+25B6;
+  unicode-range: U+4E2D, U+6587, U+65E5;
 }
 
 @font-face {

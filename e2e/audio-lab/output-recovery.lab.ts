@@ -19,7 +19,12 @@
  *   load: an outside resume while it waits and the owner parking it again, a
  *   tap inside that re-park (the same request shown once more), how its wait
  *   for the clock requirement ends (a newer request, a track change, a hidden
- *   page, the 5 s limit), and a notice that never became a dialog;
+ *   page, the 5 s limit), and a notice that never became a dialog, whose
+ *   next PLAY meets a running clock (e) or a clock still frozen (e-2,
+ *   F-2501);
+ * - (f) the ordinary branch, which a restore dialog with no owner attempt
+ *   takes (opened here by a synthetic notice): the page is hidden while the
+ *   restart its tap prepares is being parked (F-2502);
  * - T1-T9 trusted input with UI sounds on: slow and fast finger, Space and
  *   Enter, on both dialogs. While an owner holds the context for the
  *   dialog's tap the UI sounds ask first and stay silent (Phase 7 7B-3):
@@ -48,6 +53,8 @@ import {
   countOps,
   dialogMoves,
   emitNewerPlayRequest,
+  emitRestoreNotice,
+  freeze,
   holdResume,
   holdSuspend,
   markOps,
@@ -67,6 +74,8 @@ import {
 } from './output-probe.ts';
 
 const BACKGROUND = 'background-resume:clock-stalled';
+/** The synthetic restore notice of row (f) (emitRestoreNotice). */
+const ORDINARY = 'background-resume:context-not-running';
 const DIALOG = '#dialog-overlay.show';
 const OK = '#btn-dialog-ok';
 
@@ -368,6 +377,161 @@ test.describe('play-request dialog (paused round trip, then PLAY)', () => {
     expect(lab.starts - before).toBe(1);
     expect(await readState(page, 'playback.activity')).toBe('playing');
     expect(lab.state).toBe('running');
+  });
+
+  test("(e-2) the PLAY's notice arrives while the page is hidden and the next PLAY meets a clock still frozen: that PLAY opens the dialog, and its tap plays the track (F-2501)", async ({
+    page,
+  }) => {
+    await openPlaying(page);
+    await clickPlayButton(page);
+    await waitForPlaybackProjection(page, 'PAUSED', 10_000);
+    await bounce(page);
+    const before = (await readLab(page)).starts;
+    // As (e): the PLAY's one notice lands while the page is hidden.
+    await holdSuspend(page, 1);
+    await clickPlayButton(page);
+    await waitForSuspendHeld(page);
+    await page.waitForTimeout(560);
+    await setPageVisibility(page, 'hidden');
+    await releaseGates(page);
+    await page.waitForTimeout(700);
+    await setPageVisibility(page, 'visible');
+    await page.waitForTimeout(1_500);
+    const orphaned = await readLab(page);
+    // The clock stays frozen.
+    await markOps(page, 'play-again');
+    await clickPlayButton(page);
+    await expect(page.locator(DIALOG)).toBeVisible();
+    await page.waitForTimeout(1_000);
+    const asked = await readLab(page);
+    await unfreeze(page);
+    await page.locator(OK).click();
+    await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);
+    await page.waitForTimeout(1_500);
+    const lab = await readLab(page);
+    report('(e-2)', lab, before);
+
+    expect(orphaned.needed).toEqual(['play:clock-stalled']);
+    expect(orphaned.dialogShows).toBe(0);
+    expect(orphaned.state).toBe('suspended');
+    // F-2501: the next PLAY's resume wakes the restart no dialog took, its
+    // clock check finds the clock still frozen and starts over: the owner
+    // parks the context again and the PLAY's one notice opens the dialog.
+    // Before (measured on main 14d0bb8b in Chromium, 2026-11-17): that resume
+    // and nothing else, no suspend, no notice and no dialog, and a second
+    // PLAY made no native call at all; the play button did nothing until the
+    // clock ran again.
+    const again = opsFrom(asked.ops, 'play-again');
+    expect(countOps(again, 'resume@click:')).toBe(1);
+    expect(countOps(again, ' suspend:')).toBe(1);
+    expect(asked.needed).toEqual(['play:clock-stalled', 'play:clock-stalled']);
+    expect(asked.dialogShows).toBe(1);
+    expect(asked.state).toBe('suspended');
+    expect(asked.retries).toEqual([]);
+    // The dialog's tap on a running clock: the owner's one resume, and the
+    // second notice's retry starts the track.
+    expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
+    expect(lab.retries).toEqual(['started']);
+    expect(lab.starts - before).toBe(1);
+    expect(lab.activity).toEqual(['paused', 'playing']);
+    expect(lab.dialogShows).toBe(1);
+    await expect(page.locator(DIALOG)).toHaveCount(0);
+  });
+});
+
+test.describe('ordinary branch (a restore dialog with no owner attempt, frozen clock)', () => {
+  /**
+   * A file plays, the clock freezes, and a restore notice with no attempt
+   * opens the dialog. Its tap finds the frozen clock and prepares a restart;
+   * the page is hidden while that restart's suspend is in flight, inside the
+   * 500 ms preparation wait, and stays hidden for 2 s. Returns the source
+   * starts before the freeze.
+   */
+  async function tapThenHide(page: Page): Promise<number> {
+    await openPlaying(page);
+    const { starts } = await readLab(page);
+    await freeze(page);
+    await emitRestoreNotice(page);
+    await expect(page.locator(DIALOG)).toBeVisible();
+    await holdSuspend(page, 1);
+    await markOps(page, 'ordinary-tap');
+    await page.locator(OK).click();
+    await waitForSuspendHeld(page);
+    await setPageVisibility(page, 'hidden');
+    await page.waitForTimeout(250);
+    await releaseGates(page);
+    await page.waitForTimeout(2_000);
+    return starts;
+  }
+
+  test('(f-1) the page is hidden while the restart prepares, the clock still frozen at the return: the prepared dialog opens, and its tap rejoins once (F-2502)', async ({
+    page,
+  }) => {
+    const before = await tapThenHide(page);
+    const hidden = await readLab(page);
+    await markOps(page, 'return');
+    await setPageVisibility(page, 'visible');
+    await expect.poll(async () => (await readLab(page)).dialogShows).toBe(2);
+    await page.waitForTimeout(1_000);
+    const asked = await readLab(page);
+    await unfreeze(page);
+    await page.locator(OK).click();
+    await expect(page.locator(DIALOG)).toHaveCount(0);
+    await page.waitForTimeout(2_000);
+    const lab = await readLab(page);
+    report('(f-1)', lab, before);
+
+    // F-2502: the branch gives the restart up for the hidden page. Chromium
+    // reports that suspension after its promise, to no owner by then, so the
+    // binding reads it as an interruption of the playing file: the playback
+    // scope's attempt resumes the context while hidden and waits for the
+    // return to prove the clock. Before (measured on main 14d0bb8b in
+    // Chromium, 2026-11-17): the restart stayed parked with no dialog, the
+    // return check deferred to it, and the file stayed silent with no dialog
+    // while the screen showed it playing, its position moving on.
+    const left = opsFrom(hidden.ops, 'ordinary-tap');
+    expect(countOps(left, ' suspend:')).toBe(1);
+    expect(countOps(left, 'resume@statechange:')).toBe(1);
+    expect(hidden.state).toBe('running');
+    expect(hidden.needed).toEqual([ORDINARY]);
+    expect(hidden.rejoins).toEqual([]);
+    // The return: that attempt finds the clock frozen, parks the output and
+    // asks for the prepared dialog, whose tap rejoins once.
+    const returned = opsFrom(asked.ops, 'return');
+    expect(countOps(returned, ' suspend:')).toBe(1);
+    expect(countOps(returned, 'resume@')).toBe(0);
+    expect(asked.needed).toEqual([ORDINARY, BACKGROUND]);
+    expect(asked.state).toBe('suspended');
+    expect(countOps(fromTap(lab), 'resume@click:')).toBe(1);
+    expect(lab.rejoins).toEqual(['audio-context-recovered']);
+    expect(lab.starts - before).toBe(1);
+    expect(lab.state).toBe('running');
+    expect(lab.dialogShows).toBe(2);
+    expect(await readState(page, 'playback.activity')).toBe('playing');
+  });
+
+  test('(f-2) the page is hidden while the restart prepares, the clock running again at the return: one rejoin and no dialog (F-2502)', async ({
+    page,
+  }) => {
+    const before = await tapThenHide(page);
+    await unfreeze(page);
+    await markOps(page, 'return');
+    await setPageVisibility(page, 'visible');
+    await page.waitForTimeout(3_000);
+    const lab = await readLab(page);
+    report('(f-2)', lab, before);
+
+    // As (f-1) until the return; there the attempt proves the running clock
+    // and publishes its one rejoin. Before: silent, as in (f-1).
+    const returned = opsFrom(lab.ops, 'return');
+    expect(countOps(returned, ' suspend:')).toBe(0);
+    expect(countOps(returned, 'resume@')).toBe(0);
+    expect(lab.needed).toEqual([ORDINARY]);
+    expect(lab.dialogShows).toBe(1);
+    expect(lab.rejoins).toEqual(['audio-context-recovered']);
+    expect(lab.starts - before).toBe(1);
+    expect(lab.state).toBe('running');
+    expect(await readState(page, 'playback.activity')).toBe('playing');
   });
 });
 

@@ -1,20 +1,65 @@
 /**
- * The app's one answer to "can the user hover right now?".
+ * The app's one input owner. It answers two questions: can the user hover
+ * right now, and is the user navigating by keyboard?
  *
- * It starts from `(any-hover: hover)` and follows that query's changes, so a
- * mouse or trackpad device hovers from start-up. Real input then corrects it.
- * A convertible in tablet posture (for example a Surface Laptop Studio in
- * stage or studio mode) disables its touchpad, so `(any-hover: hover)` is
- * false even while a pen or mouse hovers the page: a mouse or pen movement
- * turns hover on, from its first boundary event (pointerover arrives before
- * mouseenter and pointermove). A touch press turns it off, so a tapped
- * control never keeps a latched hover look.
+ * Hover. It starts from `(any-hover: hover)` and follows that query's
+ * changes, so a mouse or trackpad device hovers from start-up. Real input
+ * then corrects it. A convertible in tablet posture (for example a Surface
+ * Laptop Studio in stage or studio mode) disables its touchpad, so
+ * `(any-hover: hover)` is false even while a pen or mouse hovers the page: a
+ * mouse or pen movement turns hover on, from its first boundary event
+ * (pointerover arrives before mouseenter and pointermove). A touch press
+ * turns it off, so a tapped control never keeps a latched hover look.
  *
  * The answer is `<html data-hover-pointer>`. Every `:hover` rule in css/ sits
  * under `:where(html[data-hover-pointer])`, whose `:where()` adds no
  * specificity, so state rules keep winning exactly as before. Script hover
  * checks use `hasHoverPointer()` and `isHovered()`. Nothing else asks a hover
  * or pointer media query (src/ui/__tests__/hover-pointer.test.ts).
+ *
+ * Keyboard navigation (owner request 2026-11-18). A focus ring is for a
+ * person navigating by keyboard, never for focus that a click, a tap or a
+ * window opening moved. The answer is `<html data-keyboard-navigation>`,
+ * `off` from start-up, so a window that opens by itself focuses its control
+ * without a ring. A key that moves focus, or a widget's value, turns it `on`:
+ * - Tab and Shift+Tab anywhere, except a Tab that a text field takes for
+ *   itself and keeps focus on: the chat's command completion calls
+ *   preventDefault and focus stays in the field. A Tab that leaves a field,
+ *   or that a dialog's focus trap takes and moves, counts.
+ * - The arrows, Home, End, Page Up and Page Down on a widget they move
+ *   through or move: a slider, a radio (the PIN dialog's choice rows), a
+ *   select and the ARIA widget roles (the phone's tab bar, the chat sheet's
+ *   resize handle).
+ * - Any of those keys, wherever it was pressed, that moves focus while it is
+ *   down and before it has scrolled anything: a TV remote's D-pad under
+ *   spatial navigation moves focus from the page, a panel or a plain button,
+ *   and the playlist's keyboard reorder refocuses the row it moves. Pressed
+ *   on a plain button, link, switch or checkbox, on the page, a panel or the
+ *   chat log, they otherwise only scroll, and in a text field they move the
+ *   caret, so there they do not count: a mouse user who clicks a track and
+ *   scrolls with Page Down gets no ring.
+ * Every pointer press, mouse, pen or touch, turns it `off` again; moving a
+ * pointer does not. Other keys leave it as it is, so a keyboard user keeps
+ * every ring: Space and Enter press the focused control or, on the page or a
+ * panel, play or pause; Escape closes the top window, whose owner puts focus
+ * back; typing edits a field; and a key held with Ctrl or Cmd is a shortcut,
+ * as is Alt with an arrow (Back and Forward).
+ *
+ * WCAG 2.4.7: a keyboard user's rings show from their first Tab, or their
+ * first arrow that moves focus or a value, on. In a window that opened by
+ * itself, before any navigation, the controls ring from the person's first
+ * Tab: it rings the control it moves to, or in a one-button window the same
+ * button.
+ *
+ * Every focus ring rule in css/ sits under
+ * `:where(html:not([data-keyboard-navigation='off']))`, and one base rule
+ * turns the browser's own ring off under `off`. A field's own focus mark (its
+ * underline, and its forced-colours outline) is not a ring and shows on
+ * every focus. A page where this script never ran has no attribute, so the
+ * browser's :focus-visible decides there, as before; so it does on an engine
+ * without :where() (docs/known-accepted.md #20). No timer is involved: a key
+ * is down from its keydown until its keyup, the next key, a pointer press, a
+ * scroll or the window losing focus.
  */
 let installed = false;
 
@@ -33,6 +78,98 @@ function setHoverPointer(on: boolean): void {
   }
 }
 
+function setKeyboardNavigation(on: boolean): void {
+  const value = on ? 'on' : 'off';
+  if (document.documentElement.getAttribute('data-keyboard-navigation') !== value) {
+    document.documentElement.setAttribute('data-keyboard-navigation', value);
+  }
+}
+
+/** Keys that move through a widget or move its value, and otherwise scroll. */
+const NAVIGATION_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
+/** Input types whose arrows move a caret instead of focus or a value. */
+const TEXT_INPUT_TYPES = new Set([
+  'text',
+  'search',
+  'email',
+  'url',
+  'tel',
+  'password',
+  'number',
+  'date',
+  'datetime-local',
+  'month',
+  'time',
+  'week',
+]);
+
+/**
+ * The ARIA widget roles whose arrows, Home, End and page keys move focus
+ * within them or move their value. On a plain button, link, switch or
+ * checkbox those keys scroll, as on a panel, a region, a log or a dialog.
+ */
+const ARROW_WIDGET = [
+  'grid',
+  'gridcell',
+  'listbox',
+  'menu',
+  'menubar',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'option',
+  'radio',
+  'radiogroup',
+  'separator',
+  'slider',
+  'spinbutton',
+  'tab',
+  'tablist',
+  'toolbar',
+  'tree',
+  'treeitem',
+]
+  .map((role) => `[role='${role}']`)
+  .join(', ');
+
+function isTextEntry(element: Element): boolean {
+  if (element instanceof HTMLTextAreaElement) return true;
+  if (element instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(element.type);
+  return element instanceof HTMLElement && element.isContentEditable;
+}
+
+/** Whether the arrows on this element move focus within it or move its value. */
+function movesWithArrows(element: Element): boolean {
+  if (element instanceof HTMLInputElement) {
+    return element.type === 'range' || element.type === 'radio';
+  }
+  return element instanceof HTMLSelectElement || element.matches(ARROW_WIDGET);
+}
+
+/**
+ * How a key press counts (see the header): it navigates; it navigates if focus
+ * moves while it is down (`moves-focus`); it is a Tab in a text field, which
+ * navigates unless the field keeps it (`field-tab`); or it does not count.
+ */
+function countKey(event: KeyboardEvent): 'navigates' | 'moves-focus' | 'field-tab' | null {
+  if (event.ctrlKey || event.metaKey) return null;
+  const target = event.target instanceof Element ? event.target : null;
+  // Option+Tab moves to every control in Safari.
+  if (event.key === 'Tab') return target && isTextEntry(target) ? 'field-tab' : 'navigates';
+  if (event.altKey || !NAVIGATION_KEYS.has(event.key)) return null;
+  return target && !isTextEntry(target) && movesWithArrows(target) ? 'navigates' : 'moves-focus';
+}
+
 export function initHoverPointer(): void {
   if (installed) return;
   installed = true;
@@ -48,6 +185,24 @@ export function initHoverPointer(): void {
     if (typeof query.addEventListener === 'function') query.addEventListener('change', follow);
     else query.addListener(follow);
   }
+  setKeyboardNavigation(false);
+  /** The key down now whose focus move counts as navigation (see the header). */
+  let heldKey: string | null = null;
+  /** A Tab in a text field: it navigates unless the field keeps it. */
+  let fieldTab: { event: KeyboardEvent; field: Element } | null = null;
+  const releaseKey = (): void => {
+    heldKey = null;
+  };
+  // Added during the Tab's own dispatch, this runs after every window
+  // listener already there, a dialog's focus trap among them.
+  const settleFieldTab = (event: KeyboardEvent): void => {
+    const tab = fieldTab;
+    fieldTab = null;
+    if (tab?.event !== event) return;
+    if (!event.defaultPrevented || document.activeElement !== tab.field) {
+      setKeyboardNavigation(true);
+    }
+  };
   const markHoverInput = (event: PointerEvent): void => {
     if (event.pointerType === 'mouse' || event.pointerType === 'pen') setHoverPointer(true);
   };
@@ -57,7 +212,42 @@ export function initHoverPointer(): void {
     'pointerdown',
     (event) => {
       if (event.pointerType === 'touch') setHoverPointer(false);
+      releaseKey();
+      setKeyboardNavigation(false);
     },
     { passive: true, capture: true },
+  );
+  // Capture: the mark is set before the browser moves focus for this key.
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      releaseKey();
+      fieldTab = null;
+      window.removeEventListener('keydown', settleFieldTab);
+      const count = countKey(event);
+      if (count === 'navigates') {
+        setKeyboardNavigation(true);
+        return;
+      }
+      if (count === null) return;
+      heldKey = event.key;
+      if (count === 'field-tab' && event.target instanceof Element) {
+        fieldTab = { event, field: event.target };
+        window.addEventListener('keydown', settleFieldTab, { once: true });
+      }
+    },
+    { capture: true },
+  );
+  document.addEventListener('keyup', releaseKey, { capture: true });
+  // A key that scrolled has done its work: a focus move a scroll brings
+  // about (a button that hides under focus) is not that key's.
+  document.addEventListener('scroll', releaseKey, { capture: true, passive: true });
+  window.addEventListener('blur', releaseKey);
+  document.addEventListener(
+    'focusin',
+    () => {
+      if (heldKey !== null) setKeyboardNavigation(true);
+    },
+    { capture: true },
   );
 }

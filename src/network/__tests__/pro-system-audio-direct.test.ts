@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { log } from '../../core/log.ts';
 import * as direct from '../pro-system-audio-direct.ts';
 import { DIRECT_PAIR_POLL_MS_COPY } from './__helpers__/direct-pair-poll.ts';
+import { DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY } from './__helpers__/direct-pair-proof-window.ts';
 
 type DirectTransportCallbacks = Parameters<typeof direct.configureProSystemAudioDirectTransport>[0];
 
@@ -657,6 +658,14 @@ function safeCandidate(foundation: string): string {
   return `candidate:${foundation} 1 udp 1 123e4567-e89b-42d3-a456-${suffix}.local 5000 typ host`;
 }
 
+/**
+ * The hundred milliseconds a logged elapsed time falls in, as a pattern for a
+ * line's regular expression: 2_750 gives 27\d\d (2700 to 2799 ms).
+ */
+function elapsedHundreds(ms: number): string {
+  return `${Math.floor(ms / 100)}\\d\\d`;
+}
+
 /** The publisher's one offer: the probe channel and one audio m-section. */
 const PUBLISHER_OFFER_SDP =
   'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' +
@@ -1258,7 +1267,8 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
       targets: [target(receiverA)],
       timeoutMs: 80,
     });
-    await vi.advanceTimersByTimeAsync(1_100);
+    // A hidden-address or ambiguous pair stays pending until the pair-proof window ends.
+    await vi.advanceTimersByTimeAsync(DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY + 100);
 
     await expect(attempt).resolves.toBeNull();
     // The one offer carried an empty audio sender; no audio ever left.
@@ -2350,6 +2360,8 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
   const MEDIA_ANSWER_MS = 1_200;
   const ICE_CONNECT_MS = 90;
   const RECEIVER_PROOF_MS = 30;
+  /** A slow receiver's pair proof reaches the publisher this long after the answer. */
+  const LATE_RECEIVER_PROOF_MS = 1_500;
 
   interface PacedReceiver {
     id: string;
@@ -2508,6 +2520,75 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     },
   );
 
+  // Field case, 2026-11-17: with a Windows Edge sharer and an iPhone listener on
+  // the same Wi-Fi, the receiver's proof reached the sharer 932 ms after the
+  // answer, 68 ms before its 1 s window ended (five more shares took 233 to
+  // 363 ms). The publisher now waits as long as the receiver's own proof
+  // window, so a receiver that proves its pair 1.5 s after the answer keeps the
+  // LAN route.
+  it.each(['initial', 'late-join'] as const)(
+    'commits the LAN route during %s negotiation when the receiver proves its pair 1.5 s after the answer',
+    async (phase) => {
+      vi.useFakeTimers();
+      const callbacks = configureCallbacks();
+      if (phase === 'late-join') {
+        await direct.attemptProSystemAudioDirectPublication({
+          track: audioTrack('capture-stereo'),
+          generation: 7,
+          publicationId,
+          targets: [],
+        });
+        await expect(
+          direct.activateProSystemAudioDirectPublication({
+            ownerParticipantId: publisherId,
+            generation: 7,
+            publicationId,
+          }),
+        ).resolves.toBe(true);
+      }
+      receiverProofWithheld = true;
+      installPacedReceivers([{ id: receiverA, answerMs: MEDIA_ANSWER_MS, connects: true }]);
+      const attempt =
+        phase === 'initial'
+          ? direct.attemptProSystemAudioDirectPublication({
+              track: audioTrack('capture-stereo'),
+              generation: 7,
+              publicationId,
+              targets: [target(receiverA)],
+            })
+          : direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+      const timing = track(attempt);
+
+      // The publisher proved its own end long ago; the receiver's word is late.
+      await vi.advanceTimersByTimeAsync(MEDIA_ANSWER_MS + LATE_RECEIVER_PROOF_MS);
+      expect(timing.settledAt()).toBeNull();
+      expect(peerConnections[0]!.sendingTrack()).toBeNull();
+
+      peerConnections[0]!.emitReceiverProof();
+      await vi.advanceTimersByTimeAsync(DIRECT_PAIR_POLL_MS_COPY);
+      if (phase === 'initial') {
+        await expect(attempt).resolves.toEqual({
+          publicationId,
+          transport: 'lan-direct',
+          protocolVersion: 2,
+        });
+      } else {
+        await expect(attempt).resolves.toBe(true);
+      }
+      expect(peerConnections[0]!.sendingTrack()?.id).toBe('capture-stereo');
+      expect(peerConnections[0]?.close).not.toHaveBeenCalled();
+      expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+      expect(infoLines()).toEqual([
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by stats-host /,
+        ),
+        expect.stringMatching(
+          /^\[ProSysAudioDirect\] LAN route to 0001 proven in \d+ ms \(answer 12\d\d, pair 13\d\d, receiver 27\d\d\)$/,
+        ),
+      ]);
+    },
+  );
+
   it('falls back at the 2 s answer deadline when the receiver never answers, as an older build does', async () => {
     vi.useFakeTimers();
     configureCallbacks();
@@ -2539,7 +2620,7 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     ]);
   });
 
-  it('falls back one second after the answer when the pair never connects', async () => {
+  it('falls back two seconds after the answer when the pair never connects', async () => {
     vi.useFakeTimers();
     configureCallbacks();
     installPacedReceivers([{ id: receiverA, answerMs: PROBE_ANSWER_MS, connects: false }]);
@@ -2551,20 +2632,69 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     });
     const timing = track(attempt);
 
-    await vi.advanceTimersByTimeAsync(PROBE_ANSWER_MS + 999);
+    await vi.advanceTimersByTimeAsync(PROBE_ANSWER_MS + DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY - 1);
     expect(timing.settledAt()).toBeNull();
     await vi.advanceTimersByTimeAsync(50);
     await expect(attempt).resolves.toBeNull();
-    expect(timing.settledAt()).toBeLessThan(PROBE_ANSWER_MS + 1_050);
+    expect(timing.settledAt()).toBeLessThan(
+      PROBE_ANSWER_MS + DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY + 50,
+    );
     expect(peerConnections[0]!.sendingTrack()).toBeNull();
+    const pairDeadline = elapsedHundreds(DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY);
+    const routeDeadline = elapsedHundreds(PROBE_ANSWER_MS + DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY);
     expect(infoLines()).toEqual([
       expect.stringMatching(
-        /^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after 10\d\d ms by not-connected \(never connected; native none; stats none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
+        new RegExp(
+          String.raw`^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after ${pairDeadline} ms by not-connected \(never connected; native none; stats none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$`,
+        ),
       ),
       expect.stringMatching(
-        /^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after 17\d\d ms \(deadline; answer 7\d\d\)$/,
+        new RegExp(
+          String.raw`^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after ${routeDeadline} ms \(deadline; answer 7\d\d\)$`,
+        ),
       ),
     ]);
+  });
+
+  it("fails a late joiner's route whose proofs never arrive 2 s after its answer, not 1 s, and moves the live share to the SFU", async () => {
+    vi.useFakeTimers();
+    const callbacks = configureCallbacks();
+    await direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 7,
+      publicationId,
+      targets: [],
+    });
+    await expect(
+      direct.activateProSystemAudioDirectPublication({
+        ownerParticipantId: publisherId,
+        generation: 7,
+        publicationId,
+      }),
+    ).resolves.toBe(true);
+    // The newcomer answers, but its pair never connects, so neither end proves it.
+    installPacedReceivers([{ id: receiverA, answerMs: MEDIA_ANSWER_MS, connects: false }]);
+    const reconcile = direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+    const timing = track(reconcile);
+
+    await vi.advanceTimersByTimeAsync(MEDIA_ANSWER_MS + DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY - 1);
+    expect(timing.settledAt()).toBeNull();
+    expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(reconcile).resolves.toBe(false);
+    expect(timing.settledAt()).toBeLessThan(
+      MEDIA_ANSWER_MS + DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY + 50,
+    );
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
+    expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+    expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+    expect(callbacks.onLiveRouteFallback).toHaveBeenCalledWith({
+      role: 'publisher',
+      reason: 'late-join-negotiation-failed',
+      participantId: receiverA,
+      generation: 7,
+      publicationId,
+    });
   });
 
   it('attaches no audio and falls back when the receiver never confirms its own pair proof', async () => {
@@ -2579,17 +2709,20 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
       targets: [target(receiverA)],
     });
 
-    await vi.advanceTimersByTimeAsync(MEDIA_ANSWER_MS + 1_050);
+    await vi.advanceTimersByTimeAsync(MEDIA_ANSWER_MS + DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY + 50);
     await expect(attempt).resolves.toBeNull();
     // The publisher proved its own end, but one end is not enough.
     expect(peerConnections[0]!.sendingTrack()).toBeNull();
     expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+    const routeDeadline = elapsedHundreds(MEDIA_ANSWER_MS + DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY);
     expect(infoLines()).toEqual([
       expect.stringMatching(
         /^\[ProSysAudioDirect\] Publisher pair check to 0001 proven after \d+ ms by stats-host \(connected at \d+ ms; native none; stats host\/private-ipv4 to host\/mdns; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
       ),
       expect.stringMatching(
-        /^\[ProSysAudioDirect\] LAN route to 0001 not proven at receiver-proof after 22\d\d ms \(deadline; answer 12\d\d, pair 13\d\d\)$/,
+        new RegExp(
+          String.raw`^\[ProSysAudioDirect\] LAN route to 0001 not proven at receiver-proof after ${routeDeadline} ms \(deadline; answer 12\d\d, pair 13\d\d\)$`,
+        ),
       ),
     ]);
   });
@@ -2609,7 +2742,7 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
     peerConnections[0]!.emitReceiverProof('receiver-pair-proven ');
     peerConnections[0]!.emitReceiverProof({ proven: true });
 
-    await vi.advanceTimersByTimeAsync(1_100);
+    await vi.advanceTimersByTimeAsync(DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY + 100);
     await expect(attempt).resolves.toBeNull();
     expect(peerConnections[0]!.sendingTrack()).toBeNull();
   });
@@ -2617,10 +2750,13 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
   it('settles a mixed room at the first failed route instead of waiting for a slow LAN route', async () => {
     vi.useFakeTimers();
     const callbacks = configureCallbacks();
+    const remoteAnswerMs = 300;
+    // A remote listener whose pair never connects fails when its window ends,
+    // while a slow phone on the LAN still owes its own pair proof.
+    receiverProofWithheld = true;
     installPacedReceivers([
-      // A slow phone on the LAN, and a remote listener whose pair never connects.
       { id: receiverA, answerMs: 1_800, connects: true },
-      { id: receiverB, answerMs: 300, connects: false },
+      { id: receiverB, answerMs: remoteAnswerMs, connects: false },
     ]);
     const attempt = direct.attemptProSystemAudioDirectPublication({
       track: audioTrack('capture-stereo'),
@@ -2629,18 +2765,19 @@ describe('PRO system-audio LAN-direct one round trip with a phone-paced receiver
       targets: [target(receiverA), target(receiverB)],
     });
     const timing = track(attempt);
+    const remoteFailedBy = remoteAnswerMs + DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY + 50;
 
-    await vi.advanceTimersByTimeAsync(1_350);
+    await vi.advanceTimersByTimeAsync(remoteFailedBy);
     await expect(attempt).resolves.toBeNull();
-    expect(timing.settledAt()).toBeLessThan(1_350);
+    expect(timing.settledAt()).toBeLessThan(remoteFailedBy);
     expect(peerConnections.map((pc) => pc.sendingTrack())).toEqual([null, null]);
     expect(peerConnections.map((pc) => pc.close.mock.calls.length)).toEqual([1, 1]);
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
-    // The late answer of the slow route reaches no route.
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(
-      setRemoteDescription?.mock.calls.filter(([description]) => description.type === 'answer'),
-    ).toHaveLength(1);
+    // The late proof of the slow route reaches no route and attaches no audio.
+    peerConnections[0]!.emitReceiverProof();
+    await vi.advanceTimersByTimeAsync(DIRECT_PAIR_POLL_MS_COPY);
+    expect(peerConnections[0]!.sendingTrack()).toBeNull();
+    expect(peerConnections[0]!.probeChannel.send).not.toHaveBeenCalled();
   });
 
   // A stage that gives up before its deadline timer (here a non-local pair)
@@ -3335,14 +3472,17 @@ describe('PRO system-audio LAN-direct host-to-prflx refinement (iOS Safari liste
         publicationId,
         targets: [target(receiverA)],
       });
-      await vi.advanceTimersByTimeAsync(900);
+      await vi.advanceTimersByTimeAsync(DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY - 100);
       expect(peerConnections[0]!.close).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(200);
       await expect(attempt).resolves.toBeNull();
       expect(peerConnections[0]!.sendingTrack()).toBeNull();
+      const pairDeadline = elapsedHundreds(DIRECT_PAIR_PROOF_TIMEOUT_MS_COPY);
       expect(directLines()).toEqual([
         expect.stringMatching(
-          /^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after 10\d\d ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$/,
+          new RegExp(
+            String.raw`^\[ProSysAudioDirect\] Publisher pair check to 0001 deadline after ${pairDeadline} ms by prflx-unrefined \(connected at 0 ms; native host\/mdns to prflx\/none; stats host\/none to prflx\/none; candidates sent 1, refused 0, received 1, added 1, first at -?\d+ ms\)$`,
+          ),
         ),
         expect.stringMatching(
           /^\[ProSysAudioDirect\] LAN route to 0001 not proven at pair after \d+ ms \(deadline; answer \d+\)$/,

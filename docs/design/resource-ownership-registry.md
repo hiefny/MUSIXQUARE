@@ -262,7 +262,10 @@ RO-55 accepted-exception
   takes it when it shows the attempt's request (`claimPlayRequestAttemptForDialog`).
   An attempt whose one notice never became a dialog (a hidden page, a replaced PLAY, a pending
   forced update) is neither parked again nor holding, and the next PLAY's clock check retires it,
-  as before 7B-2.
+  as before 7B-2: on a clock that runs it consumes the incident, and on a clock still frozen it
+  replaces the woken attempt with a new one for the same incident, which that PLAY announces
+  (F-2501; the check answered with no preparation there before, so that PLAY and every PLAY
+  after it stopped with no notice).
   Since Phase 7 7B-5 both resume an attempt through one recovery resume
   (`requestAudioContextResume`, in `context.ts` until 7C-4): one native `resume()` inside the
   caller's activation, raced with
@@ -298,7 +301,16 @@ RO-55 accepted-exception
   the dialog's AbortSignal and currency end it), probes the clock, retires the play-request
   attempt and arms the next PLAY's clock check, commits through the caller's confirm (RO-36) or
   the owner's own, runs the playback scope's second step, or prepares a play-request restart for
-  a frozen clock, which `app.ts` queues. The ordinary branch carries no playback-scope attempt
+  a frozen clock, which `app.ts` queues. When the dialog no longer acts and the page is hidden
+  as that preparation answers, the branch gives the restart up as the play-request branch gives
+  its attempt up, so the return is not deferred to a restart no dialog shows (F-2502). The
+  suspension it leaves goes to the return's inspection, or, where its statechange comes after
+  the suspend promise (the order Chromium ran in the browser lab), to the playback scope as an
+  interruption of the playing file, or is undone by the retired-suspend cleanup when it lands on
+  a visible page; a PLAY whose clock check is sampling that incident at the give-up stops with
+  no notice, as a check does that a hidden moment interrupts. An ending of the dialog on a
+  visible page leaves the restart to the PLAY or the dialog that follows.
+  The ordinary branch carries no playback-scope attempt
   (Phase 7 7C-K8; it was Known gap C1-I6): it cancels a pending one that accepts the gesture
   before the resume, a failed PLAY's retry so the exact failed PLAY owns the gesture, and since
   App 9.0.42 (the owner's decision of 2026-11-10) a restore too, which takes the branch only
@@ -2910,9 +2922,14 @@ RO-55 accepted-exception
   release retry). Each LAN-direct route's negotiation is the transport's own single attempt
   (`negotiatePublisherRoute` in `src/network/pro-system-audio-direct.ts`, one signaling round trip
   since the one-offer protocol, 2026-10-30): the answer within `DIRECT_NEGOTIATION_TIMEOUT_MS`
-  (2 s) of the offer, then both ends' pair proofs within `DIRECT_PAIR_PROOF_TIMEOUT_MS` (1 s), so
-  one route takes at most 3 s and a route that never answers still fails at 2 s. The receiver's own
-  proof window is the same 2 s constant. A host-to-prflx pair waiting for its statistics to show the
+  (2 s) of the offer, then both ends' pair proofs within `DIRECT_PAIR_PROOF_TIMEOUT_MS` (2 s), so
+  one route takes at most 4 s and a route that never answers still fails at 2 s. The receiver's own
+  proof window is the same 2 s constant as the answer, and the publisher's window after the answer
+  now has the same length, in a separate constant linked to it by a comment (owner decision
+  2026-11-17, up from 1 s: a same-Wi-Fi iPhone listener's proof reached the sharer 932 ms after the
+  answer; accepted cost, a share whose listener route answers but never proves its pair, as when
+  it never connects, reaches the held SFU fallback up to 1 s later). A host-to-prflx pair waiting
+  for its statistics to show the
   refined host candidate (an iOS Safari listener, 2026-10-30) waits inside these windows: the pair
   reading adds no timer, retry or poll of its own. A route whose own end finishes ICE gathering
   having sent no LAN candidate fails at that event, not at a timer (`no-lan-candidate`, owner
@@ -2928,7 +2945,10 @@ RO-55 accepted-exception
   `DIRECT_PAIR_POLL_MS` (25 ms) has one test copy,
   `src/network/__tests__/__helpers__/direct-pair-poll.ts`, which the LAN-direct and PRO
   receive-slot transport suites read; `src/network/__tests__/direct-pair-poll-parity.test.ts`
-  pins it to the source value.
+  pins it to the source value. Its private pair-proof window `DIRECT_PAIR_PROOF_TIMEOUT_MS` has
+  one test copy, `src/network/__tests__/__helpers__/direct-pair-proof-window.ts`, which the
+  LAN-direct suite reads; `src/network/__tests__/direct-pair-proof-window-parity.test.ts` pins it
+  to the source value.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/system-audio-service.test.ts` "does not let a stale
     publisher recovery close the new incarnation publisher".

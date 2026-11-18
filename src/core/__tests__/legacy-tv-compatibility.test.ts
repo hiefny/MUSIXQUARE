@@ -43,6 +43,14 @@ function idCount(selector: string): number {
   return rest.split('#').length - 1;
 }
 
+/**
+ * The rings an engine that knows :focus-visible but not :where() reads
+ * (Chromium 86 and 87): every built stylesheet keeps them.
+ */
+const NO_WHERE_RINGS =
+  '@supports not selector(:where(*)){:focus-visible{outline:2px solid blue}' +
+  '.dialog-choice-radio:focus-visible+.dialog-choice-surface{outline:2px solid blue}}';
+
 describe('legacy smart-TV app compatibility', () => {
   it('checks fullscreen physical edges independently of minifier declaration order', () => {
     const css = `
@@ -53,6 +61,7 @@ describe('legacy smart-TV app compatibility', () => {
       html.setup-boot-block body{animation:boot 1s}
       body > .bootstrap-failure{display:block}
       .file-drop-feedback{top:0;bottom:0;left:0;right:0}
+      ${NO_WHERE_RINGS}
     `;
     expect(() => assertLegacyCss(css)).not.toThrow();
     expect(() => assertLegacyCss(css.replace('right:0', 'right:1px'))).toThrow(
@@ -75,6 +84,7 @@ describe('legacy smart-TV app compatibility', () => {
       html.setup-boot-block body{animation:boot 1s}
       body > .bootstrap-failure{display:block}
       .file-drop-feedback{top:0;bottom:0;left:0;right:0}
+      ${NO_WHERE_RINGS}
       :where(html[data-hover-pointer]) .row:hover{color:blue}
       .row:focus-visible{color:blue}
     `;
@@ -87,6 +97,63 @@ describe('legacy smart-TV app compatibility', () => {
         ),
       ),
     ).toThrow('mixes :where()');
+  });
+
+  it('fails a build that loses the rings an engine without :where() reads', async () => {
+    // Chromium 86 and 87 (for example 2022 LG webOS TVs, docs/known-accepted.md
+    // #20) know :focus-visible but not :where(), so they drop every keyboard
+    // gated focus rule. css/style.css keeps the app's global ring and the PIN
+    // choice row's ring for them, ungated, under this @supports test; without
+    // them several controls there show no focus at all.
+    const sentinels = `
+      :root{--bg:#fff}
+      .onboarding-overlay{position:fixed}
+      body.fouc-loaded{opacity:1}
+      body.overlay-open .bottom-nav{display:none}
+      html.setup-boot-block body{animation:boot 1s}
+      body > .bootstrap-failure{display:block}
+      .file-drop-feedback{top:0;bottom:0;left:0;right:0}
+    `;
+    const ring = ':focus-visible:not(#\\#){outline:2px solid blue}';
+    const choice =
+      '.dialog-choice-radio:focus-visible:not(#\\#)+.dialog-choice-surface{outline:2px solid blue}';
+    const withoutWhere = (rules: string) => `@supports not selector(:where(*)){${rules}}`;
+    expect(() => assertLegacyCss(sentinels + withoutWhere(ring + choice))).not.toThrow();
+    expect(() => assertLegacyCss(sentinels)).toThrow('engines without :where()');
+    expect(() => assertLegacyCss(sentinels + withoutWhere(ring))).toThrow('.dialog-choice-surface');
+    expect(() => assertLegacyCss(sentinels + withoutWhere(choice))).toThrow(': :focus-visible');
+    // Those engines drop a copy that names :where() itself, read no other
+    // test as theirs, and a copy that only hides draws no ring.
+    expect(() =>
+      assertLegacyCss(sentinels + withoutWhere(`:where(html) ${ring}${choice}`)),
+    ).toThrow('engines without :where()');
+    expect(() =>
+      assertLegacyCss(sentinels + `@supports selector(:focus-visible){${ring}${choice}}`),
+    ).toThrow('engines without :where()');
+    expect(() =>
+      assertLegacyCss(sentinels + withoutWhere(`:focus-visible{outline:none}${choice}`)),
+    ).toThrow('engines without :where()');
+
+    // The layer lowering keeps the test and pads each copy as it pads the
+    // reset before it, so the copy still follows the reset at equal weight.
+    // As in css/style.css, base comes after safety, so it has padding.
+    const lowered = await transformAppCssForLegacyBrowsers(`
+      @layer safety, base, desktop;
+      @layer base {
+        .ob-nav-arrow{outline:none}
+        :where(html:not([data-keyboard-navigation='off'])) :focus-visible{outline:2px solid blue}
+        @supports not selector(:where(*)) { :focus-visible{outline:2px solid blue} }
+      }
+      @layer desktop { .row{color:blue} }
+    `);
+    const tails = new Map<string, number>();
+    parseCss(lowered).walkRules((rule) => {
+      const selector = rule.selector.replaceAll(':not(#\\#)', '');
+      tails.set(selector, rule.selector.split(':not(#\\#)').length - 1);
+    });
+    expect(lowered).toContain('@supports not selector(:where(*))');
+    expect(tails.get(':focus-visible')).toBeGreaterThan(0);
+    expect(tails.get(':focus-visible')).toBe(tails.get('.ob-nav-arrow'));
   });
 
   it('requires the prefixed selection block that iOS Safari reads', () => {
@@ -117,6 +184,7 @@ describe('legacy smart-TV app compatibility', () => {
         .onboarding-overlay{position:fixed}
         body.fouc-loaded{opacity:1}
         .file-drop-feedback{top:0;bottom:0;left:0;right:0}
+        ${NO_WHERE_RINGS}
       }
       @layer components { body > .bootstrap-failure{display:block} }
       @layer states { body.overlay-open .bottom-nav{display:none} }

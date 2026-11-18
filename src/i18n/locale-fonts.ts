@@ -9,10 +9,11 @@
  * language, and the phases only decide how early each sheet is declared:
  *
  * - Phase A, when a language applies (i18n/index.ts): Inter, the UI's own
- *   script sheet, MUSIXQUARE Hangul and Noto Sans KR for every UI that is not
- *   Japanese or Chinese, and the first family of the UI's Han order. The
- *   Korean and English UIs therefore declare the same sheets at the same
- *   moment under every Han order.
+ *   script sheet, MUSIXQUARE Hangul for every UI that is not Japanese or
+ *   Chinese, the first family of the UI's Han order, then Noto Sans KR for
+ *   every UI that is not Japanese or Chinese. The Korean and English UIs
+ *   therefore declare the same sheets, in the same order and at the same
+ *   moments, under every Han order.
  * - Phase B, after window load and the first idle slice: every other sheet.
  *   It ignores data saver because it is correctness, not prefetch.
  * - Phase C, a quiet period after phase B starts: the Korean, Japanese and
@@ -27,6 +28,25 @@
  *   and follows a language change. It only asks FontFaceSet.load(); the
  *   service worker stays the only writer of CacheStorage.
  *
+ * Every sheet but a Han family's loads at once. Each of the four CJK
+ * families draws Han, and the browser draws a character with the first
+ * family in the stack whose declared faces have it, so a Han family other
+ * than the UI's first one (its own in Japanese and Chinese, the Han order's
+ * first family in every other UI) waits for its Han turn: while an attempt of
+ * the first family's sheet is in flight. When the first family's first
+ * attempt fails or is abandoned at its deadline, the turn tries it again at
+ * once, not after the timer retry's delay, and waits for that attempt too;
+ * once that one fails as well, the other families are declared. Text the app
+ * marks as Japanese or Chinese user text (src/ui/user-text-font.ts) draws Han
+ * with its own family first, so a family that marked text on the page names
+ * takes the turn right after the UI's first one, and the remaining families
+ * wait for it the same way. Otherwise a later family whose sheet applied
+ * first drew the visible Han and had its shards fetched, then the first
+ * family's (in App 9.0.829 a first visit's Japanese start screen fetched 30
+ * Noto Sans KR shards that way). Phase A, phase B, the retries and the
+ * language picker all take the turn, and phase B and the retries ask for the
+ * turn's families before the others.
+ *
  * A sheet attempt that does not settle within its deadline
  * (FONT_SHEET_ATTEMPT_TIMEOUT_MS, doubled for each later attempt of the sheet)
  * is abandoned and counts as a failure. A failed sheet is retried by a timer in a
@@ -35,10 +55,11 @@
  * when it comes back from the back-forward cache, each of which grants a full
  * set of timer retries again (font-loading-policy.ts holds the values).
  * Explicit requests (a language change, the language picker) try a failed
- * sheet again at once. A face whose WOFF2 download failed stays in 'error', so
- * the same events (and a rejected phase C batch) declare its sheet again, a
- * bounded number of times. pagehide stops every pending timer and idle callback,
- * and a page restored from the back-forward cache resumes what was left.
+ * sheet again at once, in its Han turn. A face whose WOFF2 download failed
+ * stays in 'error', so the same events (and a rejected phase C batch) declare
+ * its sheet again, a bounded number of times. pagehide stops every pending
+ * timer and idle callback, and a page restored from the back-forward cache
+ * resumes what was left.
  *
  * The first request also applies the startup Han order (startup-han-order.ts)
  * as html[data-mxqr-han-order], once per page.
@@ -159,6 +180,9 @@ const APP_SHEET_IDS: readonly AppFontSheetId[] = APP_FONT_SHEETS.map(({ id }) =>
 
 const HAN_UI_LANGUAGES: ReadonlySet<string> = new Set<HanOrder>(['ja', 'zh-hans', 'zh-hant']);
 
+/** The four CJK families' sheets. Each draws Han, so a stack's order decides which one does. */
+const HAN_SHEETS: ReadonlySet<AppFontSheetId> = new Set(Object.values(HAN_ORDER_FONT_SHEET));
+
 type Cancel = () => void;
 
 /** Run in the next idle slice, at most timeoutMs later; the next task without rIC. */
@@ -248,9 +272,57 @@ function loadSheet(id: AppFontSheetId): Promise<boolean> {
   return attempt;
 }
 
-/** Load sheets in the background, then run onSettled; loadSheet never rejects. */
+/**
+ * What a Han family waits for from a family ahead of it in the turn: that
+ * family's attempt in flight, or one started now when its first attempt has
+ * failed or been abandoned, or it was never asked for. That one retry at once
+ * keeps a failed first attempt from leaving the later families to draw its
+ * Han until the timer retry. Nothing once it has loaded, or has failed its
+ * retry too.
+ */
+function hanTurnAttempt(id: AppFontSheetId): Promise<boolean> | null {
+  const state = sheetState(id);
+  if (state.loaded) return null;
+  if (state.inFlight) return state.inFlight;
+  return state.attempts < 2 ? loadSheet(id) : null;
+}
+
+/**
+ * loadSheet in the sheet's Han turn (hanTurnSheets). A Han family neither
+ * loaded nor loading waits while an attempt of a family ahead of it is in
+ * flight (hanTurnAttempt): the UI's first family waits for none, a family
+ * that marked user text draws with first waits for the UI's first family,
+ * and every other waits for them all. It then looks again: a language change
+ * or a line shown meanwhile can put another family ahead. Each wait is
+ * bounded by the deadline of the attempt it waits for. Every other sheet, and
+ * a Han family with nothing to wait for, goes to loadSheet in the same call,
+ * so concurrent requests still share one attempt.
+ */
+function loadSheetInHanTurn(id: AppFontSheetId): Promise<boolean> {
+  const state = sheetState(id);
+  if (HAN_SHEETS.has(id) && !state.loaded && !state.inFlight) {
+    const turn = hanTurnSheets();
+    const place = turn.indexOf(id);
+    const ahead = place === 0 ? [] : place > 0 ? turn.slice(0, 1) : turn;
+    for (const sheet of ahead) {
+      const attempt = hanTurnAttempt(sheet);
+      if (!attempt) continue;
+      const next = () => loadSheetInHanTurn(id);
+      return attempt.then(next, next);
+    }
+  }
+  return loadSheet(id);
+}
+
+/**
+ * Load sheets in their Han turn in the background, then run onSettled;
+ * loadSheet never rejects. The families of the Han turn are asked for first,
+ * so the families that wait for them find their attempts in flight.
+ */
 function declareSheets(ids: readonly AppFontSheetId[], onSettled?: () => void): void {
-  Promise.all(ids.map((id) => loadSheet(id)))
+  const turn = hanTurnSheets().filter((id) => ids.includes(id));
+  const ordered = [...turn, ...ids.filter((id) => !turn.includes(id))];
+  Promise.all(ordered.map((id) => loadSheetInHanTurn(id)))
     .then(() => onSettled?.())
     .catch((error: unknown) => {
       log.warn('[i18n] Font sheet bookkeeping failed', error);
@@ -391,6 +463,8 @@ function recoverFailedFaces(): void {
 // ─── Han order ──────────────────────────────────────────────────────
 
 let startupHanOrder: HanOrder | null = null;
+/** The UI language of the last phase A request; the Han turn and phase C follow it. */
+let uiLanguage: LanguageCode | null = null;
 
 function applyStartupHanOrder(): HanOrder {
   if (startupHanOrder) return startupHanOrder;
@@ -402,23 +476,74 @@ function applyStartupHanOrder(): HanOrder {
   return startupHanOrder;
 }
 
+/** The UI's first Han family: its own in Japanese and Chinese, else its Han order's first. */
+function hanFirstSheet(code: LanguageCode, hanOrder: HanOrder): AppFontSheetId {
+  return HAN_ORDER_FONT_SHEET[HAN_UI_LANGUAGES.has(code) ? (code as HanOrder) : hanOrder];
+}
+
+/** The current UI's Han-first sheet, once a language has applied. */
+function currentHanFirstSheet(): AppFontSheetId | null {
+  return uiLanguage && startupHanOrder ? hanFirstSheet(uiLanguage, startupHanOrder) : null;
+}
+
 /**
- * Inter, the UI's own script sheet, then MUSIXQUARE Hangul and Noto Sans KR
- * (the Hangul the first lacks, and the symbols Inter lacks) for every UI that
- * is not Japanese or Chinese, and the first family of the UI's Han order.
- * Both are there whatever the Han order, so the Korean and English UIs
- * declare the same sheets: a Hangul name shown before phase B draws alike in
- * both.
+ * The order class src/ui/user-text-font.ts gives text it detects as
+ * Japanese, Simplified or Traditional Chinese, and the family whose Han that
+ * class's stack draws first (css/style.css). locale-fonts.test.ts marks its
+ * lines with that module, so the class names cannot drift apart.
+ */
+const USER_TEXT_HAN_FIRST: readonly (readonly [selector: string, sheet: AppFontSheetId])[] = (
+  ['ja', 'zh-hans', 'zh-hant'] as const
+).map((code) => [`.user-text-font-${code}`, HAN_ORDER_FONT_SHEET[code]] as const);
+
+/** Whether an element on the page matches the selector. */
+function pageHas(selector: string): boolean {
+  if (typeof document === 'undefined') return false;
+  try {
+    return document.querySelector(selector) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The Han families that take their turn before the others, in order: the
+ * current UI's first family, then each family that marked user text on the
+ * page draws Han with first. Read at each check of the turn, so text shown
+ * while the other families wait counts. The families marked text names first
+ * are declared together after the UI's first, since lines of two Han orders
+ * shown at once each want their own family before the other's. The language
+ * picker marks nothing, since its three Han names each want a different
+ * family first and no order serves all three.
+ */
+function hanTurnSheets(): AppFontSheetId[] {
+  const first = currentHanFirstSheet();
+  if (!first) return [];
+  const sheets: AppFontSheetId[] = [first];
+  for (const [selector, sheet] of USER_TEXT_HAN_FIRST) {
+    if (!sheets.includes(sheet) && pageHas(selector)) sheets.push(sheet);
+  }
+  return sheets;
+}
+
+/**
+ * Inter, the UI's own script sheet, then MUSIXQUARE Hangul for every UI that
+ * is not Japanese or Chinese, the first family of the UI's Han order, and
+ * Noto Sans KR (the Hangul MUSIXQUARE Hangul lacks, and the symbols Inter
+ * lacks) for every UI that is not Japanese or Chinese. MUSIXQUARE Hangul and
+ * Noto Sans KR are there whatever the Han order, so the Korean and English
+ * UIs declare the same sheets: a Hangul name shown before phase B draws
+ * alike in both. Noto Sans KR comes after the first family, which it waits
+ * for under a Japanese or Chinese Han order (loadSheetInHanTurn).
  */
 function phaseASheets(code: LanguageCode, hanOrder: HanOrder): AppFontSheetId[] {
   const hanUi = HAN_UI_LANGUAGES.has(code);
-  const uiHanOrder = hanUi ? (code as HanOrder) : hanOrder;
   const sheets: AppFontSheetId[] = ['font-inter'];
   for (const id of [
     SCRIPT_FONT_SHEET_BY_LANGUAGE[code],
     hanUi ? undefined : HANGUL_FONT_SHEET,
+    hanFirstSheet(code, hanOrder),
     hanUi ? undefined : HAN_ORDER_FONT_SHEET.ko,
-    HAN_ORDER_FONT_SHEET[uiHanOrder],
   ]) {
     if (id && !sheets.includes(id)) sheets.push(id);
   }
@@ -480,8 +605,6 @@ let prefetchPausedForVisibility = false;
 let prefetchBatchInFlight = false;
 /** A batch drew no face; phase C waits until its sheet is declared or a language applies. */
 let prefetchStalled = false;
-/** The UI language whose list phase C follows: the last phase A request. */
-let prefetchLanguage: LanguageCode | null = null;
 let prefetchedFaces = 0;
 let prefetchedBytes = 0;
 const prefetchedShards = new Set<string>();
@@ -558,7 +681,7 @@ function shardFace(
 
 /** The current UI language's prefetch list, if it has one. */
 function currentPrefetchList(): PrefetchList | undefined {
-  return prefetchLanguage ? FONT_PREFETCH_BY_LANGUAGE[prefetchLanguage] : undefined;
+  return uiLanguage ? FONT_PREFETCH_BY_LANGUAGE[uiLanguage] : undefined;
 }
 
 /** Whether the list's family sheet is declared, so its faces exist to load. */
@@ -779,12 +902,14 @@ function start(): HanOrder {
  */
 function loadLanguageFonts(code: LanguageCode): Promise<void> {
   const hanOrder = start();
-  // Phase C follows the new language: its list replaces the old one, within
-  // the same page budget.
-  prefetchLanguage = code;
+  // The Han turn and phase C follow the new language: phase C's list replaces
+  // the old one, within the same page budget.
+  uiLanguage = code;
   prefetchStalled = false;
   schedulePrefetchBatch();
-  return Promise.all(phaseASheets(code, hanOrder).map((id) => loadSheet(id))).then(() => undefined);
+  return Promise.all(phaseASheets(code, hanOrder).map((id) => loadSheetInHanTurn(id))).then(
+    () => undefined,
+  );
 }
 
 // ─── Glyph warming ──────────────────────────────────────────────────
@@ -801,7 +926,7 @@ const MAX_TRACKED_GLYPH_CHARACTERS_PER_SHEET = 4_096;
  */
 function preloadSheetGlyphs(id: AppFontSheetId, text: string): Promise<boolean> {
   const sample = text.trim();
-  if (!sample) return loadSheet(id);
+  if (!sample) return loadSheetInHanTurn(id);
 
   const cacheKey = `${id}\u0000${sample}`;
   const existing = inFlightGlyphSamples.get(cacheKey);
@@ -826,7 +951,7 @@ function preloadSheetGlyphs(id: AppFontSheetId, text: string): Promise<boolean> 
 
   if (freshCharacters.length > 0) {
     const freshSample = freshCharacters.join('');
-    const freshTask = loadSheet(id)
+    const freshTask = loadSheetInHanTurn(id)
       .then(async (declared) => {
         // loadSheet resolves false after a failed CSS request so rendering is
         // never blocked. Keep these characters retryable then.

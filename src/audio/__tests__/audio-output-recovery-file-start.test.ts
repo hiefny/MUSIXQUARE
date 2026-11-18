@@ -17,6 +17,7 @@ import { AUDIO_CLOCK_SAMPLE_MS, AUDIO_SUSPEND_PREPARE_DEADLINE_MS } from '../con
 import { FakeNativeAudioContext } from './__helpers__/fake-audio-context.ts';
 import {
   bind,
+  dialogTakesPlayRequest,
   loadOwners,
   setVisibility,
   setupOwnerTest,
@@ -167,6 +168,75 @@ describe("a local-file PLAY's foreground clock check (owner rows, real owners)",
     await fake.close();
     await vi.advanceTimersByTimeAsync(AUDIO_SUSPEND_PREPARE_DEADLINE_MS);
     await expect(answer.promise).resolves.toEqual({ kind: 'abort' });
+  });
+
+  it("a restart no dialog took, woken by the next PLAY on a clock still frozen: that PLAY's check parks the context again and answers clock-stalled with a new restart (F-2501)", async () => {
+    const { o, fake } = await returned();
+    fake.freezeClock();
+
+    // The first PLAY finds the clock frozen and parks the context. Its notice
+    // never becomes a dialog (the page hidden when it came, the PLAY
+    // replaced, a forced update pending), so nothing takes the restart.
+    const first = track(o.recovery.checkForegroundClockBeforeFileStart(playCaller()));
+    await vi.advanceTimersByTimeAsync(TWO_SAMPLES_MS);
+    const firstVerdict = await first.promise;
+    if (firstVerdict.kind !== 'clock-stalled') throw new Error('no preparation');
+    expect(fake.state).toBe('suspended');
+
+    // The next PLAY: transport's ensureRunning wakes the parked context, and
+    // the owner does not park a restart no dialog took again (Phase 7 7B-2).
+    await o.context.ensureRunning();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.state).toBe('running');
+    expect(firstVerdict.preparation.isCurrent()).toBe(true);
+    const before = fake.ops.length;
+
+    // Its clock check, on the clock still frozen. Before F-2501 the owner
+    // answered with no preparation for its own woken restart, so this check
+    // stopped with no notice, and so did the check of every PLAY after it.
+    const second = track(o.recovery.checkForegroundClockBeforeFileStart(playCaller()));
+    await vi.advanceTimersByTimeAsync(TWO_SAMPLES_MS);
+    const secondVerdict = await second.promise;
+    expect(secondVerdict).toMatchObject({
+      kind: 'clock-stalled',
+      preparation: { status: 'prepared' },
+    });
+    if (secondVerdict.kind !== 'clock-stalled') throw new Error('no preparation');
+    // A new restart for the same incident; the one no dialog took is over.
+    expect(secondVerdict.preparation.attemptToken).not.toBe(firstVerdict.preparation.attemptToken);
+    expect(firstVerdict.preparation.isCurrent()).toBe(false);
+    expect(secondVerdict.preparation.isCurrent()).toBe(true);
+    expect(fake.ops.slice(before)).toEqual(ONE_SUSPEND);
+    expect(fake.state).toBe('suspended');
+  });
+
+  it("a restart a dialog has taken, woken with no statechange, stays its dialog's: the next PLAY's check stops and starts no new restart (F-2501 replaces only one no dialog took)", async () => {
+    const { o, fake } = await returned();
+    fake.freezeClock();
+
+    const first = track(o.recovery.checkForegroundClockBeforeFileStart(playCaller()));
+    await vi.advanceTimersByTimeAsync(TWO_SAMPLES_MS);
+    const firstVerdict = await first.promise;
+    if (firstVerdict.kind !== 'clock-stalled') throw new Error('no preparation');
+    // The recovery dialog shows this restart's request and takes it.
+    dialogTakesPlayRequest(o, firstVerdict.preparation.attemptToken);
+
+    // A second PLAY while that dialog is open: its ensureRunning wakes the
+    // context and the platform reports no statechange (a WebKit order), so
+    // the owner's re-park, which that event starts, has not run.
+    fake.planResume({ statechange: 'silent' });
+    const before = fake.ops.length;
+    await o.context.ensureRunning();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.state).toBe('running');
+
+    const second = track(o.recovery.checkForegroundClockBeforeFileStart(playCaller()));
+    await vi.advanceTimersByTimeAsync(TWO_SAMPLES_MS);
+    // The open dialog keeps its restart: no new attempt and no second
+    // suspend, and this PLAY stops with no notice, as it did before F-2501.
+    await expect(second.promise).resolves.toEqual({ kind: 'abort' });
+    expect(firstVerdict.preparation.isCurrent()).toBe(true);
+    expect(fake.ops.slice(before)).toEqual(['resume()', 'state:running', 'resume:resolved']);
   });
 
   it('answers context-not-running when the context stops during the sample', async () => {

@@ -66,7 +66,12 @@ export const SCRIPT_FONT_SHEET_BY_LANGUAGE: Readonly<
   pa: 'noto-gurmukhi',
 };
 
-/** The family that draws Han first under each Han order, which phase A loads too. */
+/**
+ * The family that draws Han first under each Han order, which phase A loads
+ * too; the Japanese and Chinese UIs put their own family first. Every other
+ * Han family waits while an attempt of the first family's sheet is in flight
+ * (locale-fonts.ts, loadSheetInHanTurn).
+ */
 export const HAN_ORDER_FONT_SHEET: Readonly<Record<HanOrder, AppFontSheetId>> = {
   ko: 'font-noto-kr',
   ja: 'font-noto-jp',

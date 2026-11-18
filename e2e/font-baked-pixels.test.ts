@@ -12,14 +12,19 @@
  * one copy whose cmap is not its input's: Inter's latin face, whose digits
  * the copy maps to Inter's tabular glyphs (owner decision 2026-11-05, checked
  * by src/i18n/__tests__/font-baked-metrics.test.ts). B serves that input with
- * the copy's cmap, so the two contexts still differ only in the line box. The
- * Hangul faces (fonts/app/hangul/, owner decision 2026-11-02) are not baked,
- * so both contexts draw Hangul from the same files. Every screen must be the
- * same PNG in both:
+ * the copy's cmap, so the two contexts still differ only in the line box.
+ * Inter's symbol faces (fonts/app/inter-symbols/, owner decisions 2026-11-17
+ * and 2026-11-18) have no input file: their generator bakes the box into its
+ * cut of the full Inter, so B serves each with the full Inter's own box in
+ * its place, which is what the cut gives without the bake. The Hangul faces
+ * (fonts/app/hangul/, owner decision 2026-11-02) are not baked, so both
+ * contexts draw Hangul from the same files. Every screen must be the same PNG
+ * in both:
  * - in the Korean and the English UI at 390 × 844: the start screen, the
  *   Playlist tab with tracks (one a decomposed Korean file name) and more
  *   than one playlist, the Connect, Settings and Help tabs, and the full chat
- *   with the font-identity fixture;
+ *   with the font-identity fixture, whose symbol line draws from all seven
+ *   symbol faces;
  * - on a 1280 × 800 desktop: Home with that track and the Playlist tab.
  *
  * What differs between two sessions anyway (the room code, the QR code, the
@@ -32,6 +37,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
+import { bakeLineMetrics, readLineMetrics } from '../scripts/fonts/app-face-metrics.mts';
 import { decodeFontBytes, encodeWoff2 } from '../scripts/fonts/font-files.mts';
 import { E2E_APP_ORIGIN } from './config.ts';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
@@ -77,6 +83,27 @@ const FACE_BY_STEM: ReadonlyMap<string, { input: string; output: string }> = (()
 const readRepositoryFile = (path: string): Buffer =>
   readFileSync(new URL(`../${path}`, import.meta.url));
 
+/** Inter's symbol faces by file stem, from fonts/inter-symbol-faces.json: no input file. */
+const SYMBOL_FACE_BY_STEM: ReadonlyMap<string, string> = (() => {
+  const record = JSON.parse(
+    readFileSync(new URL('../fonts/inter-symbol-faces.json', import.meta.url), 'utf8'),
+  ) as { directory: string; faces: readonly { file: string }[] };
+  return new Map(
+    record.faces.map(({ file }) => [
+      file.slice(0, -'.woff2'.length),
+      `${record.directory}/${file}`,
+    ]),
+  );
+})();
+
+/** The full Inter's own line box, which a symbol face would hold without the bake. */
+const FULL_INTER_BOX = (() => {
+  const { unitsPerEm, hhea } = readLineMetrics(
+    Uint8Array.from(readRepositoryFile('fonts/inter-full.ttf')),
+  );
+  return { unitsPerEm, ...hhea };
+})();
+
 /** Where an sfnt's cmap table is: its offset and length. */
 function cmapRange(sfnt: Uint8Array): [number, number] {
   const view = new DataView(sfnt.buffer, sfnt.byteOffset, sfnt.byteLength);
@@ -116,7 +143,26 @@ function unbakedFace(face: { input: string; output: string }): Promise<Buffer> {
   return bytes;
 }
 
-/** The font-identity chat fixture: Korean, Japanese, Chinese, Han, Cyrillic, Greek, Thai, Arabic and marks. */
+/**
+ * What context B serves for a symbol face: the face with the full Inter's own
+ * line box, as the cut is before its generator bakes the Inter box in.
+ */
+function unbakedSymbolFace(output: string): Promise<Buffer> {
+  let bytes = served.get(output);
+  if (!bytes) {
+    bytes = (async () => {
+      const sfnt = Uint8Array.from(await decodeFontBytes(readRepositoryFile(output)));
+      return Buffer.from(await encodeWoff2(bakeLineMetrics(sfnt, FULL_INTER_BOX)));
+    })();
+    served.set(output, bytes);
+  }
+  return bytes;
+}
+
+/**
+ * The font-identity chat fixture: Korean, Japanese, Chinese, Han, Cyrillic,
+ * Greek, Thai, Arabic, marks and the symbols of Inter's symbol faces.
+ */
 const CHAT = [
   '안녕하세요 오늘 Night Drive 틀어요',
   'こんにちは、今日は良い天気ですね',
@@ -127,6 +173,7 @@ const CHAT = [
   'مرحبا بالجميع',
   '※ 공지 ― 아‥ 100‰ 정말‼ 왜⁉',
   'Intro -> Outro 3x4 1:30 → ≈ ♪ ★',
+  '≤256 kbps · DISPLAY ≈320 kbps ‐ ‣ ⇒ ≠ ℃ Ⅱ ⅓ x⁴ H₂O ☆ ✓ ⌘ ■',
   '㈜카카오 ㉠ ㅋ 한',
   'Night Drive 밤의 드라이브 夜のドライブ 夜间驾驶 Ночная поездка ※ Live 2026 ‼ one long title that wraps',
   'City Pop 1984 좋아요',
@@ -187,13 +234,14 @@ async function openApp(
   await context.route(/\/assets\/[^/]+\.woff2$/u, async (route) => {
     const stem = assetStem(route.request().url());
     const face = FACE_BY_STEM.get(stem);
-    if (!face) return route.continue();
+    const symbol = SYMBOL_FACE_BY_STEM.get(stem);
+    if (!face && !symbol) return route.continue();
     fetched.add(stem);
     if (!serveInputs) return route.continue();
     return route.fulfill({
       status: 200,
       contentType: 'font/woff2',
-      body: await unbakedFace(face),
+      body: face ? await unbakedFace(face) : await unbakedSymbolFace(symbol ?? ''),
     });
   });
   const page = await context.newPage();

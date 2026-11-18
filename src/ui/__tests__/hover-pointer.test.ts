@@ -18,6 +18,28 @@ const GATE = ':where(html[data-hover-pointer])';
 const NO_HOVER_GATE = ':where(html:not([data-hover-pointer]))';
 const OUTSIDE_EDIT_MODE = ':where(.playlist-ul:not(.has-removal-selection))';
 
+/**
+ * Owner request (2026-11-18): a focus ring is for a person navigating by
+ * keyboard. A click, a tap, a key that only plays or types, or a window that
+ * opens by itself never brings one. The same owner marks
+ * <html data-keyboard-navigation="on|off">, and every focus ring rule reads
+ * it through one leading gate. Without the owner (a page where the app script
+ * never ran) the attribute is absent and the browser's own :focus-visible
+ * decides, as before.
+ */
+const RING = ":where(html:not([data-keyboard-navigation='off']))";
+const NO_RING = ":where(html[data-keyboard-navigation='off'])";
+const FORCED = '@media (forced-colors: active)';
+const FORCED_FIELDS =
+  ":is(input:not([type='range']):not([type='hidden']), textarea, select, [contenteditable='true'], [contenteditable='plaintext-only'], [role='textbox'], [role='combobox'])";
+const FORCED_CONTROLS = ":is(a, button, [role='button'], [role='switch'], [role='tab'])";
+/**
+ * Chromium 86 and 87 (for example 2022 LG webOS TVs, docs/known-accepted.md
+ * #20) know :focus-visible but not :where(), so they drop every gated rule
+ * whole. They read the ungated rings under this condition instead.
+ */
+const NO_WHERE = '@supports not selector(:where(*))';
+
 const STYLESHEETS = readdirSync(resolve('css'))
   .filter((file) => file.endsWith('.css'))
   .map((file) => `css/${file}`);
@@ -345,7 +367,7 @@ describe('playlist row icons on the hover gate', () => {
     expect(rulesFor(`${GATE} .btn-playlist-select:hover`)).toEqual([
       { conditions: [], declarations: ['color: var(--primary)'] },
     ]);
-    const focus = rulesFor('.btn-playlist-select:focus-visible');
+    const focus = rulesFor(`${RING} .btn-playlist-select:focus-visible`);
     expect(focus).toHaveLength(1);
     expect(focus[0]!.conditions).toEqual([]);
     expect(focus[0]!.declarations).toContain('color: var(--primary)');
@@ -355,7 +377,7 @@ describe('playlist row icons on the hover gate', () => {
     const hover = rulesFor(`${GATE} .expand-toggle:hover`);
     expect(hover).toHaveLength(1);
     expect(hover[0]!.declarations).toContain('color: var(--primary)');
-    const focus = rulesFor('.expand-toggle:focus-visible');
+    const focus = rulesFor(`${RING} .expand-toggle:focus-visible`);
     expect(focus).toHaveLength(1);
     expect(focus[0]!.conditions).toEqual([]);
     expect(focus[0]!.declarations).toContain('color: var(--primary)');
@@ -371,10 +393,10 @@ describe('playlist row icons on the hover gate', () => {
       ]);
     }
     // Keyboard focus reveals the grip whatever the pointer can do.
-    expect(rulesFor('.playlist-reorder-handle:focus-visible .playlist-reorder-grip')).toEqual([
-      { conditions: [], declarations: ['opacity: 1', 'transform: scale(1)'] },
-    ]);
-    expect(rulesFor('.playlist-reorder-handle:focus-visible .track-idx')).toEqual([
+    expect(
+      rulesFor(`${RING} .playlist-reorder-handle:focus-visible .playlist-reorder-grip`),
+    ).toEqual([{ conditions: [], declarations: ['opacity: 1', 'transform: scale(1)'] }]);
+    expect(rulesFor(`${RING} .playlist-reorder-handle:focus-visible .track-idx`)).toEqual([
       { conditions: [], declarations: ['opacity: 0', 'transform: scale(0.82)'] },
     ]);
   });
@@ -383,5 +405,559 @@ describe('playlist row icons on the hover gate', () => {
     expect(
       rulesFor(`${GATE} .playlist-ul.has-removal-selection .track-item:hover .btn-playlist-select`),
     ).toEqual([{ conditions: [], declarations: ['color: var(--primary)'] }]);
+  });
+});
+
+function press(target: EventTarget, key: string, init: KeyboardEventInit = {}): void {
+  target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }));
+}
+
+function releaseKey(target: EventTarget, key: string): void {
+  target.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
+}
+
+/** The arrows, Home, End and the page keys. */
+const NAVIGATION_KEYS = [
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+];
+
+function keyboardNavigation(): string | null {
+  return document.documentElement.getAttribute('data-keyboard-navigation');
+}
+
+function mount(html: string): HTMLElement {
+  const holder = document.createElement('div');
+  holder.innerHTML = html;
+  const element = holder.firstElementChild as HTMLElement;
+  document.body.appendChild(element);
+  return element;
+}
+
+/** Selector text with whitespace collapsed and none just inside parentheses. */
+function compact(selector: string): string {
+  return selector.replace(/\s+/gu, ' ').replace(/\(\s+/gu, '(').replace(/\s+\)/gu, ')').trim();
+}
+
+/** Every rule listing this selector, with its media conditions and declarations. */
+function compactRulesFor(selector: string): { conditions: string[]; declarations: string[] }[] {
+  return selectorSites()
+    .filter((site) => compact(site.selector) === compact(selector))
+    .map((site) => {
+      const conditions: string[] = [];
+      for (let parent: Node | undefined = site.rule.parent; parent; parent = parent.parent) {
+        if (parent.type !== 'atrule') continue;
+        const { name, params } = parent as AtRule;
+        if (name !== 'layer') conditions.push(`@${name} ${compact(params)}`);
+      }
+      const list: string[] = [];
+      site.rule.each((node) => {
+        if (node.type === 'decl') {
+          list.push(`${node.prop}: ${compact(node.value)}${node.important ? ' !important' : ''}`);
+        }
+      });
+      return { conditions, declarations: list };
+    });
+}
+
+/** The at-rule a rule sits in, written as `@name params`, or null for none. */
+function atRuleOf(node: Node | undefined): string | null {
+  if (node?.type !== 'atrule') return null;
+  const { name, params } = node as AtRule;
+  return `@${name} ${compact(params)}`;
+}
+
+/** Whether a rule is part of the ring that engines without :where() read. */
+function readWithoutWhere(rule: Rule): boolean {
+  for (let parent: Node | undefined = rule.parent; parent; parent = parent.parent) {
+    if (atRuleOf(parent) === NO_WHERE) return true;
+  }
+  return false;
+}
+
+/** Panels the skip link and a click on their empty space can focus. */
+const TAB_PANELS = ['tab-play', 'tab-playlist', 'tab-connect', 'tab-guide', 'tab-settings'];
+
+describe('keyboard navigation owner', () => {
+  let installed: HoverPointerModule;
+
+  beforeEach(async () => {
+    document.documentElement.removeAttribute('data-keyboard-navigation');
+    installAnyHover(true);
+    installed = await freshHoverPointer();
+    installed.initHoverPointer();
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+    document.documentElement.removeAttribute('data-keyboard-navigation');
+    document.documentElement.removeAttribute('data-hover-pointer');
+    Reflect.deleteProperty(window, 'matchMedia');
+  });
+
+  it('starts with no keyboard navigation, so a window opening by itself draws no ring', () => {
+    expect(keyboardNavigation()).toBe('off');
+  });
+
+  it('turns keyboard navigation on with Tab and Shift+Tab, and off on every press', () => {
+    for (const pointerType of ['mouse', 'pen', 'touch']) {
+      press(document.body, 'Tab');
+      expect(keyboardNavigation(), pointerType).toBe('on');
+      // Moving a pointer is not a press: a keyboard user may nudge the mouse.
+      document.dispatchEvent(pointer('pointermove', pointerType));
+      document.dispatchEvent(pointer('pointerover', pointerType));
+      expect(keyboardNavigation(), pointerType).toBe('on');
+      document.dispatchEvent(pointer('pointerdown', pointerType));
+      expect(keyboardNavigation(), pointerType).toBe('off');
+    }
+    press(document.body, 'Tab', { shiftKey: true });
+    expect(keyboardNavigation()).toBe('on');
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    // Safari moves focus to every control with Option+Tab.
+    press(document.body, 'Tab', { altKey: true });
+    expect(keyboardNavigation()).toBe('on');
+  });
+
+  it('leaves Tab held with Ctrl or Cmd to the browser', () => {
+    press(document.body, 'Tab', { ctrlKey: true });
+    press(document.body, 'Tab', { metaKey: true });
+    expect(keyboardNavigation()).toBe('off');
+  });
+
+  it('counts the arrows, Home, End and the page keys on a widget they move through or move', () => {
+    const widgets = [
+      '<input type="range" min="0" max="100" value="40">',
+      '<input type="radio" name="choice">',
+      '<select><option>One</option><option>Two</option></select>',
+      '<div role="tab" tabindex="0">Playlist</div>',
+      '<button type="button" role="tab">Chat</button>',
+      '<div role="option" tabindex="-1">English</div>',
+      '<div role="separator" tabindex="0" aria-valuenow="50"></div>',
+      '<div role="listbox" tabindex="0"></div>',
+      '<div role="slider" tabindex="0" aria-valuenow="5"></div>',
+    ];
+    for (const html of widgets) {
+      const widget = mount(html);
+      for (const key of NAVIGATION_KEYS) {
+        document.dispatchEvent(pointer('pointerdown', 'mouse'));
+        press(widget, key);
+        releaseKey(widget, key);
+        expect(keyboardNavigation(), `${key} on ${html}`).toBe('on');
+      }
+      widget.remove();
+    }
+  });
+
+  it('leaves the arrows, Home, End and the page keys on a plain button, link or switch to scrolling', () => {
+    // A mouse user who clicks a track and scrolls the playlist with the
+    // arrows or Page Down (src/ui/playlist-follow.ts reads those keys as
+    // scrolling) gets no ring on the track, nor on the next window.
+    const plain = [
+      '<button type="button" class="track-name">Track</button>',
+      '<a href="#settings">Settings</a>',
+      '<canvas role="button" tabindex="0"></canvas>',
+      '<div role="button" tabindex="0">Sync</div>',
+      '<div role="link" tabindex="0">Help</div>',
+      '<button type="button" role="switch" aria-checked="false">Password</button>',
+      '<div role="checkbox" tabindex="0" aria-checked="false"></div>',
+      '<input type="checkbox">',
+      '<input type="button" value="Go">',
+      '<details><summary>More</summary></details>',
+    ];
+    for (const html of plain) {
+      const control = mount(html);
+      const target = control.querySelector('summary') ?? control;
+      for (const key of NAVIGATION_KEYS) {
+        press(target, key);
+        releaseKey(target, key);
+      }
+      expect(keyboardNavigation(), html).toBe('off');
+      control.remove();
+    }
+  });
+
+  it('counts an arrow, Home, End or page key that moves focus, wherever it was pressed', () => {
+    // A TV remote's arrows move focus by spatial navigation from the page, a
+    // panel or a plain button alike, and an app's own arrow handler may move
+    // focus from any of them.
+    const landing = mount('<button type="button">Next</button>');
+    const targets: [string, HTMLElement][] = [
+      ['the page', document.body],
+      ['a panel', mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>')],
+      ['a plain button', mount('<button type="button">Play</button>')],
+      ['a text field', mount('<input type="text">')],
+    ];
+    for (const [label, target] of targets) {
+      for (const key of NAVIGATION_KEYS) {
+        document.dispatchEvent(pointer('pointerdown', 'mouse'));
+        landing.blur();
+        press(target, key);
+        // The key's default action or a handler moves focus while it is down.
+        landing.focus();
+        releaseKey(target, key);
+        expect(keyboardNavigation(), `${key} on ${label}`).toBe('on');
+      }
+    }
+    // A plain button group whose own arrow handler moves focus.
+    const [first, second] = [mount('<button>A</button>'), mount('<button>B</button>')];
+    first.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight') second.focus();
+    });
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    first.focus();
+    press(first, 'ArrowRight');
+    releaseKey(first, 'ArrowRight');
+    expect(keyboardNavigation()).toBe('on');
+  });
+
+  it('leaves a focus move alone once the key is up, after a pointer press or another key, or when the window loses focus', () => {
+    // A window that opens by itself focuses its control: that is no
+    // navigation, even just after an arrow that only scrolled.
+    const opened = mount('<button type="button">Stay</button>');
+    const between: [string, () => void][] = [
+      ['the key up', () => releaseKey(document.body, 'ArrowDown')],
+      ['a pointer press', () => document.dispatchEvent(pointer('pointerdown', 'mouse'))],
+      ['the window losing focus', () => window.dispatchEvent(new Event('blur'))],
+      ['another key', () => press(document.body, 'a')],
+    ];
+    for (const [label, step] of between) {
+      opened.blur();
+      press(document.body, 'ArrowDown');
+      step();
+      opened.focus();
+      expect(keyboardNavigation(), label).toBe('off');
+    }
+    // Keys that press, play, close or type, and shortcuts, never count a focus
+    // move, even one made while they are down.
+    const keys: [string, KeyboardEventInit][] = [
+      [' ', {}],
+      ['Enter', {}],
+      ['Escape', {}],
+      ['a', {}],
+      ['ArrowLeft', { altKey: true }],
+      ['ArrowDown', { ctrlKey: true }],
+      ['End', { metaKey: true }],
+    ];
+    for (const [key, init] of keys) {
+      opened.blur();
+      press(document.body, key, init);
+      opened.focus();
+      releaseKey(document.body, key);
+      expect(keyboardNavigation(), `${key} ${JSON.stringify(init)}`).toBe('off');
+    }
+  });
+
+  it('leaves a Tab that a text field takes for itself, keeping focus, to the field', () => {
+    // The chat's command completion takes Tab (preventDefault) and keeps
+    // focus in the field: a mouse user completing a command is not
+    // navigating, and the next window opens without a ring.
+    for (const html of ['<input type="text">', '<textarea></textarea>']) {
+      const field = mount(html);
+      field.addEventListener('keydown', (event) => {
+        if (event.key === 'Tab') event.preventDefault();
+      });
+      for (const shiftKey of [false, true]) {
+        document.dispatchEvent(pointer('pointerdown', 'mouse'));
+        field.focus();
+        press(field, 'Tab', { cancelable: true, shiftKey });
+        releaseKey(field, 'Tab');
+        expect(keyboardNavigation(), `${html} shift=${shiftKey}`).toBe('off');
+      }
+      // A keyboard user keeps their rings through it.
+      press(document.body, 'Tab');
+      field.focus();
+      press(field, 'Tab', { cancelable: true });
+      releaseKey(field, 'Tab');
+      expect(keyboardNavigation(), html).toBe('on');
+      field.remove();
+    }
+  });
+
+  it('counts a Tab that leaves a text field, or that a focus trap takes and moves', () => {
+    const field = mount('<input type="text">');
+    const other = mount('<button type="button">OK</button>');
+
+    // The browser moves focus out of the field.
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    field.focus();
+    press(field, 'Tab', { cancelable: true });
+    releaseKey(field, 'Tab');
+    expect(keyboardNavigation(), 'Tab out of a field').toBe('on');
+
+    // A dialog's focus trap on the window (src/ui/dialog.ts) takes the Tab
+    // and moves focus itself.
+    const trap = (event: KeyboardEvent): void => {
+      if (event.key !== 'Tab') return;
+      event.preventDefault();
+      (document.activeElement === other ? field : other).focus();
+    };
+    window.addEventListener('keydown', trap);
+    try {
+      document.dispatchEvent(pointer('pointerdown', 'mouse'));
+      field.focus();
+      press(field, 'Tab', { cancelable: true });
+      releaseKey(field, 'Tab');
+      expect(keyboardNavigation(), 'a trap moving focus from a field').toBe('on');
+
+      // A one-button dialog's trap wraps focus onto the same button.
+      document.dispatchEvent(pointer('pointerdown', 'mouse'));
+      other.focus();
+      window.removeEventListener('keydown', trap);
+      const wrap = (event: KeyboardEvent): void => {
+        if (event.key !== 'Tab') return;
+        event.preventDefault();
+        other.focus();
+      };
+      window.addEventListener('keydown', wrap);
+      press(other, 'Tab', { cancelable: true });
+      releaseKey(other, 'Tab');
+      window.removeEventListener('keydown', wrap);
+      expect(keyboardNavigation(), 'a one-button wrap').toBe('on');
+    } finally {
+      window.removeEventListener('keydown', trap);
+    }
+
+    // A field handler that stops the key before the window, while the
+    // browser still moves focus out of the field.
+    const stopping = mount('<input type="text">');
+    stopping.addEventListener('keydown', (event) => event.stopPropagation());
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    stopping.focus();
+    press(stopping, 'Tab', { cancelable: true });
+    other.focus();
+    releaseKey(stopping, 'Tab');
+    expect(keyboardNavigation(), 'Tab past a stopping handler').toBe('on');
+  });
+
+  it('leaves the arrows on the page, a panel or a field to scrolling and typing', () => {
+    const notControls = [
+      '<div id="panel" class="tab-content" role="tabpanel" tabindex="-1"></div>',
+      '<div class="chat-drawer" role="region" tabindex="-1"></div>',
+      '<div role="log" tabindex="-1"></div>',
+      '<div role="dialog" tabindex="-1"></div>',
+      // A reading dialog's message and a copyable chat bubble scroll or copy.
+      '<div class="dialog-message" tabindex="0"></div>',
+      '<div class="chat-bubble" role="group" tabindex="0"></div>',
+      '<input type="text">',
+      '<input type="number">',
+      '<textarea></textarea>',
+      '<div contenteditable="true" role="combobox" tabindex="0"></div>',
+    ];
+    const targets = [document.body, ...notControls.map(mount)];
+    for (const target of targets) {
+      for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End']) {
+        press(target, key);
+        press(target, 'PageUp');
+        press(target, 'PageDown');
+      }
+      expect(keyboardNavigation(), target.outerHTML).toBe('off');
+    }
+    // Alt+Left is the browser's Back; Ctrl and Cmd arrows jump words or ends.
+    const button = mount('<button type="button">Next</button>');
+    press(button, 'ArrowLeft', { altKey: true });
+    press(button, 'ArrowDown', { ctrlKey: true });
+    press(button, 'End', { metaKey: true });
+    expect(keyboardNavigation()).toBe('off');
+  });
+
+  it('never counts a key that presses, plays, closes or types', () => {
+    const targets = [
+      document.body,
+      mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>'),
+      mount('<button type="button">Play</button>'),
+      mount('<input type="text">'),
+    ];
+    const keys = [' ', 'Enter', 'Escape', 'a', 'Shift', 'Control', 'Backspace', 'Delete', 'F6'];
+    for (const target of targets) {
+      for (const key of keys) press(target, key);
+    }
+    expect(keyboardNavigation()).toBe('off');
+  });
+
+  it('keeps a keyboard user on keyboard navigation through Space, Enter, Escape and typing', () => {
+    press(document.body, 'Tab');
+    const targets = [
+      document.body,
+      mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>'),
+      mount('<button type="button">Play</button>'),
+      mount('<input type="text">'),
+    ];
+    for (const target of targets) {
+      for (const key of [' ', 'Enter', 'Escape', 'x', 'ArrowDown', 'PageDown']) {
+        press(target, key);
+      }
+    }
+    expect(keyboardNavigation()).toBe('on');
+  });
+
+  it('lets only hover-pointer.ts write the keyboard navigation flag', () => {
+    const writers: string[] = [];
+    for (const file of sourceFiles('src')) {
+      if (file === 'src/ui/hover-pointer.ts') continue;
+      const source = readFileSync(resolve(file), 'utf8');
+      if (/data-keyboard-navigation/u.test(source)) writers.push(file);
+    }
+    expect(writers).toEqual([]);
+  });
+
+  it('leaves no component its own pointer-focus mark beside the one owner', () => {
+    // Sliders, the dialog's choice page and the language list each kept a
+    // class that hid their ring after a pointer press; the owner now decides.
+    const marks = /is-pointer-focused|dialog-choice-pointer-focus|language-option-initial-/u;
+    const sites = [
+      ...sourceFiles('src').filter((file) => marks.test(readFileSync(resolve(file), 'utf8'))),
+      ...STYLESHEETS.filter((file) => marks.test(readFileSync(resolve(file), 'utf8'))),
+    ];
+    expect(sites).toEqual([]);
+  });
+});
+
+describe('one keyboard gate for focus rings in the app stylesheets', () => {
+  /** A rule that only takes a ring away draws nothing for the gate to hold back. */
+  const onlyHides = (site: SelectorSite): boolean => {
+    const list = declarations(site.rule);
+    return list.length > 0 && list.every((entry) => /^outline(?:-style)?: none$/u.test(entry));
+  };
+
+  it('puts every focus ring rule under the keyboard gate', () => {
+    const outside = selectorSites()
+      .filter((site) => site.selector.includes(':focus-visible'))
+      .filter((site) => afterGate(site.selector, RING) === null && !onlyHides(site))
+      // A field's focus mark shows on every focus, as its blue underline does.
+      .filter((site) => compact(site.selector) !== compact(`${FORCED_FIELDS}:focus-visible`))
+      // Engines that drop the gate read their own copy (the next test).
+      .filter((site) => !readWithoutWhere(site.rule))
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(outside).toEqual([]);
+  });
+
+  it('gives an engine without :where() the app rings the gate takes from it, after each gated rule', () => {
+    // Chromium 86 and 87 drop every gated rule, so no keyboard mark reaches
+    // them. The play panel's Sync and Play media buttons, the carousel arrows
+    // and the chat's YouTube buttons turn the browser's own ring off, and the
+    // PIN dialog's radios are transparent: without a ring of the app's own
+    // they would show no focus at all there. Each copy follows its gated rule in
+    // the same layer, so those engines keep the cascade the app had before
+    // the gate: the global ring after those resets, the browser's
+    // :focus-visible deciding where it shows.
+    const copies = [
+      [':focus-visible', `${RING} :focus-visible`],
+      [
+        '.dialog-choice-radio:focus-visible + .dialog-choice-surface',
+        `${RING} .dialog-choice-radio:focus-visible + .dialog-choice-surface`,
+      ],
+    ] as const;
+    for (const [ungated, gated] of copies) {
+      const original = selectorSites().filter(
+        (site) =>
+          compact(site.selector) === compact(gated) &&
+          atRuleOf(site.rule.parent)?.startsWith('@layer ') === true,
+      );
+      expect(original, gated).toHaveLength(1);
+      let next = original[0]!.rule.next();
+      while (next?.type === 'comment') next = next.next();
+      expect(atRuleOf(next), gated).toBe(NO_WHERE);
+      const inside: { selector: string; declarations: string[] }[] = [];
+      (next as AtRule).each((node) => {
+        if (node.type === 'rule') {
+          inside.push({ selector: compact(node.selector), declarations: declarations(node) });
+        }
+      });
+      expect(inside, gated).toEqual([
+        { selector: compact(ungated), declarations: declarations(original[0]!.rule) },
+      ]);
+    }
+    const fallback = selectorSites()
+      .filter((site) => readWithoutWhere(site.rule))
+      .map((site) => compact(site.selector));
+    expect(fallback.sort()).toEqual(copies.map(([ungated]) => compact(ungated)).sort());
+  });
+
+  it('turns the browser ring off everywhere outside keyboard navigation', () => {
+    expect(compactRulesFor(`${NO_RING} :focus-visible`)).toEqual([
+      { conditions: [], declarations: ['outline: none'] },
+    ]);
+    expect(compactRulesFor(`${RING} :focus-visible`)).toEqual([
+      {
+        conditions: [],
+        declarations: ['outline: 2px solid var(--primary)', 'outline-offset: 2px'],
+      },
+    ]);
+    // Outside keyboard navigation nothing is drawn, only taken away.
+    const drawing = selectorSites()
+      .filter((site) => afterGate(site.selector, NO_RING) !== null && !onlyHides(site))
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(drawing).toEqual([]);
+  });
+
+  it('uses the keyboard flag only as the leading, zero-specificity gate', () => {
+    const misplaced = selectorSites()
+      .filter((site) => site.selector.includes('data-keyboard-navigation'))
+      .filter((site) => {
+        const rest = afterGate(site.selector, RING) ?? afterGate(site.selector, NO_RING);
+        return rest === null || rest.includes('data-keyboard-navigation');
+      })
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(misplaced).toEqual([]);
+  });
+
+  it('draws a tab panel ring on the panel edge, over its divider lines, on every panel', () => {
+    const panelRing = compactRulesFor(`${RING} .tab-content:focus-visible`);
+    expect(panelRing).toEqual([{ conditions: [], declarations: ['outline-offset: -2px'] }]);
+    // The global ring is 2px wide: offset -2px puts it exactly inside the
+    // panel's border box, over the 1px column dividers its borders draw.
+    const ring = compactRulesFor(`${RING} :focus-visible`)[0]!.declarations;
+    expect(ring).toContain('outline: 2px solid var(--primary)');
+    const dividers = compactRulesFor('#tab-play')
+      .concat(compactRulesFor('#tab-playlist'))
+      .flatMap((found) => found.declarations)
+      .filter((entry) => /^border-(?:inline-end|bottom):/u.test(entry));
+    expect(dividers.length).toBeGreaterThan(0);
+    for (const divider of dividers) expect(divider).toMatch(/: 1px solid var\(--divider\)$/u);
+    // Every panel is a .tab-content, and none has a focus look of its own.
+    const html = readFileSync(resolve('index.html'), 'utf8');
+    for (const id of TAB_PANELS) {
+      expect(html, id).toMatch(
+        new RegExp(`id="${id}"\\s+class="tab-content[^"]*"\\s+role="tabpanel"`, 'u'),
+      );
+    }
+    const ownLooks = selectorSites()
+      .filter((site) => /:focus/u.test(site.selector))
+      .filter((site) => TAB_PANELS.some((id) => site.selector.includes(`#${id}`)))
+      .map((site) => `${site.file}:${site.line} ${site.selector}`);
+    expect(ownLooks).toEqual([]);
+  });
+
+  it('draws the chat log and playlist rings on their own edges, as on the panels', () => {
+    // Focus waits on them after a keyboard action: the chat log when its
+    // scroll-down button hides under focus, the list when the last rows
+    // picked for removal go. A ring outside them is clipped by the chat
+    // drawer and by the playlist's scroller.
+    for (const container of ['.chat-drawer-messages', '.playlist-ul']) {
+      expect(compactRulesFor(`${RING} ${container}:focus-visible`), container).toEqual([
+        { conditions: [], declarations: ['outline-offset: -2px'] },
+      ]);
+    }
+  });
+
+  it('keeps a field focus mark on every focus in forced colours and rings controls by keyboard only', () => {
+    expect(compactRulesFor(`${FORCED_FIELDS}:focus-visible`)).toEqual([
+      {
+        conditions: [FORCED],
+        declarations: ['outline: 3px solid Highlight !important', 'outline-offset: 2px !important'],
+      },
+    ]);
+    expect(compactRulesFor(`${RING} ${FORCED_CONTROLS}:focus-visible`)).toEqual([
+      {
+        conditions: [FORCED],
+        declarations: ['outline: 3px solid Highlight !important', 'outline-offset: 2px !important'],
+      },
+    ]);
   });
 });

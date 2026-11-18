@@ -85,6 +85,34 @@ export function assertLegacyCss(css: string): void {
     );
   }
 
+  // Chromium 86 and 87 know :focus-visible but not :where(), so they drop
+  // every focus ring under the keyboard gate (docs/known-accepted.md #20).
+  // Some controls turn the browser's own ring off and the PIN choice radios
+  // are transparent, so those engines read an ungated copy of the global
+  // ring and the choice row ring under @supports not selector(:where(*)).
+  const ringsWithoutWhere = new Set<string>();
+  root.walkAtRules('supports', (test) => {
+    if (test.params.replace(/\s+/gu, '') !== 'notselector(:where(*))') return;
+    test.walkRules((rule) => {
+      const draws = rule.nodes.some(
+        (node) => node.type === 'decl' && node.prop === 'outline' && !/\bnone\b/u.test(node.value),
+      );
+      if (!draws) return;
+      for (const selector of rule.selectors) {
+        if (selector.includes(':where(')) continue;
+        ringsWithoutWhere.add(selector.replaceAll(':not(#\\#)', '').replace(/\s+/gu, ''));
+      }
+    });
+  });
+  for (const ring of [
+    ':focus-visible',
+    '.dialog-choice-radio:focus-visible+.dialog-choice-surface',
+  ]) {
+    if (!ringsWithoutWhere.has(ring)) {
+      throw new Error(`Built CSS lost the focus ring that engines without :where() read: ${ring}`);
+    }
+  }
+
   let hasLegacyBootBodyFallback = false;
   let hasLegacyBootFailureFallback = false;
   root.walkRules((rule) => {

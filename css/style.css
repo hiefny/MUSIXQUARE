@@ -2,7 +2,12 @@
 Safety is declared first because important layer precedence is reversed; its accessibility and recovery guards must win.
 Hover: src/ui/hover-pointer.ts alone decides whether the user can hover and marks it as html[data-hover-pointer]. Every
 :hover rule starts with :where(html[data-hover-pointer]), which adds no specificity, and no media query asks about hover
-or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/hover-pointer.test.ts). */
+or pointers. Keep :focus-visible and :active outside the hover gate.
+Focus: the same owner marks html[data-keyboard-navigation] 'off' until a key moves focus and after every pointer press.
+Every rule that draws for :focus-visible starts with :where(html:not([data-keyboard-navigation='off'])), so a ring is
+for keyboard navigation only; a field's own focus mark is not a ring and shows on every focus. An engine without
+:where() draws its rings from the ungated copies under @supports not selector(:where(*)) (docs/known-accepted.md #20)
+(src/ui/__tests__/hover-pointer.test.ts). */
 
 @layer safety, base, desktop, components, responsive, states;
 
@@ -68,11 +73,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --radius-m: 20px;
     --radius-s: 14px;
     --radius-pill: 999px;
-    /* App fonts (owner decisions 2026-10-31 and 2026-11-02). Inter draws
-       Latin, digits, Cyrillic and Greek, MUSIXQUARE Hangul (the app's own
-       Hangul faces, fonts/hangul-faces.json) Hangul in every stack, Noto
-       Sans KR the Hangul that family lacks and Noto Sans JP kana; Han, CJK
-       punctuation and the symbols Inter lacks come from the four CJK
+    /* App fonts (owner decisions 2026-10-31, 2026-11-02 and 2026-11-17).
+       Inter draws Latin, digits, Cyrillic, Greek and the symbols it has (its
+       symbol faces, fonts/inter-symbol-faces.json), MUSIXQUARE Hangul (the
+       app's own Hangul faces, fonts/hangul-faces.json) Hangul in every stack,
+       Noto Sans KR the Hangul that family lacks and Noto Sans JP kana; Han,
+       CJK punctuation and the symbols Inter lacks come from the four CJK
        families in an order. The Japanese and Chinese UIs put their own
        family first; every other UI reads --font-cjk-default, which the Han
        order chosen once at startup from the browser's languages swaps
@@ -491,7 +497,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* The keyboard ring sits inside the button, like the send and search rings. */
-  .clearable-editor-button:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .clearable-editor-button:focus-visible {
     color: var(--text-main);
     outline: 2px solid var(--primary);
     outline-offset: -2px;
@@ -1369,7 +1375,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: var(--surface-2);
   }
 
-  .setup-language-button:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .setup-language-button:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
@@ -1656,7 +1662,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     background: var(--surface-2);
   }
 
-  .playlist-switch-button:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .playlist-switch-button:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
@@ -1913,7 +1919,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     touch-action: manipulation;
   }
 
-  #visualizerCanvas:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) #visualizerCanvas:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: -3px;
   }
@@ -2192,10 +2198,6 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   input[type='range']:active,
   input[type='range'].is-dragging {
     --range-fill: var(--range-fill-active);
-  }
-
-  input[type='range'].is-pointer-focused:focus-visible {
-    outline: none;
   }
 
   input[type='range']::-webkit-slider-runnable-track {
@@ -2692,7 +2694,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     transition: none;
   }
 
-  .playlist-reorder-handle:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .playlist-reorder-handle:focus-visible {
     color: var(--primary);
     outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
     outline-offset: 1px;
@@ -2731,12 +2733,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Keyboard focus reveals the grip on every device. */
-  .playlist-reorder-handle:focus-visible .track-idx {
+  :where(html:not([data-keyboard-navigation='off']))
+    .playlist-reorder-handle:focus-visible
+    .track-idx {
     opacity: 0;
     transform: scale(0.82);
   }
 
-  .playlist-reorder-handle:focus-visible .playlist-reorder-grip {
+  :where(html:not([data-keyboard-navigation='off']))
+    .playlist-reorder-handle:focus-visible
+    .playlist-reorder-grip {
     opacity: 1;
     transform: scale(1);
   }
@@ -2805,7 +2811,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: var(--radius-pill);
   }
 
-  .track-name:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .track-name:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
     outline-offset: 3px;
   }
@@ -2851,10 +2857,12 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     --marquee-offset: var(--playlist-marquee-offset);
   }
 
-  .track-name:focus-visible
+  :where(html:not([data-keyboard-navigation='off']))
+    .track-name:focus-visible
     .track-name-text.is-playlist-title-overflowing
     > .playlist-title-marquee-content,
-  .sub-track-item:focus-visible
+  :where(html:not([data-keyboard-navigation='off']))
+    .sub-track-item:focus-visible
     .sub-name.is-playlist-title-overflowing
     > .playlist-title-marquee-content {
     animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
@@ -3077,7 +3085,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Like the minus beside it, the chevron turns blue for keyboard focus. */
-  .expand-toggle:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .expand-toggle:focus-visible {
     color: var(--primary);
   }
 
@@ -3326,7 +3334,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* Like the row's other icons, the minus turns blue for keyboard focus and
      for a hover pointer (src/ui/hover-pointer.ts). In edit mode a row tap
      selects the row, so hovering anywhere on it lights its minus. */
-  .btn-playlist-select:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .btn-playlist-select:focus-visible {
     color: var(--primary);
     outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
     outline-offset: 1px;
@@ -3548,7 +3556,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 0.6;
   }
 
-  .playlist-selection-toggle:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .playlist-selection-toggle:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
@@ -3654,7 +3662,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     scale: 0.94;
   }
 
-  .playlist-selection-action:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .playlist-selection-action:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 3px;
   }
@@ -3837,7 +3845,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     fill: currentColor;
   }
 
-  .room-password-refresh:not(:disabled):not([aria-disabled='true']):focus-visible {
+  :where(html:not([data-keyboard-navigation='off']))
+    .room-password-refresh:not(:disabled):not([aria-disabled='true']):focus-visible {
     background: var(--surface-2);
     color: var(--text-main);
   }
@@ -3950,7 +3959,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--text-main);
   }
 
-  .settings-sync-indicator:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .settings-sync-indicator:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
@@ -4457,14 +4466,15 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   :where(html[data-hover-pointer]) .administrator-action-button:hover,
-  .administrator-action-button:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .administrator-action-button:focus-visible {
     background: var(--surface-2);
     color: var(--text-main);
     outline: none;
   }
 
   :where(html[data-hover-pointer]) .administrator-action-button.revoke:hover,
-  .administrator-action-button.revoke:focus-visible {
+  :where(html:not([data-keyboard-navigation='off']))
+    .administrator-action-button.revoke:focus-visible {
     background: transparent;
     color: var(--danger-foreground);
   }
@@ -4511,7 +4521,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   :where(html[data-hover-pointer]) .d-op-btn.administrator-state-button:hover,
-  .d-op-btn.administrator-state-button:focus-visible {
+  :where(html:not([data-keyboard-navigation='off']))
+    .d-op-btn.administrator-state-button:focus-visible {
     background: var(--surface-2);
     color: var(--text-sub);
   }
@@ -4563,8 +4574,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Keyboard focus turns both kick icons red, as hover does. */
-  .btn-kick-device:focus-visible,
-  .btn-kick-physical-device:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .btn-kick-device:focus-visible,
+  :where(html:not([data-keyboard-navigation='off'])) .btn-kick-physical-device:focus-visible {
     color: var(--danger-foreground);
   }
 
@@ -5362,11 +5373,11 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   :where(html[data-hover-pointer]) .administrator-permission-row:hover,
-  .administrator-permission-row:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .administrator-permission-row:focus-visible {
     background: transparent;
   }
 
-  .administrator-permission-row:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .administrator-permission-row:focus-visible {
     outline: 2px solid rgba(var(--primary-rgb), 0.4);
     outline-offset: 5px;
   }
@@ -5376,7 +5387,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   :where(html[data-hover-pointer]) .administrator-permission-row:disabled:hover,
-  .administrator-permission-row:disabled:focus-visible {
+  :where(html:not([data-keyboard-navigation='off']))
+    .administrator-permission-row:disabled:focus-visible {
     background: transparent;
   }
 
@@ -5524,7 +5536,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     cursor: default;
   }
 
-  .account-dialog-title-edit:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .account-dialog-title-edit:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
@@ -6261,13 +6273,20 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* Keep the ring inside the scrollport, as on the language rows. */
-  .dialog-choice-radio:focus-visible + .dialog-choice-surface {
+  :where(html:not([data-keyboard-navigation='off']))
+    .dialog-choice-radio:focus-visible
+    + .dialog-choice-surface {
     outline: 2px solid var(--primary);
     outline-offset: -2px;
   }
 
-  .dialog-choice-pointer-focus .dialog-choice-radio:focus + .dialog-choice-surface {
-    outline: none;
+  /* The radio is transparent, so an engine that drops the gate above (see
+     the global ring) would show no focus on a row without this copy. */
+  @supports not selector(:where(*)) {
+    .dialog-choice-radio:focus-visible + .dialog-choice-surface {
+      outline: 2px solid var(--primary);
+      outline-offset: -2px;
+    }
   }
 
   /* The extra start inset matches the language rows' label inset. */
@@ -6470,7 +6489,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     display: none;
   }
 
-  .dialog-link-action:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .dialog-link-action:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
@@ -6628,13 +6647,8 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: var(--primary);
   }
 
-  .language-option.language-option-initial-pointer-focus:focus {
-    outline: none;
-  }
-
   /* Keep the ring inside the scrollport without moving buttons or edge fades. */
-  .language-option:focus-visible,
-  .language-option.language-option-initial-keyboard-focus:focus {
+  :where(html:not([data-keyboard-navigation='off'])) .language-option:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: -2px;
   }
@@ -7514,7 +7528,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   :where(html[data-hover-pointer]) .setup-qr-scan-button:hover,
-  .setup-qr-scan-button:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .setup-qr-scan-button:focus-visible {
     background: var(--surface-2);
     color: var(--primary);
   }
@@ -8355,7 +8369,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   }
 
   /* The keyboard ring sits inside the arrow's circle. */
-  .chat-send-btn:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .chat-send-btn:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: -2px;
   }
@@ -8688,7 +8702,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
   /* The target touches the banner's top edge, which the desktop chat drawer
      clips (overflow: hidden), so the keyboard ring is drawn inside it, 2px in
      from the edge. The forced-colors block keeps the same inset. */
-  .chat-pinned-notice-dismiss:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .chat-pinned-notice-dismiss:focus-visible {
     outline-offset: -4px;
   }
 
@@ -8815,7 +8829,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     box-shadow: none;
   }
 
-  .chat-scroll-down-btn:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .chat-scroll-down-btn:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 3px;
   }
@@ -10737,23 +10751,13 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     align-items: center;
     justify-content: center;
     margin-inline-end: 16px;
+    /* Kept under the mouse and while pressed, in both themes: the option's
+       own surface shows hover and press (owner decision 2026-11-17), and the
+       preparing spinner draws with this colour. */
     color: var(--text-main);
-    transition: color 0.2s;
   }
 
   .btn-icon-bg.youtube {
-    color: #ff0033;
-  }
-
-  /* The press tints the icon too, so a tap still shows it while held. */
-  :where(html[data-hover-pointer]) .file-select-btn:hover .btn-icon-bg,
-  .file-select-btn:active .btn-icon-bg {
-    background: transparent;
-    color: var(--primary);
-  }
-
-  :where(html[data-hover-pointer]) .file-select-btn:hover .btn-icon-bg.youtube,
-  .file-select-btn:active .btn-icon-bg.youtube {
     color: #ff0033;
   }
 
@@ -10826,11 +10830,15 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     cursor: progress;
   }
 
-  #btn-sync[aria-disabled='true']:focus-visible,
-  #btn-media-source[aria-disabled='true']:focus-visible,
-  #btn-add-media[aria-disabled='true']:focus-visible,
-  #btn-repeat[aria-disabled='true']:focus-visible,
-  #btn-shuffle[aria-disabled='true']:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) #btn-sync[aria-disabled='true']:focus-visible,
+  :where(html:not([data-keyboard-navigation='off']))
+    #btn-media-source[aria-disabled='true']:focus-visible,
+  :where(html:not([data-keyboard-navigation='off']))
+    #btn-add-media[aria-disabled='true']:focus-visible,
+  :where(html:not([data-keyboard-navigation='off']))
+    #btn-repeat[aria-disabled='true']:focus-visible,
+  :where(html:not([data-keyboard-navigation='off']))
+    #btn-shuffle[aria-disabled='true']:focus-visible {
     opacity: 1;
   }
 
@@ -10876,10 +10884,47 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     animation: attention-hint-fill 0.8s step-end 3;
   }
 
-  /* Accessibility: visible focus ring */
-  :focus-visible {
+  /* Accessibility: a focus ring for keyboard navigation (owner request
+     2026-11-18). src/ui/hover-pointer.ts marks html[data-keyboard-navigation]
+     'off' from start-up and after every pointer press, and 'on' once a key
+     moves focus. Under 'off' the browser's own ring is off as well, so a
+     click, a tap, Space or typing, or a window that opens by itself never
+     rings what it focused. Every rule that draws for keyboard focus sits under
+     the same leading gate; a page without the script has no attribute and
+     keeps the browser's :focus-visible (src/ui/__tests__/hover-pointer.test.ts). */
+  :where(html[data-keyboard-navigation='off']) :focus-visible {
+    outline: none;
+  }
+
+  :where(html:not([data-keyboard-navigation='off'])) :focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
+  }
+
+  /* An engine that knows :focus-visible but not :where() (Chromium 86 and 87,
+     for example 2022 LG webOS TVs; Chromium 83 and later read this test)
+     drops every gated rule and cannot read the keyboard mark. Several controls
+     turn the browser's own ring off (.ob-nav-arrow, .chat-youtube-btn,
+     .file-select-btn), so those engines keep the ring the app drew before the
+     gate: this ungated copy follows those resets, and the browser's own
+     :focus-visible decides where it shows (docs/known-accepted.md #20). */
+  @supports not selector(:where(*)) {
+    :focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+  }
+
+  /* A container where focus waits draws its ring on its own edge: a tab panel
+     from the skip link (src/ui/tabs.ts) or when its content leaves under
+     focus, the chat log when its scroll-down button hides under focus, the
+     playlist when the last rows picked for removal go. The ring then covers
+     the 1px dividers the desktop columns draw as borders, no scroller or
+     drawer edge clips it, and every container shows the same box. */
+  :where(html:not([data-keyboard-navigation='off'])) .tab-content:focus-visible,
+  :where(html:not([data-keyboard-navigation='off'])) .chat-drawer-messages:focus-visible,
+  :where(html:not([data-keyboard-navigation='off'])) .playlist-ul:focus-visible {
+    outline-offset: -2px;
   }
 
   /* ─── Accessibility: Reduced Motion ─────────────────────────── */
@@ -11194,7 +11239,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-radius: var(--radius-pill);
   }
 
-  .invite-meta-cluster:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .invite-meta-cluster:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 3px;
     border-radius: var(--radius-pill);
@@ -11499,7 +11544,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     pointer-events: none;
   }
 
-  .yt-search-submit-btn:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .yt-search-submit-btn:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: -2px;
     border-radius: var(--radius-pill);
@@ -11631,7 +11676,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     border-top: 1px solid var(--divider);
   }
 
-  .yt-search-result:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) .yt-search-result:focus-visible {
     background: var(--surface-3);
     outline: none;
   }
@@ -13294,17 +13339,14 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     outline-offset: -1px;
   }
 
+  /* A field's focus mark is not a ring: as its blue underline does in the
+     other themes, it shows on every focus, a click or a tap included. */
   :is(
-    a,
-    button,
-    input,
+    input:not([type='range']):not([type='hidden']),
     textarea,
     select,
     [contenteditable='true'],
     [contenteditable='plaintext-only'],
-    [role='button'],
-    [role='switch'],
-    [role='tab'],
     [role='textbox'],
     [role='combobox']
   ):focus-visible {
@@ -13312,13 +13354,22 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     outline-offset: 2px !important;
   }
 
-  .language-dialog .language-option:focus-visible,
-  .language-dialog .language-option.language-option-initial-keyboard-focus:focus {
+  /* A control's ring follows keyboard navigation, as everywhere else. */
+  :where(html:not([data-keyboard-navigation='off']))
+    :is(a, button, [role='button'], [role='switch'], [role='tab']):focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
+
+  :where(html:not([data-keyboard-navigation='off']))
+    .language-dialog
+    .language-option:focus-visible {
     outline-offset: -3px !important;
   }
 
-  .language-dialog .language-option.active:focus-visible,
-  .language-dialog .language-option.active.language-option-initial-keyboard-focus:focus {
+  :where(html:not([data-keyboard-navigation='off']))
+    .language-dialog
+    .language-option.active:focus-visible {
     outline-color: HighlightText !important;
   }
 
@@ -13330,7 +13381,9 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     outline-offset: -3px;
   }
 
-  .chat-pinned-notice > .chat-pinned-notice-dismiss:focus-visible {
+  :where(html:not([data-keyboard-navigation='off']))
+    .chat-pinned-notice
+    > .chat-pinned-notice-dismiss:focus-visible {
     outline-offset: -5px !important;
   }
 
@@ -13412,12 +13465,16 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     color: HighlightText !important;
   }
 
-  .dialog-choice-radio:focus-visible + .dialog-choice-surface {
+  :where(html:not([data-keyboard-navigation='off']))
+    .dialog-choice-radio:focus-visible
+    + .dialog-choice-surface {
     outline: 3px solid Highlight !important;
     outline-offset: -3px !important;
   }
 
-  .dialog-choice-radio:checked:focus-visible + .dialog-choice-surface {
+  :where(html:not([data-keyboard-navigation='off']))
+    .dialog-choice-radio:checked:focus-visible
+    + .dialog-choice-surface {
     outline-color: HighlightText !important;
   }
 
@@ -13523,7 +13580,7 @@ or pointers. Keep :focus-visible and :active outside the gate (src/ui/__tests__/
     opacity: 1 !important;
   }
 
-  input[type='range']:focus-visible {
+  :where(html:not([data-keyboard-navigation='off'])) input[type='range']:focus-visible {
     outline: 3px solid Highlight !important;
     outline-offset: 2px !important;
   }

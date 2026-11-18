@@ -1683,6 +1683,16 @@ interface BaseEventMap {
   // ── System Audio Sharing ────────────────────────────────────────
   'system-audio:start': [];
   /**
+   * The capture's start attempt holds a live audio track: the browser's share
+   * window returned a capture with audio, and the attempt goes on (a PRO lease
+   * and its publication, or the standard start). At most once per attempt,
+   * never for a cancelled or refused window, a capture without audio or an
+   * audio track that already ended. Its surface is
+   * `getSystemAudioCapturedStartSurface()` until the attempt settles, or until
+   * a newer load supersedes it before its own STOP.
+   */
+  'system-audio:start-captured': [];
+  /**
    * The capture's start attempt ended, exactly once: started when the share is
    * on (after the standard start broadcast or the PRO live commit), otherwise
    * cancelled, refused, failed or superseded. A PRO attempt that released its

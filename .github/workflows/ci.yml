@@ -38,7 +38,13 @@ jobs:
         run: npm run typecheck
 
       - name: Dependency security audit
-        run: npm run security:audit
+        # Owner decision 2026-11-18: block on high advisories in the
+        # dependencies the App ships. Build and test tools (devDependencies)
+        # are left to the Dependabot alerts: a picomatch advisory for every
+        # version up to 4.0.7, with no fixed version and used only by vite and
+        # vitest on this repository's own patterns, failed every branch.
+        # `npm run security:audit` alone stays the full audit for local runs.
+        run: npm run security:audit -- --omit=dev
 
       - name: Verify dependency registry signatures
         run: npm run security:signatures

@@ -1426,20 +1426,82 @@ describe('the checkpoint a share replaced', () => {
     expect(recordProPlaybackCheckpointReplacedByShare(authority(8, 'snapshot_9'))).toBe(false);
   });
 
+  it('records the catch-up the press cancelled of a missed revision whose recovery a cancelled newer PREPARE at its base owes, as that recovery would', async () => {
+    let resolveRecovery!: (result: ProPlaybackPrepareResult) => void;
+    const endpoint = endpointMocks();
+    await commitRevisionNine();
+    // This device missed the COMMIT of revision 10, then prepared the server
+    // PREPARE of revision 11 (base 10), which the room cancelled: the recovery
+    // of revision 10 is owed.
+    const server = authority(10, 'server-transition-11');
+    await prepareProPlaybackAuthority({ authority: server, queueItemId: Q1, positionSeconds: 0 });
+    expect(cancelProPlaybackPreparation(server)).toBe(true);
+    expect(hasCancelledProPlaybackCheckpointRecovery('000001', 7, 10)).toBe(true);
+    // The catch-up of revision 10 goes through that recovery, and the press of
+    // this device's own share cancels its preparation.
+    endpoint.prepare.mockImplementationOnce(
+      () =>
+        new Promise<ProPlaybackPrepareResult>((resolve) => {
+          resolveRecovery = resolve;
+        }),
+    );
+    const catchUp = authority(9, 'snapshot_10');
+    const recovery = recoverCancelledProPlaybackCheckpoint(
+      {
+        authority: catchUp,
+        committedPlaybackRevision: 10,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 0,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+        isCurrent: () => true,
+      },
+      () => ({ positionSeconds: 0, scheduleDelayMs: 0 }),
+    );
+    await vi.waitFor(() => expect(resolveRecovery).toBeTypeOf('function'));
+    expect(cancelProPlaybackPreparation(catchUp)).toBe(true);
+    resolveRecovery(ready(catchUp));
+    await expect(recovery).resolves.toMatchObject({ status: 'superseded' });
+    expect(hasCancelledProPlaybackCheckpointRecovery('000001', 7, 10)).toBe(true);
+    endpoint.prepare.mockClear();
+    endpoint.commit.mockClear();
+    endpoint.cancel.mockClear();
+
+    expect(recordProPlaybackCheckpointReplacedByShare(catchUp)).toBe(true);
+    expect(endpoint.prepare).not.toHaveBeenCalled();
+    expect(endpoint.commit).not.toHaveBeenCalled();
+    expect(endpoint.cancel).not.toHaveBeenCalled();
+    // The recovery is spent, and the share's end re-arms revision 10 as the
+    // committed revision.
+    expect(hasCancelledProPlaybackCheckpointRecovery('000001', 7, 10)).toBe(false);
+    await expect(
+      prepareCurrentProPlaybackRendezvousAuthority({
+        authority: authority(9, 'local-sync-10'),
+        queueItemId: Q1,
+        positionSeconds: 30,
+      }),
+    ).resolves.toMatchObject({ status: 'ready' });
+    cancelProPlaybackPreparation(authority(9, 'local-sync-10'));
+    // Nothing more to spend for that revision.
+    expect(recordProPlaybackCheckpointReplacedByShare(catchUp)).toBe(false);
+  });
+
   it('refuses while a preparation owns the endpoint, for an older revision, and once a newer authority was seen', async () => {
     let resolveServer!: (result: ProPlaybackPrepareResult) => void;
     const endpoint = endpointMocks();
     await commitRevisionNine();
     // An older revision than the committed one.
     expect(recordProPlaybackCheckpointReplacedByShare(authority(7, 'snapshot_8'))).toBe(false);
-    // A server PREPARE of revision 11 in flight owns the endpoint.
+    // A server PREPARE of revision 12 in flight owns the endpoint: the room
+    // also committed revision 11, which this device missed too.
     endpoint.prepare.mockImplementationOnce(
       () =>
         new Promise<ProPlaybackPrepareResult>((resolve) => {
           resolveServer = resolve;
         }),
     );
-    const server = authority(10, 'server-transition-11');
+    const server = authority(11, 'server-transition-12');
     const preparation = prepareProPlaybackAuthority({
       authority: server,
       queueItemId: Q1,
@@ -1450,7 +1512,8 @@ describe('the checkpoint a share replaced', () => {
     resolveServer(ready(server));
     await expect(preparation).resolves.toMatchObject({ status: 'ready' });
     expect(cancelProPlaybackPreparation(server)).toBe(true);
-    // That newer authority was seen: revision 10 is no longer this device's to settle.
+    // That newer authority was seen, and its cancel owes the recovery of
+    // revision 11: revision 10 is no longer this device's to settle.
     expect(recordProPlaybackCheckpointReplacedByShare(authority(9, 'snapshot_10'))).toBe(false);
     await expect(
       prepareCurrentProPlaybackRendezvousAuthority({

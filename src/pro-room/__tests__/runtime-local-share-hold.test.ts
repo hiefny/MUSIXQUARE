@@ -1028,12 +1028,16 @@ describe(
        * The room moved to revision 2 while this device missed its COMMIT (its
        * control channel was down, for example). The next heartbeat snapshot says
        * so, and the catch-up of revision 2 it starts stalls, still preparing or
-       * waiting for its release instant.
+       * waiting for its release instant. Through the recovery: before that, the
+       * server PREPARE of revision 3 (base 2) prepared here and the room
+       * cancelled it, so the hooks owe the recovery of revision 2, and the
+       * catch-up goes through that recovery.
        */
       async function startCatchUp(
         owner: CatchUpOwner,
         stage: CatchUpStage = 'preparing',
         media: Media = 'youtube',
+        throughRecovery = false,
       ): Promise<{ held: Gate; sync: Promise<boolean> | null }> {
         await establishCheckpoint('playing', media);
         const missed = playback(2, {
@@ -1043,6 +1047,26 @@ describe(
           ...(media === 'file' ? { youtubeVideoId: null, youtubeSubIndex: null } : {}),
         });
         roomSnapshot = { ...snapshot(missed, media), revision: 3 };
+        if (throughRecovery) {
+          acceptProRoomRealtimeFrameForTests(
+            serverFrame({ ...prepareEvent(TRANSITION_CANCELLED, { ...missed, revision: 3 }) }),
+          );
+          await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+          await sleep(20);
+          acceptProRoomRealtimeFrameForTests(
+            serverFrame({
+              type: 'pro-playback-cancel',
+              transitionId: TRANSITION_CANCELLED,
+              serverTimeMs: Date.now(),
+              reason: 'queue-item-removed',
+            }),
+          );
+          await vi.waitFor(() => expect(cancelMedia).toHaveBeenCalledOnce());
+          await sleep(20);
+          expect(commitMedia).not.toHaveBeenCalled();
+          prepareMedia.mockClear();
+          cancelMedia.mockClear();
+        }
         const held = gate(stage === 'preparing' ? prepareGates : commitGates);
         let sync: Promise<boolean> | null = null;
         if (owner === 'a hide and show') {
@@ -1207,6 +1231,75 @@ describe(
 
       it('I2-1: a share that goes live over the catch-up of a missed playing video re-arms the video once when it ends', async () => {
         const { held, sync } = await startCatchUp('a manual Sync');
+
+        const share = pressSystemAudio();
+        held.open();
+        await sleep(20);
+        share.select();
+        await expect(share.settled).resolves.toBe(true);
+        if (sync) await expect(sync).resolves.toBe(false);
+
+        await stopLiveShareThenRunHeartbeat();
+
+        expect(prepareMedia).toHaveBeenCalledOnce();
+        expect(commitMedia).toHaveBeenCalledOnce();
+        expect(commitMedia.mock.calls[0]?.[0]).toMatchObject({
+          committedPlaybackRevision: 2,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+        });
+      });
+
+      it('I3-2: a share that goes live over the catch-up of a missed playing video gives the sync report that revision as the room checkpoint', async () => {
+        const { held, sync } = await startCatchUp('a manual Sync');
+        const checkpoints: number[] = [];
+        restoreSpies.push({
+          mockRestore: bus.on('sync:diagnostic-pro-checkpoint', ({ revision }) => {
+            checkpoints.push(revision);
+          }),
+        });
+
+        const share = pressSystemAudio();
+        held.open();
+        await sleep(20);
+        share.select();
+        await expect(share.settled).resolves.toBe(true);
+        if (sync) await expect(sync).resolves.toBe(false);
+        // As the catch-up's apply did before the share's STOP on eae02e897:
+        // the flight recorder projects the video re-armed after the share from
+        // revision 2, not from revision 1's position.
+        expect(checkpoints).toEqual([2]);
+
+        await stopLiveShareThenRunHeartbeat();
+
+        expect(commitMedia).toHaveBeenCalledOnce();
+        expect(checkpoints).toEqual([2]);
+      });
+
+      it.each(['a hide and show', 'a manual Sync'] as const)(
+        'I3-1: a share that goes live over the catch-up of a missed playing file that %s started through the recovery a cancelled newer PREPARE owes leaves the file stopped when it ends',
+        async (owner) => {
+          const { held, sync } = await startCatchUp(owner, 'preparing', 'file', true);
+
+          const share = pressSystemAudio();
+          held.open();
+          await sleep(20);
+          share.select();
+          await expect(share.settled).resolves.toBe(true);
+          if (sync) await expect(sync).resolves.toBe(false);
+
+          await stopLiveShareThenRunHeartbeat();
+
+          // As on eae02e897, where that recovery applied revision 2 before the
+          // share's STOP: neither the post-share restore nor the next heartbeat
+          // plays the file on this device alone.
+          expect(prepareMedia).not.toHaveBeenCalled();
+          expect(commitMedia).not.toHaveBeenCalled();
+        },
+      );
+
+      it('I3-1: a share that goes live over the catch-up of a missed playing video through the recovery a cancelled newer PREPARE owes re-arms the video once when it ends', async () => {
+        const { held, sync } = await startCatchUp('a manual Sync', 'preparing', 'youtube', true);
 
         const share = pressSystemAudio();
         held.open();

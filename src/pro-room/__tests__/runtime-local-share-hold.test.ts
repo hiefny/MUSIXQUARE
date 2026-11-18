@@ -1245,6 +1245,84 @@ describe(
         expect(commitMedia).not.toHaveBeenCalled();
       });
 
+      it('I2-1: after a lost lease race over the catch-up of a missed playing file, a share the other device takes live leaves the file stopped when it ends', async () => {
+        const { held, sync } = await startCatchUp('a manual Sync', 'preparing', 'file');
+        // Another device signed in as the owner pressed first.
+        vi.mocked(ProRoomApiClient.prototype.acquireSystemAudioLease).mockImplementation(
+          async () => {
+            throw new ProRoomApiError('SYSTEM_AUDIO_OWNER_ACTIVE', 409);
+          },
+        );
+        systemAudioGeneration += 1;
+        systemAudio = otherOwnerShareState(systemAudioGeneration, 'preparing');
+
+        const share = pressSystemAudio();
+        held.open();
+        await sleep(20);
+        share.select();
+        await expect(share.settled).resolves.toBe(false);
+        if (sync) await expect(sync).resolves.toBe(false);
+        // Its share goes live, and this device listens to it.
+        systemAudio = otherOwnerShareState(systemAudioGeneration, 'live');
+        await refreshProSystemAudioState();
+        await sleep(50);
+        prepareMedia.mockClear();
+        commitMedia.mockClear();
+        // Its share ends: the listener restore, then the room's next heartbeat.
+        systemAudioGeneration += 1;
+        systemAudio = shareState(systemAudioGeneration, 'idle');
+        await refreshProSystemAudioState();
+        await sleep(RETRY_WINDOW_MS);
+        await runRoomHeartbeat();
+        await sleep(RETRY_WINDOW_MS);
+
+        expect(prepareMedia).not.toHaveBeenCalled();
+        expect(commitMedia).not.toHaveBeenCalled();
+      });
+
+      it('S3: a share that goes live over a catch-up that joined a server PREPARE this device prepares re-arms the video once when it ends', async () => {
+        await establishCheckpoint('playing');
+        const target = playback(2, {
+          state: 'playing',
+          positionSeconds: 0,
+          updatedAtMs: Date.now(),
+        });
+        // The server PREPARE of revision 2 reaches this device and prepares.
+        const held = gate(prepareGates);
+        acceptProRoomRealtimeFrameForTests(
+          serverFrame({ ...prepareEvent(TRANSITION_NEWER, target) }),
+        );
+        await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+        // The room commits it, and a manual Sync's heartbeat sees that before
+        // this device's COMMIT frame: its catch-up joins that preparation.
+        roomSnapshot = { ...snapshot(target), revision: 3 };
+        const sync = requestActiveProRoomPlaybackReconciliation();
+        const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+        await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+        await sleep(50);
+
+        const share = pressSystemAudio();
+        acceptProRoomRealtimeFrameForTests(
+          serverFrame({ ...commitEvent(TRANSITION_NEWER, target) }),
+        );
+        await sleep(20);
+        held.open();
+        await sleep(50);
+        share.select();
+        await expect(share.settled).resolves.toBe(true);
+        await expect(sync).resolves.toBe(false);
+
+        await stopLiveShareThenRunHeartbeat();
+
+        expect(prepareMedia).toHaveBeenCalledOnce();
+        expect(commitMedia).toHaveBeenCalledOnce();
+        expect(commitMedia.mock.calls[0]?.[0]).toMatchObject({
+          committedPlaybackRevision: 2,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+        });
+      });
+
       it("S3: a room heartbeat's own catch-up, still preparing at the press, goes on and the share starts", async () => {
         const { held } = await startCatchUp('the room heartbeat');
 

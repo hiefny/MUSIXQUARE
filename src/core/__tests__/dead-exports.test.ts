@@ -45,8 +45,9 @@ describe('Dead-export ratchet', () => {
       // update dialog helper now reads DialogResult from the dialog module.
       // The multiple-playlist work consumes one more previously self-only export.
       // The background-stop return e2e spec reads the resume guard's threshold.
-      expect(summary).toContain('baseline 20), self-only: 75 ');
-      expect(summary).toMatch(/self-only: 75 .*baseline 75\)$/u);
+      // The PRO runtime reads the room's share view from the system-audio service.
+      expect(summary).toContain('baseline 20), self-only: 74 ');
+      expect(summary).toMatch(/self-only: 74 .*baseline 74\)$/u);
       expect(output).toContain('OK');
     },
     DEAD_EXPORT_TEST_TIMEOUT_MS,

@@ -59,6 +59,7 @@ import {
   canPublishProSystemAudioWithCurrentCoordinator,
   getProSystemAudioOwnerDisplayName,
   getProSystemAudioViewState,
+  holdProPlaybackRepairForLocalShare,
   publishLocalProSystemAudio,
   releaseLocalProSystemAudioLease,
   restoreProPlaybackAfterSystemAudioRelease,
@@ -448,6 +449,14 @@ export async function startSystemAudioCapture(): Promise<void> {
     showSystemAudioDeviceLimit();
     return;
   }
+
+  // RO-21 (2026-11-18): this press holds the room's checkpoint re-apply on
+  // this device until the start settles, and while the share it starts is
+  // live (src/pro-room/runtime.ts). A re-apply that is preparing now is
+  // cancelled here, before the load epoch is read below: the new epoch its
+  // cancel starts would otherwise come after the read and drop the capture as
+  // a newer playback choice when the share window returns.
+  if (isProRoom) holdProPlaybackRepairForLocalShare();
 
   // Both calls begin in this user-activation turn. Waiting for the server
   // before getDisplayMedia would lose the browser's trusted click gesture.

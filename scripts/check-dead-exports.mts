@@ -6,7 +6,7 @@
  * unrelated exports that happen to share a name no longer keep each other
  * alive. Value/type space and prod/test/self evidence are reported separately.
  *
- * The binding-aware 20/75 count baselines record the reviewed runtime and
+ * The binding-aware 20/74 count baselines record the reviewed runtime and
  * server-authority surfaces. Fully-dead exports remain forbidden, and both
  * counts are shrink-only.
  * Module reachability is report-only and includes static value imports,
@@ -164,8 +164,11 @@ const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 // 2026-11-03: the background-stop return e2e spec reads
 // DEFAULT_RECOVER_THRESHOLD_MS from the background resume guard, so that guard
 // export is no longer self-only.
+// 2026-11-18: the PRO runtime reads the room's share view
+// (getProSystemAudioViewState) from the system-audio service for RO-21's hold
+// of this device's own share, so that service export is no longer self-only.
 const TEST_ONLY_BASELINE_COUNT = 20;
-const SELF_ONLY_BASELINE_COUNT = 75;
+const SELF_ONLY_BASELINE_COUNT = 74;
 
 function kindCounts(entries: readonly ExportEntry[]): Record<ExportKind, number> {
   return entries.reduce(

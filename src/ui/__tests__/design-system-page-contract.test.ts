@@ -831,8 +831,11 @@ describe('public design-system page contract', () => {
       /\.large-spinner-stage\s*\{[^}]*height:\s*60px;[^}]*background:\s*var\(--surface-2\);/su,
     );
     expect(designStylesheet).toMatch(/\.app-loading-header-demo\s*\{[^}]*height:\s*60px;/su);
+    // The header logo shows the Q's tail: a mask cannot draw outside its box, so
+    // the box holds the editorial mask's whole 214:26 canvas (16px x 26 / 24) and
+    // a negative bottom margin keeps the letter body where the app centres it.
     expect(designStylesheet).toMatch(
-      /\.app-loading-header-logo\s*\{[^}]*width:\s*142\.667px;[^}]*height:\s*16px;[^}]*mask-position:\s*left top;[^}]*mask-size:\s*100% 108\.333%;/su,
+      /\.app-loading-header-logo\s*\{[^}]*width:\s*142\.667px;[^}]*height:\s*17\.333px;[^}]*margin-bottom:\s*-1\.333px;[^}]*mask-position:\s*left top;[^}]*mask-size:\s*100% 100%;/su,
     );
     expect(designStylesheet).toMatch(
       /\.app-loading-header-badge\s*\{[^}]*padding:\s*6px 14px;[^}]*font-size:\s*11px;[^}]*font-weight:\s*var\(--font-weight-label\);[^}]*line-height:\s*normal;/su,

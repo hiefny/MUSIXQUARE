@@ -2670,15 +2670,19 @@
 }
 
 .app-loading-header-logo {
-  /* Match the production header SVG's 214:24 viewBox at its 16px height.
-     The shared editorial mask includes 2px of extra bottom canvas, so scale
-     that mask vertically and clip it to the production viewBox. */
+  /* Match the production header SVG's 214:24 viewBox at its 16px height, whose
+     Q tail hangs below that box. A mask cannot draw outside its box, so this box
+     holds the shared editorial mask's whole 214:26 canvas, tail included
+     (16px x 26 / 24 = 17.333px), and the negative bottom margin gives the extra
+     1.333px back: the letter body keeps the app's centred place and the Q's tail
+     shows below it. */
   width: 142.667px;
-  height: 16px;
+  height: 17.333px;
+  margin-bottom: -1.333px;
   mask-position: left top;
-  mask-size: 100% 108.333%;
+  mask-size: 100% 100%;
   -webkit-mask-position: left top;
-  -webkit-mask-size: 100% 108.333%;
+  -webkit-mask-size: 100% 100%;
   animation:
     app-header-default-rail-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite,
     app-header-default-opacity-cycle 6s ease infinite;

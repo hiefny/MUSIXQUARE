@@ -416,6 +416,45 @@ function releaseKey(target: EventTarget, key: string): void {
   target.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
 }
 
+/**
+ * Lets the current task end, as a browser's does after a key's events and
+ * their default actions, and the tasks queued in it run: a timer set or a
+ * message posted earlier, as at a keydown, comes before these. Node hands
+ * port messages over in the order they were posted (Windows) or the ports
+ * were opened (elsewhere), and the keyboard owner opens its port at install.
+ */
+async function endTask(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const channel = new MessageChannel();
+  await new Promise((resolve) => {
+    channel.port1.onmessage = resolve;
+    channel.port2.postMessage(null);
+  });
+  channel.port1.close();
+}
+
+/** Lets the microtasks queued so far run, as a browser does after each listener. */
+async function microtasks(): Promise<void> {
+  await Promise.resolve();
+}
+
+/**
+ * A MessageChannel that hands its message over as WebKit does (review finding
+ * H6-R1): a task later than Chromium, so a 0 ms timer set after the post runs
+ * first. WebKit's port queues a task that queues the message's own; here each
+ * of the two is a 0 ms timer.
+ */
+class LateMessageChannel {
+  readonly port1: { onmessage: ((event: MessageEvent) => void) | null } = { onmessage: null };
+  readonly port2 = {
+    postMessage: (data: unknown): void => {
+      setTimeout(() => {
+        setTimeout(() => this.port1.onmessage?.(new MessageEvent('message', { data })), 0);
+      }, 0);
+    },
+  };
+}
+
 /** The arrows, Home, End and the page keys. */
 const NAVIGATION_KEYS = [
   'ArrowUp',
@@ -598,7 +637,7 @@ describe('keyboard navigation owner', () => {
         document.dispatchEvent(pointer('pointerdown', 'mouse'));
         landing.blur();
         press(target, key);
-        // The key's default action or a handler moves focus while it is down.
+        // The key's default action or a handler moves focus in its own task.
         landing.focus();
         releaseKey(target, key);
         expect(keyboardNavigation(), `${key} on ${label}`).toBe('on');
@@ -616,15 +655,22 @@ describe('keyboard navigation owner', () => {
     expect(keyboardNavigation()).toBe('on');
   });
 
-  it('leaves a focus move alone once the key is up, after a pointer press or another key, or when the window loses focus', () => {
+  it('leaves a focus move alone once the key is up, after a pointer press, another key or a scroll, or when the window loses focus', () => {
     // A window that opens by itself focuses its control: that is no
     // navigation, even just after an arrow that only scrolled.
     const opened = mount('<button type="button">Stay</button>');
+    const panel = mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>');
     const between: [string, () => void][] = [
       ['the key up', () => releaseKey(document.body, 'ArrowDown')],
       ['a pointer press', () => document.dispatchEvent(pointer('pointerdown', 'mouse'))],
       ['the window losing focus', () => window.dispatchEvent(new Event('blur'))],
       ['another key', () => press(document.body, 'a')],
+      // Any scroll ends the key's turn, the key's own or another, the page's
+      // or an element's (whose scroll event does not bubble): a focus move
+      // that a scroll brings about, such as a button that hides under focus
+      // (the chat's scroll-down button), is the page's, not the key's.
+      ['the page scrolling', () => document.dispatchEvent(new Event('scroll', { bubbles: true }))],
+      ['a panel scrolling', () => panel.dispatchEvent(new Event('scroll'))],
     ];
     for (const [label, step] of between) {
       opened.blur();
@@ -651,6 +697,170 @@ describe('keyboard navigation owner', () => {
       releaseKey(document.body, key);
       expect(keyboardNavigation(), `${key} ${JSON.stringify(init)}`).toBe('off');
     }
+  });
+
+  it("leaves a focus move alone once the key's task has ended, though the key is still down", async () => {
+    // Review finding H-6. A window that opens by itself (an audio recovery
+    // prompt, the update dialog) opens in a later task than any key's and
+    // focuses its control there (src/ui/dom.ts) or from a timer
+    // (src/ui/dialog.ts). That is no navigation, even while a mouse user's
+    // caret key or command completion Tab in the chat field is down (about a
+    // tenth of a second), or while a page key or an arrow is held on a panel
+    // or a clicked track with nothing left to scroll (the whole hold, with no
+    // scroll to end it).
+    const opened = mount('<button type="button">Later</button>');
+    const completing = mount('<input type="text">');
+    completing.addEventListener('keydown', (event) => {
+      if (event.key === 'Tab') event.preventDefault();
+    });
+    const holds: [string, HTMLElement, string, number][] = [
+      ['a caret key in a text field', mount('<input type="text">'), 'ArrowLeft', 0],
+      ['a Tab that a text field keeps for a completion', completing, 'Tab', 0],
+      [
+        'a page key held on a panel with nothing to scroll',
+        mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>'),
+        'PageDown',
+        2,
+      ],
+      [
+        'an arrow held on a clicked track with nothing to scroll',
+        mount('<button type="button" class="track-name">Track</button>'),
+        'ArrowDown',
+        2,
+      ],
+    ];
+    for (const [label, holder, key, repeats] of holds) {
+      document.dispatchEvent(pointer('pointerdown', 'mouse'));
+      holder.focus();
+      press(holder, key, { cancelable: true });
+      await endTask();
+      // A held key repeats, each repeat in a task of its own.
+      for (let count = 0; count < repeats; count += 1) {
+        press(holder, key, { cancelable: true, repeat: true });
+        await endTask();
+      }
+      // The window opens, and focuses its control, before the key is up.
+      opened.focus();
+      expect(keyboardNavigation(), label).toBe('off');
+      releaseKey(holder, key);
+    }
+  });
+
+  it("ends the key's turn before a timer set after its keydown, where the port's message comes later", async () => {
+    // Review finding H6-R1. WebKit hands a port's message over a task later
+    // than Chromium, after a 0 ms timer set behind the post (Playwright's
+    // WebKit 26.6: the timer first in every run). A window that opens by
+    // itself from such a timer while a caret key, a completion Tab or a page
+    // key is still down focused its control inside the key's turn there, and
+    // its control rang.
+    vi.stubGlobal('MessageChannel', LateMessageChannel);
+    try {
+      (await freshHoverPointer()).initHoverPointer();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    /** Lets the late port's two hops run, with any task queued before them. */
+    const settle = async (): Promise<void> => {
+      await endTask();
+      await endTask();
+    };
+    const opened = mount('<button type="button">Later</button>');
+    const completing = mount('<input type="text">');
+    completing.addEventListener('keydown', (event) => {
+      if (event.key === 'Tab') event.preventDefault();
+    });
+    const holds: [string, HTMLElement, string, number][] = [
+      ['a caret key in a text field', mount('<input type="text">'), 'ArrowLeft', 0],
+      ['a Tab that a text field keeps for a completion', completing, 'Tab', 0],
+      [
+        'a page key held on a panel with nothing to scroll',
+        mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>'),
+        'PageDown',
+        2,
+      ],
+      [
+        'an arrow held on a clicked track with nothing to scroll',
+        mount('<button type="button" class="track-name">Track</button>'),
+        'ArrowDown',
+        2,
+      ],
+    ];
+    for (const [label, holder, key, repeats] of holds) {
+      document.dispatchEvent(pointer('pointerdown', 'mouse'));
+      holder.focus();
+      press(holder, key, { cancelable: true });
+      for (let count = 0; count < repeats; count += 1) {
+        await settle();
+        press(holder, key, { cancelable: true, repeat: true });
+      }
+      // The window opens from a timer set after the keydown, here at once,
+      // and focuses its control before the key is up.
+      await new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          opened.focus();
+          resolve();
+        }, 0);
+      });
+      expect(keyboardNavigation(), label).toBe('off');
+      releaseKey(holder, key);
+      await settle();
+    }
+  });
+
+  it("still counts a focus move in the key's own task, after its listeners' microtasks, at every repeat", async () => {
+    // Spatial navigation (a TV remote's D-pad) moves focus in the keydown's
+    // default action: after every listener, and the microtasks a browser
+    // runs after each of them, in the keydown's task.
+    const landing = mount('<button type="button">Next</button>');
+    const targets: [string, HTMLElement][] = [
+      ['the page', document.body],
+      ['a panel', mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>')],
+      ['a plain button', mount('<button type="button">Play</button>')],
+      ['a text field', mount('<input type="text">')],
+    ];
+    for (const [label, target] of targets) {
+      document.dispatchEvent(pointer('pointerdown', 'mouse'));
+      landing.blur();
+      press(target, 'ArrowDown');
+      await microtasks();
+      landing.focus();
+      expect(keyboardNavigation(), label).toBe('on');
+      await endTask();
+      releaseKey(target, 'ArrowDown');
+    }
+    // A held D-pad moves focus at a repeat, after earlier tasks have ended.
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    landing.blur();
+    press(document.body, 'ArrowDown');
+    await endTask();
+    press(document.body, 'ArrowDown', { repeat: true });
+    await microtasks();
+    landing.focus();
+    expect(keyboardNavigation(), 'a repeat').toBe('on');
+    await endTask();
+    releaseKey(document.body, 'ArrowDown');
+
+    // The playlist's keyboard reorder (src/ui/playlist-reorder.ts
+    // moveKeyboard): the handle's own keydown listener moves its row, which
+    // takes focus off the handle, and focuses the handle again.
+    const list = mount(
+      '<ul><li><button type="button">1</button></li><li><button type="button">2</button></li></ul>',
+    );
+    const [firstRow, secondRow] = [...list.children] as [HTMLElement, HTMLElement];
+    const handle = firstRow.querySelector('button')!;
+    handle.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      list.insertBefore(firstRow, secondRow.nextSibling);
+      handle.focus({ preventScroll: true });
+    });
+    document.dispatchEvent(pointer('pointerdown', 'mouse'));
+    handle.focus();
+    press(handle, 'ArrowDown', { cancelable: true });
+    expect(list.lastElementChild, 'the row moved').toBe(firstRow);
+    expect(keyboardNavigation(), 'the playlist reorder').toBe('on');
+    await endTask();
+    releaseKey(handle, 'ArrowDown');
   });
 
   it('leaves a Tab that a text field takes for itself, keeping focus, to the field', () => {

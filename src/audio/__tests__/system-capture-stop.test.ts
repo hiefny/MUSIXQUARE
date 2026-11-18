@@ -20,6 +20,8 @@ import {
   setPlaybackYouTubePlaying,
 } from '../../player/ownership.ts';
 import { stopAllMedia } from '../../player/transport.ts';
+import { newLoadEpoch } from '../../player/_state.ts';
+import { beginLocalProSystemAudioLeaseAttempt } from '../../pro-room/system-audio-bridge.ts';
 import { getAnalyser, getWidener, initAudio } from '../engine.ts';
 import {
   isSystemAudioActive,
@@ -104,6 +106,7 @@ const proAudio = vi.hoisted(() => ({
   publish: vi.fn(),
   release: vi.fn(),
   restorePlayback: vi.fn<(isCurrent: () => boolean) => void>(),
+  holdPlaybackRepair: vi.fn<() => void>(),
   attemptToken: null as symbol | null,
   coordinatorCompatible: true,
 }));
@@ -153,6 +156,7 @@ vi.mock('../context.ts', () => ({
 
 vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
   restoreProPlaybackAfterSystemAudioRelease: proAudio.restorePlayback,
+  holdProPlaybackRepairForLocalShare: proAudio.holdPlaybackRepair,
   beginLocalProSystemAudioLeaseAttempt: vi.fn(() => {
     const token = Symbol('test-pro-lease-attempt');
     proAudio.attemptToken = token;
@@ -3056,5 +3060,56 @@ describe('capture start pending and settlement', () => {
     if (row.toast) expect(toasts).toHaveBeenCalledExactlyOnceWith(row.toast());
     else expect(toasts).not.toHaveBeenCalled();
     expect(superseded()).toEqual([row.line]);
+  });
+});
+
+// RO-21 (2026-11-18): the press of this device's own PRO share holds the
+// room's checkpoint re-apply on this device. Cancelling a participant-local
+// re-apply that is preparing starts a new load epoch (the media endpoint's
+// cancel), so the hold runs in the press's own turn, before the start reads the
+// load epoch it later checks the capture against.
+describe('the press and the PRO checkpoint re-apply hold', () => {
+  it('holds the re-apply once in the press turn, before the lease attempt and before reading the load epoch, in a PRO room', async () => {
+    setProRoom();
+    proAudio.holdPlaybackRepair.mockImplementation(() => {
+      // As the hold's cancel of a preparing re-apply does.
+      newLoadEpoch();
+    });
+    const superseded = vi.spyOn(log, 'info');
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(proAudio.holdPlaybackRepair).toHaveBeenCalledOnce();
+    expect(proAudio.holdPlaybackRepair.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(beginLocalProSystemAudioLeaseAttempt).mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(isSystemAudioActive()).toBe(true);
+    expect(
+      superseded.mock.calls.filter(([line]) =>
+        String(line).startsWith('[SystemAudio] Capture start superseded'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('holds nothing for a standard room press', async () => {
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(isSystemAudioActive()).toBe(true);
+    expect(proAudio.holdPlaybackRepair).not.toHaveBeenCalled();
+  });
+
+  it('holds nothing for a PRO press the room refuses before the share window', async () => {
+    setProRoom();
+    Object.assign(proAudio.view, { phase: 'live', ownerParticipantId: 'member-2' });
+    proAudio.ownerName = 'Another owner';
+    const getDisplayMedia = stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(getDisplayMedia).not.toHaveBeenCalled();
+    expect(proAudio.holdPlaybackRepair).not.toHaveBeenCalled();
   });
 });

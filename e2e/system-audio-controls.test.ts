@@ -37,7 +37,9 @@ import {
   fulfillProJson,
   ownerSnapshot,
   proCorsHeaders,
+  setProPlaylist,
 } from './helpers/pro-room-fixture.ts';
+import { installFakeYt } from './helpers/fake-yt.ts';
 import {
   installLocalYouTube,
   submitYouTubeSource,
@@ -1382,4 +1384,236 @@ test.describe('the play tab while a captured share gets ready', () => {
     // No lease was granted, so there is none to release.
     expect(room.calls.release).toBe(0);
   });
+});
+
+// The swallowed PRO share (owner report 2026-11-18). After this device's share
+// ends over a paused YouTube item, the item comes back through a local re-apply
+// whose iframe takes a moment to load. A press of System Audio then must start
+// the share even when the re-apply is still preparing, and even when the
+// person takes a few seconds in the browser's share window: the re-apply's own
+// cancel once arrived after the press and read as a newer playback choice, so
+// the capture was dropped with no toast (RO-21, src/pro-room/runtime.ts).
+const SWALLOW_ROOM_LATENCY_MS = 150;
+const SWALLOW_YT_ITEM = '11111111-1111-4111-8111-111111111111';
+const SWALLOW_YT_VIDEO = 'dQw4w9WgXcQ';
+
+/**
+ * Open the page as the owner of a mocked PRO room on a paused YouTube item at
+ * 42 s, whose iframe is ready 1.5 s after it loads. The room keeps one
+ * system-audio lease as the Worker does and answers presence and lease
+ * requests after SWALLOW_ROOM_LATENCY_MS.
+ */
+async function openProRoomOnPausedVideo(page: Page) {
+  await installFakeYt(page, { readyDelayMs: 1_500 });
+  await page.route(/https:\/\/www\.youtube\.com\/oembed(?:\?|$)/, (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ title: 'E2E fixture video', author_name: 'E2E' }),
+    }),
+  );
+  await page.addInitScript((signalingUrl) => {
+    (window as unknown as Record<string, unknown>).__MUSIXQUARE_TRANSPORT__ = {
+      provider: 'cloudflare',
+      signalingUrl,
+    };
+  }, `${PRO_SIGNALING_ORIGIN}/api/rooms`);
+  await page.routeWebSocket(
+    (url) => url.pathname.includes('/api/pro-rooms/'),
+    (socket) => {
+      socket.onMessage((raw) => {
+        if (typeof raw !== 'string') return;
+        const frame = JSON.parse(raw) as Record<string, unknown>;
+        if (frame.type === 'pro-clock') {
+          socket.send(JSON.stringify({ ...frame, serverTimeMs: Date.now() }));
+        }
+      });
+    },
+  );
+  const idle = (generation: number) => ({
+    generation,
+    status: 'idle',
+    ownerParticipantId: null,
+    claimExpiresAt: null,
+    liveExpiresAt: null,
+    publication: null,
+  });
+  const snapshot = ownerSnapshot();
+  setProPlaylist(snapshot, [
+    {
+      queueItemId: SWALLOW_YT_ITEM,
+      name: 'Paused video',
+      source: { kind: 'youtube', videoId: SWALLOW_YT_VIDEO },
+    },
+  ]);
+  snapshot.currentQueueItemId = SWALLOW_YT_ITEM;
+  snapshot.playback = {
+    coordinatorEpoch: 2,
+    revision: 1,
+    state: 'paused',
+    queueItemId: SWALLOW_YT_ITEM,
+    positionSeconds: 42,
+    youtubeVideoId: SWALLOW_YT_VIDEO,
+    youtubeSubIndex: 0,
+    updatedAtMs: Date.now(),
+  };
+  let generation = 0;
+  let systemAudio: Record<string, unknown> = idle(0);
+  const calls = { acquire: 0, commit: 0, release: 0 };
+  const later = () => new Promise<void>((resolve) => setTimeout(resolve, SWALLOW_ROOM_LATENCY_MS));
+  await page.route('**/api/pro-room/**', async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    const room = `/v1/rooms/${PRO_ROOM_CODE}`;
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
+    } else if (pathname.endsWith(`${room}/bootstrap`)) {
+      await fulfillProJson(page, route, {
+        roomCode: PRO_ROOM_CODE,
+        status: 'pin_required',
+        passwordRequired: true,
+      });
+    } else if (
+      pathname.endsWith(`${room}/owner-recovery`) ||
+      pathname.endsWith(`${room}/snapshot`)
+    ) {
+      await fulfillProJson(page, route, { snapshot });
+    } else if (pathname.endsWith(`${room}/signaling-tickets`)) {
+      await fulfillProJson(page, route, {
+        ticket: `${'c'.repeat(32)}.${'D'.repeat(43)}`,
+        expiresAtMs: Date.now() + 60_000,
+        role: 'member',
+        coordinatorEpoch: 2,
+        presenceIncarnationId: PRESENCE_INCARNATION_ID,
+        ticketSequence: 1,
+        pendingPlaybackTransition: null,
+      });
+    } else if (pathname.endsWith(`${room}/presence/heartbeat`)) {
+      await later();
+      await fulfillProJson(page, route, { snapshot, systemAudio });
+    } else if (
+      pathname.endsWith(`${room}/system-audio`) ||
+      pathname.endsWith(`${room}/system-audio/heartbeat`)
+    ) {
+      await later();
+      await fulfillProJson(page, route, { systemAudio });
+    } else if (pathname.endsWith(`${room}/system-audio/acquire`)) {
+      calls.acquire += 1;
+      generation += 1;
+      systemAudio = {
+        generation,
+        status: 'preparing',
+        ownerParticipantId: PARTICIPANT_ID,
+        claimExpiresAt: Date.now() + 45_000,
+        liveExpiresAt: null,
+        publication: null,
+      };
+      await later();
+      await fulfillProJson(page, route, { systemAudio, leaseId: 'L'.repeat(43) });
+    } else if (pathname.endsWith(`${room}/system-audio/commit`)) {
+      calls.commit += 1;
+      const { publication } = request.postDataJSON() as { publication: unknown };
+      systemAudio = {
+        generation,
+        status: 'live',
+        ownerParticipantId: PARTICIPANT_ID,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication,
+      };
+      await later();
+      await fulfillProJson(page, route, { systemAudio });
+    } else if (pathname.endsWith(`${room}/system-audio/release`)) {
+      calls.release += 1;
+      generation += 1;
+      systemAudio = idle(generation);
+      await later();
+      await fulfillProJson(page, route, { systemAudio });
+    } else {
+      await fulfillProJson(page, route, { error: 'TEST_ADJUNCT_UNAVAILABLE' }, 503);
+    }
+  });
+  await page.goto(`/${PRO_ROOM_CODE}#pro-recovery=${OWNER_RECOVERY_CLAIM}`);
+  await page.locator('#btn-setup-confirm:not([disabled])').click();
+  await expect(page.locator('#setup-overlay')).not.toHaveClass(/active/);
+  await expect
+    .poll(async () => {
+      const context = (await readState(page, 'room.context')) as {
+        kind?: string;
+        capabilities?: string[];
+      };
+      return context?.kind === 'pro' && context.capabilities?.includes('system-audio.publish');
+    })
+    .toBe(true);
+  await expect.poll(() => readState(page, 'playback.mode'), { timeout: 20_000 }).toBe('youtube');
+  return { calls, status: () => systemAudio.status };
+}
+
+/** As the browser's own "Stop sharing" bar does: the track ends, then says so. */
+async function endShareFromBrowserBar(page: Page): Promise<void> {
+  const ended = await page.evaluate(() => {
+    const fixture = (
+      window as unknown as { __MUSIXQUARE_SYSTEM_AUDIO_FIXTURE__?: { streams: MediaStream[] } }
+    ).__MUSIXQUARE_SYSTEM_AUDIO_FIXTURE__;
+    let count = 0;
+    for (const stream of fixture?.streams ?? []) {
+      for (const track of stream.getAudioTracks()) {
+        if (track.readyState !== 'live') continue;
+        track.stop();
+        track.dispatchEvent(new Event('ended'));
+        count += 1;
+      }
+    }
+    return count;
+  });
+  expect(ended).toBe(1);
+}
+
+test.describe('a PRO share pressed again while the paused video it replaced comes back', () => {
+  for (const end of ['the browser bar', 'Stop Sharing'] as const) {
+    test(`starts after a share that ended from ${end}, with the share window open for 3 s`, async ({
+      page,
+    }) => {
+      test.setTimeout(90_000);
+      await injectPeerServer(page);
+      await installSyntheticSystemAudio(page);
+      const room = await openProRoomOnPausedVideo(page);
+      await navigateToTab(page, 'play');
+      await holdSyntheticSystemAudioPicker(page);
+      const overlay = page.locator('#media-source-overlay');
+      const actions = page.locator('.play-action-buttons');
+
+      const first = await openSystemAudioOption(page);
+      await first.option.click();
+      await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+      await selectHeldSystemAudioPicker(page);
+      await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+      await expect(actions).toHaveAttribute('data-sharing', 'true');
+      await expect(overlay).not.toHaveClass(/\bactive\b/);
+      await page.waitForTimeout(1_000);
+
+      if (end === 'the browser bar') await endShareFromBrowserBar(page);
+      else await page.locator('#btn-media-source').click();
+      await expect.poll(() => room.calls.release).toBe(1);
+      await expect.poll(() => room.status()).toBe('idle');
+      // The release answer reaches the page, and the paused video starts to
+      // come back: its iframe is ready 1.5 s after it loads.
+      await page.waitForTimeout(SWALLOW_ROOM_LATENCY_MS + 30);
+      await expect(actions).toHaveAttribute('data-sharing', 'false');
+
+      const again = await openSystemAudioOption(page);
+      await again.option.click();
+      await expect.poll(async () => (await readHeldSystemAudioPicker(page)).calls).toBe(2);
+      await expect.poll(async () => (await readHeldSystemAudioPicker(page)).open).toBe(1);
+      // The person takes a few seconds in the browser's share window.
+      await page.waitForTimeout(3_000);
+      await selectHeldSystemAudioPicker(page);
+
+      await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+      await expect(actions).toHaveAttribute('data-sharing', 'true');
+      await expect(overlay).not.toHaveClass(/\bactive\b/);
+      await expect.poll(() => room.calls.commit).toBe(2);
+      expect(room.calls.acquire).toBe(2);
+      expect(await readState(page, 'playback.mode')).toBe('system-audio');
+    });
+  }
 });

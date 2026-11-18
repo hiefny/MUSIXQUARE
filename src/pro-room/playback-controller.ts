@@ -1799,8 +1799,10 @@ function createImplementation(
    * capture or reception stopped every medium here. On eae02e897 the catch-up
    * or recovery the press now takes over applied before that stop. Settle the
    * checkpoint this device knew at the press as that stop left it: a catch-up
-   * of it, which the press took over or the hold refused, counts as applied
-   * without the endpoint, and the recovery of the applied checkpoint after a
+   * of it, which the press took over or the hold refused (also one through the
+   * recovery that a cancelled newer PREPARE at its base owes), counts as
+   * applied without the endpoint and reaches the sync flight recorder as that
+   * catch-up's apply would, and the recovery of the applied checkpoint after a
    * cancelled PREPARE is spent. The share's end then restores it under the
    * post-share rule (the post-share or listener restore re-arms a video, and a
    * file stays stopped) instead of the next heartbeat starting it here alone. A
@@ -1865,6 +1867,7 @@ function createImplementation(
       revision: playback.revision,
       positionSeconds: playback.positionSeconds,
     };
+    recordAppliedPlaybackCheckpoint(playback);
     settleLocalPlaybackUiControlsThrough(
       context.roomId,
       context.epoch,

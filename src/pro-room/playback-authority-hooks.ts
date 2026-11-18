@@ -765,7 +765,8 @@ export function hasCancelledProPlaybackCheckpointRecovery(
  * stop: the revision counts as committed here, and its owed recovery is spent.
  * The share's end then re-arms a video from it, and a file stays stopped.
  * Refused while a preparation owns the endpoint, for an older revision, once a
- * newer authority was seen, or for an applied revision with nothing owed.
+ * newer authority was seen (except the cancelled PREPARE at this revision's
+ * base, which owes its recovery), or for an applied revision with nothing owed.
  */
 export function recordProPlaybackCheckpointReplacedByShare(
   authority: ProPlaybackAuthorityToken,
@@ -786,6 +787,18 @@ export function recordProPlaybackCheckpointReplacedByShare(
       return false;
     }
     cancelledPreparation = null;
+    return true;
+  }
+  if (
+    revision > highestCommittedPlaybackRevision &&
+    hasCancelledProPlaybackCheckpointRecovery(authority.roomId, authority.roomEpoch, revision)
+  ) {
+    // A missed revision, whose catch-up goes through the recovery that the
+    // cancelled newer PREPARE at its base owes: as that recovery's apply,
+    // highestSeen stays that PREPARE.
+    cancelledPreparation = null;
+    latestApplied = authority;
+    highestCommittedPlaybackRevision = revision;
     return true;
   }
   if (revision < highestCommittedPlaybackRevision || isOlderAuthority(authority, highestSeen)) {

@@ -3060,13 +3060,17 @@ RO-55 accepted-exception
   (`replaceCheckpointReapplyWithShare`) has the controller settle the checkpoint known at the press
   as that stop left it (`settleCheckpointReplacedByShare`, through the hooks'
   `recordProPlaybackCheckpointReplacedByShare`): a catch-up of it that the press took over or the
-  hold refused counts as committed without the endpoint, a server transition to it is over, and the
-  recovery of the applied checkpoint after a cancelled PREPARE is spent. What is owed narrows to
-  what the share's end does (`youtubeOnly`, `preparePaused`, a foreground repair's scope to
-  YouTube). Without it the share's end left the catch-up to the next presence heartbeat, which
-  played a file on this device alone (found by review on 2026-11-18). The start's
-  `system-audio:start-settled` spends what is owed: `started: true` drops it (its end restores
-  through the post-share restore as before), and `started: false` re-applies it once
+  hold refused counts as committed without the endpoint and reaches the sync flight recorder
+  (`sync:diagnostic-pro-checkpoint`) as its apply would, a server transition to it is over, and the
+  recovery of the applied checkpoint after a cancelled PREPARE is spent. A catch-up of a missed
+  revision that goes through the recovery a cancelled newer PREPARE at its base owes settles the
+  same, as that recovery would (it spends the recovery and keeps the PREPARE as the newest authority
+  seen). What is owed narrows to what the share's end does (`youtubeOnly`, `preparePaused`, a
+  foreground repair's scope to YouTube). Without it the share's end left the catch-up to the next
+  presence heartbeat, which played a file on this device alone (found by review on 2026-11-18; the
+  catch-up through that recovery, and the recorder kept on the older revision, on 2026-11-19).
+  The start's `system-audio:start-settled` spends what is owed: `started: true` drops it (its end
+  restores through the post-share restore as before), and `started: false` re-applies it once
   (`reapplyCheckpointAfterLocalShareStart`) while the room's share view is idle (initialized, no
   share preparing or live, no lease request of this device pending): in a microtask after the
   settling stop's own teardown when it already is, or else when the view next turns idle
@@ -3210,13 +3214,20 @@ RO-55 accepted-exception
     the other device takes live leaves the file stopped when it ends" (and "… takes live and ends
     while the share window is open leaves the file stopped"), "I2-1: a publication that fails after
     the room committed the share live over the catch-up of a missed playing file leaves the file
-    stopped", and the guards "I2-1: a share that goes live over the catch-up of a missed playing
-    video re-arms the video once when it ends" and "S3: a share that goes live over a catch-up that
-    joined a server PREPARE this device prepares re-arms the video once when it ends";
-    `playback-authority-hooks.test.ts` "the checkpoint a share replaced" (the catch-up the press
-    cancelled is recorded as committed without the endpoint and re-armed from, the recovery owed
-    after a cancelled PREPARE is spent, and nothing is recorded while a preparation owns the
-    endpoint, for an older revision or once a newer authority was seen).
+    stopped", "I3-1: a share that goes live over the catch-up of a missed playing file that a hide
+    and show (a manual Sync) started through the recovery a cancelled newer PREPARE owes leaves the
+    file stopped when it ends", "I3-2: a share that goes live over the catch-up of a missed playing
+    video gives the sync report that revision as the room checkpoint", and the guards "I2-1: a
+    share that goes live over the catch-up of a missed playing video re-arms the video once when it
+    ends", "I3-1: a share that goes live over the catch-up of a missed playing video through the
+    recovery a cancelled newer PREPARE owes re-arms the video once when it ends" and "S3: a share
+    that goes live over a catch-up that joined a server PREPARE this device prepares re-arms the
+    video once when it ends"; `playback-authority-hooks.test.ts` "the checkpoint a share replaced"
+    (the catch-up the press cancelled is recorded as committed without the endpoint and re-armed
+    from, the recovery owed after a cancelled PREPARE is spent, the catch-up the press cancelled of
+    a missed revision whose recovery a cancelled newer PREPARE at its base owes is recorded as that
+    recovery would, and nothing is recorded while a preparation owns the endpoint, for an older
+    revision or once a newer authority was seen whose cancel owes a later revision's recovery).
 - **Status:** `owner-in-place`. Exception RO-41 was deleted with C4-13 (Phase 5 train 5B).
 
 ### RO-22 Waiting service worker activation

@@ -37,6 +37,7 @@ import {
   type ProRoomPlaybackPrepareEvent,
   type ProRoomSignalingAccess,
 } from '../api.ts';
+import { ProRoomApiError } from '../api-error.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_QUOTA_BYTES,
@@ -111,14 +112,19 @@ vi.mock('../../network/pro-system-audio-sfu.ts', async (importOriginal) => ({
     Object.freeze({ kind: 'pro-system-audio-sfu-publisher-preflight' as const }),
   ),
   cancelProSystemAudioSfuPublisherPreflight: vi.fn(),
+  // Another member's live share: this device listens without a network here.
+  subscribeProSystemAudioSfu: vi.fn(async () => {}),
 }));
 
 const ROOM_CODE = '000001';
 const ROOM_EPOCH = 7;
 const PARTICIPANT_ID = 'participant_00001';
+/** Another device signed in as the room's owner. */
+const OTHER_PARTICIPANT_ID = 'participant_00002';
 const QUEUE_ITEM_ID = '43000000-0000-4000-8000-000000000001' as QueueItemId;
 const VIDEO_ID = 'dQw4w9WgXcQ';
 const TRANSITION_NEWER = `transition_${'n'.repeat(22)}`;
+const TRANSITION_CANCELLED = `transition_${'c'.repeat(22)}`;
 const VISIBILITY_RECOVERY_TIMER = 'pro-room-visibility-playback-recovery';
 const HEARTBEAT_TIMER = 'pro-room-heartbeat';
 // Longer than the post-share restore's first two retries (250 ms, 1 s) and
@@ -248,6 +254,35 @@ function shareState(
     publication: {
       publicationId: 'publication_00001',
       sessionId: 'session_000000001',
+      track: { trackName: 'audio-stereo', mid: '0' },
+    },
+  };
+}
+
+/** The lease of another device signed in as the room's owner. */
+function otherOwnerShareState(
+  generation: number,
+  status: 'preparing' | 'live',
+): ProRoomSystemAudioState {
+  if (status === 'preparing') {
+    return {
+      generation,
+      status,
+      ownerParticipantId: OTHER_PARTICIPANT_ID,
+      claimExpiresAt: Date.now() + 45_000,
+      liveExpiresAt: null,
+      publication: null,
+    };
+  }
+  return {
+    generation,
+    status,
+    ownerParticipantId: OTHER_PARTICIPANT_ID,
+    claimExpiresAt: null,
+    liveExpiresAt: Date.now() + 60_000,
+    publication: {
+      publicationId: 'publication_00002',
+      sessionId: 'session_000000002',
       track: { trackName: 'audio-stereo', mid: '0' },
     },
   };
@@ -734,13 +769,14 @@ describe(
         expect(isSystemAudioActive()).toBe(true);
       });
 
-      it('C: with a shared tab, the foreground repair queued behind the post-share restore prepares nothing after the press', async () => {
+      it('C: with a shared tab, the foreground repair queued behind the post-share restore prepares nothing after the press and keeps the presence heartbeat', async () => {
         await establishCheckpoint('playing');
         // The restore's preparation stalls like an iframe in a hidden tab.
         const restore = gate(prepareGates);
         await endEarlierLocalShare(true);
         await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
-        // Back on the page: the foreground repair queues behind the restore.
+        // Back on the page: the visibility handler clears the presence heartbeat
+        // loop for the foreground repair, which queues behind the restore.
         setDocumentVisibility('visible');
         await sleep(50);
         expect(prepareMedia).toHaveBeenCalledOnce();
@@ -755,6 +791,150 @@ describe(
         await sleep(RETRY_WINDOW_MS);
         expect(prepareMedia).toHaveBeenCalledOnce();
         expect(isSystemAudioActive()).toBe(true);
+        // The hold dropped the queued repair before its forced heartbeat ran.
+        expect(getManagedTimer(HEARTBEAT_TIMER)).not.toBeNull();
+      });
+    });
+
+    describe('a press while the recovery of a cancelled PREPARE prepares starts the share', () => {
+      type RecoveryOwner = 'the post-share restore' | 'a hide and show' | 'a manual Sync';
+
+      /**
+       * A server PREPARE of revision 2 prepares here and the room cancels it,
+       * so this device owes the recovery of revision 1, the checkpoint it applied.
+       */
+      async function cancelNewerPrepare(): Promise<void> {
+        const target = playback(2, {
+          state: 'playing',
+          positionSeconds: 0,
+          updatedAtMs: Date.now(),
+        });
+        acceptProRoomRealtimeFrameForTests(
+          serverFrame({ ...prepareEvent(TRANSITION_CANCELLED, target) }),
+        );
+        await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+        await sleep(20);
+        acceptProRoomRealtimeFrameForTests(
+          serverFrame({
+            type: 'pro-playback-cancel',
+            transitionId: TRANSITION_CANCELLED,
+            serverTimeMs: Date.now(),
+            reason: 'queue-item-removed',
+          }),
+        );
+        await vi.waitFor(() => expect(cancelMedia).toHaveBeenCalledOnce());
+        prepareMedia.mockClear();
+        commitMedia.mockClear();
+        cancelMedia.mockClear();
+        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockClear();
+      }
+
+      /** An RO-21 pass starts that recovery, whose iframe stalls while it loads. */
+      async function startRecovery(owner: RecoveryOwner): Promise<{
+        recovery: Gate;
+        sync: Promise<boolean> | null;
+      }> {
+        const recovery = gate(prepareGates);
+        let sync: Promise<boolean> | null = null;
+        if (owner === 'the post-share restore') {
+          await endEarlierLocalShare();
+        } else if (owner === 'a hide and show') {
+          setDocumentVisibility('hidden');
+          setDocumentVisibility('visible');
+        } else {
+          sync = requestActiveProRoomPlaybackReconciliation();
+        }
+        await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+        expect(prepareMedia.mock.calls[0]?.[0].authority.transitionId).toBe('snapshot_1');
+        return { recovery, sync };
+      }
+
+      it.each(['the post-share restore', 'a hide and show', 'a manual Sync'] as const)(
+        'I3: the recovery that %s started is cancelled in the press turn and does not prepare again',
+        async (owner) => {
+          await establishCheckpoint('paused');
+          await cancelNewerPrepare();
+          const { recovery, sync } = await startRecovery(owner);
+
+          const share = pressSystemAudio();
+          // Its endpoint cancel starts the load epoch the start reads.
+          expect.soft(cancelMedia).toHaveBeenCalledOnce();
+          recovery.open();
+          await sleep(20);
+          share.select();
+
+          await expect(share.settled).resolves.toBe(true);
+          expect(superseded).not.toHaveBeenCalled();
+          if (sync) await expect(sync).resolves.toBe(false);
+          await sleep(RETRY_WINDOW_MS);
+          expect(prepareMedia).toHaveBeenCalledOnce();
+          expect(cancelMedia).toHaveBeenCalledOnce();
+          expect(isSystemAudioActive()).toBe(true);
+        },
+      );
+
+      it.each(['joins it before the press', 'comes while the share window is open'] as const)(
+        'I3: a room heartbeat that %s starts no recovery until the start settles',
+        async (when) => {
+          await establishCheckpoint('paused');
+          await cancelNewerPrepare();
+          const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+          const { recovery } = await startRecovery('the post-share restore');
+          // A room invalidation runs the ordinary presence heartbeat, whose
+          // snapshot restore recovers the cancelled PREPARE's base too.
+          const invalidate = async () => {
+            const before = heartbeat.mock.calls.length;
+            acceptProRoomRealtimeFrameForTests(
+              serverFrame({ type: 'pro-room-invalidated', roomRevision: 3 }),
+            );
+            await vi.waitFor(() => expect(heartbeat.mock.calls.length).toBeGreaterThan(before));
+            await sleep(20);
+          };
+          if (when === 'joins it before the press') await invalidate();
+
+          const share = pressSystemAudio();
+          recovery.open();
+          await sleep(20);
+          if (when === 'comes while the share window is open') await invalidate();
+          expect(prepareMedia).toHaveBeenCalledOnce();
+          share.select();
+
+          await expect(share.settled).resolves.toBe(true);
+          expect(superseded).not.toHaveBeenCalled();
+          await sleep(RETRY_WINDOW_MS);
+          expect(prepareMedia).toHaveBeenCalledOnce();
+          expect(isSystemAudioActive()).toBe(true);
+        },
+      );
+
+      it('I3: re-applies the recovered checkpoint once when the share window is cancelled', async () => {
+        await establishCheckpoint('paused');
+        await cancelNewerPrepare();
+        const { recovery } = await startRecovery('the post-share restore');
+
+        const share = pressSystemAudio();
+        recovery.open();
+        await sleep(20);
+        share.cancel();
+
+        await expect(share.settled).resolves.toBe(false);
+        expect.soft(superseded).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalled());
+        await sleep(RETRY_WINDOW_MS);
+        const prepares = prepareMedia.mock.calls.length;
+        const commits = commitMedia.mock.calls.length;
+        for (const [request] of commitMedia.mock.calls) {
+          expect(request).toMatchObject({
+            committedPlaybackRevision: 1,
+            queueItemId: QUEUE_ITEM_ID,
+            state: 'paused',
+            positionSeconds: 37.5,
+          });
+        }
+        // One re-apply: nothing prepares or commits again afterwards.
+        await sleep(RETRY_WINDOW_MS);
+        expect(prepareMedia).toHaveBeenCalledTimes(prepares);
+        expect(commitMedia).toHaveBeenCalledTimes(commits);
       });
     });
 
@@ -874,6 +1054,150 @@ describe(
         expect(commitMedia).toHaveBeenCalledOnce();
         expect(getManagedTimer(VISIBILITY_RECOVERY_TIMER)).toBeNull();
       });
+
+      /**
+       * Another device signed in as the owner pressed first: the room answers
+       * this device's lease request with that device's preparing lease, which
+       * this device's view has not heard of before the press.
+       */
+      function loseLeaseRace(): void {
+        vi.mocked(ProRoomApiClient.prototype.acquireSystemAudioLease).mockImplementation(
+          async () => {
+            throw new ProRoomApiError('SYSTEM_AUDIO_OWNER_ACTIVE', 409);
+          },
+        );
+        systemAudioGeneration += 1;
+        systemAudio = otherOwnerShareState(systemAudioGeneration, 'preparing');
+      }
+
+      /** A press during the playing room's foreground rendezvous loses the lease race. */
+      async function pressDuringRendezvousAndLoseLeaseRace(): Promise<void> {
+        await establishCheckpoint('playing');
+        const repair = gate(prepareGates);
+        setDocumentVisibility('hidden');
+        setDocumentVisibility('visible');
+        await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+        loseLeaseRace();
+
+        const share = pressSystemAudio();
+        expect.soft(cancelMedia).toHaveBeenCalledOnce();
+        repair.open();
+        await sleep(20);
+        share.select();
+
+        await expect(share.settled).resolves.toBe(false);
+        expect(toasts).toContain(t('system_audio.owner_preparing', { name: OTHER_PARTICIPANT_ID }));
+        // Nothing re-applies while the other device's share prepares.
+        await sleep(RETRY_WINDOW_MS);
+        expect(commitMedia).not.toHaveBeenCalled();
+      }
+
+      it('I1: after a lost lease race, re-applies the playing checkpoint the press stopped once the other share ends without going live', async () => {
+        await pressDuringRendezvousAndLoseLeaseRace();
+
+        // The other device closes its share window: the room's share view
+        // turns idle without a share going live.
+        systemAudioGeneration += 1;
+        systemAudio = shareState(systemAudioGeneration, 'idle');
+        await refreshProSystemAudioState();
+
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+        expect(commitMedia.mock.calls[0]?.[0]).toMatchObject({
+          committedPlaybackRevision: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+        });
+        await sleep(RETRY_WINDOW_MS);
+        expect(prepareMedia).toHaveBeenCalledTimes(2);
+        expect(commitMedia).toHaveBeenCalledOnce();
+        expect(getManagedTimer(VISIBILITY_RECOVERY_TIMER)).toBeNull();
+      });
+
+      it('I1: after a lost lease race, a share that goes live leaves the re-apply to its end, once', async () => {
+        await pressDuringRendezvousAndLoseLeaseRace();
+
+        systemAudio = otherOwnerShareState(systemAudioGeneration, 'live');
+        await refreshProSystemAudioState();
+        await sleep(50);
+        expect(commitMedia).not.toHaveBeenCalled();
+        // The share ends: this device, a listener of it, restores the checkpoint.
+        systemAudioGeneration += 1;
+        systemAudio = shareState(systemAudioGeneration, 'idle');
+        await refreshProSystemAudioState();
+
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+        expect(commitMedia.mock.calls[0]?.[0]).toMatchObject({
+          committedPlaybackRevision: 1,
+          state: 'playing',
+        });
+        await sleep(RETRY_WINDOW_MS);
+        expect(prepareMedia).toHaveBeenCalledTimes(2);
+        expect(commitMedia).toHaveBeenCalledOnce();
+      });
+
+      it.each(['paused', 'playing'] as const)(
+        'I1: Stop while the share still prepares, after the press took over the %s post-share restore, re-applies it once the room answers the release',
+        async (state) => {
+          await establishCheckpoint(state);
+          const restore = gate(prepareGates);
+          await endEarlierLocalShare();
+          await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+          // The publication waits (as for the LAN-direct proofs) and the release
+          // answers one round trip after the Stop.
+          let endPublication!: () => void;
+          fakes.publish.mockImplementation(
+            () =>
+              new Promise<ProRoomSystemAudioState>((_resolve, reject) => {
+                endPublication = () => reject(new Error('PRO_SYSTEM_AUDIO_LEASE_UNAVAILABLE'));
+              }),
+          );
+          let answerRelease!: () => void;
+          const releaseAnswered = new Promise<void>((resolve) => {
+            answerRelease = resolve;
+          });
+          vi.mocked(ProRoomApiClient.prototype.releaseSystemAudioLease).mockImplementation(
+            async () => {
+              await releaseAnswered;
+              systemAudioGeneration += 1;
+              systemAudio = shareState(systemAudioGeneration, 'idle');
+              return systemAudio;
+            },
+          );
+
+          const share = pressSystemAudio();
+          expect.soft(cancelMedia).toHaveBeenCalledOnce();
+          restore.open();
+          await sleep(20);
+          share.select();
+          await vi.waitFor(() => expect(fakes.publish).toHaveBeenCalledOnce());
+          expect(getState('playback.mode')).toBe('system-audio');
+          prepareMedia.mockClear();
+          commitMedia.mockClear();
+
+          bus.emit('system-audio:stop');
+          expect(isSystemAudioActive()).toBe(false);
+          expect(toasts).toContain(t('system_audio.stopped'));
+          // The room still holds this device's lease until the release answers.
+          await sleep(RETRY_WINDOW_MS);
+          expect(commitMedia).not.toHaveBeenCalled();
+          answerRelease();
+
+          await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+          expect(commitMedia.mock.calls[0]?.[0]).toMatchObject({
+            committedPlaybackRevision: 1,
+            queueItemId: QUEUE_ITEM_ID,
+            state,
+          });
+          if (state === 'paused') {
+            expect(commitMedia.mock.calls[0]?.[0].positionSeconds).toBe(37.5);
+          }
+          endPublication();
+          await expect(share.settled).resolves.toBe(false);
+          await sleep(RETRY_WINDOW_MS);
+          expect(prepareMedia).toHaveBeenCalledOnce();
+          expect(commitMedia).toHaveBeenCalledOnce();
+        },
+      );
 
       it('re-applies nothing after a newer server choice made after the press, which still discards the capture', async () => {
         await establishCheckpoint('paused');

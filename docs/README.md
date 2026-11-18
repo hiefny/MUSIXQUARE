@@ -96,9 +96,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [App 9.0.830 / v830 train: a late app stylesheet no longer stops WebKit's first open on Retry, two rare audio recovery silences show the recovery dialog (F-2501, F-2502), a first visit in Japanese or Chinese no longer draws and downloads another Han font first, the dark theme's media picker icons keep their colour under the mouse, a PRO LAN-direct share waits 2 s for its pair proofs, the media picker closes once shared system audio is captured, symbols draw in Inter, focus rings show only for keyboard navigation, and a share that ends without a notice leaves a log line (2026-11-17)](design/app-9-0-830-train-2026-11-17.md):
-  in progress on `agent/app-9-0-830`, not merged or released. The App update after 9.0.829 / v829, on main `d86c2bde`
-  (the 9.0.829 release record). Nine increments; A to C were built and reviewed on their own branches first, E to H
+- [App 9.0.830 train, shipping as 9.0.831 / v831: a late app stylesheet no longer stops WebKit's first open on Retry, two rare audio recovery silences show the recovery dialog (F-2501, F-2502), a first visit in Japanese or Chinese no longer draws and downloads another Han font first, the dark theme's media picker icons keep their colour under the mouse, a PRO LAN-direct share waits 2 s for its pair proofs, the media picker closes once shared system audio is captured, symbols draw in Inter, focus rings show only for keyboard navigation, a share that ends without a notice leaves a log line, a PRO share pressed after a share, a return or a Sync no longer drops, and the design system page's loading header logo shows its whole Q (2026-11-17)](design/app-9-0-830-train-2026-11-17.md):
+  9.0.830 merged as #613 (main `eae02e89`) but held by the owner before its release; 9.0.831 in progress on
+  `agent/app-9-0-831`, not merged or released. The App update after 9.0.829 / v829, first on main `d86c2bde` (the
+  9.0.829 release record). Nine increments; A to C were built and reviewed on their own branches first, E to H
   on their own branches tonight with one reviewer and a skeptic per finding, and D and I on the train branch.
   (A) PR #608, a
   pre-existing problem the 9.0.829 review found: on a slow network the app stylesheet can arrive after the entry
@@ -140,13 +141,20 @@ runbooks. Neither belongs in a general setup document.
   every ring; the skip link's panels, the chat log and the playlist ring on their own inner edge, and three ad-hoc
   pointer-focus marks are gone. (I) The owner reported that a system audio share is sometimes swallowed; a local PRO
   fixture reproduced it (in a PRO room whose item is YouTube, a press while the post-share restore prepares has that
-  restore's late cancel move the load epoch, and the new capture is dropped with no notice, since `3dd9086c`); the fix
-  needs the RO-21 owner extended and is left for the owner, and this train only logs one info line wherever a start the
-  share window returned ends without a notice. On the train's first PR CI, the dependency audit failed on a new
+  restore's late cancel move the load epoch, and the new capture is dropped with no notice, since `3dd9086c`); 9.0.830
+  only logs one info line wherever a start the share window returned ends without a notice, and 9.0.831 fixes the
+  cause by extending the RO-21 owner in place: while this device has a PRO share start pending or a share live, the
+  foreground repair, Sync and the post-share restore neither prepare nor retry, the press cancels in its own turn the
+  preparation this device was making (a rendezvous, a cancelled PREPARE's recovery, a missed COMMIT's catch-up) and
+  owes it, and a start that does not go live re-applies once when the room's share is idle; a newer choice after the
+  press, leaving and Stop still discard the capture (four review rounds, RO-21 and RO-29 text, no new timer). 9.0.831
+  also ends a key's turn with its keydown task, so a window that opens by itself while an arrow or page key is down
+  draws no ring (H-6, a message and a 0 ms timer, WebKit included), and the owner kept H-4's narrowing after an example. At the owner's report, 9.0.831 also shows the whole Q in the
+  design system page's loading header logo, whose mask box had cut the tail off since 2026-08-24 (J, one CSS rule). On the train's first PR CI, the dependency audit failed on a new
   picomatch advisory (every version up to 4.0.7, no fixed version, reached only through vite and vitest), and the owner
   decided that CI blocks on the dependencies the App ships (`npm run security:audit -- --omit=dev`; the script alone
   stays the full local audit, and the Dependabot alerts cover the build and test tools). No new flow or owner, registry
-  baselines unchanged (RO-01 and RO-20 text only). Not verified on a physical device or a real slow network; B was not run in WebKit, C's e2e is Chromium only,
+  baselines unchanged (RO-01, RO-20, RO-21 and RO-29 text only; the dead-export baseline drops from 75 to 74). Not verified on a physical device or a real slow network; B was not run in WebKit, C's e2e is Chromium only,
   D and H were seen in local Chromium (H also in the WebKit lane), F with a mocked PRO API in a room of one, and G in
   Chromium and part of the WebKit lane. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.829 / v829 train: the phone start screen's language button shows whole and every setup step clips at one line, the version's patch number becomes the App build number, the media picker stays open with Preparing to share... until shared system audio arrives, and the installed iPhone and iPad app's home indicator strip keeps the loading screen's colour (2026-11-17)](design/app-9-0-829-train-2026-11-17.md):

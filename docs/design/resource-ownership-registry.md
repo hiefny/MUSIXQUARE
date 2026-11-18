@@ -3025,17 +3025,32 @@ RO-55 accepted-exception
   `holdsCheckpointReapply` port, read in `recoverCancelledAppliedPlaybackCheckpoint`): a
   heartbeat's, or a follower's after the press cancelled the one in flight, would prepare again.
   The recovery stays owed, and once the hold ends a re-apply pass or the next heartbeat starts it.
+  Nor does it start a catch-up of a revision this device already knew at the press (the same
+  port, read through `holdsCatchUpForLocalShare` in `acceptPlaybackCommit` against the revision
+  the press recorded): a heartbeat's, a follower's after the press cancelled one, or a COMMIT frame
+  that crossed the snapshot. A newer revision still applies and discards the capture.
   The press is a requester: `startSystemAudioCapture` in a PRO room calls
   `holdProPlaybackRepairForLocalShare` (`system-audio-bridge.ts`, through the service) after its
   refusals and before its lease attempt and its load-epoch read. That operation
   (`holdCheckpointReapplyForLocalShare`) clears the foreground retry timer, takes over the
   service's current post-share restore (`handOverProSystemAudioPlaybackRestore`, which also drops
-  the listener record so the next idle view does not restore it again) and cancels the
+  the listener record so the next idle view does not restore it again), cancels the
   participant-local re-apply preparation in flight (`cancelParticipantLocalProPlaybackPreparation`
   in `playback-authority-hooks.ts`: one `prepareCurrentProPlaybackRendezvousAuthority` made, or
   the recovery of the applied checkpoint after a cancelled PREPARE, which stays owed; never a
-  server PREPARE or a COMMIT's catch-up), so the endpoint cancel's new load epoch comes before the
-  read. What the press stopped, and what the hold refuses while the start is pending, is owed
+  server PREPARE), and asks the controller to record the newest revision this device knows and
+  cancel the preparation of a catch-up that a reconciliation pass owns, still preparing or
+  waiting for its release (`holdCatchUpForLocalShare`, the S3 sibling found on 2026-11-18). Every
+  caller of reconcile is an RO-21 pass, so the controller marks the owners a pass lends
+  (`reconciliationCommitOwners`: its liveness and its forced heartbeat's snapshot restore). Such a
+  pass's forced heartbeat can find a COMMIT this device missed (for example while its control
+  channel was down); the hold turns that catch-up's liveness false, and it would cancel its own
+  preparation after the read (`eae02e897`, without the hold, let it go on and the share started).
+  The press takes it over, owed for every medium. Each of these cancels starts the endpoint's new
+  load epoch before the read. A catch-up the room heartbeat or a COMMIT frame started goes on as
+  before: the hold does not make it stale, its preparation normally started its load epoch before
+  the press, and its commit starts none.
+  What the press stopped, and what the hold refuses while the start is pending, is owed
   (merged options and the canonical revision). The start's `system-audio:start-settled` spends it:
   `started: true` drops it (the share replaced the playback; its end restores through the
   post-share restore as before), and `started: false` re-applies it once
@@ -3063,10 +3078,11 @@ RO-55 accepted-exception
   `holdProPlaybackRepairForLocalShare` (2026-11-18), and the re-apply after a start that did not go
   live.
 - **Lifecycle operations:** reconcile with `rendezvous`, `youtubeOnly` and `preparePaused`; hold
-  (liveness false, and no new recovery of the applied checkpoint) while this device's own share
-  starts or is live; the press's synchronous cancel of the participant-local re-apply preparation
-  (a rendezvous, or the applied checkpoint's recovery) and hand-over of the post-share restore;
-  the one re-apply after a start that did not go live, once the room's share view is idle.
+  (liveness false, no new recovery of the applied checkpoint and no new catch-up of a revision
+  known at the press) while this device's own share starts or is live; the press's synchronous
+  cancel of the re-apply preparation in flight (a rendezvous, the applied checkpoint's recovery,
+  or a reconciliation pass's catch-up) and hand-over of the post-share restore; the one re-apply
+  after a start that did not go live, once the room's share view is idle.
 - **Deadline owner:** each ladder; the scheduler serializes them, and a marked return retires the
   foreground ladder. The hold adds no timer: it stops the foreground ladder, its wait for the idle
   share view follows the service's state events, and its re-apply is one pass, after which only a
@@ -3087,13 +3103,15 @@ RO-55 accepted-exception
   (`abortPreparedCapture`); a release whose request fails holds the re-apply until the room's
   share view turns idle (the lease's expiry); and a foreground repair or Sync that applies the
   checkpoint while the re-apply waits for the idle view does not spend it, so the checkpoint is
-  re-applied once more then. Not heard on a device. Open (found 2026-11-18 while fixing the hold's
-  review; `eae02e897` started the share here): a foreground repair or manual Sync whose forced
-  heartbeat is catching up a newer revision this device missed (a COMMIT it never received, for
-  example while its control channel was down), still preparing at the press, goes stale on the
-  hold, and the catch-up's own cancel starts a new load epoch after the press read it, so the
-  capture is dropped with no toast; the next press starts the share. The press does not cancel a
-  catch-up (a newer choice), and the room heartbeat's own catch-up is not held.
+  re-applied once more then. Not heard on a device. The S3 sibling found on 2026-11-18 (a
+  reconciliation pass's catch-up of a COMMIT this device missed, still preparing at the press,
+  going stale on the hold and dropping the capture) is closed by the press's catch-up cancel
+  above. Left as before the hold, also not heard on a device: a catch-up the room heartbeat or a
+  COMMIT frame started before the press that prepares only after it (queued behind another
+  COMMIT, or preparing again inside its own flight after a failed preparation or release) still
+  starts a load epoch after the read and drops the capture, as on `eae02e897`; and a catch-up the
+  hold refuses with nothing owed (a press during a heartbeat's clock wait, or after such a
+  catch-up failed) waits for the next heartbeat, return or Sync once the hold ends.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/runtime-server-playback.test.ts` "joins an in-flight
     YouTube visibility pass instead of starting a second rendezvous";
@@ -3105,8 +3123,14 @@ RO-55 accepted-exception
     turn, and no retry prepares it again", "I3: the recovery that the post-share restore (a hide
     and show, a manual Sync) started is cancelled in the press turn and does not prepare again",
     "I3: a room heartbeat that joins it before the press (comes while the share window is open)
-    starts no recovery until the start settles" and "re-applies nothing after a newer server choice
-    made after the press, which still discards the capture";
+    starts no recovery until the start settles", "S3: the catch-up of a missed newer COMMIT that a
+    hide and show (a manual Sync) started, still preparing (waiting for its release) at the press,
+    is cancelled in the press turn and the share starts", "S3: a room heartbeat that joins it
+    before the press (comes while the share window is open) starts no catch-up until the start
+    settles", the guard "S3: a room heartbeat's own catch-up, still preparing at the press, goes on
+    and the share starts", "re-applies nothing after a newer server choice made after the press,
+    which still discards the capture" and "S3: a COMMIT of a newer revision that arrives after the
+    press still discards the capture, and nothing re-applies";
     `src/pro-room/__tests__/playback-authority-hooks.test.ts` "the participant-local preparation
     cancel" (nothing in flight, a server PREPARE and a COMMIT catch-up's recovery left alone, a
     rendezvous taken while it prepares or waits for its release, the applied checkpoint's recovery
@@ -3125,9 +3149,10 @@ RO-55 accepted-exception
     foreground repair queued behind the post-share restore prepares nothing after the press and
     keeps the presence heartbeat", the three "D: … prepares nothing, keeps the share and keeps the
     presence heartbeat" rows, "restores the checkpoint once when the share ends: the hold ends with
-    the share", and the three re-apply rows after a cancelled share window (the paused checkpoint
+    the share", and the four re-apply rows after a cancelled share window (the paused checkpoint
     the press replaced; the playing checkpoint a stopped foreground repair was for; the recovered
-    checkpoint of a cancelled PREPARE), each once.
+    checkpoint of a cancelled PREPARE; the newer checkpoint a cancelled catch-up was for), each
+    once.
   - Browser: `e2e/system-audio-controls.test.ts` "a PRO share pressed again while the paused video
     it replaced comes back" (the share before it ended from the browser bar, or from Stop
     Sharing).

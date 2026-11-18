@@ -3647,11 +3647,13 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
 // background-return Sync that widens it), manual Sync and the local-output
 // rejoin, the post-share restore and the re-arm below; nor does the
 // controller start the recovery of the applied checkpoint after a cancelled
-// PREPARE (its `holdsCheckpointReapply` port). A preparation's playTrack
-// starts a new load epoch, which the pending start takes for a newer playback
-// choice and drops its capture for, and stops every medium, a live share
-// included. The hold keeps no state of its own: it reads the capture's own
-// start slot and stream through the audio policy boundary.
+// PREPARE, or a catch-up of a revision this device knew at the press (its
+// `holdsCheckpointReapply` port). A preparation's playTrack starts a new load
+// epoch, which the pending start takes for a newer playback choice and drops
+// its capture for, and stops every medium, a live share included. The hold
+// keeps no state of its own: it reads the capture's own start slot and stream
+// through the audio policy boundary (the controller keeps the revision the
+// last press knew, which matters only while the hold is on).
 
 function holdsCheckpointReapply(): boolean {
   return active && (isSystemAudioCaptureStartPending() || isSystemAudioCaptureActive());
@@ -3728,11 +3730,12 @@ function holdVisibilityPlaybackRecovery(): void {
  * capture bridge in the press's own turn, before the start reads the load
  * epoch. From the next turn the start's slot holds every pass; this stops the
  * foreground repair's retry, takes over the post-share restore and cancels
- * the participant-local re-apply preparation in flight (a rendezvous, or the
- * recovery of the applied checkpoint after a cancelled PREPARE), whose
- * endpoint cancel then starts its new load epoch before the read instead of
- * after it. What they were doing, and a re-apply still waiting for the room's
- * share view to turn idle, is owed until the start settles.
+ * the re-apply preparation in flight (a rendezvous, the recovery of the
+ * applied checkpoint after a cancelled PREPARE, or a pass's catch-up of a
+ * COMMIT this device missed), whose endpoint cancel then starts its new load
+ * epoch before the read instead of after it. What they were doing, and a
+ * re-apply still waiting for the room's share view to turn idle, is owed
+ * until the start settles.
  */
 function holdCheckpointReapplyForLocalShare(): void {
   if (!active) return;
@@ -3761,10 +3764,17 @@ function holdCheckpointReapplyForLocalShare(): void {
     oweCheckpointReapply(checkpointReapplyAwaitingIdleShare, true);
     checkpointReapplyAwaitingIdleShare = null;
   }
-  // Never a server PREPARE or a COMMIT's catch-up: those are newer playback
-  // choices and stay. A cancelled recovery stays owed in the authority hooks,
-  // and the controller starts none while the hold is on.
+  // Never a server PREPARE: a newer playback choice, which stays. A cancelled
+  // recovery stays owed in the authority hooks, and the controller starts none
+  // while the hold is on.
   if (cancelParticipantLocalProPlaybackPreparation()) {
+    oweCheckpointReapply({ youtubeOnly: false, preparePaused: false }, true);
+  }
+  // The newer revision a held pass's forced heartbeat found and is catching up
+  // was known at the press: the press takes it over (every medium), and the
+  // controller starts no catch-up of it while the hold is on. A catch-up the
+  // room heartbeat or a COMMIT frame started goes on, as before the hold.
+  if (playbackController.holdCatchUpForLocalShare()) {
     oweCheckpointReapply({ youtubeOnly: false, preparePaused: false }, true);
   }
 }

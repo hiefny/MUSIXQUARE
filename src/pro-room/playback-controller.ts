@@ -120,7 +120,8 @@ interface ProRoomPlaybackControllerPorts {
   reportPlaybackCommandLimit?(): void;
   /**
    * RO-21's hold for this device's own system-audio share (runtime.ts): while
-   * it holds, no recovery of the applied checkpoint starts.
+   * it holds, no recovery of the applied checkpoint starts, and no catch-up of
+   * a revision this device knew at the press (holdCatchUpForLocalShare).
    */
   holdsCheckpointReapply?(): boolean;
 }
@@ -147,6 +148,8 @@ type PlaybackCommitOwner = () => boolean;
 interface PlaybackCommitFlight {
   promise: Promise<void>;
   owner: PlaybackCommitOwner;
+  /** The COMMIT's transition, which names the authority its preparation uses. */
+  transitionId: string | null;
 }
 
 interface PlaybackCommitFollowUp {
@@ -281,6 +284,7 @@ interface ProRoomPlaybackImplementation {
       liveness?: ProRoomPlaybackReconciliationLiveness;
     }>,
   ): Promise<boolean>;
+  holdCatchUpForLocalShare(): boolean;
   startLifecycle(): void;
   stopLifecycle(): void;
   resetPlaylistRuntime(): void;
@@ -299,6 +303,19 @@ function createImplementation(
   let snapshotPlaybackGeneration = 0;
   let snapshotPlaybackBlocked = false;
   let snapshotPlaybackOwner = createSnapshotPlaybackOwner();
+  /**
+   * The commit owners a reconciliation pass lends: its own liveness and the
+   * restore of its forced heartbeat's snapshot. Every caller of reconcile is an
+   * RO-21 pass (runtime.ts), whose liveness the hold for this device's own
+   * share turns false.
+   */
+  const reconciliationCommitOwners = new WeakSet<PlaybackCommitOwner>();
+  /**
+   * The newest playback revision this device knew at the last press of its own
+   * share (holdCatchUpForLocalShare). It holds catch-ups only while RO-21's
+   * hold is on; the next press replaces it.
+   */
+  let localSharePressRevision: number | null = null;
   let commandAuthorityGeneration = 0;
   let commandMediaGeneration = 0;
   let controlChannelGeneration = 0;
@@ -1715,6 +1732,63 @@ function createImplementation(
     });
   }
 
+  /**
+   * RO-21 (2026-11-18): from the press of this device's own share until its
+   * start settles, and while that share is live, a catch-up of a revision this
+   * device already knew at the press does not start (a heartbeat's, a
+   * follower's after the press cancelled one in flight, a COMMIT frame that
+   * crossed the snapshot): its preparation would start a load epoch after the
+   * start read one and drop the capture, and its playTrack would stop a live
+   * share. The press owes it, and once the hold ends a re-apply pass or the
+   * next heartbeat applies it. A newer revision still applies and discards the
+   * capture as a newer playback choice.
+   */
+  function holdsCatchUpForLocalShare(revision: number): boolean {
+    return (
+      localSharePressRevision !== null &&
+      revision <= localSharePressRevision &&
+      ports.holdsCheckpointReapply?.() === true
+    );
+  }
+
+  /**
+   * RO-21's press of this device's own share (runtime.ts), in the press's own
+   * turn before the start reads the load epoch. It records the newest revision
+   * this device knows, whose catch-up then waits while the hold is on, and
+   * cancels the preparation of a catch-up that a reconciliation pass owns (its
+   * forced heartbeat found a COMMIT this device missed): the hold turns that
+   * pass's liveness false, and the catch-up would cancel its own preparation
+   * after the read, whose new load epoch drops the capture. A catch-up the
+   * room heartbeat or a COMMIT frame started goes on as before: the hold does
+   * not make it stale, its preparation normally started its load epoch before
+   * the press, and its commit starts none. Returns whether it cancelled one,
+   * which the press then owes.
+   */
+  function holdCatchUpForLocalShare(): boolean {
+    localSharePressRevision = Math.max(
+      state.highestKnownRevision,
+      ports.getCanonicalSnapshot()?.playback.revision ?? -1,
+    );
+    const context = getState('room.context');
+    if (context.kind !== 'pro' || !context.roomId) return false;
+    for (const [revision, flight] of state.commitInFlight) {
+      if (!reconciliationCommitOwners.has(flight.owner)) continue;
+      // Preparing or waiting for its release: the COMMIT's own authority, or
+      // the snapshot authority of its exact catch-up and that one's recovery.
+      for (const transitionId of [flight.transitionId, `snapshot_${revision}`]) {
+        if (
+          transitionId !== null &&
+          cancelProPlaybackPreparation(
+            playbackAuthorityFor(context.roomId, context.epoch, revision, transitionId),
+          )
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function acceptPlaybackCommit(
     event: ProRoomPlaybackCommitEvent,
     isRequestCurrent: PlaybackCommitOwner = canonicalPlaybackCommitOwner,
@@ -1739,6 +1813,7 @@ function createImplementation(
     // generation; otherwise it would cancel the newer COMMIT and then reject
     // itself against state.highestKnownRevision.
     if (event.playback.revision < state.highestKnownRevision) return;
+    if (holdsCatchUpForLocalShare(event.playback.revision)) return;
     // Live COMMIT is authoritative before its follow-up heartbeat hydrates the
     // snapshot. Command identity must move with this checkpoint, not that GET.
     rememberCommandPlayback(context.roomId, event.playback);
@@ -1838,6 +1913,7 @@ function createImplementation(
     state.commitInFlight.set(event.playback.revision, {
       promise: operation,
       owner: isRequestCurrent,
+      transitionId: event.transitionId,
     });
     void operation.catch((error) => {
       log.warn('[PRO Playback] Canonical COMMIT could not be applied', error);
@@ -2267,6 +2343,10 @@ function createImplementation(
       isRequestCurrent === canonicalPlaybackCommitOwner
         ? snapshotOwner
         : () => snapshotOwner() && isRequestCurrent();
+    // A reconciliation pass's forced heartbeat: its catch-up is that pass's.
+    if (reconciliationCommitOwners.has(isRequestCurrent)) {
+      reconciliationCommitOwners.add(restoreIsCurrent);
+    }
     const lease = ports.capturePlaylistLease();
     if (
       !restoreIsCurrent() ||
@@ -2764,6 +2844,7 @@ function createImplementation(
       ports.isActive() &&
       schedulerGeneration === state.reconciliationSchedulerGeneration &&
       options.owner.isCurrent();
+    reconciliationCommitOwners.add(requestStillCurrent);
     const operation = (async () => {
       if (!requestStillCurrent()) return false;
       await ports.runHeartbeat(true, true, requestStillCurrent);
@@ -2908,6 +2989,7 @@ function createImplementation(
     commandPlayback = null;
     commandMediaGeneration += 1;
     state.cancelledCheckpointRecovery = null;
+    localSharePressRevision = null;
     state.commandGeneration += 1;
     const transition = state.activeTransition;
     if (transition) {
@@ -2940,6 +3022,7 @@ function createImplementation(
     commandPlayback = null;
     commandMediaGeneration += 1;
     state.cancelledCheckpointRecovery = null;
+    localSharePressRevision = null;
     unregisterLocalTimeline?.();
     unregisterLocalTimeline = null;
     unregisterCommandAuthority?.();
@@ -3076,6 +3159,7 @@ function createImplementation(
     restorePersistedPlayback,
     requestReconciliation,
     reconcile: reconcileActiveProRoomPlayback,
+    holdCatchUpForLocalShare,
     startLifecycle,
     stopLifecycle,
     resetPlaylistRuntime,
@@ -3147,6 +3231,15 @@ export class ProRoomPlaybackController {
     }>,
   ): Promise<boolean> {
     return this.implementation.reconcile(options);
+  }
+
+  /**
+   * RO-21: the press of this device's own system-audio share (runtime.ts), in
+   * its own turn. Records the revision it knew, cancels the catch-up a
+   * reconciliation pass is preparing and returns whether it cancelled one.
+   */
+  holdCatchUpForLocalShare(): boolean {
+    return this.implementation.holdCatchUpForLocalShare();
   }
 
   startLifecycle(): void {

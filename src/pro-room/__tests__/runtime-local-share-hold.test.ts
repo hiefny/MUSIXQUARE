@@ -792,6 +792,32 @@ describe(
           expect(getManagedTimer(HEARTBEAT_TIMER)).not.toBeNull();
         },
       );
+
+      it('restores the checkpoint once when the share ends: the hold ends with the share', async () => {
+        await establishCheckpoint('paused');
+        const share = pressSystemAudio();
+        share.select();
+        await expect(share.settled).resolves.toBe(true);
+        // A hide and show during the share is held and owes nothing.
+        setDocumentVisibility('hidden');
+        setDocumentVisibility('visible');
+        // The room's live answer reaches the service.
+        await refreshProSystemAudioState();
+
+        bus.emit('system-audio:stop');
+
+        expect(isSystemAudioActive()).toBe(false);
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+        expect(prepareMedia).toHaveBeenCalledOnce();
+        expect(commitMedia.mock.calls[0]?.[0]).toMatchObject({
+          committedPlaybackRevision: 1,
+          state: 'paused',
+          positionSeconds: 37.5,
+        });
+        await sleep(RETRY_WINDOW_MS);
+        expect(prepareMedia).toHaveBeenCalledOnce();
+        expect(commitMedia).toHaveBeenCalledOnce();
+      });
     });
 
     describe('when the start settles without a share', () => {

@@ -16,6 +16,7 @@ interface ProSystemAudioBridgeAdapter {
   publish(track: MediaStreamTrack): Promise<ProRoomSystemAudioState>;
   release(): Promise<ProRoomSystemAudioState | null>;
   restorePlaybackAfterRelease?(isCurrent: () => boolean): void;
+  holdPlaybackRepair?(): void;
   view(): ProRoomSystemAudioViewState;
   ownerDisplayName(): string | null;
   isLocalOwner(): boolean;
@@ -72,6 +73,16 @@ export function publishLocalProSystemAudio(
 
 export function releaseLocalProSystemAudioLease(): Promise<ProRoomSystemAudioState | null> {
   return adapter.release();
+}
+
+/**
+ * The press of this device's own PRO share, in the press's own turn before the
+ * start reads the load epoch. RO-21 (src/pro-room/runtime.ts) then holds the
+ * room's checkpoint re-apply on this device until the start settles, and while
+ * the share it starts is live, and cancels a re-apply that is preparing now.
+ */
+export function holdProPlaybackRepairForLocalShare(): void {
+  adapter.holdPlaybackRepair?.();
 }
 
 /** Explicit successful capture stops may resume canonical playback once the lease is idle. */

@@ -138,6 +138,8 @@ let ambiguousDirectPromotionPublicationId: string | null = null;
 let failedSfuPublisherSessionId: string | null = null;
 let restoreYouTubePlayback:
   ((liveness: ProRoomPlaybackReconciliationLiveness) => Promise<boolean>) | null = null;
+/** RO-21's operation for the press of this device's own share (runtime.ts). */
+let holdLocalSharePlaybackRepair: (() => void) | null = null;
 let pendingLocalPlaybackRestore: {
   epoch: number;
   generation: number;
@@ -1365,6 +1367,21 @@ function isPageHidden(): boolean {
   return typeof document !== 'undefined' && document.visibilityState === 'hidden';
 }
 
+/**
+ * RO-21 (2026-11-18): the press of this device's own share takes over the
+ * post-share restore that is current, this device's or a listener's, which the
+ * press's lease request would otherwise only cancel. The runtime owes its
+ * re-apply until the start settles and makes it if no share starts; the
+ * listener record goes, so the next idle view does not restore it a second
+ * time. Returns whether one was current.
+ */
+export function handOverProSystemAudioPlaybackRestore(): boolean {
+  if (!playbackRestore?.isCurrent()) return false;
+  cancelPlaybackRestore();
+  interruptedReceiverPlayback = null;
+  return true;
+}
+
 /** The page is shown again: run a playback restoration retry it held back. */
 export function resumeHiddenProSystemAudioPlaybackRestore(): void {
   const retry = hiddenPlaybackRestoreRetry;
@@ -1540,9 +1557,11 @@ function onLocalLeaseAuthorityConfirmed(): void {
 export function configureProSystemAudioService(
   api: ProRoomApiClient,
   restorePlayback?: (liveness: ProRoomPlaybackReconciliationLiveness) => Promise<boolean>,
+  holdPlaybackRepair?: () => void,
 ): void {
   if (controller) return;
   restoreYouTubePlayback = restorePlayback ?? null;
+  holdLocalSharePlaybackRepair = holdPlaybackRepair ?? null;
   controller = new ProRoomSystemAudioController(api, {
     state: onControllerState,
     localLeaseLost: onLocalLeaseLost,
@@ -1553,6 +1572,7 @@ export function configureProSystemAudioService(
     publish: publishLocalProSystemAudio,
     release: releaseLocalProSystemAudioLease,
     restorePlaybackAfterRelease,
+    holdPlaybackRepair: () => holdLocalSharePlaybackRepair?.(),
     view: getProSystemAudioViewState,
     ownerDisplayName: getProSystemAudioOwnerDisplayName,
     isLocalOwner: isLocalProSystemAudioOwner,

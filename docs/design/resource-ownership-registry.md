@@ -1,12 +1,12 @@
 # Resource Ownership Registry
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Maintained contract                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                                                                                                                                                        |
-| Last source review | 2026-11-11 (the names RO-01, RO-10 and RO-36 cite re-checked against the App 9.0.44 / v819 train's code after the audio recovery owner's rename, branched from `main` `c4a3d6f0`: every cited identifier exists, no owner or flow changed); 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1) |
-| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                                                                                                                                                              |
-| Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md)                                                                                                                                    |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | Maintained contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Last source review | 2026-11-18 (RO-21 re-checked and extended against `main` `eae02e897`, App 9.0.830: the hold for this device's own PRO share, its requesters and anchor tests); 2026-11-11 (the names RO-01, RO-10 and RO-36 cite re-checked against the App 9.0.44 / v819 train's code after the audio recovery owner's rename, branched from `main` `c4a3d6f0`: every cited identifier exists, no owner or flow changed); 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1) |
+| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md)                                                                                                                                                                                                                                                                                                   |
 
 This registry names one owner for each shared runtime resource and records where that is not
 yet true. A 2026-10-22 survey of `1bd9cd6f` found 9 resources where the same protocol is
@@ -3007,13 +3007,55 @@ RO-55 accepted-exception
   return is marked settles instead of scheduling a retry. Because the pass has its own owner, a
   manual Sync pressed during it queues behind it instead of joining (before, it joined only a pass
   already widened to every medium).
+  **Hold for this device's own share (2026-11-18, the swallowed PRO share).** A press of System
+  Audio reads the load epoch in its own turn, and the capture its share window returns is dropped
+  when a newer load epoch has started by then. A re-apply preparing at the press (the post-share
+  restore since `3dd9086c`, the foreground repair, a background-return or manual Sync) went stale on
+  the press and cancelled its preparation later, or its retry prepared again, and either starts a
+  new load epoch (the endpoint cancel, or `playTrack`); while the share was live the same passes
+  prepared the checkpoint, and `playTrack`'s stop of every medium force-stopped the share. The
+  runtime now holds every pass from the press until the start settles and while the share it
+  started is live (`holdsCheckpointReapply`: the capture's own start slot and stream, read through
+  `src/audio/system-audio-policy.ts`, no state of its own): their liveness is false, so a running
+  pass ends at its next boundary without preparing, a queued one is dropped, and the foreground
+  repair settles instead of scheduling a retry (when the hold refuses it before its pass, it runs
+  the ordinary heartbeat if the loop is not armed, since the visibility handler left the loop to
+  the pass's forced heartbeat). The press is a requester: `startSystemAudioCapture` in a PRO room
+  calls `holdProPlaybackRepairForLocalShare` (`system-audio-bridge.ts`, through the service) after
+  its refusals and before its lease attempt and its load-epoch read. That operation
+  (`holdCheckpointReapplyForLocalShare`) clears the foreground retry timer, takes over the
+  service's current post-share restore (`handOverProSystemAudioPlaybackRestore`, which also drops
+  the listener record so the next idle view does not restore it again) and cancels the
+  participant-local rendezvous preparation in flight
+  (`cancelParticipantLocalProPlaybackPreparation` in `playback-authority-hooks.ts`: only one
+  `prepareCurrentProPlaybackRendezvousAuthority` made, never a server PREPARE or a cancelled
+  PREPARE's recovery), so the endpoint cancel's new load epoch comes before the read. What the
+  press stopped, and what the hold refuses while the start is pending, is owed (merged options and
+  the canonical revision). The start's `system-audio:start-settled` spends it: `started: true`
+  drops it (the share replaced the playback; its end restores through the post-share restore as
+  before), and `started: false` re-applies it once (`reapplyCheckpointAfterLocalShareStart`, after
+  the settling stop's own teardown) unless the revision moved (a newer playback choice owns the
+  endpoint) or a share is preparing or live in the room. Applied while the return is shown it
+  marks the return as the restore callback does; not applied, a foreground repair it stood in for
+  resumes its own retry ladder. While a live share holds, a refused pass owes nothing. A newer
+  playback choice after the press (a server PREPARE/COMMIT, a track picked, a playlist advance,
+  the demo), Stop or force-stop, a room change, coordinator or capability loss, a refused or lost
+  lease and an ended track still discard the capture; Standard rooms call nothing new.
 - **Target single owner:** reached (`runtime.ts`); the service keeps the decision of when to
   restore.
-- **Allowed requesters:** the runtime's visibility handler, the background-return Sync, and the
-  post-share restore through the runtime's restore callback.
-- **Lifecycle operations:** reconcile with `rendezvous`, `youtubeOnly` and `preparePaused`.
+- **Allowed requesters:** the runtime's visibility handler, the background-return Sync, the
+  post-share restore through the runtime's restore callback, manual Sync and the local-output
+  rejoin through `requestActiveProRoomPlaybackReconciliation` (every manual Sync shares one owner,
+  as with the controller's default before), the press of this device's own PRO share through
+  `holdProPlaybackRepairForLocalShare` (2026-11-18), and the re-apply after a start that did not go
+  live.
+- **Lifecycle operations:** reconcile with `rendezvous`, `youtubeOnly` and `preparePaused`; hold
+  (liveness false) while this device's own share starts or is live; the press's synchronous
+  cancel of the participant-local rendezvous preparation and hand-over of the post-share restore;
+  the one re-apply after a start that did not go live.
 - **Deadline owner:** each ladder; the scheduler serializes them, and a marked return retires the
-  foreground ladder.
+  foreground ladder. The hold adds no timer: it stops the foreground ladder, and its re-apply is
+  one pass, after which only a stopped foreground repair resumes its own ladder.
 - **Timing-constant home:** `VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS` (`runtime.ts`) and
   `PLAYBACK_RESTORE_DELAYS_MS` (`system-audio-service.ts`), both capped at 15 s, unchanged by
   C4-13.
@@ -3023,15 +3065,40 @@ RO-55 accepted-exception
   service decides when to restore and the restore does not read the mark. Pinned as today's
   behaviour by `runtime-system-audio-join.test.ts` "5B-C4-13 residual, expected today: …"; not
   heard on a device. Revisit if Phase 5 device step 5P-5 still reports a second stop after 5B.
+  The hold's re-apply after a start that did not go live is one pass: when it fails and no
+  foreground repair was stopped, nothing retries it until the next transition, return or Sync; a
+  start that fails after its own STOP of the previous media, with nothing owed, stays fail-closed
+  as before (`abortPreparedCapture`); and a release whose request fails leaves the room not idle
+  at the settlement, so the re-apply is skipped. Not heard on a device.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/runtime-server-playback.test.ts` "joins an in-flight
-    YouTube visibility pass instead of starting a second rendezvous".
+    YouTube visibility pass instead of starting a second rendezvous";
+    `src/pro-room/__tests__/runtime-local-share-hold.test.ts` (real capture start, bridge,
+    service, runtime and controller; an endpoint fake that starts a load epoch where `playTrack`
+    and the PRO endpoint cancel do) "R1: the post-share restore of a paused (and playing) YouTube
+    checkpoint, still preparing at the press, neither swallows the share nor prepares again", "B:
+    a press during the foreground repair preparation in a playing room cancels it in the press
+    turn, and no retry prepares it again" and "re-applies nothing after a newer server choice made
+    after the press, which still discards the capture"; `src/audio/__tests__/system-capture-stop.test.ts`
+    "the press and the PRO checkpoint re-apply hold" (in the press turn, before the lease attempt
+    and the load-epoch read; nothing for a Standard press or a refused PRO press).
   - User pause/stop: `system-audio-service.test.ts` "does not revive an old explicit stop after a
     newer share generation is observed".
-  - Teardown: missing.
+  - Teardown: `runtime-local-share-hold.test.ts` "teardown: a room left while the start is pending
+    re-applies nothing when it settles".
   - Visibility: `runtime-server-playback.test.ts` "does not re-apply a YouTube checkpoint the
     visibility pass already re-applied"; `system-audio-service.test.ts` "holds restoration retries
-    while hidden and resumes them when shown, without a cap".
+    while hidden and resumes them when shown, without a cap"; `runtime-local-share-hold.test.ts`
+    "A: a press after a hide and show, before the foreground repair prepares, …", "A: a manual
+    Sync …" and "A: a background-return Sync of a playing file …", "C: with a shared tab, the
+    foreground repair queued behind the post-share restore prepares nothing after the press", the
+    three "D: … prepares nothing, keeps the share and keeps the presence heartbeat" rows, "restores
+    the checkpoint once when the share ends: the hold ends with the share", and the two re-apply
+    rows after a cancelled share window (the paused checkpoint the press replaced; the playing
+    checkpoint a stopped foreground repair was for), each once.
+  - Browser: `e2e/system-audio-controls.test.ts` "a PRO share pressed again while the paused video
+    it replaced comes back" (the share before it ended from the browser bar, or from Stop
+    Sharing).
   - Cross-owner: `src/pro-room/__tests__/runtime-system-audio-join.test.ts` "F3, fixed in
     5B-C4-13: a share that ends while hidden, with a failed first restore, re-arms the YouTube
     renderer once when shown" (the C4-0 F3 baseline of #454, flipped) and "5B-C4-13: a post-share

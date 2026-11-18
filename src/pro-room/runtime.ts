@@ -36,6 +36,10 @@ import {
   isSettingsSyncEnabled,
 } from '../audio/effects.ts';
 import {
+  isSystemAudioCaptureActive,
+  isSystemAudioCaptureStartPending,
+} from '../audio/system-audio-policy.ts';
+import {
   roomEffectsEqual,
   type ProRoomSettingsSyncSnapshot,
   type RoomEffectsState,
@@ -134,6 +138,7 @@ import {
   type ProRoomPlaybackPlaylistLease,
   type ProRoomPlaybackReconciliationLiveness,
 } from './playback-controller.ts';
+import { cancelParticipantLocalProPlaybackPreparation } from './playback-authority-hooks.ts';
 import {
   registerProRoomHardCloseHandler,
   registerProRoomLeaveHandler,
@@ -180,6 +185,8 @@ import {
   acceptProSystemAudioHeartbeatState,
   bindProSystemAudioSession,
   configureProSystemAudioService,
+  getProSystemAudioViewState,
+  handOverProSystemAudioPlaybackRestore,
   refreshProSystemAudioState,
   releaseLocalProSystemAudioLease,
   resetProSystemAudioService,
@@ -202,38 +209,48 @@ const QUEUE_ADDITION_FLUSH_TIMER = 'pro-room-queue-addition-flush';
 const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 const api = new ProRoomApiClient();
-configureProSystemAudioService(api, async (liveness) => {
-  // The service decides when to restore; this runtime owns whether the
-  // background return it ran in is repaired (RO-21).
-  const returnGeneration = visibilityReturnGeneration;
-  const restored = await playbackController.reconcile({
-    showLoading: false,
-    youtubeOnly: true,
-    rendezvous: true,
-    preparePaused: true,
-    liveness,
-  });
-  if (
-    restored &&
-    liveness.isCurrent() &&
-    isPageVisible() &&
-    returnGeneration === visibilityReturnGeneration
-  ) {
-    // Applied while this return is shown, with no hide since the pass began:
-    // a foreground repair waiting behind it would arm the same checkpoint again.
-    visibilityReturnReconciledGeneration = returnGeneration;
-  }
-  if (restored || !liveness.isCurrent()) return true;
-  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
-  if (!snapshot) return false;
-  if (snapshot.playback.state === 'idle' || snapshot.playback.queueItemId === null) return true;
-  const item = snapshot?.playlist.find(
-    (candidate) => candidate.queueItemId === snapshot.playback.queueItemId,
-  );
-  // File playback deliberately remains paused after sharing. A fresh
-  // checkpoint with no YouTube target completes this restoration intent.
-  return item?.source.kind === 'pro-r2';
-});
+configureProSystemAudioService(
+  api,
+  async (liveness) => {
+    // The service decides when to restore; this runtime owns whether the
+    // background return it ran in is repaired (RO-21).
+    const returnGeneration = visibilityReturnGeneration;
+    const restored = await playbackController.reconcile({
+      showLoading: false,
+      youtubeOnly: true,
+      rendezvous: true,
+      preparePaused: true,
+      liveness: heldForLocalShare(liveness),
+    });
+    if (
+      restored &&
+      liveness.isCurrent() &&
+      isPageVisible() &&
+      returnGeneration === visibilityReturnGeneration
+    ) {
+      // Applied while this return is shown, with no hide since the pass began:
+      // a foreground repair waiting behind it would arm the same checkpoint again.
+      visibilityReturnReconciledGeneration = returnGeneration;
+    }
+    if (!restored && holdsCheckpointReapply()) {
+      // This device's own share start holds the restore: the start owes it if
+      // no share starts, and a live share's end restores again.
+      oweCheckpointReapply({ youtubeOnly: true, preparePaused: true });
+      return true;
+    }
+    if (restored || !liveness.isCurrent()) return true;
+    const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+    if (!snapshot) return false;
+    if (snapshot.playback.state === 'idle' || snapshot.playback.queueItemId === null) return true;
+    const item = snapshot?.playlist.find(
+      (candidate) => candidate.queueItemId === snapshot.playback.queueItemId,
+    );
+    // File playback deliberately remains paused after sharing. A fresh
+    // checkpoint with no YouTube target completes this restoration intent.
+    return item?.source.kind === 'pro-r2';
+  },
+  holdCheckpointReapplyForLocalShare,
+);
 const bridge = proRoomServerBridge;
 
 function observeProRoomRuntimeTask(operation: Promise<unknown>, context: string): void {
@@ -264,6 +281,30 @@ let visibilityReturnGeneration = 0;
  * applied while that return was shown, has already re-applied.
  */
 let visibilityReturnReconciledGeneration = -1;
+/**
+ * What the RO-21 hold for this device's own share start owes (2026-11-18):
+ * the merged options of the re-apply passes the press stopped, or the hold
+ * refused while the start was pending, and the canonical revision they were
+ * for. The start's settlement spends it: a share that went live replaced the
+ * playback, and a start that did not re-applies it once.
+ */
+interface OwedCheckpointReapply {
+  revision: number | null;
+  youtubeOnly: boolean;
+  preparePaused: boolean;
+  /** The foreground repair's scope when the hold stopped one. */
+  visibilityRepair: 'youtube' | 'all' | null;
+}
+let owedCheckpointReapply: OwedCheckpointReapply | null = null;
+/** The re-apply after a start that did not go live, while it runs. */
+let checkpointRearm: { readonly owed: OwedCheckpointReapply } | null = null;
+/** Manual Sync and local-output rejoin requests still running. */
+let reconciliationRequestsInFlight = 0;
+/** One owner for every manual Sync, so a second press joins the first. */
+const manualReconciliationOwner: ProRoomPlaybackReconciliationLiveness = {
+  identity: {},
+  isCurrent: () => true,
+};
 let playlistManager: ProRoomPlaylistStateManager | null = null;
 let playlistProjection: ProRoomPlaylistProjection | null = null;
 let mediaTransfer: ProRoomMediaTransfer | null = null;
@@ -2606,7 +2647,22 @@ export function requestActiveProRoomPlaybackReconciliation(
     liveness?: ProRoomPlaybackReconciliationLiveness;
   }> = {},
 ): Promise<boolean> {
-  return playbackController.requestReconciliation(options);
+  // An RO-21 pass: held while this device's own share starts or is live.
+  const operation = playbackController.requestReconciliation({
+    ...options,
+    liveness: heldForLocalShare(options.liveness ?? manualReconciliationOwner),
+  });
+  reconciliationRequestsInFlight += 1;
+  return operation
+    .then((reconciled) => {
+      if (!reconciled && holdsCheckpointReapply()) {
+        oweCheckpointReapply({ youtubeOnly: false, preparePaused: false });
+      }
+      return reconciled;
+    })
+    .finally(() => {
+      reconciliationRequestsInFlight -= 1;
+    });
 }
 
 function applyAuthority(context: RoomContext, authorityStatus = accountAuthorityStatus): void {
@@ -2646,6 +2702,8 @@ function stopLifecycle(): void {
   visibilityPlaybackRecoveryAttempt = 0;
   visibilityPlaybackRecoveryScope = 'youtube';
   visibilityPlaybackRecoveryFlight = null;
+  owedCheckpointReapply = null;
+  checkpointRearm = null;
   playbackController.stopLifecycle();
   accountReconciler.stop();
   accountIdentityGeneration += 1;
@@ -3502,6 +3560,15 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
   // One pass at a time: a duplicate visible event or a widening Sync joins
   // the running pass, which re-checks the scope when it settles.
   if (visibilityPlaybackRecoveryFlight) return;
+  if (holdsCheckpointReapply()) {
+    holdVisibilityPlaybackRecovery();
+    // The visibility handler left the presence heartbeat loop to this pass's
+    // forced heartbeat, which a held pass never runs.
+    if (getManagedTimer(HEARTBEAT_TIMER) === null) {
+      observeProRoomRuntimeTask(runHeartbeat(), 'held foreground heartbeat');
+    }
+    return;
+  }
   const flight = {};
   visibilityPlaybackRecoveryFlight = flight;
   const scope = visibilityPlaybackRecoveryScope;
@@ -3520,7 +3587,8 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
       rendezvous: true,
       liveness: {
         identity: flight,
-        isCurrent: () => visibilityReturnReconciledGeneration !== generation,
+        isCurrent: () =>
+          visibilityReturnReconciledGeneration !== generation && !holdsCheckpointReapply(),
       },
     });
   } catch (error) {
@@ -3531,6 +3599,10 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
   if (visibilityPlaybackRecoveryFlight !== flight) return;
   visibilityPlaybackRecoveryFlight = null;
   if (!active || document.visibilityState !== 'visible' || !visibilityPlaybackRecoveryPending) {
+    return;
+  }
+  if (!reconciled && holdsCheckpointReapply()) {
+    holdVisibilityPlaybackRecovery();
     return;
   }
   if (generation !== visibilityReturnGeneration) {
@@ -3560,6 +3632,169 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
   // Keep the hidden-session repair intent until media actually converges.
   // Retrying on its own timer avoids requiring a second hide/show cycle.
   scheduleVisibilityPlaybackRecoveryRetry();
+}
+
+// ─── RO-21 hold for this device's own share (2026-11-18) ───────────
+//
+// From the press of this device's own PRO share until its start settles, and
+// while the share it started is live, no checkpoint re-apply pass prepares
+// this device's media endpoint: the foreground repair (and the
+// background-return Sync that widens it), manual Sync and the local-output
+// rejoin, the post-share restore and the re-arm below. A preparation's
+// playTrack starts a new load epoch, which the pending start takes for a newer
+// playback choice and drops its capture for, and stops every medium, a live
+// share included. The hold keeps no state of its own: it reads the capture's
+// own start slot and stream through the audio policy boundary.
+
+function holdsCheckpointReapply(): boolean {
+  return active && (isSystemAudioCaptureStartPending() || isSystemAudioCaptureActive());
+}
+
+function heldForLocalShare(
+  liveness: ProRoomPlaybackReconciliationLiveness,
+): ProRoomPlaybackReconciliationLiveness {
+  return {
+    identity: liveness.identity,
+    isCurrent: () => liveness.isCurrent() && !holdsCheckpointReapply(),
+  };
+}
+
+function currentCheckpointRevision(): number | null {
+  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  return snapshot ? snapshot.playback.revision : null;
+}
+
+function widerVisibilityScope(
+  left: 'youtube' | 'all' | null,
+  right: 'youtube' | 'all' | null,
+): 'youtube' | 'all' | null {
+  return left === 'all' || right === 'all' ? 'all' : (left ?? right);
+}
+
+/**
+ * A pass the hold stopped while the start is pending. The press itself owes
+ * what it stops before the start's slot is set (`pressing`).
+ */
+function oweCheckpointReapply(
+  options: Readonly<{
+    youtubeOnly: boolean;
+    preparePaused: boolean;
+    visibilityRepair?: 'youtube' | 'all' | null;
+  }>,
+  pressing = false,
+): void {
+  if (!active || (!pressing && !isSystemAudioCaptureStartPending())) return;
+  const owed = owedCheckpointReapply;
+  owedCheckpointReapply = {
+    revision: currentCheckpointRevision(),
+    youtubeOnly: (owed?.youtubeOnly ?? true) && options.youtubeOnly,
+    preparePaused: (owed?.preparePaused ?? false) || options.preparePaused,
+    visibilityRepair: widerVisibilityScope(
+      owed?.visibilityRepair ?? null,
+      options.visibilityRepair ?? null,
+    ),
+  };
+}
+
+/** The hold stops the foreground repair: no retry; a pending start owes its pass. */
+function holdVisibilityPlaybackRecovery(): void {
+  const scope = visibilityPlaybackRecoveryScope;
+  oweCheckpointReapply({
+    youtubeOnly: scope === 'youtube',
+    preparePaused: false,
+    visibilityRepair: scope,
+  });
+  settleVisibilityPlaybackRecovery();
+}
+
+/**
+ * RO-21 requester: the press of this device's own PRO share, through the
+ * capture bridge in the press's own turn, before the start reads the load
+ * epoch. From the next turn the start's slot holds every pass; this stops the
+ * foreground repair's retry, takes over the post-share restore and cancels
+ * the participant-local rendezvous preparation in flight, whose endpoint
+ * cancel then starts its new load epoch before the read instead of after it.
+ * What they were doing is owed until the start settles.
+ */
+function holdCheckpointReapplyForLocalShare(): void {
+  if (!active) return;
+  const scope = visibilityPlaybackRecoveryScope;
+  const repairWaiting =
+    visibilityPlaybackRecoveryPending &&
+    (visibilityPlaybackRecoveryFlight !== null ||
+      getManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER) !== null);
+  clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
+  if (repairWaiting) {
+    oweCheckpointReapply(
+      { youtubeOnly: scope === 'youtube', preparePaused: false, visibilityRepair: scope },
+      true,
+    );
+    // A running pass settles when the hold refuses it at its next boundary.
+    if (!visibilityPlaybackRecoveryFlight) settleVisibilityPlaybackRecovery();
+  }
+  if (handOverProSystemAudioPlaybackRestore()) {
+    oweCheckpointReapply({ youtubeOnly: true, preparePaused: true }, true);
+  }
+  if (reconciliationRequestsInFlight > 0) {
+    oweCheckpointReapply({ youtubeOnly: false, preparePaused: false }, true);
+  }
+  if (checkpointRearm) oweCheckpointReapply(checkpointRearm.owed, true);
+  // Never a server PREPARE: that is a newer playback choice and stays.
+  if (cancelParticipantLocalProPlaybackPreparation()) {
+    oweCheckpointReapply({ youtubeOnly: false, preparePaused: false }, true);
+  }
+}
+
+/**
+ * The re-arm: a start that settled without a share re-applies, once, what the
+ * hold stopped, unless a newer playback choice owns the endpoint (a newer
+ * revision) or a share is preparing or live in the room. Applied while this
+ * return is shown, it repairs the return as the post-share restore does; not
+ * applied, a foreground repair it stood in for goes on with its own retries.
+ */
+async function reapplyCheckpointAfterLocalShareStart(owed: OwedCheckpointReapply): Promise<void> {
+  if (!active || owed.revision !== currentCheckpointRevision()) return;
+  const rearm = { owed };
+  checkpointRearm = rearm;
+  const returnGeneration = visibilityReturnGeneration;
+  const isCurrent = (): boolean => {
+    const share = getProSystemAudioViewState();
+    return (
+      active &&
+      checkpointRearm === rearm &&
+      !holdsCheckpointReapply() &&
+      currentCheckpointRevision() === owed.revision &&
+      share.phase === 'idle' &&
+      !share.localRequestPending
+    );
+  };
+  let applied = false;
+  try {
+    applied = await playbackController.reconcile({
+      showLoading: false,
+      youtubeOnly: owed.youtubeOnly,
+      rendezvous: true,
+      preparePaused: owed.preparePaused,
+      liveness: { identity: rearm, isCurrent },
+    });
+  } catch (error) {
+    log.warn('[PRO Playback] Re-apply after a local share start failed', error);
+  }
+  const current = isCurrent();
+  if (checkpointRearm === rearm) checkpointRearm = null;
+  if (!current) return;
+  if (applied) {
+    if (isPageVisible() && returnGeneration === visibilityReturnGeneration) {
+      visibilityReturnReconciledGeneration = returnGeneration;
+    }
+    return;
+  }
+  if (owed.visibilityRepair) {
+    visibilityPlaybackRecoveryPending = true;
+    visibilityPlaybackRecoveryScope = owed.visibilityRepair;
+    visibilityPlaybackRecoveryAttempt = 0;
+    scheduleVisibilityPlaybackRecoveryRetry();
+  }
 }
 
 /**
@@ -3623,6 +3858,8 @@ function startLifecycle(): void {
   visibilityPlaybackRecoveryAttempt = 0;
   visibilityPlaybackRecoveryScope = 'youtube';
   visibilityPlaybackRecoveryFlight = null;
+  owedCheckpointReapply = null;
+  checkpointRearm = null;
   if (visibilityPlaybackRecoveryPending) visibilityReturnGeneration += 1;
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   playbackController.startLifecycle();
@@ -4020,6 +4257,22 @@ bus.on('settings-sync:changed', (enabled) => {
   }
   void refreshPersistedEffects(snapshot).catch((error) => {
     log.warn('[PRO] Settings sync refresh failed', error);
+  });
+});
+
+// The capture settles each start attempt once, where its slot clears (RO-21).
+bus.on('system-audio:start-settled', ({ started }) => {
+  const owed = owedCheckpointReapply;
+  owedCheckpointReapply = null;
+  // A share that went live replaced this device's playback; its end restores
+  // the checkpoint through the post-share restore, as before.
+  if (!owed || started || !active) return;
+  // After the settling stop's own teardown, which can still hold the capture.
+  queueMicrotask(() => {
+    observeProRoomRuntimeTask(
+      reapplyCheckpointAfterLocalShareStart(owed),
+      'checkpoint re-apply after a local share start',
+    );
   });
 });
 

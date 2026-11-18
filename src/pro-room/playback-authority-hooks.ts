@@ -447,6 +447,11 @@ let activePreparation: {
   authority: ProPlaybackAuthorityToken;
   promise: Promise<ProPlaybackPrepareResult>;
   cancelWait: () => void;
+  /**
+   * Made by prepareCurrentProPlaybackRendezvousAuthority: a participant-local
+   * re-apply of the committed revision, never a server PREPARE.
+   */
+  participantLocal: boolean;
 } | null = null;
 let highestSeen: ProPlaybackAuthorityToken | null = null;
 let cancelledPreparation: ProPlaybackAuthorityToken | null = null;
@@ -525,6 +530,7 @@ function createPreparation(
   generation: number,
   request: Readonly<ProPlaybackPrepareRequest>,
   endpoint: ProPlaybackMediaEndpoint,
+  participantLocal = false,
 ): NonNullable<typeof activePreparation> {
   const work = endpoint.prepare(request);
   let cancelWait!: () => void;
@@ -535,7 +541,7 @@ function createPreparation(
     // its endpoint still owns cleanup and memory reservations until then.
     void work.then(resolve, reject);
   });
-  return { generation, authority: request.authority, promise, cancelWait };
+  return { generation, authority: request.authority, promise, cancelWait, participantLocal };
 }
 
 export async function prepareProPlaybackAuthority(
@@ -652,7 +658,7 @@ export async function prepareCurrentProPlaybackRendezvousAuthority(
       request.isCurrent?.() !== false,
   };
   resetStandardHostManualOffsetTransaction();
-  const pending = createPreparation(generation, endpointRequest, endpoint);
+  const pending = createPreparation(generation, endpointRequest, endpoint, true);
   activePreparation = pending;
   const result = await pending.promise;
   if (
@@ -697,6 +703,19 @@ export function cancelProPlaybackPreparation(authority?: ProPlaybackAuthorityTok
   pending.cancelWait();
   mediaEndpoint?.cancel?.(pending.authority);
   return true;
+}
+
+/**
+ * Cancel the participant-local rendezvous preparation in flight, a re-apply of
+ * the committed revision that prepareCurrentProPlaybackRendezvousAuthority
+ * armed, whether it is still preparing or waiting for its release. A server
+ * PREPARE and a cancelled PREPARE's recovery stay. RO-21 calls it when this
+ * device presses its own system-audio share (src/pro-room/runtime.ts), so the
+ * endpoint cancel's new load epoch comes before the start reads the epoch.
+ */
+export function cancelParticipantLocalProPlaybackPreparation(): boolean {
+  const pending = activePreparation;
+  return pending?.participantLocal === true && cancelProPlaybackPreparation(pending.authority);
 }
 
 /** Release obsolete preparation waits before an admitted COMMIT joins the serial queue. */

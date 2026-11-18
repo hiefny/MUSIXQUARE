@@ -438,6 +438,23 @@ async function microtasks(): Promise<void> {
   await Promise.resolve();
 }
 
+/**
+ * A MessageChannel that hands its message over as WebKit does (review finding
+ * H6-R1): a task later than Chromium, so a 0 ms timer set after the post runs
+ * first. WebKit's port queues a task that queues the message's own; here each
+ * of the two is a 0 ms timer.
+ */
+class LateMessageChannel {
+  readonly port1: { onmessage: ((event: MessageEvent) => void) | null } = { onmessage: null };
+  readonly port2 = {
+    postMessage: (data: unknown): void => {
+      setTimeout(() => {
+        setTimeout(() => this.port1.onmessage?.(new MessageEvent('message', { data })), 0);
+      }, 0);
+    },
+  };
+}
+
 /** The arrows, Home, End and the page keys. */
 const NAVIGATION_KEYS = [
   'ArrowUp',
@@ -726,6 +743,67 @@ describe('keyboard navigation owner', () => {
       opened.focus();
       expect(keyboardNavigation(), label).toBe('off');
       releaseKey(holder, key);
+    }
+  });
+
+  it("ends the key's turn before a timer set after its keydown, where the port's message comes later", async () => {
+    // Review finding H6-R1. WebKit hands a port's message over a task later
+    // than Chromium, after a 0 ms timer set behind the post (Playwright's
+    // WebKit 26.6: the timer first in every run). A window that opens by
+    // itself from such a timer while a caret key, a completion Tab or a page
+    // key is still down focused its control inside the key's turn there, and
+    // its control rang.
+    vi.stubGlobal('MessageChannel', LateMessageChannel);
+    try {
+      (await freshHoverPointer()).initHoverPointer();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    /** Lets the late port's two hops run, with any task queued before them. */
+    const settle = async (): Promise<void> => {
+      await endTask();
+      await endTask();
+    };
+    const opened = mount('<button type="button">Later</button>');
+    const completing = mount('<input type="text">');
+    completing.addEventListener('keydown', (event) => {
+      if (event.key === 'Tab') event.preventDefault();
+    });
+    const holds: [string, HTMLElement, string, number][] = [
+      ['a caret key in a text field', mount('<input type="text">'), 'ArrowLeft', 0],
+      ['a Tab that a text field keeps for a completion', completing, 'Tab', 0],
+      [
+        'a page key held on a panel with nothing to scroll',
+        mount('<div class="tab-content" role="tabpanel" tabindex="-1"></div>'),
+        'PageDown',
+        2,
+      ],
+      [
+        'an arrow held on a clicked track with nothing to scroll',
+        mount('<button type="button" class="track-name">Track</button>'),
+        'ArrowDown',
+        2,
+      ],
+    ];
+    for (const [label, holder, key, repeats] of holds) {
+      document.dispatchEvent(pointer('pointerdown', 'mouse'));
+      holder.focus();
+      press(holder, key, { cancelable: true });
+      for (let count = 0; count < repeats; count += 1) {
+        await settle();
+        press(holder, key, { cancelable: true, repeat: true });
+      }
+      // The window opens from a timer set after the keydown, here at once,
+      // and focuses its control before the key is up.
+      await new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          opened.focus();
+          resolve();
+        }, 0);
+      });
+      expect(keyboardNavigation(), label).toBe('off');
+      releaseKey(holder, key);
+      await settle();
     }
   });
 

@@ -493,6 +493,61 @@ describe('session reset coordinator', () => {
     expect(action).toHaveBeenCalledOnce();
   });
 
+  it('waits out the fade-in that a first frame just before the first-frame limit starts', async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const { RESET_FIRST_FRAME_LIMIT_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    // The first frame comes 100 ms before the limit and starts the fade-in.
+    const firstFrame = RESET_FIRST_FRAME_LIMIT_MS - 100;
+    vi.advanceTimersByTime(firstFrame);
+    stubFadeInClock({ currentTime: 0, endTime: 200 });
+    frames.shift()?.(firstFrame);
+    vi.advanceTimersByTime(16);
+    stubFadeInClock({ currentTime: 16, endTime: 200 });
+    frames.shift()?.(firstFrame + 16);
+    // The limit, which counts from the show, passes mid fade-in: the first
+    // frame ended that wait.
+    vi.advanceTimersByTime(100 - 16);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(99);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("waits from the second frame's reading when the fade-in started after the first frame's fallback read it", async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    frames.shift()?.(0);
+    // The first frame's fallback fires before the second frame and reads a
+    // fade-in that has not started: its whole length from there.
+    const fallback = RESET_PAINT_FALLBACK_MS + 200;
+    stubFadeInClock({ currentTime: 0, endTime: 200 });
+    vi.advanceTimersByTime(fallback);
+    // The fade-in starts 60 ms later, and the second frame reads it 20 ms in.
+    vi.advanceTimersByTime(80);
+    stubFadeInClock({ currentTime: 20, endTime: 200 });
+    frames.shift()?.(fallback + 80);
+    // The fallback's reading would end 200 ms after it; the fade-in ends 60 ms later.
+    vi.advanceTimersByTime(200 - 80);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(59);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(1_000);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
   it('ignores the frames of a reset that a returning page already ended', async () => {
     const frames = useFrames();
     stubResetFadeIn();

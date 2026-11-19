@@ -3578,7 +3578,7 @@ RO-55 accepted-exception
   decision 2026-11-20) after the show, and only a page that cannot render frames (hidden, or no
   `requestAnimationFrame`) keeps the fallback from the show; the first frame moves the fallback
   to count from itself, and that fallback, like the second frame, reads what is left of the
-  fade-in by its own clock.
+  fade-in by its own clock, the later reading replacing the wait the earlier one set.
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
@@ -3611,17 +3611,18 @@ RO-55 accepted-exception
     a visible page, then for the whole fade-in", "finds the fade-in's end by its own clock when
     the second frame comes after the fallback", "leaves a visible page that renders no frame at
     the first-frame limit", "leaves a hidden page, which renders no frame, at the fallback",
-    "counts the fallback from the first frame when no second frame follows it" and "waits out a
-    fade-in that started after the first frame when that frame's fallback fires first";
-    `navigation-contract.test.ts` "waits longer for a visible page's first frame, still well
+    "counts the fallback from the first frame when no second frame follows it", "waits out a
+    fade-in that started after the first frame when that frame's fallback fires first", "waits
+    out the fade-in that a first frame just before the first-frame limit starts" and "waits from
+    the second frame's reading when the fade-in started after the first frame's fallback read
+    it"; `navigation-contract.test.ts` "waits longer for a visible page's first frame, still well
     inside the commit window"; `e2e/boot-splash.test.ts` "shows the splash's wordmark and
-    loader without text, and the page it opens continues them" (the page leaves no earlier than
-    the deadline the reset took from its fade-in: the second frame after the show plus what was
-    left of it there, or the fallback's due time when no second frame came first; and the
-    fade-in as the engine runs it, 0.2 s of opacity to 1). On a starved page that deadline can
-    come before the fade-in's end: the fallback fires when no second frame has come by its due
-    time, even after a first one started the fade-in, and a fade-in still waiting to start at the
-    second frame is waited from there. The row passes such a leave and prints it in its output.
+    loader without text, and the page it opens continues them" (once the page drew a frame after
+    the show, it leaves no earlier than the fade-in's end by that transition's own clock, its
+    start plus its length, and a leave after a frame but before the fade-in started fails; a
+    page that drew no frame leaves no earlier than `RESET_FIRST_FRAME_LIMIT_MS` after the reset's
+    stamp; and the fade-in as the engine runs it is 0.2 s of opacity to 1). The row prints a
+    leave without a frame, and a leave before the fade-in's end, which fails, in its output.
   - User pause/stop: n/a.
   - Teardown: `session-reset.test.ts` "recovers a no-op navigation and accepts a later reset
     request".

@@ -117,11 +117,14 @@ interface NavigationAttempt {
  * - painting: the overlay is up; the action waits for two frames and then for
  *   what is left of the overlay's own fade-in by that transition's clock (it
  *   starts on the first frame the page renders, which a busy page can hold
- *   well past the show), or, when no frame comes, for the
- *   RESET_PAINT_FALLBACK_MS timeout after that fade-in's length (counted from
- *   the first frame once one comes; before it, a visible page waits for one up
- *   to RESET_FIRST_FRAME_LIMIT_MS after the show). The page a
- *   navigation opens then continues a whole screen rather than a half-shown one.
+ *   well past the show). Before a first frame, a visible page waits for one up
+ *   to RESET_FIRST_FRAME_LIMIT_MS after the show, and a page that cannot
+ *   render frames waits the RESET_PAINT_FALLBACK_MS timeout after that
+ *   fade-in's length from the show. The first frame moves that timeout to
+ *   count from itself; if it fires before a second frame, it reads what is
+ *   left of the fade-in by that clock too, and the second frame's later
+ *   reading replaces the wait it set. The page a navigation opens then
+ *   continues a whole screen rather than a half-shown one.
  * - preparing: the request's prepare step runs, bounded by
  *   NAVIGATION_PREPARE_TIMEOUT_MS.
  * - navigating: the final navigation call ran; NAVIGATION_COMMIT_TIMEOUT_MS is
@@ -1021,9 +1024,13 @@ function beginAttempt(
   const fadeInMs = resetFadeInMs(overlay);
   const runOnceFadedIn = () => {
     if (_state.phase !== 'painting' || _state.attempt !== attempt) return;
-    // The page renders: the fade-in's own clock replaces the fallback, which
-    // counts from the show and can end before a late-started fade-in.
+    // The page renders: the fade-in's own clock replaces the fallback, and each
+    // reading of it (the first frame's fallback, then the second frame)
+    // replaces the wait the one before set, so a fade-in that a busy page
+    // starts after the first reading is waited out from its real start when a
+    // later reading finds it running.
     window.clearTimeout(attempt.timers.paint);
+    window.clearTimeout(attempt.timers.fade);
     const remaining = fadeInLeftMs(overlay) ?? fadeInMs - (Date.now() - shownAt);
     if (remaining > 0) attempt.timers.fade = window.setTimeout(runAction, remaining);
     else runAction();

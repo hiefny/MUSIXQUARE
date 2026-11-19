@@ -949,7 +949,7 @@ test.describe('installed iOS app', () => {
   // thread with the app's own work: Full E2E 44368926825 (App 9.0.831, Linux
   // WebKit) caught two mid-rise frames there where this test wanted three, and
   // a local Windows WebKit run of the same rows catches six to ten, 20 to 60 ms
-  // apart (twelve to fourteen, 16 ms apart, where the screen never grows). So
+  // apart (eleven to fifteen, 16 ms apart, where the screen never grows). So
   // (owner decision 2026-11-19: a fix to this test only) the rise is also read
   // in the page, on its animations' own clock rather than in frames: where the
   // hold ends, the page and the splash as they stand, then both rises set to

@@ -110,9 +110,14 @@ runbooks. Neither belongs in a general setup document.
   the Korean one fetched none. Its post-merge Full E2E 44368926825 failed: the R2 smoke
   and the Chromium e2e (1,170) passed, and the WebKit job failed on attempt 1 and on a rerun of that job alone, in the
   installed app's strip colour rows whose screen grows (two mid-colour frames of the 0.3 s rise where the test asks for
-  three). The record reads it as a slow runner (inferred: on local Windows WebKit the 9.0.829 and 9.0.831 builds caught
+  three). The record read it as a slow runner (inferred: on local Windows WebKit the 9.0.829 and 9.0.831 builds caught
   about as many frames, 7 to 8 and 6 to 10, and both CI jobs also ran their unrelated steps slower than 9.0.829's job)
-  and keeps it as an open item that holds the next App train's merge. The release record also closes the 9.0.27
+  and kept it as an open item that held the next App train's merge. At the owner's choice a tests-only fix (#616) reads
+  the rise on the animations' own clock instead of counting frames (a local harness that starves the frames fails the
+  old rule as CI did and passes the new one on both engines), and the Full E2E 44467012706 on main passed after it, on a
+  rerun of its WebKit job, which closes the item. The four rows passed in Linux WebKit on both attempts; the first attempt
+  failed a different timing check (the session reset screen's opacity as the page leaves, 0.948692 against 0.95), which
+  the record keeps as a new open item that holds nothing. The release record also closes the 9.0.27
   LAN-direct open item with the owner's five same-Wi-Fi shares on production 9.0.829 (2026-11-17), all proven
   LAN-direct by native-host on both ends with good sound (the refined-host path was not seen on a device). The App
   update after 9.0.829 / v829, first on main `d86c2bde` (the 9.0.829 release record). Nine increments; A to C were built and reviewed on their own branches first, E to H

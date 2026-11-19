@@ -275,9 +275,15 @@ test.describe('boot splash', () => {
 
   test('steps aside for the page when nothing after the page file arrives', async ({ page }) => {
     // A connection that drops right after the document: the start-up scripts,
-    // the app stylesheet and the module graph never arrive, so neither
-    // fouc-cleanup.js nor the stylesheet's fallback can lift the splash.
-    await page.route(/\/(?:bootstrap|fouc-cleanup)\.js(?:\?.*)?$/u, (route) => route.abort());
+    // the splash's runtime, the app stylesheet and the module graph never
+    // arrive, so neither fouc-cleanup.js nor the stylesheet's fallback can
+    // lift the splash, and only the page file's own last resort hides it.
+    // (wordmark-anim.js would take the splash out of rendering as that fade
+    // ends, which hides it even where the fade does not, and the engine then
+    // drops the fade the pin below reads.)
+    await page.route(/\/(?:bootstrap|fouc-cleanup|wordmark-anim)\.js(?:\?.*)?$/u, (route) =>
+      route.abort(),
+    );
     await page.route(/\/(?:assets|src|css)\//u, (route) => route.abort());
     await page.goto('/', { waitUntil: 'commit' });
     await page.locator('.boot-splash').waitFor({ state: 'attached' });
@@ -285,10 +291,11 @@ test.describe('boot splash', () => {
     // Shorten the shared boot-failure delay (the splash adds its 5 s margin).
     await page.addStyleTag({ content: ':root { --setup-boot-failure-delay: 0s !important; }' });
     // That margin as the engine took it from the sheet: the splash's own fade,
-    // at once, 5 s after that delay. Read rather than timed (owner decision
-    // 2026-11-19: tests that depend on machine speed are fixed in the test):
-    // the splash hides on that clock however late a slow machine draws it, so
-    // the waits below only bound a page that never steps aside.
+    // at once, 5 s after that delay, which its fill keeps readable once it has
+    // run. Read rather than timed (owner decision 2026-11-19: tests that depend
+    // on machine speed are fixed in the test): the splash hides on that clock
+    // however late a slow machine draws it, so the waits below only bound a
+    // page that never steps aside.
     expect(await animationTiming(page, '.boot-splash', 'boot-splash-fail-open')).toBe(
       'boot-splash-fail-open 0ms after 5000ms',
     );

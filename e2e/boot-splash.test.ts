@@ -67,6 +67,15 @@ function between(colour: string, from: string, to: string): boolean {
   );
 }
 
+/** How far one colour is from another, over all three channels together. */
+function distance(colour: string, other: string): number {
+  const [left, right] = [channels(colour), channels(other)];
+  return left.reduce(
+    (sum, value, index) => sum + Math.abs(value - (right[index] ?? Number.NaN)),
+    0,
+  );
+}
+
 /** The page's own background as WebKit reads it: body's over the root's. */
 function pageColour(frame: { root: string; body: string }): string {
   return frame.body === 'rgba(0, 0, 0, 0)' || frame.body === 'transparent'
@@ -934,6 +943,63 @@ test.describe('installed iOS app', () => {
     splash: string;
   };
 
+  // How many of those frames land in the splash's 0.3 s rise measures the
+  // machine, not the page. Where the screen grows, the hold ends right after
+  // setup releases the app behind the splash, and the rise shares the main
+  // thread with the app's own work: Full E2E 44368926825 (App 9.0.831, Linux
+  // WebKit) caught two mid-rise frames there where this test wanted three, and
+  // a local Windows WebKit run of the same rows catches six to ten, 20 to 60 ms
+  // apart (eleven to fifteen, 16 ms apart, where the screen never grows). So
+  // (owner decision 2026-11-19: a fix to this test only) the rise is also read
+  // in the page, on its animations' own clock rather than in frames: where the
+  // hold ends, the page and the splash as they stand, then both rises set to
+  // the same point every 10 ms and read, and put back; how long the engine ran
+  // each rise and the splash's fade; and the page and the splash once more as
+  // the fade ends, just before the runtime retires the splash.
+  type RiseRead = { root: string; body: string; splash: string };
+  type RiseCapture = {
+    /** As the hold ended, before anything moved ('splash retired': already gone; null: never). */
+    holdEnd: (RiseRead & { fading: boolean }) | 'splash retired' | null;
+    /** Each rise as the engine took it from the sheet: its name, length and any delay. */
+    rises: { root: string | null; splash: string | null };
+    /** Both rises set to the same point into them, then put back. */
+    seeks: (RiseRead & { at: number })[];
+    /** Where each rise started on the document timeline, once the engine started it. */
+    started: { root: number | null; splash: number | null } | null;
+    /** The three animations' start, end and cancel events, with how far into each (ms). */
+    events: string[];
+    /** As the splash's fade ended, just before the runtime retired the splash. */
+    fadeEnd: RiseRead | null;
+    /** What the reading threw, if anything. */
+    error: string | null;
+  };
+  /**
+   * The rise's and the fade's length: index.html's 0.3 s (owner suggestion and
+   * decision 2026-11-16), which src/core/__tests__/boot-splash.test.ts pins in
+   * the sheet.
+   */
+  const RISE_MS = 300;
+  /** Every 10 ms into the rise, short of its end, so no seek sends an animation event. */
+  const RISE_SEEK_MS = Array.from({ length: RISE_MS / 10 - 1 }, (_, index) => (index + 1) * 10);
+  /**
+   * Well inside both themes' mid-rise colours (on ease-out, about 5 to 261 ms
+   * of the dark theme's 18 steps and 13 to 235 ms of the light theme's 7).
+   */
+  const RISE_MIDWAY_MS = [50, 100, 150, 200];
+  /**
+   * The root's rise and the splash's fade and rise, each run from its start to
+   * its end: an end event carries its animation's whole length, however late a
+   * busy page sends it.
+   */
+  const RISE_EVENTS = [
+    `root boot-splash-root-rise end ${RISE_MS}`,
+    'root boot-splash-root-rise start 0',
+    `splash boot-splash-out end ${RISE_MS}`,
+    'splash boot-splash-out start 0',
+    `splash boot-splash-rise end ${RISE_MS}`,
+    'splash boot-splash-rise start 0',
+  ];
+
   for (const row of [
     {
       label: 'a first open whose screen grows',
@@ -979,7 +1045,7 @@ test.describe('installed iOS app', () => {
         sessionStorage.clear();
       }, row.stored);
       await page.addInitScript(
-        ({ screenWidth, screenHeight }) => {
+        ({ screenWidth, screenHeight, seekTimes }) => {
           Object.defineProperty(Navigator.prototype, 'standalone', {
             configurable: true,
             get: () => true,
@@ -1018,8 +1084,147 @@ test.describe('installed iOS app', () => {
             requestAnimationFrame(sample);
           };
           requestAnimationFrame(sample);
+
+          const rise: RiseCapture = {
+            holdEnd: null,
+            rises: { root: null, splash: null },
+            seeks: [],
+            started: null,
+            events: [],
+            fadeEnd: null,
+            error: null,
+          };
+          (window as typeof window & { __rise: RiseCapture }).__rise = rise;
+          /** The page's and the splash's colours now (null once the splash is gone). */
+          const read = (): RiseRead | null => {
+            const splash = document.querySelector<HTMLElement>('.boot-splash');
+            if (!splash || splash.hidden || !document.body) return null;
+            return {
+              root: getComputedStyle(document.documentElement).backgroundColor,
+              body: getComputedStyle(document.body).backgroundColor,
+              splash: getComputedStyle(splash).backgroundColor,
+            };
+          };
+          /** The element's own CSS animation by that name (not a pseudo-element's). */
+          const own = (target: Element, name: string): Animation | null =>
+            target
+              .getAnimations()
+              .find(
+                (animation) =>
+                  (animation as CSSAnimation).animationName === name &&
+                  !(animation.effect as KeyframeEffect | null)?.pseudoElement,
+              ) ?? null;
+          /** Its name, length and any delay, as the engine took them from the sheet. */
+          const timing = (animation: Animation | null): string | null => {
+            if (!animation?.effect) return null;
+            const { duration, delay } = animation.effect.getTiming();
+            const length = typeof duration === 'number' ? Math.round(duration) : String(duration);
+            const late = delay ? ` after ${Math.round(delay)}ms` : '';
+            return `${(animation as CSSAnimation).animationName} ${length}ms${late}`;
+          };
+          /** A start time in ms (the API's type is wider). */
+          const ms = (time: CSSNumberish | null): number | null =>
+            typeof time === 'number' ? time : null;
+
+          // src/core/platform.ts ends the hold in its height update's frame
+          // callback once the screen has grown, or in its boot window's timer.
+          // This runs in the microtask right after, before anything else reads
+          // or renders the page, so its first style read starts what the hold's
+          // end matches: both rises at their first instant, not yet given a
+          // start time. The document has no root yet when this script runs:
+          // watch the document itself.
+          let holding = false;
+          const holdEnd = new MutationObserver(() => {
+            const root = document.documentElement;
+            if (root.hasAttribute('data-boot-hold')) {
+              holding = true;
+              return;
+            }
+            if (!holding) return;
+            holdEnd.disconnect();
+            try {
+              const stood = read();
+              const splash = document.querySelector<HTMLElement>('.boot-splash');
+              if (!stood || !splash) {
+                rise.holdEnd = 'splash retired';
+                return;
+              }
+              const rootRise = own(root, 'boot-splash-root-rise');
+              const splashRise = own(splash, 'boot-splash-rise');
+              rise.holdEnd = { ...stood, fading: own(splash, 'boot-splash-out') !== null };
+              rise.rises = { root: timing(rootRise), splash: timing(splashRise) };
+              if (!rootRise || !splashRise) return;
+              // Both rises at the same point, then each back where it stood:
+              // one still waiting for its start keeps its hold time, one already
+              // started its start time. Nothing pauses them, so the sheet keeps
+              // their play state, and no point reaches their end, so no event
+              // comes of it. The fade is never moved: its end retires the splash.
+              const putBack = [rootRise, splashRise].map((animation) => {
+                const { startTime, currentTime } = animation;
+                return () => {
+                  if (startTime !== null) animation.startTime = startTime;
+                  else if (currentTime !== null) animation.currentTime = currentTime;
+                };
+              });
+              try {
+                for (const at of seekTimes) {
+                  rootRise.currentTime = at;
+                  splashRise.currentTime = at;
+                  const seeked = read();
+                  if (seeked) rise.seeks.push({ at, ...seeked });
+                }
+              } finally {
+                for (const restore of putBack) restore();
+              }
+              Promise.all([rootRise.ready, splashRise.ready]).then(
+                () => {
+                  rise.started = { root: ms(rootRise.startTime), splash: ms(splashRise.startTime) };
+                },
+                () => undefined,
+              );
+            } catch (error) {
+              rise.error = String(error);
+            }
+          });
+          holdEnd.observe(document, {
+            attributes: true,
+            subtree: true,
+            attributeFilter: ['data-boot-hold'],
+          });
+
+          // How the engine ran the root's rise and the splash's fade and rise:
+          // a start or end event carries how far into its animation it came (an
+          // end, the whole length), however late a busy page sends it. The
+          // fade's end is the splash's last instant: this listener on the
+          // document reads the page there before the runtime's own on the
+          // splash retires it (wordmark-anim.ts).
+          const names = ['boot-splash-root-rise', 'boot-splash-rise', 'boot-splash-out'];
+          for (const type of ['animationstart', 'animationend', 'animationcancel']) {
+            document.addEventListener(
+              type,
+              (event) => {
+                const { animationName, elapsedTime, target } = event as AnimationEvent;
+                if (!names.includes(animationName)) return;
+                let on: 'root' | 'splash';
+                if (target === document.documentElement) on = 'root';
+                else if (target === document.querySelector('.boot-splash')) on = 'splash';
+                else return;
+                const phase = type.slice('animation'.length);
+                const elapsed = Math.round(elapsedTime * 1000);
+                rise.events.push(`${on} ${animationName} ${phase} ${elapsed}`);
+                if (on === 'splash' && animationName === 'boot-splash-out' && phase === 'end') {
+                  try {
+                    rise.fadeEnd ??= read();
+                  } catch (error) {
+                    rise.error ??= String(error);
+                  }
+                }
+              },
+              true,
+            );
+          }
         },
-        { screenWidth: width, screenHeight: height },
+        { screenWidth: width, screenHeight: height, seekTimes: RISE_SEEK_MS },
       );
       // The first screen stops 34 px short, as an iPhone's does by its home
       // indicator strip.
@@ -1061,24 +1266,41 @@ test.describe('installed iOS app', () => {
         null,
         { timeout: 30_000, polling: 50 },
       );
-      const frames = await page.evaluate(
-        () => (window as typeof window & { __stripFrames: StripFrame[] }).__stripFrames,
-      );
+      const { frames, rise } = await page.evaluate(() => {
+        const captured = window as typeof window & {
+          __stripFrames: StripFrame[];
+          __rise: RiseCapture;
+        };
+        return { frames: captured.__stripFrames, rise: captured.__rise };
+      });
 
       const strip = STRIP[theme];
       const background = APP_BG[theme];
       const lastHeld = frames.map((frame) => frame.held).lastIndexOf(true);
       const held = frames.slice(0, lastHeld + 1);
       const after = frames.slice(lastHeld + 1);
+      const { holdEnd, started } = rise;
+      if (holdEnd !== null && typeof holdEnd === 'object' && !holdEnd.fading) {
+        // The boot window ended the hold before setup released the app (setup
+        // took longer than that window here), so the splash rose by its rising
+        // rule and faded only later, not in the order these rows are written
+        // for. Every check below holds in that order too: report it, rather
+        // than fail on the machine's speed.
+        test.info().annotations.push({
+          type: 'hold',
+          description: 'the boot window ended the hold before setup released the app',
+        });
+      }
       // The run reached both halves: the app stylesheet applied while the splash
-      // held, and the splash rose in the frames after.
+      // held, and the hold ended while the splash was up.
       expect(tally(frames, (frame) => [frame.theme !== theme && `theme ${frame.theme}`])).toEqual(
         {},
       );
       expect(held.filter((frame) => frame.held && frame.sheet).length).toBeGreaterThan(0);
-      expect(
-        after.filter((frame) => between(frame.splash, strip, background)).length,
-      ).toBeGreaterThanOrEqual(3);
+      const midway = RISE_MIDWAY_MS.map((at) => ({
+        at,
+        splash: rise.seeks.find((seek) => seek.at === at)?.splash ?? 'none',
+      }));
       expect({
         // While it holds, the page is the splash's colour, before and after the
         // app stylesheet applies.
@@ -1091,7 +1313,71 @@ test.describe('installed iOS app', () => {
         rising: after
           .filter((frame) => !near(frame.root, frame.splash) || frame.body !== frame.root)
           .map((frame) => `root ${frame.root}, body ${frame.body}, splash ${frame.splash}`),
-      }).toEqual({ held: {}, rising: [] });
+        error: rise.error,
+        // However few of those frames a machine renders: where the hold ended,
+        // the page and the splash stood on the strip's colour, and both rises
+        // started there, 0.3 s each with no delay.
+        holdEnd:
+          holdEnd !== null && typeof holdEnd === 'object'
+            ? { root: holdEnd.root, body: holdEnd.body, splash: holdEnd.splash }
+            : holdEnd,
+        rises: rise.rises,
+        // At every 10 ms of them the page (the root, and body with it) is
+        // within a step of the splash, and midway the splash is on its way to
+        // the app's colour, nearer it each time: a rise, not a jump.
+        seekedAt: rise.seeks.map(({ at }) => at),
+        inStep: rise.seeks
+          .filter(({ root, body, splash }) => !near(root, splash) || body !== root)
+          .map(
+            ({ at, root, body, splash }) =>
+              `${at} ms: root ${root}, body ${body}, splash ${splash}`,
+          ),
+        onTheWay: midway
+          .filter(({ splash }, index) => {
+            const previous = midway[index - 1]?.splash;
+            return (
+              !between(splash, strip, background) ||
+              (previous !== undefined &&
+                distance(splash, background) >= distance(previous, background))
+            );
+          })
+          .map(({ at, splash }) => `${at} ms: splash ${splash}`),
+        // They started together (within a millisecond of clock rounding), so
+        // the page matches the splash on every frame, rendered or not.
+        startedTogether:
+          started === null || started.root === null || started.splash === null
+            ? started
+            : Math.abs(started.splash - started.root) <= 1 ||
+              `splash minus root: ${Math.round(started.splash - started.root)} ms`,
+        // As the splash's fade over the app ended, the page and the splash had
+        // both reached the app's colour.
+        fadeEnd: rise.fadeEnd,
+      }).toEqual({
+        held: {},
+        rising: [],
+        error: null,
+        holdEnd: { root: strip, body: strip, splash: strip },
+        rises: {
+          root: `boot-splash-root-rise ${RISE_MS}ms`,
+          splash: `boot-splash-rise ${RISE_MS}ms`,
+        },
+        seekedAt: RISE_SEEK_MS,
+        inStep: [],
+        onTheWay: [],
+        startedTogether: true,
+        fadeEnd: { root: background, body: background, splash: background },
+      });
+      // The engine ran the root's rise and the splash's fade and rise for their
+      // whole 0.3 s each, so the splash stayed up through its rise (the runtime
+      // retires it as the fade ends). Polled: the root's end can come a frame
+      // after the splash's.
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            [...(window as typeof window & { __rise: RiseCapture }).__rise.events].sort(),
+          ),
+        )
+        .toEqual(RISE_EVENTS);
 
       // Nothing stays on the root afterwards: the app's own background follows
       // a theme change at once.

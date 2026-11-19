@@ -3599,8 +3599,10 @@ RO-55 accepted-exception
     too, and runs the action once", "times that wait by the fade-in's own clock, which a busy
     page starts only at its first frame" and "starts the action at once when the fade-in has
     already run by the second frame"; `e2e/boot-splash.test.ts` "shows the splash's wordmark and
-    loader without text, and the page it opens continues them" (the overlay's opacity when the
-    page leaves).
+    loader without text, and the page it opens continues them" (the page leaves no earlier than
+    the deadline the reset took from its fade-in: the second frame after the show plus what was
+    left of it there, or the fallback's due time when no second frame came first; and the
+    fade-in as the engine runs it, 0.2 s of opacity to 1).
   - User pause/stop: n/a.
   - Teardown: `session-reset.test.ts` "recovers a no-op navigation and accepts a later reset
     request".

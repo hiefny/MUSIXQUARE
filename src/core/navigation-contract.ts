@@ -24,6 +24,14 @@
 export const RESET_PAINT_FALLBACK_MS = 120;
 
 /**
+ * A visible page can render the reset screen's first frame late (a busy WebKit
+ * page past the fallback above), so until a first frame comes it waits this
+ * long after the show instead (owner decision 2026-11-20). A page that cannot
+ * render frames (hidden, or no requestAnimationFrame) keeps the fallback above.
+ */
+export const RESET_FIRST_FRAME_LIMIT_MS = 800;
+
+/**
  * After the reset's action runs, the document must reach pagehide within this
  * window; otherwise the navigation did not commit (a rejected or no-op
  * navigation, such as history traversal at the edge of the stack) and the

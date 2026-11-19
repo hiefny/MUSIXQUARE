@@ -7,6 +7,8 @@ import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../../ui/material-elastic-spinne
 import {
   BOOT_SPLASH_CONTINUITY_BOX_KEY,
   BOOT_SPLASH_CONTINUITY_KEY,
+  RESET_FIRST_FRAME_LIMIT_MS,
+  RESET_PAINT_FALLBACK_MS,
 } from '../navigation-contract.ts';
 import { stubNavigationSinks } from './__helpers__/navigation-sinks.ts';
 
@@ -368,6 +370,104 @@ describe('session reset coordinator', () => {
     // The computed 0.2 s from the show, as without the Web Animations API.
     vi.advanceTimersByTime(149);
     expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it('waits for a first frame that comes after the fallback on a visible page, then for the whole fade-in', async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    // A busy WebKit page: no frame by the fallback's due time.
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + 200);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(80);
+    // The first frame comes 400 ms after the show and the fade-in starts there.
+    stubFadeInClock({ currentTime: 0, endTime: 200 });
+    frames.shift()?.(400);
+    vi.advanceTimersByTime(16);
+    stubFadeInClock({ currentTime: 16, endTime: 200 });
+    frames.shift()?.(416);
+    vi.advanceTimersByTime(183);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("finds the fade-in's end by its own clock when the second frame comes after the fallback", async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    // The first frame comes 264 ms after the show and starts the fade-in.
+    vi.advanceTimersByTime(264);
+    stubFadeInClock({ currentTime: 0, endTime: 200 });
+    frames.shift()?.(264);
+    // The fallback's due time passes before the second frame, mid fade-in.
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + 200 - 264);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(400 - (RESET_PAINT_FALLBACK_MS + 200));
+    stubFadeInClock({ currentTime: 136, endTime: 200 });
+    frames.shift()?.(400);
+    vi.advanceTimersByTime(63);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a visible page that renders no frame at the first-frame limit', async () => {
+    useFrames();
+    stubResetFadeIn();
+    const { RESET_FIRST_FRAME_LIMIT_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    vi.advanceTimersByTime(RESET_FIRST_FRAME_LIMIT_MS - 1);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(1_000);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a hidden page, which renders no frame, at the fallback', async () => {
+    useFrames();
+    stubResetFadeIn();
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + 199);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it('counts the fallback from the first frame when no second frame follows it', async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    vi.advanceTimersByTime(300);
+    stubFadeInClock({ currentTime: 0, endTime: 200 });
+    frames.shift()?.(300);
+    // Frames stop: the fade-in, which started at that frame, ends at 500 ms.
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + 199);
+    expect(action).not.toHaveBeenCalled();
+    stubFadeInClock({ currentTime: RESET_PAINT_FALLBACK_MS + 200, endTime: 200 });
     vi.advanceTimersByTime(1);
     expect(action).toHaveBeenCalledOnce();
   });
@@ -1255,9 +1355,11 @@ describe('session reset coordinator', () => {
     // fallback, the 2 s commit deadline, pagehide and pageshow (persisted or
     // not) and visibility. initPageNavigation is not called, so the owner's
     // bfcache reload stays out; the harness pins that path. The model writes out today's
-    // rule: two frames or the fallback run the action once, pagehide commits,
-    // and only a return after the commit, or the deadline after the action,
-    // restores.
+    // rule: two frames run the action once, and so does the first-frame limit
+    // before any frame (the page is visible at the show) or the fallback
+    // counted from the first frame (this screen has no fade-in here); pagehide
+    // commits, and only a return after the commit, or the deadline after the
+    // action, restores.
     type Step =
       | 'frame'
       | 'fallback'
@@ -1284,16 +1386,18 @@ describe('session reset coordinator', () => {
       phase: 'painting' | 'navigating' | 'left' | 'idle';
       frames: number;
       now: number;
+      /** When the paint wait runs the action without a second frame. */
+      paintDue: number;
       actionAt: number;
       actions: number;
     }
 
     function advanceModel(model: Model, ms: number): void {
       const target = model.now + ms;
-      if (model.phase === 'painting' && target >= 120) {
+      if (model.phase === 'painting' && target >= model.paintDue) {
         model.phase = 'navigating';
         model.actions += 1;
-        model.actionAt = Math.max(model.now, 120);
+        model.actionAt = Math.max(model.now, model.paintDue);
       }
       if (model.phase === 'navigating' && target >= model.actionAt + 2_000) model.phase = 'idle';
       model.now = target;
@@ -1303,6 +1407,7 @@ describe('session reset coordinator', () => {
       if (step === 'frame') {
         if (model.phase !== 'painting') return;
         model.frames += 1;
+        if (model.frames === 1) model.paintDue = model.now + RESET_PAINT_FALLBACK_MS;
         if (model.frames === 2) {
           model.phase = 'navigating';
           model.actions += 1;
@@ -1355,7 +1460,14 @@ describe('session reset coordinator', () => {
         for (const sequence of sequences(400, 8)) {
           setVisibility('visible');
           frames.clear();
-          const model: Model = { phase: 'painting', frames: 0, now: 0, actionAt: 0, actions: 0 };
+          const model: Model = {
+            phase: 'painting',
+            frames: 0,
+            now: 0,
+            paintDue: RESET_FIRST_FRAME_LIMIT_MS,
+            actionAt: 0,
+            actions: 0,
+          };
           const action = vi.fn();
           const outcomes: string[] = [];
           scheduleSessionReset('Sequence', action)?.onSettled((outcome) => outcomes.push(outcome));

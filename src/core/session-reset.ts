@@ -67,6 +67,7 @@ import {
   BOOT_SPLASH_CONTINUITY_KEY,
   NAVIGATION_COMMIT_TIMEOUT_MS,
   NAVIGATION_PREPARE_TIMEOUT_MS,
+  RESET_FIRST_FRAME_LIMIT_MS,
   RESET_PAINT_FALLBACK_MS,
 } from './navigation-contract.ts';
 
@@ -117,7 +118,9 @@ interface NavigationAttempt {
  *   what is left of the overlay's own fade-in by that transition's clock (it
  *   starts on the first frame the page renders, which a busy page can hold
  *   well past the show), or, when no frame comes, for the
- *   RESET_PAINT_FALLBACK_MS timeout after that fade-in's length. The page a
+ *   RESET_PAINT_FALLBACK_MS timeout after that fade-in's length (counted from
+ *   the first frame once one comes; before it, a visible page waits for one up
+ *   to RESET_FIRST_FRAME_LIMIT_MS after the show). The page a
  *   navigation opens then continues a whole screen rather than a half-shown one.
  * - preparing: the request's prepare step runs, bounded by
  *   NAVIGATION_PREPARE_TIMEOUT_MS.
@@ -1026,9 +1029,26 @@ function beginAttempt(
     else runAction();
   };
 
-  attempt.timers.paint = window.setTimeout(runAction, RESET_PAINT_FALLBACK_MS + fadeInMs);
-  if (typeof window.requestAnimationFrame === 'function') {
+  // Before a first frame: a page that cannot render frames (no
+  // requestAnimationFrame, or hidden) runs the action RESET_PAINT_FALLBACK_MS
+  // beyond the fade-in's length; a visible page, whose first frame a busy
+  // engine can hold past that (WebKit), waits for it up to
+  // RESET_FIRST_FRAME_LIMIT_MS after the show.
+  const canRenderFrames = typeof window.requestAnimationFrame === 'function';
+  attempt.timers.paint = window.setTimeout(
+    runAction,
+    canRenderFrames && document.visibilityState === 'visible'
+      ? RESET_FIRST_FRAME_LIMIT_MS
+      : RESET_PAINT_FALLBACK_MS + fadeInMs,
+  );
+  if (canRenderFrames) {
     const firstFrame = window.requestAnimationFrame(() => {
+      if (_state.phase !== 'painting' || _state.attempt !== attempt) return;
+      // The page renders, and the fade-in starts at this frame: the fallback
+      // now counts from here and, like the second frame, reads what is left
+      // of the fade-in by its own clock, so a late second frame cannot cut it.
+      window.clearTimeout(attempt.timers.paint);
+      attempt.timers.paint = window.setTimeout(runOnceFadedIn, RESET_PAINT_FALLBACK_MS + fadeInMs);
       const secondFrame = window.requestAnimationFrame(runOnceFadedIn);
       attempt.timers.frames.push(secondFrame);
     });

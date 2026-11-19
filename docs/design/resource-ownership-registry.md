@@ -3602,7 +3602,10 @@ RO-55 accepted-exception
     loader without text, and the page it opens continues them" (the page leaves no earlier than
     the deadline the reset took from its fade-in: the second frame after the show plus what was
     left of it there, or the fallback's due time when no second frame came first; and the
-    fade-in as the engine runs it, 0.2 s of opacity to 1).
+    fade-in as the engine runs it, 0.2 s of opacity to 1). On a starved page that deadline can
+    come before the fade-in's end: the fallback fires when no second frame has come by its due
+    time, even after a first one started the fade-in, and a fade-in still waiting to start at the
+    second frame is waited from there. The row passes such a leave and prints it in its output.
   - User pause/stop: n/a.
   - Teardown: `session-reset.test.ts` "recovers a no-op navigation and accepts a later reset
     request".

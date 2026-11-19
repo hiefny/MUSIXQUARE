@@ -401,10 +401,10 @@ test.describe('session reset screen', () => {
     // stand at the last frame the page drew, behind a leave that came on time;
     // and on a starved page the reset's own deadline (its fallback, or a
     // fade-in that started only after its second frame) can come before the
-    // fade-in's end (both inferred). So (owner decision 2026-11-19: a fix to
-    // this test only) the page records what the reset reads, where it reads
-    // it, and the next page checks the leave against the deadline the reset
-    // took from that.
+    // fade-in's end (local runs show both; which one that CI run hit is not
+    // known). So (owner decision 2026-11-19: a fix to this test only) the page
+    // records what the reset reads, where it reads it, and the next page
+    // checks the leave against the deadline the reset took from that.
     await page.evaluate(() => {
       const record: ResetLeave = { show: null, frames: [], leave: null, error: null };
       const ms = (time: CSSNumberish | null | undefined): number | null =>
@@ -575,16 +575,23 @@ test.describe('session reset screen', () => {
     expect(
       await page.evaluate(() => sessionStorage.getItem('mxqr-boot-continuity-box')),
     ).toBeNull();
-    // It left only once the screen had faded in (0.2 s), so the next page took
-    // over a whole screen rather than a half-shown one: no earlier than the
-    // deadline the reset set on this machine. Where its second frame after the
-    // show came before its fallback could fire (that frame clears it), that
-    // frame's time plus what was left of the fade-in there; otherwise
+    // It left no earlier than the deadline the reset set on this machine for
+    // its screen's 0.2 s fade-in. Where its second frame after the show came
+    // before its fallback could fire (that frame clears it), that frame's time
+    // plus what was left of the fade-in there; otherwise
     // RESET_PAINT_FALLBACK_MS beyond the fade-in's length after the stamp,
     // which the reset takes just before it sets that fallback. Each comparison
     // reads one clock of the leaving page, so frames that come late move the
-    // deadline with the leave. The opacity the leaving task read is only
-    // reported.
+    // deadline with the leave. On a starved page that deadline can come before
+    // the fade-in's end, and this check passes such a leave although the next
+    // page then takes over a half-shown screen: the fallback fires when no
+    // second frame has come by its due time, even after a first one started
+    // the fade-in, and a fade-in still waiting to start at the second frame is
+    // waited from there (session-reset.ts; whether the reset should wait for
+    // the fade-in there is the owner's question). The opacity the leaving task
+    // read is only reported, in the 'reset leave' annotation and, for a leave
+    // by the fallback or before the fade-in's end, in the run's output too:
+    // CI's line reporter prints a passing run's output but no annotation.
     const leaving = JSON.parse(
       (await page.evaluate(() => sessionStorage.getItem('e2e-reset-leave'))) ?? 'null',
     ) as ResetLeave | null;
@@ -614,18 +621,28 @@ test.describe('session reset screen', () => {
     if (shown && atLeave && deadline) {
       // For the report only, so it may mix the fade-in's clock with
       // performance.now() (one time origin, inferred).
+      const { started } = atLeave;
+      const afterEnd =
+        started === null || shown.length === null ? null : atLeave.now - started - shown.length;
       const ran =
-        atLeave.started === null || shown.length === null
+        started === null || afterEnd === null
           ? 'the fade-in had not started'
-          : `the fade-in started ${Math.round(atLeave.started - shown.now)} ms after the show ` +
-            `and the page left ${Math.round(atLeave.now - atLeave.started - shown.length)} ms ` +
-            'after its end';
-      test.info().annotations.push({
-        type: 'reset leave',
-        description:
-          `${deadline.path}: left ${Math.round(deadline.leftAt - deadline.due)} ms after that ` +
-          `deadline; ${ran}; opacity ${atLeave.opacity} as the leaving task read it`,
-      });
+          : `the fade-in started ${Math.round(started - shown.now)} ms after the show ` +
+            `and the page left ${Math.round(afterEnd)} ms after its end`;
+      // The frames the page drew from the show until it left (two at most), so
+      // a fallback before any frame reads apart from one that came after a
+      // first frame had started the fade-in.
+      const count = leaving?.frames.length ?? 0;
+      const drawn = count === 0 ? 'no frame' : count === 1 ? 'one frame' : `${count} frames`;
+      const pathLabel =
+        deadline.path === 'fallback' ? `fallback (${drawn} since the show)` : deadline.path;
+      const description =
+        `${pathLabel}: left ${Math.round(deadline.leftAt - deadline.due)} ms after that ` +
+        `deadline; ${ran}; opacity ${atLeave.opacity} as the leaving task read it`;
+      test.info().annotations.push({ type: 'reset leave', description });
+      if (deadline.path === 'fallback' || afterEnd === null || afterEnd < -RESET_CLOCK_SLACK_MS) {
+        console.log(`reset leave: ${description}`);
+      }
     }
     expect({
       // The fade-in as the engine ran it: 0.2 s of opacity, with no delay, to

@@ -472,6 +472,27 @@ describe('session reset coordinator', () => {
     expect(action).toHaveBeenCalledOnce();
   });
 
+  it("waits out a fade-in that started after the first frame when that frame's fallback fires first", async () => {
+    const frames = useFrames();
+    stubResetFadeIn();
+    const { RESET_PAINT_FALLBACK_MS } = await import('../navigation-contract.ts');
+    const action = vi.fn();
+    const { scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Refreshing session...', action);
+    frames.shift()?.(0);
+    // No second frame: the fallback from the first frame fires while the
+    // fade-in, which a busy page started late, still has 100 ms to run.
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS + 199);
+    stubFadeInClock({ currentTime: 100, endTime: 200 });
+    vi.advanceTimersByTime(1);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(99);
+    expect(action).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(action).toHaveBeenCalledOnce();
+  });
+
   it('ignores the frames of a reset that a returning page already ended', async () => {
     const frames = useFrames();
     stubResetFadeIn();

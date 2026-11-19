@@ -3610,8 +3610,9 @@ RO-55 accepted-exception
     already run by the second frame", "waits for a first frame that comes after the fallback on
     a visible page, then for the whole fade-in", "finds the fade-in's end by its own clock when
     the second frame comes after the fallback", "leaves a visible page that renders no frame at
-    the first-frame limit", "leaves a hidden page, which renders no frame, at the fallback" and
-    "counts the fallback from the first frame when no second frame follows it";
+    the first-frame limit", "leaves a hidden page, which renders no frame, at the fallback",
+    "counts the fallback from the first frame when no second frame follows it" and "waits out a
+    fade-in that started after the first frame when that frame's fallback fires first";
     `navigation-contract.test.ts` "waits longer for a visible page's first frame, still well
     inside the commit window"; `e2e/boot-splash.test.ts` "shows the splash's wordmark and
     loader without text, and the page it opens continues them" (the page leaves no earlier than

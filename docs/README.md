@@ -97,8 +97,23 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.833 / v833 train: the custom scrollbar shows for a mouse or pen over its scroll area and stays while the pointer rests on it, and a faded bar lets a finger through to the list (2026-11-20)](design/app-9-0-833-train-2026-11-20.md):
-  built on its train branch, not merged or released. The App update after 9.0.832 / v832, on main `4e012ad1` (#619),
-  for the owner's own scrollbar change of 2026-11-20, which the train carries unchanged as its first commit (`cefea6e5`,
+  released on 2026-11-21 02:13 KST in Release 44780691557 (PR #621, squash `884015a0`) as App 9.0.833 / v833 (App build
+  833, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker
+  changed (`d8f27952` to `fedf9e18`); the four smokes passed at the first try, the final ownership check verified, and
+  the Drift Audit passed (32 pass, 0 fail, 5 manual-only, live build 833). It is the first App release after #620: its
+  deploy step recorded the new deployment with `record-current app` in wait mode, and the first read already saw it
+  (one visibility read, no stale read), so the bounded re-read was used but never had to read again. That meets the
+  first closing basis of the 9.0.832 release tooling item, which stays open until the owner decides its three remaining
+  questions. Post-deploy reads found `/` and `/ko/` loading `bootstrap.js?cache=v833`, the entry `main-FVSmuJyW.js` and
+  the main CSS `main--vEvUZ5a.css` that the final gate and the exact-main candidate built, the preflight pin unchanged
+  in their CSP with the preflight body equal to it, and v833; headless Chromium and WebKit iPhone first visits reached
+  the start screen with no CSP violation or page error, Japanese, Simplified Chinese and Traditional Chinese first
+  visits loaded only their own Han family, and the English start screen fetched only the symbol spaces face (and the
+  math face once ≤ was drawn) while the Korean one fetched none. Its post-merge Full E2E 44781228681 passed at
+  attempt 1 (Chromium 1,173 passed with the three scrollbar rows the train added, WebKit 214 passed and 12 skipped,
+  the same counts as the final gate's WebKit lane, with the production-build service worker test, and the large-room
+  R2 smoke). The App update after
+  9.0.832 / v832, on main `4e012ad1` (#619), for the owner's own scrollbar change of 2026-11-20, which the train carries unchanged as its first commit (`cefea6e5`,
   from a snapshot the owner's working tree still matches byte for byte): over an overflowing scroll area a mouse or pen
   shows the bar (thumb at 0.2), the bar stays while a hover pointer rests anywhere on it (the thumb shows 0.4 under the
   pointer) and fades a full 1.2 s delay after the pointer leaves, a dragged thumb shows 0.6, only the innermost overflowing area reveals, a touch
@@ -162,6 +177,9 @@ runbooks. Neither belongs in a general setup document.
   decided the three questions that change left open (a rule for the recovery reads and the checkpoint, waiting for the
   exact version `wrangler deploy` reports, and a resource-ownership record for release tooling), or the owner decides
   otherwise; the owner accepted that change's 18-read budget and its single read after a failed deploy on 2026-11-20.
+  That change merged as #620, and the first App release after it, 9.0.833's Release 44780691557 (2026-11-21), ran the
+  bounded re-read in its record step (`record-current app` in wait mode, whose first read already saw the new
+  deployment), which meets the first half of that basis; the item stays open for the owner's three questions.
   The App update after 9.0.831 / v831, on main `6c675c0c` (#617), for
   the owner's choice of 2026-11-20 to fix the app: on a busy page (seen with WebKit, the iPhone engine) the session
   reset screen that leaving or refreshing a session shows could leave before its 0.2 s fade-in began or halfway through
@@ -679,7 +697,7 @@ runbooks. Neither belongs in a general setup document.
   decision. The owner's device rows (D10 to D14) and the 7C-K8 scene on a phone wait; they are not a gate. The
   release record's §2 carries the train as post-deploy items, its §4 the 9.0.41 entry and current boundary line (5),
   and the hotfix procedure's 9.0.25 bullet names 9.0.41's merge SHA, Release ID and App version. The open items
-  8.11.12 and 8.11.7 link this report and stay open. The default rollback is a forward revert at 9.0.833 / v833 or the
+  8.11.12 and 8.11.7 link this report and stay open. The default rollback is a forward revert at 9.0.834 / v834 or the
   next free number; 7C reverted alone until another App train stacked on it, and 9.0.42 did on 2026-11-11 (it changes
   the same owner file), so 7C now reverts forward together with 9.0.42's changes; its merge ended 9.0.40's standalone revert
   window (9.0.40's patches still reverse cleanly on 9.0.41), and 7B now reverts only forward with it. Phase 7's end
@@ -764,7 +782,7 @@ runbooks. Neither belongs in a general setup document.
   carries the train as post-deploy items, its §4 the 9.0.40 entry and current boundary line (5), and the hotfix
   procedure's 9.0.25 bullet names 9.0.40's merge SHA, Release ID and App version. This train's merge ended 9.0.39's
   standalone revert window; 9.0.39's step-button runtime patches now reverse only after part (2), and its test patch
-  `ed50bc88` also needs `019091c7`'s row reversed. The default rollback is a forward revert at 9.0.833 / v833 or the
+  `ed50bc88` also needs `019091c7`'s row reversed. The default rollback is a forward revert at 9.0.834 / v834 or the
   next free number now that 9.0.41 shipped (its merge also ended this train's standalone revert window; this train's
   patches still reverse cleanly on 9.0.41). Not verified: real devices, Safari, the opening step's frames in WebKit, and the events page
   and chat bubbles in production.
@@ -846,7 +864,7 @@ runbooks. Neither belongs in a general setup document.
   The release record's §2 carries the train as post-deploy items, its §4 the 9.0.39 entry and current boundary line
   (5), and the hotfix procedure's 9.0.25 bullet names 9.0.39's merge SHA, Release ID and App version. This train's
   merge ended 9.0.38's standalone revert window and the path that reverses 7A's patches alone; the default rollback
-  is a forward revert at 9.0.833 / v833 or the next free number now that 9.0.40 to 9.0.832 shipped (9.0.40's merge also
+  is a forward revert at 9.0.834 / v834 or the next free number now that 9.0.40 to 9.0.833 shipped (9.0.40's merge also
   ended this train's standalone revert window); T2's merge on 2026-11-07 ended 7B's standalone revert window, and since
   7C (the 9.0.41 / v814 train, above) merged on 2026-11-11, 7B reverts only forward together with it.
   Not verified: real devices, WebKit for 7B (local WebKit has no AudioContext), Safari's drawing of the new cmap,
@@ -963,8 +981,8 @@ runbooks. Neither belongs in a general setup document.
   scrollbar in a short window in production. The release record's §2 carries the train as post-deploy items, its
   §4 the 9.0.38 entry and current boundary line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.38's merge
   SHA, Release ID and App version. This train's merge ended 9.0.37's standalone revert window, and the 9.0.39
-  train's merge (2026-11-05 21:08 KST) ended this train's; the default rollback is a forward revert at 9.0.833 / v833
-  or the next free number now that 9.0.39 to 9.0.832 shipped.
+  train's merge (2026-11-05 21:08 KST) ended this train's; the default rollback is a forward revert at 9.0.834 / v834
+  or the next free number now that 9.0.39 to 9.0.833 shipped.
   Not verified: real devices (the iPhone COPY with the keyboard up, touch scrolling from the side
   margins), and WebKit beyond the Playwright lanes (local, and Linux in the post-merge Full E2E, where the
   two new specs' first Linux run is read from the row counts).
@@ -1028,7 +1046,7 @@ runbooks. Neither belongs in a general setup document.
   its §4 the 9.0.37 entry and current boundary line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.37's merge SHA,
   Release ID and App version; the 9.0.36 report carries dated notes for 9.0.37's merge and release. This train's merge ended
   9.0.36's standalone revert window, and 9.0.38's merge (2026-11-05 05:59 KST) ended this train's; the default rollback is a
-  forward revert at 9.0.833 / v833 or the next free number now that 9.0.39 to 9.0.832 shipped (7A's patches alone could be
+  forward revert at 9.0.834 / v834 or the next free number now that 9.0.39 to 9.0.833 shipped (7A's patches alone could be
   reversed only until 7B merged, which happened in the 9.0.39 train on 2026-11-05 21:08 KST).
 - [iPhone YouTube return at the moment of the browser stop (2026-11-03)](design/ios-youtube-return-train-2026-11-03.md):
   released on 2026-11-04 13:51 KST as one increment of the App 9.0.37 / v810 train above (PR #570, squash `d1665230`),
@@ -1192,7 +1210,7 @@ runbooks. Neither belongs in a general setup document.
   boundary line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.36's merge SHA, Release
   ID and App version; the 6D report carries dated notes for 9.0.36's merge and release. This
   train's merge ended 6D's standalone revert window, and the 9.0.37 train's merge ended this train's own; the default
-  rollback is a forward revert at 9.0.833 / v833 or the next free number now that 9.0.37 to 9.0.832 shipped.
+  rollback is a forward revert at 9.0.834 / v834 or the next free number now that 9.0.37 to 9.0.833 shipped.
 - [App 9.0.35 / v808 train: Phase 6 6D, the YouTube start recoveries in one module, the Standard host's local start wait, the PRO start tokens, the late-joining PRO device's COMMIT catch-up and one mute rule below 0.5 % master volume (2026-11-02)](design/phase6-6d-recovery-pro-arm-2026-11-02.md):
   released on 2026-11-03 16:40 KST in Release 41597588008 (PR #565, squash `cfa81bdc`) as App
   9.0.35 / v808 (App build 808, target `app`, one update dialog, the last of Phase 6's four; the bump
@@ -1268,8 +1286,8 @@ runbooks. Neither belongs in a general setup document.
   answered Q29 to ship as is, keeping the fallback and the rare late-snapshot timeout), 6C-3's
   before/after table and timing check against the approved table, the Phase 6 end-condition
   check (condition 6's 14 days count from this release), mixed versions, rollback (checkpoint App
-  9.0.34 / v807, a forward fix at 9.0.833 / v833 or the next free number now that
-  the public-page font train shipped as 9.0.36 and the App trains from 9.0.37 to 9.0.832 shipped), the blind device
+  9.0.34 / v807, a forward fix at 9.0.834 / v834 or the next free number now that
+  the public-page font train shipped as 9.0.36 and the App trains from 9.0.37 to 9.0.833 shipped), the blind device
   candidates, the three open items, now linked from the release record, and the Phase 7 handoff. QA rounds 1 to 4 ran on the first branch (old base `bdb5759a`). QA round 5 moved it
   onto `432d4ae7` (four docs-only conflicts, every commit's `src` and `scripts` patch unchanged)
   and reran the tests-first pairs, types, lint, format, `check:workers`, three unit directories
@@ -1379,7 +1397,7 @@ runbooks. Neither belongs in a general setup document.
   notes for 9.0.35's merge and release. This train's merge ended the standalone revert windows of
   6C and the two light-theme increments; 6D's own window closed when the next App update, the
   public-page font train, merged (2026-11-03 22:08 KST), and the default rollback is a forward
-  fix at 9.0.833 / v833 or the next free number (9.0.36 to 9.0.832 shipped).
+  fix at 9.0.834 / v834 or the next free number (9.0.36 to 9.0.833 shipped).
 - [App 9.0.34 / v807 train: Phase 6 6C (one YouTube state router, one iframe audio owner and shared arm steps), no light-theme stroke on the dialog grey button and the selection bar, and lighter light-theme dividers (2026-11-02)](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md):
   released on 2026-11-02 21:20 KST in Release 41443521522 (PR #563, squash `cd8eaf47`) as App
   9.0.34 / v807 (App build 807, target `app`, one update dialog, two visible light-theme changes;
@@ -1439,7 +1457,7 @@ runbooks. Neither belongs in a general setup document.
   names 9.0.34's merge SHA, Release ID and App
   version; the 9.0.33 and 6B reports carry dated notes for 9.0.34's merge and release. This train's merge ended 9.0.33's standalone revert window; its own windows (6C and each light
   increment) closed when the next App update, 6D as 9.0.35, merged on 2026-11-03 16:27 KST, so a
-  revert now goes forward at 9.0.833 / v833 or later (9.0.36 to 9.0.832 shipped too) and reverting 6C takes 6D with it.
+  revert now goes forward at 9.0.834 / v834 or later (9.0.36 to 9.0.833 shipped too) and reverting 6C takes 6D with it.
   6C-1 turns `iframe.ts`'s fixed-order dispatch of iframe states to the start owners into a router
   with one decision per start claim kind (a kind without one does not compile) and merges the
   Standard host's held room time into one read, the pending-start predicate staying the legacy
@@ -1615,8 +1633,8 @@ runbooks. Neither belongs in a general setup document.
   MUSIXQUARE Hangul and Noto, keeping the Pretendard source file), the 9.0.31 section's 14.5 px CJK
   residual is gone for Hangul (kana and Han keep it), its §4 the 9.0.33 entry and current boundary
   line (5), and the hotfix procedure's 9.0.25 bullet names 9.0.33's merge SHA, Release ID and App
-  version. The rollback boundary is a forward revert at 9.0.833 / v833 or later now that 9.0.34 to
-  9.0.832 shipped; the train could be reverted alone only until 6C (9.0.34 / v807) merged, which happened
+  version. The rollback boundary is a forward revert at 9.0.834 / v834 or later now that 9.0.34 to
+  9.0.833 shipped; the train could be reverted alone only until 6C (9.0.34 / v807) merged, which happened
   at 21:06 KST the same day, so a fix now goes forward, and its own merge had ended 6B's
   standalone revert window; a manual rollback to the checkpoint's 9.0.32 App restores a lower
   epoch and removes every later App train too, so until the open lower-epoch rule is decided it is only an explicitly reviewed CLI
@@ -1702,7 +1720,7 @@ runbooks. Neither belongs in a general setup document.
   the blind post-deploy check, the next steps with 6C and its 6C-3 table for the owner, open
   items), its §4 the 9.0.32 entry and current boundary line (5), and the hotfix procedure's 9.0.25
   bullet names 9.0.32's merge SHA, Release ID and App version. The rollback boundary is a forward
-  revert at 9.0.833 / v833 or later now that 9.0.33 to 9.0.832 shipped; 6B could be reverted alone only until
+  revert at 9.0.834 / v834 or later now that 9.0.33 to 9.0.833 shipped; 6B could be reverted alone only until
   the next App update merged, which became 9.0.33 (`4faf38d9`, 2026-11-02 12:59 KST) rather than
   6C, so a fix now goes forward on the latest main; 6B's own merge had ended the standalone revert
   windows of 9.0.31 and 6A; a manual rollback to the checkpoint's 9.0.31 App restores a lower
@@ -1790,7 +1808,7 @@ runbooks. Neither belongs in a general setup document.
   tabular glyphs and leaves the line box, the tab header and the Hangul faces alone, and 9.0.40 / v813 (2026-11-06 14:53 KST, entry above) changes only the public pages' Korean tracking and the demo step label's opening, and 9.0.41 / v814 (2026-11-11 01:14 KST, top entry) changes neither the fonts nor the CSS, so the blind checks now run on 9.0.41 (the tab's
   number '2' is now Inter's tabular '2') and the Korean line heights now
   measure MUSIXQUARE Hangul. The rollback boundary is a forward revert at
-  9.0.833 / v833 or later now that 9.0.32 to 9.0.832 shipped; the train could be reverted alone only until the next App update (6B)
+  9.0.834 / v834 or later now that 9.0.32 to 9.0.833 shipped; the train could be reverted alone only until the next App update (6B)
   merged (`3ea689b9`, 2026-11-02 05:21 KST), so a fix now goes forward on the latest main, refitted over 9.0.33, which changed the same KR sheet and baked KR copies; a manual rollback to the checkpoint's 9.0.30 App
   restores a lower epoch and removes 6B and every later App train too, so until the open lower-epoch rule is decided it is only an explicitly
   reviewed CLI rollback.
@@ -1880,7 +1898,7 @@ runbooks. Neither belongs in a general setup document.
   answers and the delegation, Q6, rollback, the post-deploy check, the next Phase 6 steps T0b and
   then 6B, open items), its §4 the 9.0.30 entry and current boundary line (5), and the hotfix
   procedure's 9.0.25 bullet names 9.0.30's merge SHA, Release ID and App version. The rollback
-  boundary is a forward revert at 9.0.833 / v833 or later now that 9.0.31 to 9.0.832 shipped; a manual rollback
+  boundary is a forward revert at 9.0.834 / v834 or later now that 9.0.31 to 9.0.833 shipped; a manual rollback
   to the checkpoint's 9.0.29 App restores a lower epoch (and removes every later App train too), so until the open lower-epoch rule is decided it is only an
   explicitly reviewed CLI rollback, and 6A could be reverted alone only until 6B merged (`3ea689b9`,
   2026-11-02 05:21 KST), so it now reverts forward together with every later train.
@@ -1912,14 +1930,14 @@ runbooks. Neither belongs in a general setup document.
   train that moves the public pages to the app fonts, since 9.0.33 Inter, MUSIXQUARE Hangul and Noto, keeping `fonts/PretendardVariable.woff2` as the Hangul faces' source), its §4
   the 9.0.29 entry and current boundary line (5) (checkpoint artifact 13045399758, App 9.0.28
   `89ad188d`), and the hotfix procedure's 9.0.25 bullet names 9.0.29's merge SHA, Release ID and
-  App version. The rollback boundary is a forward revert at 9.0.833 / v833 or later now that 9.0.30
-  to 9.0.832 shipped; the report
+  App version. The rollback boundary is a forward revert at 9.0.834 / v834 or later now that 9.0.30
+  to 9.0.833 shipped; the report
   allows a CLI rollback of the App Worker only in the first minutes, before clients take the new
   service worker, and forbids restoring a lower epoch, while the hotfix procedure allows an
   explicitly reviewed CLI rollback to a saved version. A manual rollback after those minutes to a
   checkpoint App below v802 (9.0.28 `89ad188d`, or the 9.0.28 and 9.0.27 entries' urgent targets
   `e3457d38` and `b8dc4281`) is therefore an open item for the owner or release owner; until they
-  decide, the record follows the hotfix procedure: a code revert at 9.0.833 / v833 or later when
+  decide, the record follows the hotfix procedure: a code revert at 9.0.834 / v834 or later when
   not urgent, and only an explicitly reviewed CLI rollback when urgent. Since 9.0.30 shipped, its
   checkpoint App (9.0.29 `f9c684cb` at v802) is a lower-epoch target under the same rule, and since
   9.0.31 shipped, so is its checkpoint App (9.0.30 `50e0527d` at v803), and since 9.0.32 shipped, so is its checkpoint App (9.0.31 `dff554a2` at v804), and since 9.0.33 shipped, so is its checkpoint App (9.0.32 `e19b7085` at v805). The app draws with
@@ -2024,7 +2042,7 @@ runbooks. Neither belongs in a general setup document.
   moved from the 9.0.27 section, the post-deploy check and the open owner questions, with the
   playlist follow-up updated in place), its §4 the 9.0.28 entry and current boundary line (5), and
   the hotfix procedure's 9.0.25 bullet names 9.0.28's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.833 / v833 or later now that 9.0.29 to 9.0.832
+  rollback boundary is a forward revert at 9.0.834 / v834 or later now that 9.0.29 to 9.0.833
   shipped, or the checkpoint's 9.0.27 App without `lower` with the PRO Worker left in place, which
   now also removes every later App train (from the 9.0.29 font switch on) and restores a lower service-worker epoch, so until the owner or
   release owner decides the open rule in the 9.0.29 entry above, only as an explicitly reviewed CLI
@@ -2153,7 +2171,7 @@ runbooks. Neither belongs in a general setup document.
   pointer to the 9.0.28 section, and the chat Tab cycle follow-up, now closed), its §4 the 9.0.27 entry and
   current boundary line (5) (checkpoint artifact 13005387697, App 9.0.26 `b8dc4281`), and the
   hotfix procedure's 9.0.25 bullet names 9.0.27's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.833 / v833 or later now that 9.0.28 to 9.0.832
+  rollback boundary is a forward revert at 9.0.834 / v834 or later now that 9.0.28 to 9.0.833
   shipped, or the checkpoint's 9.0.26 App without `lower` with the PRO Worker left in place, which
   now also removes every later App train (from 9.0.28 on) and restores a lower service-worker epoch
   (the same open rule as in the 9.0.28 entry).
@@ -2275,7 +2293,7 @@ runbooks. Neither belongs in a general setup document.
   lines. The release record's §2 carries both increments as post-deploy items, its §4 the 9.0.26
   entry and current boundary line (5) (checkpoint artifact 12953960262, App 9.0.25 `b4e8fc56`), and
   the hotfix procedure's 9.0.25 bullet names 9.0.26's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.833 / v833 or later now that 9.0.27 to 9.0.832 shipped, or the
+  rollback boundary is a forward revert at 9.0.834 / v834 or later now that 9.0.27 to 9.0.833 shipped, or the
   checkpoint's 9.0.25 App without `lower` with the PRO Worker left in place.
 - [PRO system-audio LAN-direct in one round trip (2026-10-30)](design/pro-lan-direct-one-round-trip-2026-10-30.md):
   released on 2026-10-30 13:08 KST in the App 9.0.26 / v799 train above (target `app`). On a
@@ -2381,7 +2399,7 @@ runbooks. Neither belongs in a general setup document.
   runtime-dependency merge freeze; its §4 entry and current boundary lines (5) and (8) name the
   merge SHA, the Release ID and checkpoint artifact 12938145012 (App 9.0.24 `dd820d37`), and the
   hotfix procedure's 9.0.25 sentence names the merge SHA and the Release ID. The rollback boundary
-  is a forward revert at 9.0.833 / v833 or later now that 9.0.26 to 9.0.832 shipped, or the
+  is a forward revert at 9.0.834 / v834 or later now that 9.0.26 to 9.0.833 shipped, or the
   checkpoint's 9.0.24 App without `lower` with the PRO Worker left in place. The App 9.0.26 train
   (entry above) replaced
   the two-round-trip LAN-direct negotiation with one round trip on 2026-10-30 13:08 KST.
@@ -2429,7 +2447,7 @@ runbooks. Neither belongs in a general setup document.
   Analytics counts the `/translate` arrivals over the next days). The release record's §2 now
   carries the 9.0.24 post-deploy items (scope and status, post-deploy checks with owner device
   check candidates, none with results yet, and the arrivals the loader does not count) and §4 its
-  rollback boundary (a forward revert at 9.0.833 / v833 or later now that 9.0.25 to 9.0.832 shipped,
+  rollback boundary (a forward revert at 9.0.834 / v834 or later now that 9.0.25 to 9.0.833 shipped,
   or the checkpoint's 9.0.23 App `dddfabe3` without `lower`). Phase 5.5 R3, where the App stops receiving
   PRO snapshot schemaVersion 1, shipped next as 9.0.25 / v798 on 2026-10-30 07:18 KST (entry above).
 - [Phase 5.5 R2: the PRO Worker sends PRO snapshot schemaVersion 2 (2026-10-29)](design/phase5-5-r2-v2-send-2026-10-29.md):
@@ -2530,7 +2548,7 @@ runbooks. Neither belongs in a general setup document.
   5 manual-only). The release record's §2 now carries the 9.0.23 post-deploy items (scope and status,
   post-deploy checks with the owner device check list, and open owner items with the owner step for
   outdated approved translation suggestions, now six keys with the Swedish one) and §4 its rollback
-  boundary (a forward revert at 9.0.833 / v833 or later now that 9.0.24 to 9.0.832 shipped, or the checkpoint's 9.0.22 App `e8966418`
+  boundary (a forward revert at 9.0.834 / v834 or later now that 9.0.24 to 9.0.833 shipped, or the checkpoint's 9.0.22 App `e8966418`
   without `lower`); the record closed the 9.0.20 owner items this train implemented.
 - [Phase 5.5 R1: old-version removal train 3 and PRO snapshot v2 reading, 9.0.22 (2026-10-29)](design/phase5-5-r1-train3-v2-accept-2026-10-29.md):
   released on 2026-10-29 18:35 KST in Release 40850068382 (PR #524, squash `71f5b96c`): the first
@@ -2580,7 +2598,7 @@ runbooks. Neither belongs in a general setup document.
   not verified. The release record's §2 now carries the 9.0.22 post-deploy items (scope and
   status, the owner device checks, and the Phase 5.5 steps: F2 to build 795, R2 and R3, all done
   on 2026-10-30) and §4 its entry
-  (a forward revert at 9.0.833 / v833 or later now that 9.0.23 to 9.0.832 shipped, or the checkpoint's 9.0.21 App `06e79397` and
+  (a forward revert at 9.0.834 / v834 or later now that 9.0.23 to 9.0.833 shipped, or the checkpoint's 9.0.21 App `06e79397` and
   9.0.20 Workers); with the F1 evidence the record closed the release A item's device check of a
   mixed room with a 9.0.14 device.
 - [UI follow-up train 9.0.21: transient text at 600 and chips on one line (2026-10-29)](design/ui-followup-921-2026-10-29.md):
@@ -2610,7 +2628,7 @@ runbooks. Neither belongs in a general setup document.
   with identical patches, and its assembly review moved the bump after the review fixes. The release
   record's §2 now carries the 9.0.21 post-deploy items (scope and status, post-deploy checks, open
   owner items and the owner step for outdated approved translation suggestions) and §4 its rollback
-  boundary (a forward revert at 9.0.833 / v833 or later now that 9.0.22 to 9.0.832 shipped, or the checkpoint's 9.0.20 App
+  boundary (a forward revert at 9.0.834 / v834 or later now that 9.0.22 to 9.0.833 shipped, or the checkpoint's 9.0.20 App
   `50d6557f`); the release closed the focus race item and the 9.0.20 owner decisions this train
   implemented. The report lists the owner decisions, each
   increment with its commits and tests-first evidence, the SHA map after assembly, the review

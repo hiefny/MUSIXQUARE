@@ -316,6 +316,13 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     });
     await waitForDriver(fixture, 'script');
     await expectVisualFillsOuter(fixture);
+    // A press dispatched by script sets .dragging but not :active, so only the
+    // .dragging rule can give the visual the pressed colour here.
+    await expect(fixture.thumb).toHaveClass(/\bdragging\b/);
+    const pressedRgb = await page.evaluate(() =>
+      document.documentElement.dataset.theme === 'light' ? '0, 0, 0' : '255, 255, 255',
+    );
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${pressedRgb}, 0.6)`);
     await page.evaluate(
       ({ x, y }) =>
         window.dispatchEvent(
@@ -780,5 +787,52 @@ test.describe('custom scrollbar pointer hover reveal and thumb states', () => {
     await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.2)`);
     await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
     await expect(fixture.thumb).toHaveCSS('pointer-events', 'none');
+  });
+
+  test('scrolls the panel with the wheel over its bar after the pointer rests there past the fade delay', async ({
+    page,
+    browserName,
+    isMobile,
+  }) => {
+    test.skip(
+      browserName === 'webkit' && isMobile,
+      'Playwright has no mouse wheel in mobile WebKit',
+    );
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    // Lay the track over the panel's right edge, as the app's contained bars sit
+    // over their scroller's edge (the language list's track is at right: -4px).
+    await fixture.track.evaluate((track) => {
+      const shell = track.parentElement!;
+      const owner = shell.querySelector<HTMLElement>(':scope > .tab-body')!;
+      const inset = shell.getBoundingClientRect().right - owner.getBoundingClientRect().right;
+      track.style.setProperty('right', `${inset}px`, 'important');
+    });
+    await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
+
+    const ownerBox = await fixture.owner.boundingBox();
+    const trackBox = await fixture.track.boundingBox();
+    const thumbBox = await fixture.thumb.boundingBox();
+    expect(ownerBox && trackBox && thumbBox).toBeTruthy();
+    expect(trackBox!.x).toBeGreaterThanOrEqual(ownerBox!.x);
+    expect(trackBox!.x + trackBox!.width).toBeLessThanOrEqual(ownerBox!.x + ownerBox!.width);
+    // A point on the bar, below the thumb, inside the panel's box.
+    const point = {
+      x: trackBox!.x + trackBox!.width / 2,
+      y: trackBox!.y + trackBox!.height * 0.75,
+    };
+    expect(point.y).toBeGreaterThan(thumbBox!.y + thumbBox!.height);
+
+    // Come in over the panel, then slide onto the bar and rest there past the
+    // 1.2 s fade delay.
+    await page.mouse.move(point.x - 60, point.y);
+    await page.waitForTimeout(300);
+    await page.mouse.move(point.x, point.y, { steps: 6 });
+    await page.waitForTimeout(1_500);
+
+    await page.mouse.wheel(0, 300);
+    await expect
+      .poll(() => fixture.owner.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
   });
 });

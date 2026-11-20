@@ -261,6 +261,26 @@ describe('hover pointer owner', () => {
     expect(isHovered(button)).toBe(false);
   });
 
+  it('tells hover input from touch with the one test that turns hover on', async () => {
+    installAnyHover(false);
+    const { initHoverPointer, isHoverInput } = await freshHoverPointer();
+    initHoverPointer();
+    const input = (pointerType: string): PointerEvent =>
+      pointer('pointermove', pointerType) as PointerEvent;
+
+    expect(isHoverInput(input('mouse'))).toBe(true);
+    expect(isHoverInput(input('pen'))).toBe(true);
+    expect(isHoverInput(input('touch'))).toBe(false);
+    // An event that names no pointer type follows the gate and never turns it on.
+    expect(isHoverInput(input(''))).toBe(false);
+    document.dispatchEvent(input(''));
+    expect(flagged()).toBe(false);
+    document.dispatchEvent(input('pen'));
+    expect(flagged()).toBe(true);
+    expect(isHoverInput(input(''))).toBe(true);
+    expect(isHoverInput(input('touch'))).toBe(false);
+  });
+
   it('is installed on its own, before every UI module', () => {
     const app = readFileSync(resolve('src/app.ts'), 'utf8');
     const install = app.indexOf("safeInit('HoverPointer', initHoverPointer);");
@@ -349,6 +369,15 @@ describe('one hover gate in the app stylesheets', () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('leaves the custom scrollbar no hover test of its own', () => {
+    // It asks the owner whether an event is hover input and whether its bar
+    // is hovered, so its reveal and hold cannot drift from the gate.
+    const source = readFileSync(resolve('src/ui/custom-scrollbar.ts'), 'utf8');
+    expect(source).not.toMatch(/\bpointerType\b/u);
+    expect(source).toMatch(/\bisHoverInput\(/u);
+    expect(source).toMatch(/\bisHovered\(/u);
   });
 
   it('lets only hover-pointer.ts write the hover flag', () => {

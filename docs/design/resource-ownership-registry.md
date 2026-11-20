@@ -3572,7 +3572,13 @@ RO-55 accepted-exception
   frames after the show it reads what is left of that transition by the transition's own clock
   (`fadeInLeftMs`; it starts on the first frame the page renders, which WebKit measured about
   175 ms past the show) and sets one timer for it in place of the native fallback, which waits
-  `RESET_PAINT_FALLBACK_MS` beyond the fade-in's length only when no frame comes.
+  `RESET_PAINT_FALLBACK_MS` beyond the fade-in's length only when no frame comes. Since App
+  9.0.832 a page that renders shows that whole fade-in even when its frames come late: before a
+  first frame, a visible page waits for one up to `RESET_FIRST_FRAME_LIMIT_MS` (0.8 s, owner
+  decision 2026-11-20) after the show, and only a page that cannot render frames (hidden, or no
+  `requestAnimationFrame`) keeps the fallback from the show; the first frame moves the fallback
+  to count from itself, and that fallback, like the second frame, reads what is left of the
+  fade-in by its own clock, the later reading replacing the wait the earlier one set.
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
@@ -3580,16 +3586,19 @@ RO-55 accepted-exception
   and, since Phase 7 7A-1, the `onPageHide` callback).
 - **Lifecycle operations:** schedule a reset or reload, navigate, recover, restore.
 - **Deadline owner:** `session-reset.ts`: the overlay's fade-in and `RESET_PAINT_FALLBACK_MS`
-  beyond it for the paint, `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s) for a prepare step, then
+  beyond it for the paint (from the show without frames, from the first frame once one comes),
+  `RESET_FIRST_FRAME_LIMIT_MS` for a visible page's first frame,
+  `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s) for a prepare step, then
   `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) from the final navigation call.
 - **Timing-constant home:** `src/core/navigation-contract.ts` (`NAVIGATION_COMMIT_TIMEOUT_MS`,
-  `NAVIGATION_PREPARE_TIMEOUT_MS`, `RESET_PAINT_FALLBACK_MS` and the next-document
-  `sessionStorage` keys), a dependency-free module
+  `NAVIGATION_PREPARE_TIMEOUT_MS`, `RESET_PAINT_FALLBACK_MS`, `RESET_FIRST_FRAME_LIMIT_MS` and
+  the next-document `sessionStorage` keys), a dependency-free module
   because `src/core/navigation.ts` imports the owner. The ordering it relies on is pinned in
   `src/core/__tests__/navigation-contract.test.ts` (Phase 2, C6-1). The fade-in's length lives
   in the overlay's `transition` in `style.css`; the owner reads it from the computed style
   (`resetFadeInMs`) and keeps no copy, and `navigation-contract.test.ts` reads it there to keep the
-  no-frame wait (`RESET_PAINT_FALLBACK_MS` beyond it) under `LEAVE_FALLBACK_MS`.
+  no-frame wait (`RESET_PAINT_FALLBACK_MS` beyond it) under `RESET_FIRST_FRAME_LIMIT_MS`, and that
+  limit under `LEAVE_FALLBACK_MS`.
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/session-reset.test.ts` "uses a native timeout fallback and
     accepts only the first reset request"; `src/core/__tests__/document-reload.test.ts` "does not
@@ -3597,10 +3606,23 @@ RO-55 accepted-exception
   - Paint: `session-reset.test.ts` "starts the action only once the screen's fade-in has run, so
     the next page continues a whole screen", "waits out the fade-in in the timeout fallback
     too, and runs the action once", "times that wait by the fade-in's own clock, which a busy
-    page starts only at its first frame" and "starts the action at once when the fade-in has
-    already run by the second frame"; `e2e/boot-splash.test.ts` "shows the splash's wordmark and
-    loader without text, and the page it opens continues them" (the overlay's opacity when the
-    page leaves).
+    page starts only at its first frame", "starts the action at once when the fade-in has
+    already run by the second frame", "waits for a first frame that comes after the fallback on
+    a visible page, then for the whole fade-in", "finds the fade-in's end by its own clock when
+    the second frame comes after the fallback", "leaves a visible page that renders no frame at
+    the first-frame limit", "leaves a hidden page, which renders no frame, at the fallback",
+    "counts the fallback from the first frame when no second frame follows it", "waits out a
+    fade-in that started after the first frame when that frame's fallback fires first", "waits
+    out the fade-in that a first frame just before the first-frame limit starts" and "waits from
+    the second frame's reading when the fade-in started after the first frame's fallback read
+    it"; `navigation-contract.test.ts` "waits longer for a visible page's first frame, still well
+    inside the commit window"; `e2e/boot-splash.test.ts` "shows the splash's wordmark and
+    loader without text, and the page it opens continues them" (once the page drew a frame after
+    the show, it leaves no earlier than the fade-in's end by that transition's own clock, its
+    start plus its length, and a leave after a frame but before the fade-in started fails; a
+    page that drew no frame leaves no earlier than `RESET_FIRST_FRAME_LIMIT_MS` after the reset's
+    stamp; and the fade-in as the engine runs it is 0.2 s of opacity to 1). The row prints a
+    leave without a frame, and a leave before the fade-in's end, which fails, in its output.
   - User pause/stop: n/a.
   - Teardown: `session-reset.test.ts` "recovers a no-op navigation and accepts a later reset
     request".

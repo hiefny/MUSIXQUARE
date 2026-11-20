@@ -20,13 +20,13 @@ the owner decisions it relies on were made on 2026-10-23.
 
 `session-reset.ts` keeps one `PageNavigationState`:
 
-| Phase        | Meaning                                                                                                             |
-| ------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `idle`       | Nothing holds the page.                                                                                             |
-| `painting`   | The reset screen is up and the page is locked; the request waits for two frames or `RESET_PAINT_FALLBACK_MS`.       |
-| `preparing`  | The request's optional prepare step runs, bounded by `NAVIGATION_PREPARE_TIMEOUT_MS`.                               |
-| `navigating` | The final navigation call ran; `NAVIGATION_COMMIT_TIMEOUT_MS` is running.                                           |
-| `left`       | `pagehide` was seen: the navigation committed. Only a `pageshow` or a visible return of this same document ends it. |
+| Phase        | Meaning                                                                                                                                                                    |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idle`       | Nothing holds the page.                                                                                                                                                    |
+| `painting`   | The reset screen is up and the page is locked; the request waits for two frames, then for what is left of the screen's fade-in by its own clock (see the timing contract). |
+| `preparing`  | The request's optional prepare step runs, bounded by `NAVIGATION_PREPARE_TIMEOUT_MS`.                                                                                      |
+| `navigating` | The final navigation call ran; `NAVIGATION_COMMIT_TIMEOUT_MS` is running.                                                                                                  |
+| `left`       | `pagehide` was seen: the navigation committed. Only a `pageshow` or a visible return of this same document ends it.                                                        |
 
 Every way an attempt ends while this document stays alive goes through one
 `settle()`, at most once per attempt and exactly once if the document survives.
@@ -104,12 +104,13 @@ still makes one.
 All timings live in `src/core/navigation-contract.ts`, a dependency-free
 module; `navigation-contract.test.ts` pins their order.
 
-| Constant                        | Value  | Contract                                                                                                                                                                                                                                        |
-| ------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RESET_PAINT_FALLBACK_MS`       | 120 ms | The request runs after two frames, or this when frames are suspended.                                                                                                                                                                           |
-| `NAVIGATION_PREPARE_TIMEOUT_MS` | 2.5 s  | The prepare window. It covers the hard reset's 1.5 s activation wait (`ACTIVATION_TIMEOUT_MS` in the lazy `sw-hard-reset.ts`) plus 1 s for its chunk and the update machine's answer. An Apply already in flight is waited for until it closes. |
-| `NAVIGATION_COMMIT_TIMEOUT_MS`  | 2 s    | Starts at the final navigation call (owner decision 2). No `pagehide` within it means the navigation did not commit, and the page is made interactive again.                                                                                    |
-| `LEAVE_FALLBACK_MS`             | 1 s    | The Back leave's fallback home navigation; it runs inside the commit window.                                                                                                                                                                    |
+| Constant                        | Value  | Contract                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESET_PAINT_FALLBACK_MS`       | 120 ms | The no-frame wait beyond the screen's fade-in: from the show on a page that cannot render frames (hidden, or no `requestAnimationFrame`), and from the first frame once one comes, where it then reads what is left of the fade-in by its own clock. With frames, the request runs at the second frame once that fade-in has run. |
+| `RESET_FIRST_FRAME_LIMIT_MS`    | 800 ms | How long a visible page waits after the show for its first frame (owner decision 2026-11-20); `navigation-contract.test.ts` keeps it above the no-frame fallback and below `LEAVE_FALLBACK_MS`.                                                                                                                                   |
+| `NAVIGATION_PREPARE_TIMEOUT_MS` | 2.5 s  | The prepare window. It covers the hard reset's 1.5 s activation wait (`ACTIVATION_TIMEOUT_MS` in the lazy `sw-hard-reset.ts`) plus 1 s for its chunk and the update machine's answer. An Apply already in flight is waited for until it closes.                                                                                   |
+| `NAVIGATION_COMMIT_TIMEOUT_MS`  | 2 s    | Starts at the final navigation call (owner decision 2). No `pagehide` within it means the navigation did not commit, and the page is made interactive again.                                                                                                                                                                      |
+| `LEAVE_FALLBACK_MS`             | 1 s    | The Back leave's fallback home navigation; it runs inside the commit window.                                                                                                                                                                                                                                                      |
 
 The logo reset is a prepare/navigate request: prepare loads the hard-reset
 chunk and, unless aborted, applies a waiting update; navigate goes home. A slow

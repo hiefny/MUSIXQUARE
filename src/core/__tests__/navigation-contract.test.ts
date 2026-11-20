@@ -9,6 +9,7 @@ import {
   PREVIOUS_AUDIO_RECOVERY_KEY,
   PREVIOUS_LINK_CLOSE_KEY,
   RECONNECT_TARGET_KEY,
+  RESET_FIRST_FRAME_LIMIT_MS,
   RESET_PAINT_FALLBACK_MS,
   SW_CONTROLLER_CONFIRMED_KEY,
   SW_UPDATE_KEY,
@@ -35,6 +36,20 @@ describe('page navigation timing contract (RO-23, RO-30)', () => {
     const fadeInMs = Number(fadeIn) * 1000;
     expect(fadeInMs).toBe(200);
     expect(RESET_PAINT_FALLBACK_MS + fadeInMs).toBeLessThan(LEAVE_FALLBACK_MS);
+  });
+
+  it("waits longer for a visible page's first frame, still well inside the commit window", () => {
+    // A visible page whose first frame comes late waits for it up to
+    // RESET_FIRST_FRAME_LIMIT_MS (owner decision 2026-11-20): past the
+    // no-frame fallback, so a busy page shows the whole screen, and short of
+    // LEAVE_FALLBACK_MS like that fallback.
+    const css = readFileSync('css/style.css', 'utf8');
+    const shown = /\.session-reset-overlay\.show \{([^}]*)\}/u.exec(css)?.[1] ?? '';
+    const fadeInMs =
+      Number(/opacity ([\d.]+)s/u.exec(/transition:([^;]*);/u.exec(shown)?.[1] ?? '')?.[1]) * 1000;
+    expect(RESET_FIRST_FRAME_LIMIT_MS).toBe(800);
+    expect(RESET_FIRST_FRAME_LIMIT_MS).toBeGreaterThan(RESET_PAINT_FALLBACK_MS + fadeInMs);
+    expect(RESET_FIRST_FRAME_LIMIT_MS).toBeLessThan(LEAVE_FALLBACK_MS);
   });
 
   it("leaves the hard reset's activation wait room inside the prepare window (C6-8)", () => {

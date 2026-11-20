@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { RESET_FIRST_FRAME_LIMIT_MS } from '../src/core/navigation-contract.ts';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { useAnonymousAccountSession } from './helpers/context-factory.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
@@ -33,11 +34,43 @@ function runningInsideSplash(page: Page): Promise<string[]> {
   );
 }
 
+/**
+ * The element's own CSS animation by that name as the engine took it from the
+ * sheet: its name, length and any delay (null without one). Read from the
+ * engine, where a window of wall clock around the animation would measure the
+ * machine as well.
+ */
+function animationTiming(page: Page, selector: string, name: string): Promise<string | null> {
+  return page.evaluate(
+    ([target, animationName]) => {
+      const animation = document
+        .querySelector(target)
+        ?.getAnimations()
+        .find(
+          (each) =>
+            (each as CSSAnimation).animationName === animationName &&
+            !(each.effect as KeyframeEffect | null)?.pseudoElement,
+        );
+      if (!animation?.effect) return null;
+      const { duration, delay } = animation.effect.getTiming();
+      const length = typeof duration === 'number' ? Math.round(duration) : String(duration);
+      return `${animationName} ${length}ms${delay ? ` after ${Math.round(delay)}ms` : ''}`;
+    },
+    [selector, name] as const,
+  );
+}
+
 // The app's background (css/style.css --bg) and, in the installed iOS app, the
 // colour iOS paints the strip under a short first screen with before any
 // stylesheet loads (owner report, 2026-11-16), which the splash starts on.
 const APP_BG = { dark: 'rgb(18, 18, 18)', light: 'rgb(248, 249, 250)' } as const;
 const STRIP = { dark: 'rgb(0, 0, 0)', light: 'rgb(255, 255, 255)' } as const;
+/**
+ * The installed app splash's rise and fade length: index.html's 0.3 s (owner
+ * suggestion and decision 2026-11-16), which src/core/__tests__/boot-splash.test.ts
+ * pins in the sheet.
+ */
+const RISE_MS = 300;
 
 function channels(colour: string): number[] {
   return (colour.match(/[\d.]+/gu) ?? []).map(Number);
@@ -242,26 +275,79 @@ test.describe('boot splash', () => {
 
   test('steps aside for the page when nothing after the page file arrives', async ({ page }) => {
     // A connection that drops right after the document: the start-up scripts,
-    // the app stylesheet and the module graph never arrive, so neither
-    // fouc-cleanup.js nor the stylesheet's fallback can lift the splash.
-    await page.route(/\/(?:bootstrap|fouc-cleanup)\.js(?:\?.*)?$/u, (route) => route.abort());
+    // the splash's runtime, the app stylesheet and the module graph never
+    // arrive, so neither fouc-cleanup.js nor the stylesheet's fallback can
+    // lift the splash, and only the page file's own last resort hides it.
+    // (wordmark-anim.js would take the splash out of rendering as that fade
+    // ends, which hides it even where the fade does not, and the engine then
+    // drops the fade the pin below reads.)
+    await page.route(/\/(?:bootstrap|fouc-cleanup|wordmark-anim)\.js(?:\?.*)?$/u, (route) =>
+      route.abort(),
+    );
     await page.route(/\/(?:assets|src|css)\//u, (route) => route.abort());
     await page.goto('/', { waitUntil: 'commit' });
     await page.locator('.boot-splash').waitFor({ state: 'attached' });
     await expect(page.locator('.boot-splash')).toBeVisible();
     // Shorten the shared boot-failure delay (the splash adds its 5 s margin).
     await page.addStyleTag({ content: ':root { --setup-boot-failure-delay: 0s !important; }' });
+    // That margin as the engine took it from the sheet: the splash's own fade,
+    // at once, 5 s after that delay, which its fill keeps readable once it has
+    // run. Read rather than timed (owner decision 2026-11-19: tests that depend
+    // on machine speed are fixed in the test): the splash hides on that clock
+    // however late a slow machine draws it, so the waits below only bound a
+    // page that never steps aside.
+    expect(await animationTiming(page, '.boot-splash', 'boot-splash-fail-open')).toBe(
+      'boot-splash-fail-open 0ms after 5000ms',
+    );
 
     await expect(page.locator('html')).toHaveClass(/\bsetup-boot-block\b/u);
-    await expect(page.locator('.boot-splash')).toBeHidden({ timeout: 8_000 });
+    await expect(page.locator('.boot-splash')).toBeHidden({ timeout: 30_000 });
     // The unstyled page's own Retry form is reachable again.
-    await page.locator('#bootstrap-retry').click({ trial: true, timeout: 2_000 });
+    await page.locator('#bootstrap-retry').click({ trial: true });
   });
 });
 
 test.describe('session reset screen', () => {
   // The page's own routes see the reset's navigation (no worker answers it).
   test.use({ serviceWorkers: 'block' });
+
+  /**
+   * The screen's fade-in: css/style.css's `.session-reset-overlay.show` opacity
+   * transition, 0.2 s (owner decision 2026-11-15), which
+   * src/core/__tests__/navigation-contract.test.ts pins in the sheet.
+   */
+  const RESET_FADE_IN_MS = 200;
+  /**
+   * How far before its deadline a leave may read: WebKit gives both clocks in
+   * whole milliseconds, and setTimeout drops the fraction of the reset's wait.
+   */
+  const RESET_CLOCK_SLACK_MS = 2;
+  /** How the page left against its screen's fade-in, as the leaving page recorded it. */
+  type ResetLeave = {
+    /** As the screen showed, in the reset's own task. */
+    show: {
+      /** The reset's stamp: Date.now() just before it set its fallback. */
+      stamp: number | null;
+      /** performance.now() there. */
+      now: number;
+      /** The fade-in as the engine took it from the sheet: its length and any delay. */
+      fadeIn: string | null;
+      /** Its whole length in ms. */
+      length: number | null;
+      /** The opacity it heads to. */
+      to: string;
+    } | null;
+    /**
+     * The first two frames after the show, each read before the reset's own
+     * callback there: both clocks, and what was left of the fade-in by its own
+     * clock (null: unreadable).
+     */
+    frames: { date: number; now: number; remaining: number | null }[];
+    /** At beforeunload: both clocks, the fade-in's start, and the opacity that task read. */
+    leave: { date: number; now: number; started: number | null; opacity: string } | null;
+    /** What the reading threw, if anything. */
+    error: string | null;
+  };
 
   test("shows the splash's wordmark and loader without text, and the page it opens continues them", async ({
     page,
@@ -302,12 +388,116 @@ test.describe('session reset screen', () => {
       await route.fallback();
     });
 
-    // Where the screen's fade-in stood when this page started to leave.
+    // How this page left against its screen's fade-in, on its own clocks. The
+    // reset waits for that 0.2 s transition by the transition's own clock: in
+    // its second frame after the show it reads what is left of it and leaves
+    // that much later; from its first frame its fallback counts from that
+    // frame and reads the same clock, and a visible page that draws no frame
+    // leaves RESET_FIRST_FRAME_LIMIT_MS after the show
+    // (src/core/navigation-contract.ts, owner decision 2026-11-20). This row used to
+    // read the screen's opacity as the page left, which measured the machine
+    // too: Full E2E 44467012706 (main 771af223, Linux WebKit) read 0.948692,
+    // the ease-out 164 ms into its 200 ms, where 0.95 needs 164.5 ms. That read
+    // samples the transition at the page's animation time, which can still
+    // stand at the last frame the page drew, behind a leave that came on time;
+    // and on a starved page the reset's own deadline (its fallback, or a
+    // fade-in that started only after its second frame) can come before the
+    // fade-in's end (local runs show both; which one that CI run hit is not
+    // known). So (owner decision 2026-11-19: a fix to this test only) the page
+    // records what the reset reads, where it reads it, and the next page
+    // checks the leave against that; since the app fix (owner decision
+    // 2026-11-20) a leave after any frame must come after the fade-in's end.
     await page.evaluate(() => {
+      const record: ResetLeave = { show: null, frames: [], leave: null, error: null };
+      const ms = (time: CSSNumberish | null | undefined): number | null =>
+        typeof time === 'number' ? time : null;
+      /** The screen's opacity transition, its fade-in, found as session-reset.ts finds it. */
+      const fadeInOf = (screen: HTMLElement): Animation | null =>
+        screen
+          .getAnimations()
+          .find((animation) => (animation as CSSTransition).transitionProperty === 'opacity') ??
+        null;
+      let fadeIn: Animation | null = null;
+
+      // The confirm click's task shows the screen, sets the reset's fallback
+      // and asks for its first frame. This runs in the microtask after, before
+      // any frame: the stamp, and the fade-in just as the engine took it.
+      const showing = new MutationObserver(() => {
+        const screen = document.getElementById('session-reset-overlay');
+        if (!screen?.classList.contains('show')) return;
+        showing.disconnect();
+        const now = performance.now();
+        try {
+          fadeIn = fadeInOf(screen);
+          const timing = fadeIn?.effect?.getTiming();
+          const length =
+            typeof timing?.duration === 'number'
+              ? Math.round(timing.duration)
+              : String(timing?.duration);
+          const late = timing?.delay ? ` after ${Math.round(timing.delay)}ms` : '';
+          const keyframes = (fadeIn?.effect as KeyframeEffect | null | undefined)?.getKeyframes();
+          record.show = {
+            stamp: Number(sessionStorage.getItem('mxqr-boot-continuity')) || null,
+            now,
+            fadeIn: timing ? `opacity ${length}ms${late}` : null,
+            length: ms(fadeIn?.effect?.getComputedTiming().endTime),
+            to: String(keyframes?.at(-1)?.opacity ?? 'none'),
+          };
+        } catch (error) {
+          record.error ??= String(error);
+        }
+      });
+      showing.observe(document, { attributes: true, subtree: true, attributeFilter: ['class'] });
+
+      // Every frame from before the leave until the second after the show.
+      // Frame callbacks run in the order they were asked for, and this one
+      // asks for its next frame before the reset asks for either of its two,
+      // so in each of those two frames it runs first and reads the fade-in at
+      // the animation time the reset then reads it at (session-reset.ts,
+      // fadeInLeftMs: none left once it has run, all of it while it still
+      // waits to start).
+      const frame = () => {
+        const now = performance.now();
+        const date = Date.now();
+        const screen = document.getElementById('session-reset-overlay');
+        if (record.show && screen) {
+          try {
+            const current = fadeInOf(screen);
+            const end = ms(current?.effect?.getComputedTiming().endTime);
+            record.frames.push({
+              date,
+              now,
+              remaining: !current
+                ? 0
+                : end === null
+                  ? null
+                  : Math.max(0, end - (ms(current.currentTime) ?? 0)),
+            });
+          } catch (error) {
+            record.error ??= String(error);
+            return;
+          }
+          if (record.frames.length === 2) return;
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+
       window.addEventListener('beforeunload', () => {
-        const overlay = document.getElementById('session-reset-overlay');
-        if (overlay) {
-          sessionStorage.setItem('e2e-reset-opacity-at-leave', getComputedStyle(overlay).opacity);
+        if (record.leave) return;
+        const now = performance.now();
+        const date = Date.now();
+        try {
+          const screen = document.getElementById('session-reset-overlay');
+          record.leave = {
+            date,
+            now,
+            started: ms(fadeIn?.startTime),
+            opacity: screen ? getComputedStyle(screen).opacity : 'none',
+          };
+          sessionStorage.setItem('e2e-reset-leave', JSON.stringify(record));
+        } catch (error) {
+          record.error ??= String(error);
         }
       });
     });
@@ -387,11 +577,81 @@ test.describe('session reset screen', () => {
     expect(
       await page.evaluate(() => sessionStorage.getItem('mxqr-boot-continuity-box')),
     ).toBeNull();
-    // It left only once the screen had faded in (0.2 s), so the next page took
-    // over a whole screen rather than a half-shown one.
-    expect(
-      Number(await page.evaluate(() => sessionStorage.getItem('e2e-reset-opacity-at-leave'))),
-    ).toBeGreaterThanOrEqual(0.95);
+    // It left only once its screen's 0.2 s fade-in had run, by that
+    // transition's own clock, whenever the page drew a frame after the show:
+    // the reset waits it out from its first frame however late the frames
+    // come (session-reset.ts, owner decision 2026-11-20), so the next page
+    // takes over a whole screen. Only a page that drew no frame may leave on
+    // the reset's no-frame wait: RESET_FIRST_FRAME_LIMIT_MS after the stamp on
+    // this visible page, which the reset takes just before it sets that wait.
+    // The fade-in's start and performance.now() share one time origin, and
+    // the stamp and the leave's date share Date.now(). The opacity the leaving
+    // task read is only reported, in the 'reset leave' annotation and, for a
+    // leave without a frame or before the fade-in's end, in the run's output
+    // too: CI's line reporter prints a passing run's output but no annotation.
+    const leaving = JSON.parse(
+      (await page.evaluate(() => sessionStorage.getItem('e2e-reset-leave'))) ?? 'null',
+    ) as ResetLeave | null;
+    const shown = leaving?.show ?? null;
+    const atLeave = leaving?.leave ?? null;
+    const drewFrame = (leaving?.frames.length ?? 0) > 0;
+    let deadline: { path: string; due: number; leftAt: number } | null = null;
+    let unstarted = false;
+    if (shown && atLeave) {
+      if (drewFrame) {
+        if (atLeave.started !== null && shown.length !== null) {
+          deadline = {
+            path: 'fade-in end',
+            due: atLeave.started + shown.length,
+            leftAt: atLeave.now,
+          };
+        } else unstarted = true;
+      } else if (shown.stamp !== null) {
+        deadline = {
+          path: 'no frame',
+          due: shown.stamp + RESET_FIRST_FRAME_LIMIT_MS,
+          leftAt: atLeave.date,
+        };
+      }
+    }
+    if (shown && atLeave && deadline) {
+      // For the report only, so it may mix the fade-in's clock with
+      // performance.now() (one time origin, inferred).
+      const { started } = atLeave;
+      const afterEnd =
+        started === null || shown.length === null ? null : atLeave.now - started - shown.length;
+      const ran =
+        started === null || afterEnd === null
+          ? 'the fade-in had not started'
+          : `the fade-in started ${Math.round(started - shown.now)} ms after the show ` +
+            `and the page left ${Math.round(afterEnd)} ms after its end`;
+      // The frames the page drew from the show until it left (two at most), so
+      // a fallback before any frame reads apart from one that came after a
+      // first frame had started the fade-in.
+      const count = leaving?.frames.length ?? 0;
+      const drawn = count === 0 ? 'no frame' : count === 1 ? 'one frame' : `${count} frames`;
+      const description =
+        `${deadline.path} (${drawn} since the show): left ` +
+        `${Math.round(deadline.leftAt - deadline.due)} ms after that deadline; ${ran}; ` +
+        `opacity ${atLeave.opacity} as the leaving task read it`;
+      test.info().annotations.push({ type: 'reset leave', description });
+      if (deadline.path === 'no frame' || afterEnd === null || afterEnd < -RESET_CLOCK_SLACK_MS) {
+        console.log(`reset leave: ${description}`);
+      }
+    }
+    expect({
+      // The fade-in as the engine ran it: 0.2 s of opacity, with no delay, to
+      // the whole screen.
+      fadeIn: shown?.fadeIn ?? null,
+      to: shown?.to ?? null,
+      error: leaving?.error ?? null,
+      early: unstarted
+        ? 'left after a frame before its fade-in started'
+        : deadline === null
+          ? 'no deadline recorded'
+          : deadline.leftAt < deadline.due - RESET_CLOCK_SLACK_MS &&
+            `${Math.round(deadline.due - deadline.leftAt)} ms before its ${deadline.path} deadline`,
+    }).toEqual({ fadeIn: `opacity ${RESET_FADE_IN_MS}ms`, to: '1', error: null, early: false });
   });
 
   test('a page a reset opens shows the stored theme and the settled splash from its first frame', async ({
@@ -685,15 +945,51 @@ test.describe('session reset screen', () => {
     expect(held.background).toBe(held.theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
     expect(held.up).toBe(true);
     // The strip goes: the screen grows and platform.ts ends the hold (its own
-    // part, src/core/__tests__/platform.test.ts); the app still loads.
+    // part, src/core/__tests__/platform.test.ts); the app still loads. The
+    // splash rises to the app's colour and stays up, read as the rise ends on
+    // its own clock: a fixed 500 ms after the hold's end left 200 ms for the
+    // engine to start the 0.3 s rise and draw its end, which measured the
+    // machine (owner decision 2026-11-19: tests that depend on machine speed
+    // are fixed in the test).
+    type RiseEnd = { elapsed: number; background: string; up: boolean };
     await page.setViewportSize({ width, height });
-    await page.evaluate(() => document.documentElement.removeAttribute('data-boot-hold'));
-    await page.waitForTimeout(500);
-    const risen = await read();
-    expect(risen.background).toBe(
-      risen.theme === 'dark' ? 'rgb(18, 18, 18)' : 'rgb(248, 249, 250)',
+    await page.evaluate(() => {
+      const splash = document.querySelector('.boot-splash') as HTMLElement;
+      const ends: RiseEnd[] = [];
+      (window as typeof window & { __riseEnds: RiseEnd[] }).__riseEnds = ends;
+      // Its end event carries how far into the rise it came (its whole
+      // length), however late a busy page sends it, and the splash stands
+      // where the rise left it.
+      document.addEventListener(
+        'animationend',
+        (event) => {
+          const { animationName, elapsedTime, pseudoElement, target } = event as AnimationEvent;
+          if (target !== splash || pseudoElement || animationName !== 'boot-splash-rise') return;
+          ends.push({
+            elapsed: Math.round(elapsedTime * 1000),
+            background: getComputedStyle(splash).backgroundColor,
+            up: !splash.hidden && getComputedStyle(splash).opacity === '1',
+          });
+        },
+        true,
+      );
+      document.documentElement.removeAttribute('data-boot-hold');
+    });
+    // The rise as the engine took it from the sheet: 0.3 s, with no delay.
+    expect(await animationTiming(page, '.boot-splash', 'boot-splash-rise')).toBe(
+      `boot-splash-rise ${RISE_MS}ms`,
     );
-    expect(risen.up).toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as typeof window & { __riseEnds: RiseEnd[] }).__riseEnds),
+      )
+      .toEqual([
+        {
+          elapsed: RISE_MS,
+          background: held.theme === 'dark' ? APP_BG.dark : APP_BG.light,
+          up: true,
+        },
+      ]);
     releaseBootstrap();
     await waitForBootstrapReady(page);
     // The refresh screen with the app stylesheet (its layer and palette) loaded.
@@ -973,12 +1269,6 @@ test.describe('installed iOS app', () => {
     /** What the reading threw, if anything. */
     error: string | null;
   };
-  /**
-   * The rise's and the fade's length: index.html's 0.3 s (owner suggestion and
-   * decision 2026-11-16), which src/core/__tests__/boot-splash.test.ts pins in
-   * the sheet.
-   */
-  const RISE_MS = 300;
   /** Every 10 ms into the rise, short of its end, so no seek sends an animation event. */
   const RISE_SEEK_MS = Array.from({ length: RISE_MS / 10 - 1 }, (_, index) => (index + 1) * 10);
   /**

@@ -96,6 +96,37 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.832 / v832 train: the session reset screen shows its whole fade-in before the page leaves, on a busy page too, as long as frames come (2026-11-20)](design/app-9-0-832-train-2026-11-20.md):
+  built on its train branch, not merged or released. The App update after 9.0.831 / v831, on main `6c675c0c` (#617), for
+  the owner's choice of 2026-11-20 to fix the app: on a busy page (seen with WebKit, the iPhone engine) the session
+  reset screen that leaving or refreshing a session shows could leave before its 0.2 s fade-in began or halfway through
+  it, because its 320 ms fallback (`RESET_PAINT_FALLBACK_MS` 120 plus the fade-in) was cleared only by the second frame;
+  the attempt 1 failure of Full E2E 44467012706 (opacity 0.948692, the 164 ms point of the 200 ms ease-out) fits this,
+  and also fits a late read of the opacity (inferred: which one that run hit is not known). A visible page now waits for
+  its first frame up to `RESET_FIRST_FRAME_LIMIT_MS` (800 ms, the owner's choice), and the first frame re-arms the
+  fallback from that frame, which then reads what is left of the fade-in by the transition's own clock; a later reading
+  at the second frame replaces that wait (a fix an independent review found before the bump). A hidden page keeps 320
+  ms. The cost is a later leave: 0.8 s instead of 0.32 s on a page that draws no frame, about 1.32 s when the first
+  frame comes just before 0.8 s and frames then stop, and at most about 1.52 s when that fallback read a fade-in not yet
+  started and the second frame comes just before the wait it set ends; the prepare and commit windows and the reload
+  fence are unchanged. RO-23's owner grows in place with one timing constant in its home, which the navigation
+  contract's timing table now names. Eight unit rows (four failed first on the old code, and one more on the first fix),
+  a timing contract row, and the e2e reset row made strict again: once a frame came, a leave before the fade-in's end
+  fails. The train also carries the release owner's three tests-only commits, which read the last-resort and
+  installed-rise rows' timing from the engine. On the build machine the old app's early leave did not reproduce in e2e,
+  so that contrast rests on the unit rows and the release owner's machine (the CI run fits it, inferred); Chromium's
+  per-frame jank times out at the row's screen read on both apps (the fixed app 10 of 10 runs, the old app 8 of 10), and
+  under 20x throttling the old app passed 5 of 5 while the fixed app passed 3 and timed out twice at that read
+  (inferred: the row's own structure). Final gate on the bump `f1444418`: unit 794 files, 19,361 passed, 1 skipped;
+  typecheck, lint, format:check, resource ownership, build:checked (PASS v832 at `f1444418`), the five production build
+  guards and the eight CI guards with check:workers and check:worker-bundles exit 0; Chromium e2e, one file at a time,
+  389 passed, 0 failed in 29 files; the WebKit lane 213 passed, 10 skipped; the strict reset row 20 of 20 in each
+  engine; and, as CI's candidate job runs them, the WebKit service worker smoke 1 passed, the production candidate
+  config 19 passed (with `forced-update-resume`) and the critical list 101 passed. One Chromium keyboard focus ring row
+  (`e2e/keyboard-focus-ring.test.ts`, the dialog round trip) fails now and then on this machine with the old reset code
+  too (2 of 30 runs; 3 of 30 with the fix), at a step no reset runs in; it is left as found. Not verified on a physical
+  device. Target `app`, one update dialog, floor 795 unchanged; the 9.0.831 open item on the reset screen's opacity
+  stays until the post-deploy Full E2E passes at attempt 1.
 - [App 9.0.830 train, released as 9.0.831 / v831: a late app stylesheet no longer stops WebKit's first open on Retry, two rare audio recovery silences show the recovery dialog (F-2501, F-2502), a first visit in Japanese or Chinese no longer draws and downloads another Han font first, the dark theme's media picker icons keep their colour under the mouse, a PRO LAN-direct share waits 2 s for its pair proofs, the media picker closes once shared system audio is captured, symbols draw in Inter, focus rings show only for keyboard navigation, a share that ends without a notice leaves a log line, a PRO share pressed after a share, a return or a Sync no longer drops, and the design system page's loading header logo shows its whole Q (2026-11-17)](design/app-9-0-830-train-2026-11-17.md):
   released on 2026-11-19 03:20 KST in Release 44368245447 (PR #614, squash `0889df09`) as App 9.0.831 / v831 (App build
   831, target `app`, one update dialog), together with 9.0.830, which merged as #613 (squash `eae02e89`, exact-main CI

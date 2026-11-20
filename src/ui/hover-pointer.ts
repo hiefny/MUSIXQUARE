@@ -14,8 +14,10 @@
  * The answer is `<html data-hover-pointer>`. Every `:hover` rule in css/ sits
  * under `:where(html[data-hover-pointer])`, whose `:where()` adds no
  * specificity, so state rules keep winning exactly as before. Script hover
- * checks use `hasHoverPointer()` and `isHovered()`. Nothing else asks a hover
- * or pointer media query (src/ui/__tests__/hover-pointer.test.ts).
+ * checks use `hasHoverPointer()` and `isHovered()`, and a script that tells a
+ * hover pointer's events from a touch asks `isHoverInput()`, the same test
+ * that turns hover on. Nothing else asks a hover or pointer media query
+ * (src/ui/__tests__/hover-pointer.test.ts).
  *
  * Keyboard navigation (owner request 2026-11-18). A focus ring is for a
  * person navigating by keyboard, never for focus that a click, a tap or a
@@ -92,6 +94,16 @@ export function hasHoverPointer(): boolean {
 /** Whether a hover pointer, not a latched touch press, is over the element. */
 export function isHovered(element: Element): boolean {
   return hasHoverPointer() && element.matches(':hover');
+}
+
+/**
+ * Whether a pointer event comes from a pointer that can hover: a mouse or a
+ * pen, never a touch. An event that names no pointer type (a synthetic one)
+ * follows the gate, so it never turns hover on by itself.
+ */
+export function isHoverInput(event: PointerEvent): boolean {
+  if (event.pointerType === 'mouse' || event.pointerType === 'pen') return true;
+  return !event.pointerType && hasHoverPointer();
 }
 
 function setHoverPointer(on: boolean): void {
@@ -231,7 +243,7 @@ export function initHoverPointer(): void {
     }
   };
   const markHoverInput = (event: PointerEvent): void => {
-    if (event.pointerType === 'mouse' || event.pointerType === 'pen') setHoverPointer(true);
+    if (isHoverInput(event)) setHoverPointer(true);
   };
   document.addEventListener('pointermove', markHoverInput, { passive: true });
   document.addEventListener('pointerover', markHoverInput, { passive: true, capture: true });

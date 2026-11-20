@@ -205,7 +205,7 @@ function createScrollbox(id: string, mount: HTMLElement = document.body): Scroll
       scrollHeight = px;
     },
     track: (): HTMLElement => {
-      const t = parent.querySelector<HTMLElement>('.cscroll-track');
+      const t = parent.querySelector<HTMLElement>(':scope > .cscroll-track');
       if (!t) throw new Error(`track not created for #${id}`);
       return t;
     },
@@ -1382,5 +1382,672 @@ describe('compact-landscape scrollbar ownership contract', () => {
     expect(stylesheet).toMatch(
       /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*#media-source-overlay\s+\.file-select-btn:hover\s*\{[^}]*transform:\s*none;/s,
     );
+  });
+});
+
+describe('custom-scrollbar pointer hover reveal and drag visuals', () => {
+  // jsdom has no hit testing, so each test states what the browser reports:
+  // the bar under a hover pointer (`:hover`), the one hover gate, which
+  // hover-pointer.ts turns on for a mouse or pen and off for a touch press (a
+  // mouse user here), and whether the window has focus.
+  const hovered = new Set<Element>();
+  let windowFocused = true;
+
+  beforeEach(() => {
+    hovered.clear();
+    windowFocused = true;
+    document.documentElement.setAttribute('data-hover-pointer', '');
+    const nativeMatches = Element.prototype.matches;
+    vi.spyOn(Element.prototype, 'matches').mockImplementation(function (
+      this: Element,
+      selectors: string,
+    ): boolean {
+      return selectors === ':hover' ? hovered.has(this) : nativeMatches.call(this, selectors);
+    });
+    vi.spyOn(document, 'hasFocus').mockImplementation(() => windowFocused);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.documentElement.removeAttribute('data-hover-pointer');
+  });
+
+  function dispatchPointer(
+    target: EventTarget,
+    type: 'pointerover' | 'pointermove' | 'pointerenter' | 'pointerleave',
+    options: {
+      pointerType?: string;
+      pointerId?: number;
+      clientX?: number;
+      clientY?: number;
+      relatedTarget?: EventTarget | null;
+      bubbles?: boolean;
+    } = {},
+  ): void {
+    const bubbles = options.bubbles ?? (type === 'pointerover' || type === 'pointermove');
+    const event = new Event(type, { bubbles, cancelable: true });
+    Object.defineProperties(event, {
+      pointerType: { value: options.pointerType ?? 'mouse' },
+      pointerId: { value: options.pointerId ?? 1 },
+      clientX: { value: options.clientX ?? 0 },
+      clientY: { value: options.clientY ?? 0 },
+      relatedTarget: { value: options.relatedTarget ?? null },
+    });
+    target.dispatchEvent(event);
+  }
+
+  function dispatchTouch(
+    thumb: HTMLElement,
+    type: 'touchstart' | 'touchend',
+    touches: Array<{ identifier: number; clientY: number }>,
+    changedTouches: Array<{ identifier: number; clientY: number }>,
+  ): void {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+      touches: { value: touches },
+      changedTouches: { value: changedTouches },
+    });
+    thumb.dispatchEvent(event);
+  }
+
+  /** A mouse comes over the content; the bar shows once a frame has measured it. */
+  function revealByHover(box: Scrollbox, clientX = 50, clientY = 50): void {
+    dispatchPointer(box.container, 'pointerover', { pointerType: 'mouse', clientX, clientY });
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('1');
+  }
+
+  /** A pointer comes onto the bar: the browser hovers it and sends the boundary events. */
+  function enterBar(box: Scrollbox, pointerType = 'mouse', pointerId = 1): void {
+    const track = box.track();
+    // A hidden bar lets the pointer through, so only a shown bar can be entered.
+    expect(track.style.pointerEvents).toBe('auto');
+    hovered.add(track);
+    dispatchPointer(track, 'pointerover', { pointerType, pointerId, relatedTarget: box.container });
+    dispatchPointer(track, 'pointerenter', { pointerType, pointerId });
+  }
+
+  function leaveBar(box: Scrollbox, pointerType = 'mouse', pointerId = 1): void {
+    hovered.delete(box.track());
+    dispatchPointer(box.track(), 'pointerleave', { pointerType, pointerId });
+  }
+
+  it('reveals an overflowing scrollbar on mouse/pen enter and movement, then fades when still', () => {
+    const box = createScrollbox('hover-reveal');
+    initCustomScrollbar(box.container);
+
+    expect(box.track().style.opacity).toBe('0');
+    expect(box.track().style.pointerEvents).toBe('none');
+
+    // Entering with a hover pointer reveals the track at default thumb opacity
+    // (0.2 via CSS), once a frame has measured it.
+    dispatchPointer(box.container, 'pointerover', {
+      pointerType: 'mouse',
+      clientX: 40,
+      clientY: 50,
+    });
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('1');
+    expect(box.track().style.pointerEvents).toBe('auto');
+
+    // Moving before the fade deadline keeps it visible and extends the deadline.
+    vi.advanceTimersByTime(1000);
+    dispatchPointer(box.container, 'pointermove', {
+      pointerType: 'mouse',
+      clientX: 44,
+      clientY: 52,
+    });
+    vi.advanceTimersByTime(1199);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(box.track().style.opacity).toBe('0');
+    expect(box.track().style.pointerEvents).toBe('none');
+
+    // A duplicate stationary pointermove at the exact same point must not wake it.
+    dispatchPointer(box.container, 'pointermove', {
+      pointerType: 'mouse',
+      clientX: 44,
+      clientY: 52,
+    });
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('0');
+
+    // Moving to a new coordinate wakes it again (including pen input).
+    dispatchPointer(box.container, 'pointermove', {
+      pointerType: 'pen',
+      clientX: 45,
+      clientY: 52,
+    });
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('1');
+    expect(box.track().style.pointerEvents).toBe('auto');
+
+    // Re-entering is a pointerover, which reveals even at the last move's coordinates.
+    vi.advanceTimersByTime(1200);
+    expect(box.track().style.opacity).toBe('0');
+    dispatchPointer(box.container, 'pointerleave', { pointerType: 'pen' });
+    dispatchPointer(box.container, 'pointerover', {
+      pointerType: 'pen',
+      clientX: 45,
+      clientY: 52,
+    });
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('1');
+  });
+
+  it('ignores touch on the content and a touch press on the bar, and never measures fitted content', () => {
+    const overflowing = createScrollbox('touch-ignored');
+    const fitted = createScrollbox('fitted-ignored');
+    fitted.setScrollHeight(200);
+    initCustomScrollbar(overflowing.container);
+    initCustomScrollbar(fitted.container);
+    fitted.rectSpy.mockClear();
+
+    dispatchPointer(overflowing.container, 'pointerover', {
+      pointerType: 'touch',
+      clientX: 20,
+      clientY: 20,
+    });
+    dispatchPointer(overflowing.container, 'pointermove', {
+      pointerType: 'touch',
+      clientX: 25,
+      clientY: 30,
+    });
+    flushAnimationFrame();
+    expect(overflowing.track().style.opacity).toBe('0');
+
+    // A tap on a shown bar leaves :hover latched on it, but the touch press
+    // turns the one hover gate off, so the bar fades on time.
+    revealByHover(overflowing, 40, 40);
+    document.documentElement.removeAttribute('data-hover-pointer');
+    enterBar(overflowing, 'touch', 2);
+    vi.advanceTimersByTime(1199);
+    expect(overflowing.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(overflowing.track().style.opacity).toBe('0');
+
+    dispatchPointer(fitted.container, 'pointerover', {
+      pointerType: 'mouse',
+      clientX: 20,
+      clientY: 20,
+    });
+    dispatchPointer(fitted.container, 'pointermove', {
+      pointerType: 'mouse',
+      clientX: 30,
+      clientY: 30,
+    });
+    flushAnimationFrame();
+    expect(fitted.track().style.opacity).toBe('0');
+    expect(fitted.rectSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the track visible while hovered and resumes fade on leave or blur', () => {
+    const box = createScrollbox('track-hover-hold');
+    initCustomScrollbar(box.container);
+
+    revealByHover(box);
+    dispatchPointer(box.container, 'pointerleave', {
+      pointerType: 'mouse',
+      relatedTarget: box.track(),
+    });
+    enterBar(box);
+
+    // Even well past FADE_DELAY and across wheel scrolls, track hover holds visibility.
+    vi.advanceTimersByTime(5000);
+    expect(box.track().style.opacity).toBe('1');
+    box.container.scrollTop = 120;
+    box.container.dispatchEvent(new Event('scroll'));
+    vi.advanceTimersByTime(5000);
+    expect(box.track().style.opacity).toBe('1');
+
+    // Leaving the track resumes the normal 1.2s fade.
+    leaveBar(box);
+    vi.advanceTimersByTime(1199);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(box.track().style.opacity).toBe('0');
+
+    // Window blur also releases a held track hover so alt-tab never pins it open.
+    revealByHover(box, 52, 50);
+    enterBar(box);
+    windowFocused = false;
+    window.dispatchEvent(new Event('blur'));
+    vi.advanceTimersByTime(1200);
+    expect(box.track().style.opacity).toBe('0');
+  });
+
+  it('respects track hover state when a thumb drag finishes', () => {
+    const box = createScrollbox('drag-end-hover');
+    initCustomScrollbar(box.container);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+
+    // Release while still hovering the track: remains visible until leaving the track.
+    revealByHover(box, 50, 20);
+    enterBar(box);
+    thumb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientY: 20 }));
+    expect(thumb.classList.contains('dragging')).toBe(true);
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    expect(thumb.classList.contains('dragging')).toBe(false);
+    vi.advanceTimersByTime(5000);
+    expect(box.track().style.opacity).toBe('1');
+
+    // Dragging off the track stays visible during drag, then fades after mouseup.
+    thumb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientY: 20 }));
+    leaveBar(box);
+    vi.advanceTimersByTime(5000);
+    expect(box.track().style.opacity).toBe('1');
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    vi.advanceTimersByTime(1199);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(box.track().style.opacity).toBe('0');
+  });
+
+  it('reveals only the innermost overflowing container on nested pointer events', () => {
+    const outer = createScrollbox('nested-outer-hover');
+    const inner = createScrollbox('nested-inner-hover', outer.container);
+    const child = document.createElement('div');
+    inner.container.appendChild(child);
+    initCustomScrollbar(outer.container);
+    initCustomScrollbar(inner.container);
+
+    dispatchPointer(child, 'pointerover', {
+      pointerType: 'mouse',
+      clientX: 30,
+      clientY: 30,
+    });
+    flushAnimationFrame();
+    expect(inner.track().style.opacity).toBe('1');
+    expect(outer.track().style.opacity).toBe('0');
+
+    dispatchPointer(child, 'pointermove', {
+      pointerType: 'mouse',
+      clientX: 32,
+      clientY: 34,
+    });
+    flushAnimationFrame();
+    expect(inner.track().style.opacity).toBe('1');
+    expect(outer.track().style.opacity).toBe('0');
+
+    // When the inner container no longer overflows, hovering over it reveals the outer container.
+    inner.setScrollHeight(200);
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    expect(inner.track().style.opacity).toBe('0');
+
+    dispatchPointer(child, 'pointermove', {
+      pointerType: 'mouse',
+      clientX: 36,
+      clientY: 38,
+    });
+    flushAnimationFrame();
+    expect(inner.track().style.opacity).toBe('0');
+    expect(outer.track().style.opacity).toBe('1');
+  });
+
+  it("counts an inner scroll area's own bar as inner, so the outer bar stays hidden over it", () => {
+    const outer = createScrollbox('nested-bar-outer');
+    const inner = createScrollbox('nested-bar-inner', outer.container);
+    initCustomScrollbar(outer.container);
+    initCustomScrollbar(inner.container);
+    const innerTrack = inner.track();
+    const innerThumb = innerTrack.querySelector<HTMLElement>('.cscroll-thumb')!;
+    // The inner bar sits beside the inner container, inside the outer one.
+    expect(outer.container.contains(innerTrack)).toBe(true);
+    expect(inner.container.contains(innerTrack)).toBe(false);
+
+    revealByHover(inner, 30, 30);
+    expect(outer.track().style.opacity).toBe('0');
+
+    // Over and along the inner bar, as when grabbing or dragging its thumb.
+    dispatchPointer(innerThumb, 'pointerover', {
+      pointerType: 'mouse',
+      clientX: 96,
+      clientY: 30,
+      relatedTarget: inner.container,
+    });
+    dispatchPointer(innerThumb, 'pointermove', { pointerType: 'mouse', clientX: 96, clientY: 40 });
+    dispatchPointer(innerTrack, 'pointermove', { pointerType: 'mouse', clientX: 96, clientY: 90 });
+    flushAnimationFrame();
+    expect(outer.track().style.opacity).toBe('0');
+    expect(inner.track().style.opacity).toBe('1');
+  });
+
+  it('re-measures once when a scroll session starts after a hover reveal', () => {
+    const box = createScrollbox('hover-then-scroll-session');
+    initCustomScrollbar(box.container);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    expect(thumb.style.height).toBe('40px');
+    revealByHover(box);
+
+    // A late image or font, or a grid-rows transition ending, grows the content
+    // without a mutation record or a border-box change. A wheel inside the
+    // hover's fade delay still starts a scroll session, which re-measures once.
+    box.setScrollHeight(1600);
+    vi.advanceTimersByTime(600);
+    box.container.scrollTop = 100;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    expect(thumb.style.height).toBe('30px');
+
+    // The session's later scrolls stay on the cache.
+    box.rectSpy.mockClear();
+    box.container.scrollTop = 200;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    expect(box.rectSpy).not.toHaveBeenCalled();
+  });
+
+  it('extends the scroll session with every scroll, so a long run re-measures once', () => {
+    const box = createScrollbox('scroll-session-extends');
+    initCustomScrollbar(box.container);
+    box.rectSpy.mockClear();
+
+    // Scrolls 1 s apart for 6 s, each inside the fade delay after the last,
+    // are one session, which re-measures at its start only.
+    for (let i = 1; i <= 6; i += 1) {
+      box.container.scrollTop = i * 50;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame();
+      vi.advanceTimersByTime(1000);
+    }
+    expect(box.rectSpy).toHaveBeenCalledTimes(1);
+
+    // A full delay without a scroll ends the session; the next scroll starts another.
+    vi.advanceTimersByTime(200);
+    box.container.scrollTop = 400;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    expect(box.rectSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('measures a hidden bar before a hover shows it, and keeps moves over a shown bar on the cache', () => {
+    const box = createScrollbox('hover-measures-first');
+    initCustomScrollbar(box.container);
+
+    // The content stopped overflowing without a mutation record or a resize (a
+    // font swap, a collapse transition ending), so the cache still says it does.
+    box.setScrollHeight(200);
+    dispatchPointer(box.container, 'pointerover', {
+      pointerType: 'mouse',
+      clientX: 50,
+      clientY: 50,
+    });
+    flushAnimationFrame();
+    vi.advanceTimersByTime(100);
+    expect(box.track().style.opacity).toBe('0');
+    expect(box.track().style.pointerEvents).toBe('none');
+
+    box.setScrollHeight(1000);
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    revealByHover(box, 52, 50);
+    box.rectSpy.mockClear();
+    for (let x = 53; x < 63; x += 1) {
+      dispatchPointer(box.container, 'pointermove', {
+        pointerType: 'mouse',
+        clientX: x,
+        clientY: 50,
+      });
+    }
+    expect(_rafCallbacks.size).toBe(0);
+    flushAnimationFrame();
+    expect(box.rectSpy).not.toHaveBeenCalled();
+    expect(box.track().style.opacity).toBe('1');
+  });
+
+  it('lets a held bar go once the one hover gate turns off, with or without a scroll', () => {
+    const box = createScrollbox('hold-gate');
+    initCustomScrollbar(box.container);
+    revealByHover(box);
+    enterBar(box);
+    vi.advanceTimersByTime(5000);
+    expect(box.track().style.opacity).toBe('1');
+
+    // A touch press elsewhere turns the gate off while the mouse rests on the bar.
+    document.documentElement.removeAttribute('data-hover-pointer');
+    vi.advanceTimersByTime(1200);
+    expect(box.track().style.opacity).toBe('0');
+
+    // Touch scrolling under a resting mouse does not hold the bar either.
+    leaveBar(box);
+    document.documentElement.setAttribute('data-hover-pointer', '');
+    revealByHover(box, 52, 50);
+    enterBar(box);
+    document.documentElement.removeAttribute('data-hover-pointer');
+    box.container.scrollTop = 100;
+    box.container.dispatchEvent(new Event('scroll'));
+    vi.advanceTimersByTime(5000);
+    expect(box.track().style.opacity).toBe('0');
+  });
+
+  it("holds the bar on the browser's hover of it, not on a flag of its own", () => {
+    const box = createScrollbox('hold-follows-hover');
+    initCustomScrollbar(box.container);
+    revealByHover(box);
+    enterBar(box);
+    vi.advanceTimersByTime(5000);
+    expect(box.track().style.opacity).toBe('1');
+
+    // The browser stops reporting the bar hovered and no pointerleave reaches it.
+    hovered.delete(box.track());
+    vi.advanceTimersByTime(1200);
+    expect(box.track().style.opacity).toBe('0');
+  });
+
+  it('keeps the hold the mouse owns when a pen leaves the bar', () => {
+    const box = createScrollbox('hold-two-pointers');
+    initCustomScrollbar(box.container);
+    revealByHover(box);
+    enterBar(box, 'mouse', 1);
+
+    // A pen hovers across the bar and away while the mouse rests on it, so the
+    // browser still reports the bar hovered.
+    dispatchPointer(box.track(), 'pointerover', { pointerType: 'pen', pointerId: 2 });
+    dispatchPointer(box.track(), 'pointerenter', { pointerType: 'pen', pointerId: 2 });
+    dispatchPointer(box.track(), 'pointerleave', { pointerType: 'pen', pointerId: 2 });
+    vi.advanceTimersByTime(5000);
+    expect(box.track().style.opacity).toBe('1');
+  });
+
+  it('restarts the countdown when a hover pointer leaves the bar, never when a touch does', () => {
+    const box = createScrollbox('leave-hover-only');
+    initCustomScrollbar(box.container);
+    const scrollTo = (top: number): void => {
+      box.container.scrollTop = top;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame();
+    };
+
+    // On a phone a touch press turned the one hover gate off, and a scroll
+    // shows the bar. A swipe that starts on the shown bar gets a pointerleave
+    // after its pointerup or pointercancel; the bar still fades a delay after
+    // the scroll.
+    document.documentElement.removeAttribute('data-hover-pointer');
+    scrollTo(100);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1000);
+    enterBar(box, 'touch', 2);
+    leaveBar(box, 'touch', 2);
+    vi.advanceTimersByTime(200);
+    expect(box.track().style.opacity).toBe('0');
+
+    // A mouse that crosses the shown bar fades it a full delay after leaving.
+    document.documentElement.setAttribute('data-hover-pointer', '');
+    scrollTo(200);
+    vi.advanceTimersByTime(900);
+    enterBar(box);
+    vi.advanceTimersByTime(100);
+    leaveBar(box);
+    vi.advanceTimersByTime(1199);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(box.track().style.opacity).toBe('0');
+  });
+
+  it('does not keep a hold through content that stops overflowing under the bar', () => {
+    const box = createScrollbox('hold-overflow-loss');
+    initCustomScrollbar(box.container);
+    revealByHover(box);
+    enterBar(box);
+
+    // The content stops overflowing: the bar goes, and the browser's hover of
+    // it with the bar, though no pointerleave reaches it.
+    box.setScrollHeight(200);
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('0');
+    hovered.delete(box.track());
+
+    // It overflows again and a scroll shows the bar, which fades on time.
+    box.setScrollHeight(1000);
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    box.container.scrollTop = 100;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    vi.advanceTimersByTime(1199);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(box.track().style.opacity).toBe('0');
+  });
+
+  it('lets go of a mouse hold when a finger drags the thumb', () => {
+    const box = createScrollbox('hold-touch-drag');
+    initCustomScrollbar(box.container);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    revealByHover(box);
+    enterBar(box);
+
+    // The touch press turns the one hover gate off; :hover stays latched on the bar.
+    document.documentElement.removeAttribute('data-hover-pointer');
+    const finger = { identifier: 1, clientY: 20 };
+    dispatchTouch(thumb, 'touchstart', [finger], [finger]);
+    expect(thumb.classList.contains('dragging')).toBe(true);
+    dispatchTouch(thumb, 'touchend', [], [finger]);
+    expect(thumb.classList.contains('dragging')).toBe(false);
+    vi.advanceTimersByTime(1199);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(box.track().style.opacity).toBe('0');
+  });
+
+  it('lets an event that names no pointer type follow the one hover gate', () => {
+    const box = createScrollbox('hover-untyped');
+    initCustomScrollbar(box.container);
+
+    document.documentElement.removeAttribute('data-hover-pointer');
+    dispatchPointer(box.container, 'pointerover', { pointerType: '', clientX: 10, clientY: 10 });
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('0');
+
+    document.documentElement.setAttribute('data-hover-pointer', '');
+    dispatchPointer(box.container, 'pointermove', { pointerType: '', clientX: 11, clientY: 10 });
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('1');
+  });
+
+  it('hands a wheel turned over the bar to its scroller, in pixels, lines or pages', () => {
+    const box = createScrollbox('wheel-over-bar');
+    initCustomScrollbar(box.container);
+    revealByHover(box);
+    enterBar(box);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    const wheel = (target: HTMLElement, init: WheelEventInit): WheelEvent => {
+      const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init });
+      target.dispatchEvent(event);
+      return event;
+    };
+
+    expect(wheel(box.track(), { deltaY: 120 }).defaultPrevented).toBe(true);
+    expect(box.container.scrollTop).toBe(120);
+    wheel(thumb, { deltaY: 3, deltaMode: WheelEvent.DOM_DELTA_LINE });
+    expect(box.container.scrollTop).toBe(240);
+    wheel(box.track(), { deltaY: -1, deltaMode: WheelEvent.DOM_DELTA_PAGE });
+    expect(box.container.scrollTop).toBe(40);
+
+    // Ctrl with the wheel, or a pinch, zooms the page, and a sideways wheel is
+    // not this bar's to take.
+    expect(wheel(box.track(), { deltaY: 100, ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(wheel(box.track(), { deltaX: 80 }).defaultPrevented).toBe(false);
+    expect(box.container.scrollTop).toBe(40);
+  });
+
+  it('removes every listener it adds to the content and the window on destroy', () => {
+    const box = createScrollbox('destroy-hover-cleanup');
+    const targets: EventTarget[] = [box.container, window];
+    const spies = targets.map((target) => ({
+      add: vi.spyOn(target, 'addEventListener'),
+      remove: vi.spyOn(target, 'removeEventListener'),
+    }));
+    initCustomScrollbar(box.container);
+    const track = box.track();
+    const added = spies.map(({ add }) =>
+      add.mock.calls.map(([type, listener]) => [type, listener]),
+    );
+    expect(added[0].map(([type]) => type)).toEqual(
+      expect.arrayContaining(['scroll', 'pointerover', 'pointermove']),
+    );
+    expect(added[1].length).toBeGreaterThan(0);
+
+    destroyCustomScrollbar(box.container);
+    spies.forEach(({ remove }, index) => {
+      const removed = remove.mock.calls.map(([type, listener]) => [type, listener]);
+      for (const listener of added[index]) expect(removed).toContainEqual(listener);
+    });
+    expect(track.isConnected).toBe(false);
+
+    dispatchPointer(box.container, 'pointerover', {
+      pointerType: 'mouse',
+      clientX: 20,
+      clientY: 20,
+    });
+    flushAnimationFrame();
+    expect(track.style.opacity).toBe('0');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('inherits pointer-events on the thumb and styles active and dragging states alike', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const root = parseCss(stylesheet);
+
+    let thumbHasPointerEventsAuto = false;
+    let hoverDecl: string | null = null;
+    let activeDecl: string | null = null;
+    let draggingDecl: string | null = null;
+
+    root.walkRules((rule) => {
+      for (const rawSelector of rule.selectors) {
+        const selector = rawSelector.replace(/\s+/gu, ' ').trim();
+        if (selector === '.cscroll-thumb') {
+          rule.walkDecls('pointer-events', (decl) => {
+            if (decl.value.trim() === 'auto') thumbHasPointerEventsAuto = true;
+          });
+        }
+        if (
+          selector ===
+          ':where(html[data-hover-pointer]) .cscroll-thumb:hover > .cscroll-thumb-visual'
+        ) {
+          rule.walkDecls('background-color', (decl) => {
+            hoverDecl = decl.value.trim();
+          });
+        }
+        if (selector === '.cscroll-thumb:active > .cscroll-thumb-visual') {
+          rule.walkDecls('background-color', (decl) => {
+            activeDecl = decl.value.trim();
+          });
+        }
+        if (selector === '.cscroll-thumb.dragging > .cscroll-thumb-visual') {
+          rule.walkDecls('background-color', (decl) => {
+            draggingDecl = decl.value.trim();
+          });
+        }
+      }
+    });
+
+    expect(thumbHasPointerEventsAuto).toBe(false);
+    expect(hoverDecl).toBe('var(--scrollbar-thumb-hover)');
+    expect(activeDecl).toBe('var(--scrollbar-thumb-active)');
+    expect(draggingDecl).toBe('var(--scrollbar-thumb-active)');
   });
 });

@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type CDPSession, type Locator, type Page } from '@playwright/test';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 
 type ScrollDriver = 'timeline' | 'script';
@@ -289,11 +289,10 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     await scrollToRatio(fixture, 0);
     await expectThumbAtRatio(fixture, 0);
     // The endpoint assertion can legitimately outlive the 1.2 s idle fade on
-    // a busy CI worker. Re-expose and hit-test the real pointer target, then
-    // dispatch the gesture to that proven target so cumulative suite load
-    // cannot make this driver-handoff test race the unrelated fade timer.
-    await fixture.owner.evaluate((element) => element.dispatchEvent(new Event('scroll')));
-    await expect(fixture.track).toHaveCSS('pointer-events', 'auto');
+    // a busy CI worker, and a faded bar lets the pointer through. Re-expose
+    // and hit-test the real pointer target in the same task, on every poll,
+    // then dispatch the gesture to that proven target so cumulative suite
+    // load cannot make this driver-handoff test race the unrelated fade timer.
     const box = await fixture.thumb.boundingBox();
     expect(box).not.toBeNull();
     const dragPoint = {
@@ -302,12 +301,17 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     };
     await expect
       .poll(() =>
-        page.evaluate(
-          ({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('cscroll-thumb'),
-          dragPoint,
-        ),
+        fixture.owner.evaluate((element, { x, y }) => {
+          element.dispatchEvent(new Event('scroll'));
+          const track =
+            element.parentElement?.querySelector<HTMLElement>(':scope > .cscroll-track');
+          return {
+            pointerEvents: track ? getComputedStyle(track).pointerEvents : null,
+            thumbHit: Boolean(document.elementFromPoint(x, y)?.classList.contains('cscroll-thumb')),
+          };
+        }, dragPoint),
       )
-      .toBe(true);
+      .toEqual({ pointerEvents: 'auto', thumbHit: true });
     await fixture.thumb.dispatchEvent('mousedown', {
       button: 0,
       buttons: 1,
@@ -316,6 +320,13 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     });
     await waitForDriver(fixture, 'script');
     await expectVisualFillsOuter(fixture);
+    // A press dispatched by script sets .dragging but not :active, so only the
+    // .dragging rule can give the visual the pressed colour here.
+    await expect(fixture.thumb).toHaveClass(/\bdragging\b/);
+    const pressedRgb = await page.evaluate(() =>
+      document.documentElement.dataset.theme === 'light' ? '0, 0, 0' : '255, 255, 255',
+    );
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${pressedRgb}, 0.6)`);
     await page.evaluate(
       ({ x, y }) =>
         window.dispatchEvent(
@@ -725,5 +736,235 @@ test.describe('custom scrollbar ScrollTimeline runtime failure', () => {
     await waitForDriver(fixture, 'script');
     await scrollToRatio(fixture, 0.5);
     await expectThumbAtRatio(fixture, 0.5);
+  });
+});
+
+test.describe('custom scrollbar pointer hover reveal and thumb states', () => {
+  test('ramps from transparent to 0.2 on panel hover, 0.4 on thumb hover, and 0.6 while dragging', async ({
+    page,
+  }) => {
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+
+    // Wait for any initial reveal to fade out; both track and thumb must pass pointer events through.
+    await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
+    await expect(fixture.track).toHaveCSS('pointer-events', 'none');
+    await expect(fixture.thumb).toHaveCSS('pointer-events', 'none');
+
+    const ownerBox = await fixture.owner.boundingBox();
+    expect(ownerBox).not.toBeNull();
+    const rgb = await page.evaluate(() =>
+      document.documentElement.dataset.theme === 'light' ? '0, 0, 0' : '255, 255, 255',
+    );
+
+    // Move mouse into the scrollable panel -> reveals track at base 0.2 thumb color.
+    await page.mouse.move(ownerBox!.x + 40, ownerBox!.y + 40);
+    await expect(fixture.track).toHaveCSS('opacity', '1');
+    await expect(fixture.track).toHaveCSS('pointer-events', 'auto');
+    await expect(fixture.thumb).toHaveCSS('pointer-events', 'auto');
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.2)`);
+
+    // Hover directly over the thumb -> deepens to 0.4 and stays visible past the 1.2s fade delay.
+    const thumbBox = await fixture.thumb.boundingBox();
+    expect(thumbBox).not.toBeNull();
+    const thumbCenter = {
+      x: thumbBox!.x + thumbBox!.width / 2,
+      y: thumbBox!.y + thumbBox!.height / 2,
+    };
+    await page.mouse.move(thumbCenter.x, thumbCenter.y);
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.4)`);
+    await page.waitForTimeout(1400);
+    await expect(fixture.track).toHaveCSS('opacity', '1');
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.4)`);
+
+    // Press and drag even off the 8px track horizontally -> stays visible at 0.6 (.dragging).
+    await page.mouse.down();
+    await expect(fixture.thumb).toHaveClass(/\bdragging\b/);
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.6)`);
+    await page.mouse.move(thumbCenter.x - 60, thumbCenter.y + 40);
+    await expect(fixture.track).toHaveCSS('opacity', '1');
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.6)`);
+
+    // Release outside the track -> drops back to 0.2 and fades to 0 after idle delay.
+    await page.mouse.up();
+    await expect(fixture.thumb).not.toHaveClass(/\bdragging\b/);
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.2)`);
+    await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
+    await expect(fixture.thumb).toHaveCSS('pointer-events', 'none');
+  });
+
+  test('scrolls the panel with the wheel over its bar after the pointer rests there past the fade delay', async ({
+    page,
+    browserName,
+    isMobile,
+  }) => {
+    test.skip(
+      browserName === 'webkit' && isMobile,
+      'Playwright has no mouse wheel in mobile WebKit',
+    );
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    // Lay the track over the panel's right edge, as the app's contained bars sit
+    // over their scroller's edge (the language list's track is at right: -4px).
+    await fixture.track.evaluate((track) => {
+      const shell = track.parentElement!;
+      const owner = shell.querySelector<HTMLElement>(':scope > .tab-body')!;
+      const inset = shell.getBoundingClientRect().right - owner.getBoundingClientRect().right;
+      track.style.setProperty('right', `${inset}px`, 'important');
+    });
+    await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
+
+    const ownerBox = await fixture.owner.boundingBox();
+    const trackBox = await fixture.track.boundingBox();
+    const thumbBox = await fixture.thumb.boundingBox();
+    expect(ownerBox && trackBox && thumbBox).toBeTruthy();
+    expect(trackBox!.x).toBeGreaterThanOrEqual(ownerBox!.x);
+    expect(trackBox!.x + trackBox!.width).toBeLessThanOrEqual(ownerBox!.x + ownerBox!.width);
+    // A point on the bar, below the thumb, inside the panel's box.
+    const point = {
+      x: trackBox!.x + trackBox!.width / 2,
+      y: trackBox!.y + trackBox!.height * 0.75,
+    };
+    expect(point.y).toBeGreaterThan(thumbBox!.y + thumbBox!.height);
+
+    // Come in over the panel, then slide onto the bar and rest there past the
+    // 1.2 s fade delay.
+    await page.mouse.move(point.x - 60, point.y);
+    await page.waitForTimeout(300);
+    await page.mouse.move(point.x, point.y, { steps: 6 });
+    await page.waitForTimeout(1_500);
+
+    // The resting pointer holds the bar, shown and under it, so the wheel turns
+    // over the bar and not over the panel beneath it.
+    expect(
+      await fixture.track.evaluate((track, { x, y }) => {
+        const style = getComputedStyle(track);
+        const owner = track.parentElement!.querySelector<HTMLElement>(':scope > .tab-body')!;
+        return {
+          opacity: style.opacity,
+          pointerEvents: style.pointerEvents,
+          underPointer: track.contains(document.elementFromPoint(x, y)),
+          scrollTop: owner.scrollTop,
+        };
+      }, point),
+    ).toEqual({ opacity: '1', pointerEvents: 'auto', underPointer: true, scrollTop: 0 });
+    await page.mouse.wheel(0, 300);
+    await expect
+      .poll(() => fixture.owner.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+  });
+});
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+/** One finger moves from `from` to `to` in steps, then rests before lifting. */
+async function fingerStroke(page: Page, cdp: CDPSession, from: Point, to: Point): Promise<void> {
+  const contact = (point: Point) => [{ ...point, id: 1, radiusX: 1, radiusY: 1, force: 1 }];
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: contact(from) });
+  try {
+    for (let step = 1; step <= 8; step += 1) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: contact({
+          x: from.x + ((to.x - from.x) * step) / 8,
+          y: from.y + ((to.y - from.y) * step) / 8,
+        }),
+      });
+      await page.waitForTimeout(24);
+    }
+    // Lift at rest, not as a fling, so the scroll ends where the finger did.
+    await page.waitForTimeout(250);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: contact(to) });
+  } finally {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  }
+}
+
+test.describe('custom scrollbar under a finger', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    deviceScaleFactor: 1,
+  });
+
+  // A faded bar lets every pointer through, a finger too (owner decision
+  // 2026-11-20). A finger pushing a long list along its right edge scrolls the
+  // list and never grabs the hidden thumb, whose drag would jump the list at
+  // the track's scale.
+  test('scrolls the panel when a swipe starts on the faded thumb, without dragging it', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(
+      browserName !== 'chromium',
+      'Playwright moves a finger only through the Chromium DevTools protocol',
+    );
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    // Lay the track over the panel's right edge, as the app's contained bars sit
+    // over their scroller's edge, so the faded thumb's rectangle is on the panel.
+    await fixture.track.evaluate((track) => {
+      const shell = track.parentElement!;
+      const owner = shell.querySelector<HTMLElement>(':scope > .tab-body')!;
+      const inset = shell.getBoundingClientRect().right - owner.getBoundingClientRect().right;
+      track.style.setProperty('right', `${inset}px`, 'important');
+    });
+    // Halfway down the list, so the finger has room to push the content up.
+    await scrollToRatio(fixture, 0.5);
+    await expectThumbAtRatio(fixture, 0.5);
+    await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
+    await expect(fixture.track).toHaveCSS('pointer-events', 'none');
+
+    const ownerBox = await fixture.owner.boundingBox();
+    const thumbBox = await fixture.thumb.boundingBox();
+    expect(ownerBox && thumbBox).toBeTruthy();
+    const from = { x: thumbBox!.x + thumbBox!.width / 2, y: thumbBox!.y + thumbBox!.height / 2 };
+    const to = { x: from.x, y: ownerBox!.y + 10 };
+    expect(from.x).toBeGreaterThan(ownerBox!.x);
+    expect(from.x).toBeLessThan(ownerBox!.x + ownerBox!.width);
+    expect(from.y - to.y).toBeGreaterThan(60);
+    const startScrollTop = await fixture.owner.evaluate((element) => element.scrollTop);
+
+    // Watch the thumb's classes, so a drag that starts and ends within the
+    // swipe still counts: removing .dragging leaves it in the old value.
+    await fixture.thumb.evaluate((thumb) => {
+      const watched = thumb as HTMLElement & { __dragged?: () => boolean };
+      let seen = false;
+      const note = (records: MutationRecord[]): void => {
+        if (records.some((record) => /\bdragging\b/u.test(record.oldValue ?? ''))) seen = true;
+      };
+      const observer = new MutationObserver(note);
+      observer.observe(thumb, {
+        attributes: true,
+        attributeFilter: ['class'],
+        attributeOldValue: true,
+      });
+      watched.__dragged = () => {
+        note(observer.takeRecords());
+        return seen || thumb.classList.contains('dragging');
+      };
+    });
+
+    const cdp = await page.context().newCDPSession(page);
+    await fingerStroke(page, cdp, from, to);
+
+    // Pushing the content up scrolls further down the list. A thumb dragged up
+    // would scroll it back toward the top.
+    await expect
+      .poll(() =>
+        fixture.thumb.evaluate((thumb, start) => {
+          const watched = thumb as HTMLElement & { __dragged?: () => boolean };
+          const owner = thumb.parentElement!.parentElement!.querySelector(':scope > .tab-body')!;
+          return {
+            dragged: watched.__dragged?.() ?? true,
+            scrolledDown: owner.scrollTop > start,
+          };
+        }, startScrollTop),
+      )
+      .toEqual({ dragged: false, scrolledDown: true });
   });
 });

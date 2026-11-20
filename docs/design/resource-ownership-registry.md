@@ -3812,7 +3812,8 @@ RO-55 accepted-exception
   edge auto-scroll); removal (`src/ui/playlist-removal.ts` with
   `src/ui/playlist-selection-morph.ts`: selection, exit layer, glide); the selection-gesture
   auto-scroll (`src/ui/playlist-selection-gestures.ts`); follow and current-jump; the custom
-  scrollbar drag; the render's scroll restore. The three lazy controllers share
+  scrollbar drag and the wheel its shown bar hands to the scroller (`src/ui/custom-scrollbar.ts`);
+  the render's scroll restore. The three lazy controllers share
   `src/ui/playlist-motion.ts` (lazy; listed with the build's deferred modules) for the edge
   auto-scroll, the row easing and the reduced-motion check. `src/ui/playlist-view.ts` holds the
   interaction gate: `playlistInteraction()` derives one state from both controllers (the reorder

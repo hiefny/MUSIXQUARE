@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type CDPSession, type Locator, type Page } from '@playwright/test';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 
 type ScrollDriver = 'timeline' | 'script';
@@ -852,5 +852,119 @@ test.describe('custom scrollbar pointer hover reveal and thumb states', () => {
     await expect
       .poll(() => fixture.owner.evaluate((element) => element.scrollTop))
       .toBeGreaterThan(0);
+  });
+});
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+/** One finger moves from `from` to `to` in steps, then rests before lifting. */
+async function fingerStroke(page: Page, cdp: CDPSession, from: Point, to: Point): Promise<void> {
+  const contact = (point: Point) => [{ ...point, id: 1, radiusX: 1, radiusY: 1, force: 1 }];
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: contact(from) });
+  try {
+    for (let step = 1; step <= 8; step += 1) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: contact({
+          x: from.x + ((to.x - from.x) * step) / 8,
+          y: from.y + ((to.y - from.y) * step) / 8,
+        }),
+      });
+      await page.waitForTimeout(24);
+    }
+    // Lift at rest, not as a fling, so the scroll ends where the finger did.
+    await page.waitForTimeout(250);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: contact(to) });
+  } finally {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  }
+}
+
+test.describe('custom scrollbar under a finger', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    deviceScaleFactor: 1,
+  });
+
+  // A faded bar lets every pointer through, a finger too (owner decision
+  // 2026-11-20). A finger pushing a long list along its right edge scrolls the
+  // list and never grabs the hidden thumb, whose drag would jump the list at
+  // the track's scale.
+  test('scrolls the panel when a swipe starts on the faded thumb, without dragging it', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(
+      browserName !== 'chromium',
+      'Playwright moves a finger only through the Chromium DevTools protocol',
+    );
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    // Lay the track over the panel's right edge, as the app's contained bars sit
+    // over their scroller's edge, so the faded thumb's rectangle is on the panel.
+    await fixture.track.evaluate((track) => {
+      const shell = track.parentElement!;
+      const owner = shell.querySelector<HTMLElement>(':scope > .tab-body')!;
+      const inset = shell.getBoundingClientRect().right - owner.getBoundingClientRect().right;
+      track.style.setProperty('right', `${inset}px`, 'important');
+    });
+    // Halfway down the list, so the finger has room to push the content up.
+    await scrollToRatio(fixture, 0.5);
+    await expectThumbAtRatio(fixture, 0.5);
+    await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
+    await expect(fixture.track).toHaveCSS('pointer-events', 'none');
+
+    const ownerBox = await fixture.owner.boundingBox();
+    const thumbBox = await fixture.thumb.boundingBox();
+    expect(ownerBox && thumbBox).toBeTruthy();
+    const from = { x: thumbBox!.x + thumbBox!.width / 2, y: thumbBox!.y + thumbBox!.height / 2 };
+    const to = { x: from.x, y: ownerBox!.y + 10 };
+    expect(from.x).toBeGreaterThan(ownerBox!.x);
+    expect(from.x).toBeLessThan(ownerBox!.x + ownerBox!.width);
+    expect(from.y - to.y).toBeGreaterThan(60);
+    const startScrollTop = await fixture.owner.evaluate((element) => element.scrollTop);
+
+    // Watch the thumb's classes, so a drag that starts and ends within the
+    // swipe still counts: removing .dragging leaves it in the old value.
+    await fixture.thumb.evaluate((thumb) => {
+      const watched = thumb as HTMLElement & { __dragged?: () => boolean };
+      let seen = false;
+      const note = (records: MutationRecord[]): void => {
+        if (records.some((record) => /\bdragging\b/u.test(record.oldValue ?? ''))) seen = true;
+      };
+      const observer = new MutationObserver(note);
+      observer.observe(thumb, {
+        attributes: true,
+        attributeFilter: ['class'],
+        attributeOldValue: true,
+      });
+      watched.__dragged = () => {
+        note(observer.takeRecords());
+        return seen || thumb.classList.contains('dragging');
+      };
+    });
+
+    const cdp = await page.context().newCDPSession(page);
+    await fingerStroke(page, cdp, from, to);
+
+    // Pushing the content up scrolls further down the list. A thumb dragged up
+    // would scroll it back toward the top.
+    await expect
+      .poll(() =>
+        fixture.thumb.evaluate((thumb, start) => {
+          const watched = thumb as HTMLElement & { __dragged?: () => boolean };
+          const owner = thumb.parentElement!.parentElement!.querySelector(':scope > .tab-body')!;
+          return {
+            dragged: watched.__dragged?.() ?? true,
+            scrolledDown: owner.scrollTop > start,
+          };
+        }, startScrollTop),
+      )
+      .toEqual({ dragged: false, scrolledDown: true });
   });
 });

@@ -123,8 +123,11 @@ runbooks. Neither belongs in a general setup document.
   basis the failed-run analysis set (the next green App release's checkpoint shows `beforeVersionId` `5d23f1ca` and
   `beforeMessage` `git:8fc3c7b7…`). The release tooling, which recorded and verified both runs with one deployments
   read, stays an open item until the change that adds a bounded re-read to the record step and the final ownership
-  check has merged and the first App release after it shows that re-read in its deploy step's log, or the owner decides
-  otherwise. The App update after 9.0.831 / v831, on main `6c675c0c` (#617), for
+  check has merged and the first App release after it shows that re-read in its deploy step's log, and the owner has
+  decided the three questions that change left open (a rule for the recovery reads and the checkpoint, waiting for the
+  exact version `wrangler deploy` reports, and a resource-ownership record for release tooling), or the owner decides
+  otherwise; the owner accepted that change's 18-read budget and its single read after a failed deploy on 2026-11-20.
+  The App update after 9.0.831 / v831, on main `6c675c0c` (#617), for
   the owner's choice of 2026-11-20 to fix the app: on a busy page (seen with WebKit, the iPhone engine) the session
   reset screen that leaving or refreshing a session shows could leave before its 0.2 s fade-in began or halfway through
   it, because its 320 ms fallback (`RESET_PAINT_FALLBACK_MS` 120 plus the fade-in) was cleared only by the second frame;

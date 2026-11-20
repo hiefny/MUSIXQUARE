@@ -100,19 +100,19 @@ runbooks. Neither belongs in a general setup document.
   built on its train branch, not merged or released. The App update after 9.0.832 / v832, on main `4e012ad1` (#619),
   for the owner's own scrollbar change of 2026-11-20, which the train carries unchanged as its first commit (`cefea6e5`,
   from a snapshot the owner's working tree still matches byte for byte): over an overflowing scroll area a mouse or pen
-  shows the bar (thumb at 0.2), the bar stays while a hover pointer rests on it (thumb at 0.4) and fades a full 1.2 s
-  delay after the pointer leaves, a dragged thumb shows 0.6, only the innermost overflowing area reveals, a touch
+  shows the bar (thumb at 0.2), the bar stays while a hover pointer rests anywhere on it (the thumb shows 0.4 under the
+  pointer) and fades a full 1.2 s delay after the pointer leaves, a dragged thumb shows 0.6, only the innermost overflowing area reveals, a touch
   reveals nothing, and a faded thumb no longer takes the pointer. Asked about touch, the owner kept that as it is: a
   finger swipe that starts on the faded thumb scrolls the list instead of dragging the thumb, which on main took the
   finger and moved the list at the bar's scale (in the new e2e row's panel, from 400 px back to 0). A review of the
   owner's change, with a separate pass that tried to refute each finding, found defects that the train fixes after
-  tests that failed first (nine unit rows and the wheel e2e row on the owner's change, one more unit row before the last
-  fix): a hover reveal turned off the scroll session's one re-measure (a session now keeps its own clock); the hold was
+  tests that failed first (nine unit rows and the wheel e2e row on the owner's change): a hover reveal turned off the scroll session's one re-measure (a session now keeps its own clock); the hold was
   a flag of its own outside the one hover gate (it now asks the browser's hover of the bar under the gate in a focused
   window, and `hover-pointer.ts` exports `isHoverInput`, the test that turns hover on, for the scrollbar to share); a
   hover showed a hidden bar from a stale overflow cache (a hidden bar is measured first); an inner scroll area's own bar
-  showed the outer bar; a wheel over the held bar scrolled nothing (the bar now hands it to the list); a touch leaving
-  the bar restarted the countdown; and an e2e row could race the fade on a slow machine. A new touch e2e row pins the
+  showed the outer bar; and a wheel over the held bar scrolled nothing (the bar now hands it to the list). A second
+  review, of the fixes, found that a touch leaving the bar restarted the countdown, fixed after one more unit row that
+  failed first; the endpoint drag e2e row was also hardened so that a slow machine cannot slip the fade in between. A new touch e2e row pins the
   owner's touch decision: it fails on main (`{ dragged: true, scrolledDown: false }`) and passes 10 of 10 on the
   branch; the WebKit lane skips it and the wheel row, because Playwright moves a finger only through the Chromium
   DevTools protocol and has no wheel in mobile WebKit. The wheel over the bar is named in RO-27's flows beside the
@@ -120,13 +120,16 @@ runbooks. Neither belongs in a general setup document.
   `3fbe9c64`: unit 794 files, 19,411 passed, 1 skipped; typecheck, lint, format:check, resource ownership,
   build:checked (PASS v833 at `3fbe9c64`), the eight production build guards and the CI static guards with
   check:workers and check:worker-bundles exit 0; Chromium e2e, one file at a time, 280 passed, 0 failed in the 17 files
-  that touch the scrollbar or the hover gate; the WebKit lane 214 passed, 12 skipped. Against production 9.0.832 the
+  that mention the scrollbar or the hover gate; the WebKit lane 214 passed, 12 skipped. After review, on the same
+  runtime, the candidate job's browser runs and the one focus ring file that list left out passed: the WebKit Service
+  Worker smoke 1, the production candidate 19, the critical paths 101 and the focus ring file 2. Against production 9.0.832 the
   App changes seven runtime paths (the stylesheet, `custom-scrollbar.ts`, `hover-pointer.ts` and the four version
   mirrors) and the other five Workers none; the release tool's partial release check, run on git alone, passes target
   `app`. Final screenshots in laptop and studio postures, light and dark, match the owner's change byte for byte and
   differ from main only inside the 4 px bar. Left as they are and recorded as limits: the hold needs a focused window,
   a wheel over the bar jumps instead of scrolling smoothly, and in Chromium a pointer already resting where the bar
-  appears holds it only after it moves again (WebKit holds it; main has no hold). Not verified on a physical device,
+  appears sometimes holds it only after it moves again (WebKit holds it; main has no hold). As on main, a mouse that
+  comes from the right and stops on the half of the shown bar outside the language list does not reveal it. Not verified on a physical device,
   and the touch row runs only in Chromium's touch emulation. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.832 / v832 train, released twice from the same commit after its first Release run failed while leaving 9.0.832 live: the session reset screen shows its whole fade-in before the page leaves, on a busy page too, as long as frames come (2026-11-20)](design/app-9-0-832-train-2026-11-20.md):
   released on 2026-11-20 from PR #618 (squash `8fc3c7b7`) as App 9.0.832 / v832 (App build 832, target `app`, one update

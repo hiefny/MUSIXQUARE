@@ -12,10 +12,13 @@ import {
 import { isDesktopLayout, SHORT_DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { bus } from '../core/events.ts';
-import { hasHoverPointer } from './hover-pointer.ts';
+import { isHovered, isHoverInput } from './hover-pointer.ts';
 
 const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
+// A wheel that reports lines (Firefox's mouse wheel) moves this far per line
+// when it turns over the bar; one that reports pages moves a scroller height.
+const WHEEL_LINE_HEIGHT_PX = 40;
 const OVERFLOW_ROUNDING_TOLERANCE_PX = 2;
 const SCROLL_PUMP_IDLE_FRAMES = 3;
 // iOS can publish rubber-band scrollTop values after its asynchronous scroller
@@ -36,9 +39,10 @@ interface ScrollbarState {
   thumb: HTMLElement;
   thumbVisual: HTMLElement;
   isDragging: boolean;
-  isTrackHovered: boolean;
   lastPointerX: number;
   lastPointerY: number;
+  /** When the current scroll session ends unless another scroll extends it. */
+  scrollSessionUntil: number;
   dragStartY: number;
   dragStartScroll: number;
   dragRenderedScale: number;
@@ -75,6 +79,8 @@ interface ScrollbarState {
 }
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
+/** The same instances by their tracks, which sit beside their containers. */
+const _instancesByTrack = new Map<HTMLElement, ScrollbarState>();
 
 function getScrollTimelineConstructor(): ScrollTimelineConstructor | null {
   const ctor = (globalThis as typeof globalThis & { ScrollTimeline?: ScrollTimelineConstructor })
@@ -280,23 +286,32 @@ function hasVisibleOverflow(container: HTMLElement): boolean {
   );
 }
 
-function isHoverPointerEvent(event: PointerEvent): boolean {
-  if (event.pointerType === 'mouse' || event.pointerType === 'pen') return true;
-  if (event.pointerType) return false;
-  return hasHoverPointer();
-}
-
+/**
+ * Whether the pointer is over an inner overflowing scroll area, that area's
+ * own bar included. The inner bar sits beside its container, inside this one,
+ * so the walk up from it never meets the inner container itself.
+ */
 function isInsideInnerOverflowingContainer(
-  outerContainer: HTMLElement,
+  state: ScrollbarState,
   target: EventTarget | null,
 ): boolean {
   let node = target instanceof Element ? target : null;
-  while (node && node !== outerContainer) {
-    const inner = _instances.get(node as HTMLElement);
-    if (inner?.hasOverflow) return true;
+  while (node && node !== state.container) {
+    const inner = _instances.get(node as HTMLElement) ?? _instancesByTrack.get(node as HTMLElement);
+    if (inner && inner !== state && inner.hasOverflow) return true;
     node = node.parentElement;
   }
   return false;
+}
+
+/**
+ * A hover pointer resting on the bar holds it open: the browser's hover of
+ * the bar under the one hover gate (hover-pointer.ts), so a touch press ends
+ * the hold. A window in the background holds nothing, so switching away
+ * cannot pin the bar open.
+ */
+function isTrackHeld(state: ScrollbarState): boolean {
+  return isHovered(state.track) && document.hasFocus();
 }
 
 function setTrackVisible(state: ScrollbarState, visible: boolean): void {
@@ -313,23 +328,18 @@ function cancelFade(state: ScrollbarState): void {
 }
 
 function armFade(state: ScrollbarState): void {
-  if (
-    state.destroyed ||
-    state.isDragging ||
-    state.isTrackHovered ||
-    state.fadeTimer ||
-    !state.hasOverflow
-  ) {
-    return;
-  }
+  if (state.destroyed || state.isDragging || state.fadeTimer || !state.hasOverflow) return;
 
   const remaining = Math.max(0, state.fadeDeadline - Date.now());
   state.fadeTimer = window.setTimeout(() => {
     state.fadeTimer = 0;
-    if (state.destroyed || state.isDragging || state.isTrackHovered || !state.hasOverflow) return;
+    if (state.destroyed || state.isDragging || !state.hasOverflow) return;
 
-    const nextRemaining = state.fadeDeadline - Date.now();
-    if (nextRemaining > 0) {
+    // The hold is asked only when the bar would fade, then once per delay
+    // while it lasts, so it ends with the gate even when nothing else happens.
+    const now = Date.now();
+    if (state.fadeDeadline <= now && isTrackHeld(state)) state.fadeDeadline = now + FADE_DELAY;
+    if (state.fadeDeadline > now) {
       armFade(state);
       return;
     }
@@ -346,12 +356,28 @@ function showTrack(state: ScrollbarState): void {
   }
 
   setTrackVisible(state, true);
-  if (state.isDragging || state.isTrackHovered) {
+  if (state.isDragging) {
     cancelFade(state);
     return;
   }
   state.fadeDeadline = Date.now() + FADE_DELAY;
   armFade(state);
+}
+
+/**
+ * Reveal for a hover pointer over the content. A visible bar only restarts
+ * its countdown, from the cache. A hidden one is measured first: no scroll
+ * re-measured it, so its cached overflow can be stale (content that stopped
+ * overflowing without a mutation or a resize), and the layout shows it only
+ * if it still overflows.
+ */
+function revealForHover(state: ScrollbarState): void {
+  if (state.trackVisible === true) {
+    showTrack(state);
+    return;
+  }
+  state.revealAfterLayout = true;
+  scheduleLayout(state);
 }
 
 function scheduleLayout(state: ScrollbarState): void {
@@ -454,7 +480,6 @@ function updateLayout(state: ScrollbarState): void {
     cancelScrollTimeline(state);
     cancelFade(state);
     state.hasOverflow = false;
-    state.isTrackHovered = false;
     state.maxScroll = 0;
     state.maxThumbTop = 0;
     state.visibleHeight = 0;
@@ -663,9 +688,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
     thumb,
     thumbVisual,
     isDragging: false,
-    isTrackHovered: false,
     lastPointerX: Number.NaN,
     lastPointerY: Number.NaN,
+    scrollSessionUntil: 0,
     dragStartY: 0,
     dragStartScroll: 0,
     dragRenderedScale: 1,
@@ -708,7 +733,12 @@ export function initCustomScrollbar(container: HTMLElement): void {
   setTrackVisible(state, false);
 
   const onScroll = (): void => {
-    const startsNewSession = state.trackVisible !== true;
+    // A scroll session is a run of scroll events less than the fade delay
+    // apart. It keeps its own clock rather than reading the bar's visibility:
+    // a hover or a resting pointer keeps the bar up without any scroll.
+    const now = Date.now();
+    const startsNewSession = now >= state.scrollSessionUntil;
+    state.scrollSessionUntil = now + FADE_DELAY;
     if (!state.hasOverflow || startsNewSession) {
       // Refresh once at session start for intrinsic/font/image size changes
       // that alter scrollHeight without changing the container's border box.
@@ -789,7 +819,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
     const touch = e.changedTouches[0];
     if (!touch || state.isDragging) return;
     dragTouchId = touch.identifier;
-    state.isTrackHovered = false;
     state.isDragging = true;
     cancelScrollTimeline(state);
     state.renderedThumbTop = Number.NaN;
@@ -847,67 +876,56 @@ export function initCustomScrollbar(container: HTMLElement): void {
     }
   };
 
+  // Re-entering the content is always a pointerover, which the stationary
+  // pointermove filter below never drops.
   const onContainerPointerOver = (e: PointerEvent): void => {
-    if (state.destroyed || state.isDragging || !state.hasOverflow || !isHoverPointerEvent(e)) {
-      return;
-    }
+    if (state.destroyed || state.isDragging || !state.hasOverflow || !isHoverInput(e)) return;
     if (e.relatedTarget instanceof Node && container.contains(e.relatedTarget)) return;
-    if (isInsideInnerOverflowingContainer(container, e.target)) return;
+    if (isInsideInnerOverflowingContainer(state, e.target)) return;
     state.lastPointerX = e.clientX;
     state.lastPointerY = e.clientY;
-    showTrack(state);
+    revealForHover(state);
   };
 
   const onContainerPointerMove = (e: PointerEvent): void => {
-    if (state.destroyed || state.isDragging || !state.hasOverflow || !isHoverPointerEvent(e)) {
-      return;
-    }
+    if (state.destroyed || state.isDragging || !state.hasOverflow || !isHoverInput(e)) return;
     if (e.clientX === state.lastPointerX && e.clientY === state.lastPointerY) return;
     state.lastPointerX = e.clientX;
     state.lastPointerY = e.clientY;
-    if (isInsideInnerOverflowingContainer(container, e.target)) return;
-    showTrack(state);
+    if (isInsideInnerOverflowingContainer(state, e.target)) return;
+    revealForHover(state);
   };
 
-  const onContainerPointerLeave = (): void => {
-    state.lastPointerX = Number.NaN;
-    state.lastPointerY = Number.NaN;
-  };
-
-  const onTrackPointerEnter = (e: PointerEvent): void => {
-    if (state.destroyed || !state.hasOverflow || !isHoverPointerEvent(e)) return;
-    state.isTrackHovered = true;
-    cancelFade(state);
-    setTrackVisible(state, true);
-  };
-
+  // The bar fades a full delay after the pointer leaves it, as after a scroll.
   const onTrackPointerLeave = (): void => {
-    if (!state.isTrackHovered) return;
-    state.isTrackHovered = false;
-    if (!state.isDragging && state.trackVisible && state.hasOverflow) {
-      showTrack(state);
-    }
+    if (!state.isDragging && state.trackVisible && state.hasOverflow) showTrack(state);
   };
 
+  // The visible bar lies over the scroller's edge but outside the scroller,
+  // so a wheel turned over it would reach no scroll container. Hand it over.
+  const onTrackWheel = (e: WheelEvent): void => {
+    // Ctrl with the wheel, or a pinch, zooms the page.
+    if (e.ctrlKey || e.deltaY === 0 || !state.hasOverflow) return;
+    let unit = 1;
+    if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) unit = WHEEL_LINE_HEIGHT_PX;
+    else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) unit = container.clientHeight;
+    e.preventDefault();
+    container.scrollTop += e.deltaY * unit;
+  };
+
+  // Blur fallback: if the user alt-tabs or switches windows mid-drag,
+  // mouseup never fires on our window. A bar held by a resting pointer lets
+  // go by itself (isTrackHeld).
   const onWindowBlur = (e: Event): void => {
-    const wasTrackHovered = state.isTrackHovered;
-    state.isTrackHovered = false;
     state.lastPointerX = Number.NaN;
     state.lastPointerY = Number.NaN;
-    if (state.isDragging) {
-      onDragEnd(e);
-      return;
-    }
-    if (wasTrackHovered && state.trackVisible && state.hasOverflow) {
-      showTrack(state);
-    }
+    onDragEnd(e);
   };
 
   container.addEventListener('pointerover', onContainerPointerOver, { passive: true });
   container.addEventListener('pointermove', onContainerPointerMove, { passive: true });
-  container.addEventListener('pointerleave', onContainerPointerLeave, { passive: true });
-  track.addEventListener('pointerenter', onTrackPointerEnter, { passive: true });
   track.addEventListener('pointerleave', onTrackPointerLeave, { passive: true });
+  track.addEventListener('wheel', onTrackWheel, { passive: false });
 
   thumb.addEventListener('touchstart', onThumbTouchStart, { passive: false });
   thumb.addEventListener('touchmove', onThumbTouchMove, { passive: false });
@@ -916,17 +934,14 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('mouseup', onDragEnd);
-  // Blur fallback: if the user alt-tabs or switches windows mid-drag or while
-  // hovering the track, mouseup/pointerleave may never fire on our window.
   window.addEventListener('blur', onWindowBlur);
 
   state.cleanup = [
     () => container.removeEventListener('scroll', onScroll),
     () => container.removeEventListener('pointerover', onContainerPointerOver),
     () => container.removeEventListener('pointermove', onContainerPointerMove),
-    () => container.removeEventListener('pointerleave', onContainerPointerLeave),
-    () => track.removeEventListener('pointerenter', onTrackPointerEnter),
     () => track.removeEventListener('pointerleave', onTrackPointerLeave),
+    () => track.removeEventListener('wheel', onTrackWheel),
     () => thumb.removeEventListener('touchstart', onThumbTouchStart),
     () => thumb.removeEventListener('touchmove', onThumbTouchMove),
     () => thumb.removeEventListener('touchend', onThumbTouchEnd),
@@ -947,6 +962,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
   });
 
   _instances.set(container, state);
+  _instancesByTrack.set(track, state);
 
   updateLayout(state);
 }
@@ -977,4 +993,5 @@ export function destroyCustomScrollbar(container: HTMLElement): void {
   state.track.remove();
   if (state.managesOverflowGutter) container.classList.remove('has-scroll-overflow');
   _instances.delete(container);
+  _instancesByTrack.delete(state.track);
 }

@@ -289,11 +289,10 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     await scrollToRatio(fixture, 0);
     await expectThumbAtRatio(fixture, 0);
     // The endpoint assertion can legitimately outlive the 1.2 s idle fade on
-    // a busy CI worker. Re-expose and hit-test the real pointer target, then
-    // dispatch the gesture to that proven target so cumulative suite load
-    // cannot make this driver-handoff test race the unrelated fade timer.
-    await fixture.owner.evaluate((element) => element.dispatchEvent(new Event('scroll')));
-    await expect(fixture.track).toHaveCSS('pointer-events', 'auto');
+    // a busy CI worker, and a faded bar lets the pointer through. Re-expose
+    // and hit-test the real pointer target in the same task, on every poll,
+    // then dispatch the gesture to that proven target so cumulative suite
+    // load cannot make this driver-handoff test race the unrelated fade timer.
     const box = await fixture.thumb.boundingBox();
     expect(box).not.toBeNull();
     const dragPoint = {
@@ -302,12 +301,17 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     };
     await expect
       .poll(() =>
-        page.evaluate(
-          ({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('cscroll-thumb'),
-          dragPoint,
-        ),
+        fixture.owner.evaluate((element, { x, y }) => {
+          element.dispatchEvent(new Event('scroll'));
+          const track =
+            element.parentElement?.querySelector<HTMLElement>(':scope > .cscroll-track');
+          return {
+            pointerEvents: track ? getComputedStyle(track).pointerEvents : null,
+            thumbHit: Boolean(document.elementFromPoint(x, y)?.classList.contains('cscroll-thumb')),
+          };
+        }, dragPoint),
       )
-      .toBe(true);
+      .toEqual({ pointerEvents: 'auto', thumbHit: true });
     await fixture.thumb.dispatchEvent('mousedown', {
       button: 0,
       buttons: 1,

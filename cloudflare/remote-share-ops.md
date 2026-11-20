@@ -365,6 +365,11 @@ npm run --silent wrangler -- deployments status --config cloudflare/wrangler.rem
 npm run --silent wrangler -- deployments status --config cloudflare/wrangler.signaling.toml --json
 ```
 
+Right after a deploy or a secret change these reads can answer the previous
+version for about a minute; read them as the
+[deployments list note](../docs/hotfix-procedure.md#local-emergency-deployment)
+describes before recording the IDs.
+
 Then confirm a real allocation with the strict live Remote Share smoke, run with
 both expected version variables set to those IDs:
 

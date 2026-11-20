@@ -834,6 +834,20 @@ test.describe('custom scrollbar pointer hover reveal and thumb states', () => {
     await page.mouse.move(point.x, point.y, { steps: 6 });
     await page.waitForTimeout(1_500);
 
+    // The resting pointer holds the bar, shown and under it, so the wheel turns
+    // over the bar and not over the panel beneath it.
+    expect(
+      await fixture.track.evaluate((track, { x, y }) => {
+        const style = getComputedStyle(track);
+        const owner = track.parentElement!.querySelector<HTMLElement>(':scope > .tab-body')!;
+        return {
+          opacity: style.opacity,
+          pointerEvents: style.pointerEvents,
+          underPointer: track.contains(document.elementFromPoint(x, y)),
+          scrollTop: owner.scrollTop,
+        };
+      }, point),
+    ).toEqual({ opacity: '1', pointerEvents: 'auto', underPointer: true, scrollTop: 0 });
     await page.mouse.wheel(0, 300);
     await expect
       .poll(() => fixture.owner.evaluate((element) => element.scrollTop))

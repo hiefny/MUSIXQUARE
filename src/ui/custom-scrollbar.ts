@@ -896,8 +896,11 @@ export function initCustomScrollbar(container: HTMLElement): void {
     revealForHover(state);
   };
 
-  // The bar fades a full delay after the pointer leaves it, as after a scroll.
-  const onTrackPointerLeave = (): void => {
+  // The bar fades a full delay after a hover pointer leaves it, as after a
+  // scroll. A touch gets a pointerleave too, after its pointerup or
+  // pointercancel, and that must not keep the bar up.
+  const onTrackPointerLeave = (e: PointerEvent): void => {
+    if (!isHoverInput(e)) return;
     if (!state.isDragging && state.trackVisible && state.hasOverflow) showTrack(state);
   };
 

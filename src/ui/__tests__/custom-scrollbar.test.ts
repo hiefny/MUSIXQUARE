@@ -1738,6 +1738,29 @@ describe('custom-scrollbar pointer hover reveal and drag visuals', () => {
     expect(box.rectSpy).not.toHaveBeenCalled();
   });
 
+  it('extends the scroll session with every scroll, so a long run re-measures once', () => {
+    const box = createScrollbox('scroll-session-extends');
+    initCustomScrollbar(box.container);
+    box.rectSpy.mockClear();
+
+    // Scrolls 1 s apart for 6 s, each inside the fade delay after the last,
+    // are one session, which re-measures at its start only.
+    for (let i = 1; i <= 6; i += 1) {
+      box.container.scrollTop = i * 50;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame();
+      vi.advanceTimersByTime(1000);
+    }
+    expect(box.rectSpy).toHaveBeenCalledTimes(1);
+
+    // A full delay without a scroll ends the session; the next scroll starts another.
+    vi.advanceTimersByTime(200);
+    box.container.scrollTop = 400;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    expect(box.rectSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('measures a hidden bar before a hover shows it, and keeps moves over a shown bar on the cache', () => {
     const box = createScrollbox('hover-measures-first');
     initCustomScrollbar(box.container);
@@ -1825,6 +1848,41 @@ describe('custom-scrollbar pointer hover reveal and drag visuals', () => {
     dispatchPointer(box.track(), 'pointerleave', { pointerType: 'pen', pointerId: 2 });
     vi.advanceTimersByTime(5000);
     expect(box.track().style.opacity).toBe('1');
+  });
+
+  it('restarts the countdown when a hover pointer leaves the bar, never when a touch does', () => {
+    const box = createScrollbox('leave-hover-only');
+    initCustomScrollbar(box.container);
+    const scrollTo = (top: number): void => {
+      box.container.scrollTop = top;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame();
+    };
+
+    // On a phone a touch press turned the one hover gate off, and a scroll
+    // shows the bar. A swipe that starts on the shown bar gets a pointerleave
+    // after its pointerup or pointercancel; the bar still fades a delay after
+    // the scroll.
+    document.documentElement.removeAttribute('data-hover-pointer');
+    scrollTo(100);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1000);
+    enterBar(box, 'touch', 2);
+    leaveBar(box, 'touch', 2);
+    vi.advanceTimersByTime(200);
+    expect(box.track().style.opacity).toBe('0');
+
+    // A mouse that crosses the shown bar fades it a full delay after leaving.
+    document.documentElement.setAttribute('data-hover-pointer', '');
+    scrollTo(200);
+    vi.advanceTimersByTime(900);
+    enterBar(box);
+    vi.advanceTimersByTime(100);
+    leaveBar(box);
+    vi.advanceTimersByTime(1199);
+    expect(box.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(box.track().style.opacity).toBe('0');
   });
 
   it('does not keep a hold through content that stops overflowing under the bar', () => {

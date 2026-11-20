@@ -8896,7 +8896,6 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     right: 0;
     width: 100%;
     cursor: pointer;
-    pointer-events: auto;
     will-change: transform;
   }
 
@@ -8920,7 +8919,8 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     background-color: var(--scrollbar-thumb-hover);
   }
 
-  .cscroll-thumb:active > .cscroll-thumb-visual {
+  .cscroll-thumb:active > .cscroll-thumb-visual,
+  .cscroll-thumb.dragging > .cscroll-thumb-visual {
     background-color: var(--scrollbar-thumb-active);
   }
 

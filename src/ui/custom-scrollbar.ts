@@ -12,6 +12,7 @@ import {
 import { isDesktopLayout, SHORT_DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { bus } from '../core/events.ts';
+import { hasHoverPointer } from './hover-pointer.ts';
 
 const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
@@ -35,6 +36,9 @@ interface ScrollbarState {
   thumb: HTMLElement;
   thumbVisual: HTMLElement;
   isDragging: boolean;
+  isTrackHovered: boolean;
+  lastPointerX: number;
+  lastPointerY: number;
   dragStartY: number;
   dragStartScroll: number;
   dragRenderedScale: number;
@@ -276,6 +280,25 @@ function hasVisibleOverflow(container: HTMLElement): boolean {
   );
 }
 
+function isHoverPointerEvent(event: PointerEvent): boolean {
+  if (event.pointerType === 'mouse' || event.pointerType === 'pen') return true;
+  if (event.pointerType) return false;
+  return hasHoverPointer();
+}
+
+function isInsideInnerOverflowingContainer(
+  outerContainer: HTMLElement,
+  target: EventTarget | null,
+): boolean {
+  let node = target instanceof Element ? target : null;
+  while (node && node !== outerContainer) {
+    const inner = _instances.get(node as HTMLElement);
+    if (inner?.hasOverflow) return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+
 function setTrackVisible(state: ScrollbarState, visible: boolean): void {
   if (state.trackVisible === visible) return;
   state.trackVisible = visible;
@@ -290,12 +313,20 @@ function cancelFade(state: ScrollbarState): void {
 }
 
 function armFade(state: ScrollbarState): void {
-  if (state.destroyed || state.isDragging || state.fadeTimer || !state.hasOverflow) return;
+  if (
+    state.destroyed ||
+    state.isDragging ||
+    state.isTrackHovered ||
+    state.fadeTimer ||
+    !state.hasOverflow
+  ) {
+    return;
+  }
 
   const remaining = Math.max(0, state.fadeDeadline - Date.now());
   state.fadeTimer = window.setTimeout(() => {
     state.fadeTimer = 0;
-    if (state.destroyed || state.isDragging || !state.hasOverflow) return;
+    if (state.destroyed || state.isDragging || state.isTrackHovered || !state.hasOverflow) return;
 
     const nextRemaining = state.fadeDeadline - Date.now();
     if (nextRemaining > 0) {
@@ -315,6 +346,10 @@ function showTrack(state: ScrollbarState): void {
   }
 
   setTrackVisible(state, true);
+  if (state.isDragging || state.isTrackHovered) {
+    cancelFade(state);
+    return;
+  }
   state.fadeDeadline = Date.now() + FADE_DELAY;
   armFade(state);
 }
@@ -419,6 +454,7 @@ function updateLayout(state: ScrollbarState): void {
     cancelScrollTimeline(state);
     cancelFade(state);
     state.hasOverflow = false;
+    state.isTrackHovered = false;
     state.maxScroll = 0;
     state.maxThumbTop = 0;
     state.visibleHeight = 0;
@@ -627,6 +663,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
     thumb,
     thumbVisual,
     isDragging: false,
+    isTrackHovered: false,
+    lastPointerX: Number.NaN,
+    lastPointerY: Number.NaN,
     dragStartY: 0,
     dragStartScroll: 0,
     dragRenderedScale: 1,
@@ -750,6 +789,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     const touch = e.changedTouches[0];
     if (!touch || state.isDragging) return;
     dragTouchId = touch.identifier;
+    state.isTrackHovered = false;
     state.isDragging = true;
     cancelScrollTimeline(state);
     state.renderedThumbTop = Number.NaN;
@@ -807,6 +847,68 @@ export function initCustomScrollbar(container: HTMLElement): void {
     }
   };
 
+  const onContainerPointerOver = (e: PointerEvent): void => {
+    if (state.destroyed || state.isDragging || !state.hasOverflow || !isHoverPointerEvent(e)) {
+      return;
+    }
+    if (e.relatedTarget instanceof Node && container.contains(e.relatedTarget)) return;
+    if (isInsideInnerOverflowingContainer(container, e.target)) return;
+    state.lastPointerX = e.clientX;
+    state.lastPointerY = e.clientY;
+    showTrack(state);
+  };
+
+  const onContainerPointerMove = (e: PointerEvent): void => {
+    if (state.destroyed || state.isDragging || !state.hasOverflow || !isHoverPointerEvent(e)) {
+      return;
+    }
+    if (e.clientX === state.lastPointerX && e.clientY === state.lastPointerY) return;
+    state.lastPointerX = e.clientX;
+    state.lastPointerY = e.clientY;
+    if (isInsideInnerOverflowingContainer(container, e.target)) return;
+    showTrack(state);
+  };
+
+  const onContainerPointerLeave = (): void => {
+    state.lastPointerX = Number.NaN;
+    state.lastPointerY = Number.NaN;
+  };
+
+  const onTrackPointerEnter = (e: PointerEvent): void => {
+    if (state.destroyed || !state.hasOverflow || !isHoverPointerEvent(e)) return;
+    state.isTrackHovered = true;
+    cancelFade(state);
+    setTrackVisible(state, true);
+  };
+
+  const onTrackPointerLeave = (): void => {
+    if (!state.isTrackHovered) return;
+    state.isTrackHovered = false;
+    if (!state.isDragging && state.trackVisible && state.hasOverflow) {
+      showTrack(state);
+    }
+  };
+
+  const onWindowBlur = (e: Event): void => {
+    const wasTrackHovered = state.isTrackHovered;
+    state.isTrackHovered = false;
+    state.lastPointerX = Number.NaN;
+    state.lastPointerY = Number.NaN;
+    if (state.isDragging) {
+      onDragEnd(e);
+      return;
+    }
+    if (wasTrackHovered && state.trackVisible && state.hasOverflow) {
+      showTrack(state);
+    }
+  };
+
+  container.addEventListener('pointerover', onContainerPointerOver, { passive: true });
+  container.addEventListener('pointermove', onContainerPointerMove, { passive: true });
+  container.addEventListener('pointerleave', onContainerPointerLeave, { passive: true });
+  track.addEventListener('pointerenter', onTrackPointerEnter, { passive: true });
+  track.addEventListener('pointerleave', onTrackPointerLeave, { passive: true });
+
   thumb.addEventListener('touchstart', onThumbTouchStart, { passive: false });
   thumb.addEventListener('touchmove', onThumbTouchMove, { passive: false });
   thumb.addEventListener('touchend', onThumbTouchEnd);
@@ -814,20 +916,24 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('mouseup', onDragEnd);
-  // Blur fallback: if the user alt-tabs or switches windows mid-drag,
-  // mouseup never fires on our window, leaving isDragging=true. The next
-  // mouse move (after they come back) would snap the scroll unexpectedly.
-  window.addEventListener('blur', onDragEnd);
+  // Blur fallback: if the user alt-tabs or switches windows mid-drag or while
+  // hovering the track, mouseup/pointerleave may never fire on our window.
+  window.addEventListener('blur', onWindowBlur);
 
   state.cleanup = [
     () => container.removeEventListener('scroll', onScroll),
+    () => container.removeEventListener('pointerover', onContainerPointerOver),
+    () => container.removeEventListener('pointermove', onContainerPointerMove),
+    () => container.removeEventListener('pointerleave', onContainerPointerLeave),
+    () => track.removeEventListener('pointerenter', onTrackPointerEnter),
+    () => track.removeEventListener('pointerleave', onTrackPointerLeave),
     () => thumb.removeEventListener('touchstart', onThumbTouchStart),
     () => thumb.removeEventListener('touchmove', onThumbTouchMove),
     () => thumb.removeEventListener('touchend', onThumbTouchEnd),
     () => thumb.removeEventListener('touchcancel', onThumbTouchEnd),
     () => window.removeEventListener('mousemove', onMouseMove),
     () => window.removeEventListener('mouseup', onDragEnd),
-    () => window.removeEventListener('blur', onDragEnd),
+    () => window.removeEventListener('blur', onWindowBlur),
     cleanupRelayoutBus,
     cleanupRevealBus,
   ];

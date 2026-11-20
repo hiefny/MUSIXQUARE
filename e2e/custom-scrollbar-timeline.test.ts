@@ -727,3 +727,58 @@ test.describe('custom scrollbar ScrollTimeline runtime failure', () => {
     await expectThumbAtRatio(fixture, 0.5);
   });
 });
+
+test.describe('custom scrollbar pointer hover reveal and thumb states', () => {
+  test('ramps from transparent to 0.2 on panel hover, 0.4 on thumb hover, and 0.6 while dragging', async ({
+    page,
+  }) => {
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+
+    // Wait for any initial reveal to fade out; both track and thumb must pass pointer events through.
+    await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
+    await expect(fixture.track).toHaveCSS('pointer-events', 'none');
+    await expect(fixture.thumb).toHaveCSS('pointer-events', 'none');
+
+    const ownerBox = await fixture.owner.boundingBox();
+    expect(ownerBox).not.toBeNull();
+    const rgb = await page.evaluate(() =>
+      document.documentElement.dataset.theme === 'light' ? '0, 0, 0' : '255, 255, 255',
+    );
+
+    // Move mouse into the scrollable panel -> reveals track at base 0.2 thumb color.
+    await page.mouse.move(ownerBox!.x + 40, ownerBox!.y + 40);
+    await expect(fixture.track).toHaveCSS('opacity', '1');
+    await expect(fixture.track).toHaveCSS('pointer-events', 'auto');
+    await expect(fixture.thumb).toHaveCSS('pointer-events', 'auto');
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.2)`);
+
+    // Hover directly over the thumb -> deepens to 0.4 and stays visible past the 1.2s fade delay.
+    const thumbBox = await fixture.thumb.boundingBox();
+    expect(thumbBox).not.toBeNull();
+    const thumbCenter = {
+      x: thumbBox!.x + thumbBox!.width / 2,
+      y: thumbBox!.y + thumbBox!.height / 2,
+    };
+    await page.mouse.move(thumbCenter.x, thumbCenter.y);
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.4)`);
+    await page.waitForTimeout(1400);
+    await expect(fixture.track).toHaveCSS('opacity', '1');
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.4)`);
+
+    // Press and drag even off the 8px track horizontally -> stays visible at 0.6 (.dragging).
+    await page.mouse.down();
+    await expect(fixture.thumb).toHaveClass(/\bdragging\b/);
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.6)`);
+    await page.mouse.move(thumbCenter.x - 60, thumbCenter.y + 40);
+    await expect(fixture.track).toHaveCSS('opacity', '1');
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.6)`);
+
+    // Release outside the track -> drops back to 0.2 and fades to 0 after idle delay.
+    await page.mouse.up();
+    await expect(fixture.thumb).not.toHaveClass(/\bdragging\b/);
+    await expect(fixture.visual).toHaveCSS('background-color', `rgba(${rgb}, 0.2)`);
+    await expect(fixture.track).toHaveCSS('opacity', '0', { timeout: 5_000 });
+    await expect(fixture.thumb).toHaveCSS('pointer-events', 'none');
+  });
+});

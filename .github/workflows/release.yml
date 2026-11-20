@@ -1054,18 +1054,14 @@ jobs:
             --config cloudflare/wrangler.pro-room.toml \
             --message "$RELEASE_MESSAGE"
           deploy_exit=$?
-          npm run --silent wrangler -- deployments status \
-            --config cloudflare/wrangler.pro-room.toml --json \
-            > release-artifacts/deployments/pro-room.json
-          status_exit=$?
-          record_exit=0
-          if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mts record pro-room
-            record_exit=$?
-          fi
+          # Waits within a fixed budget until the deployments list shows this
+          # release's version; a failed deploy reads once so recovery is not delayed.
+          record_wait=wait
+          if (( deploy_exit != 0 )); then record_wait=once; fi
+          node scripts/release-deployment-state.mts record-current pro-room "$record_wait"
+          record_exit=$?
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
-          if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
           version_id="$(node scripts/release-deployment-state.mts version pro-room)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
@@ -1110,18 +1106,14 @@ jobs:
             --config cloudflare/wrangler.remote-share.toml \
             --message "$RELEASE_MESSAGE"
           deploy_exit=$?
-          npm run --silent wrangler -- deployments status \
-            --config cloudflare/wrangler.remote-share.toml --json \
-            > release-artifacts/deployments/remote-share.json
-          status_exit=$?
-          record_exit=0
-          if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mts record remote-share
-            record_exit=$?
-          fi
+          # Waits within a fixed budget until the deployments list shows this
+          # release's version; a failed deploy reads once so recovery is not delayed.
+          record_wait=wait
+          if (( deploy_exit != 0 )); then record_wait=once; fi
+          node scripts/release-deployment-state.mts record-current remote-share "$record_wait"
+          record_exit=$?
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
-          if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
           version_id="$(node scripts/release-deployment-state.mts version remote-share)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
@@ -1192,15 +1184,12 @@ jobs:
             --config cloudflare/wrangler.signaling.toml \
             --message "$RELEASE_MESSAGE"
           deploy_exit=$?
-          npm run --silent wrangler -- deployments status \
-            --config cloudflare/wrangler.signaling.toml --json \
-            > release-artifacts/deployments/signaling.json
-          status_exit=$?
-          record_exit=0
-          if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mts record signaling
-            record_exit=$?
-          fi
+          # Waits within a fixed budget until the deployments list shows this
+          # release's version; a failed deploy reads once so recovery is not delayed.
+          record_wait=wait
+          if (( deploy_exit != 0 )); then record_wait=once; fi
+          node scripts/release-deployment-state.mts record-current signaling "$record_wait"
+          record_exit=$?
           domain_record_exit=1
           for domain_record_attempt in 1 2 3 4 5; do
             node scripts/release-signaling-domain-state.mts \
@@ -1211,7 +1200,6 @@ jobs:
           done
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
-          if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
           if (( domain_record_exit != 0 )); then exit "$domain_record_exit"; fi
           version_id="$(node scripts/release-deployment-state.mts version signaling)"
@@ -1280,18 +1268,14 @@ jobs:
             --config cloudflare/wrangler.developer-api-facade.toml \
             --message "$RELEASE_MESSAGE"
           deploy_exit=$?
-          npm run --silent wrangler -- deployments status \
-            --config cloudflare/wrangler.developer-api-facade.toml --json \
-            > release-artifacts/deployments/developer-api-facade.json
-          status_exit=$?
-          record_exit=0
-          if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mts record developer-api-facade
-            record_exit=$?
-          fi
+          # Waits within a fixed budget until the deployments list shows this
+          # release's version; a failed deploy reads once so recovery is not delayed.
+          record_wait=wait
+          if (( deploy_exit != 0 )); then record_wait=once; fi
+          node scripts/release-deployment-state.mts record-current developer-api-facade "$record_wait"
+          record_exit=$?
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
-          if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
           version_id="$(node scripts/release-deployment-state.mts version developer-api-facade)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
@@ -1329,18 +1313,14 @@ jobs:
             --config cloudflare/wrangler.developer-api.toml \
             --message "$RELEASE_MESSAGE"
           deploy_exit=$?
-          npm run --silent wrangler -- deployments status \
-            --config cloudflare/wrangler.developer-api.toml --json \
-            > release-artifacts/deployments/developer-api.json
-          status_exit=$?
-          record_exit=0
-          if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mts record developer-api
-            record_exit=$?
-          fi
+          # Waits within a fixed budget until the deployments list shows this
+          # release's version; a failed deploy reads once so recovery is not delayed.
+          record_wait=wait
+          if (( deploy_exit != 0 )); then record_wait=once; fi
+          node scripts/release-deployment-state.mts record-current developer-api "$record_wait"
+          record_exit=$?
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
-          if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
           version_id="$(node scripts/release-deployment-state.mts version developer-api)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
@@ -1385,18 +1365,14 @@ jobs:
             --config cloudflare/wrangler.app.toml \
             --message "$RELEASE_MESSAGE"
           deploy_exit=$?
-          npm run --silent wrangler -- deployments status \
-            --config cloudflare/wrangler.app.toml --json \
-            > release-artifacts/deployments/app.json
-          status_exit=$?
-          record_exit=0
-          if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mts record app
-            record_exit=$?
-          fi
+          # Waits within a fixed budget until the deployments list shows this
+          # release's version; a failed deploy reads once so recovery is not delayed.
+          record_wait=wait
+          if (( deploy_exit != 0 )); then record_wait=once; fi
+          node scripts/release-deployment-state.mts record-current app "$record_wait"
+          record_exit=$?
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
-          if (( status_exit != 0 )); then exit "$status_exit"; fi
           exit "$record_exit"
 
       - name: Smoke app generation endpoint

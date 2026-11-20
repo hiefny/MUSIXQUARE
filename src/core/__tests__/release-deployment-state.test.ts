@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -18,6 +18,8 @@ import {
   productionVersion,
   queryCurrent,
   recheckPartialReleaseCompatibility,
+  recordCurrentDeployment,
+  recordCurrentForMode,
   releaseGitSha,
   releaseTargetWorkers,
   runtimePathsForWorker,
@@ -49,11 +51,56 @@ function createDirectory(): string {
   return directory;
 }
 
-function deployment(versionId: string, message = CANONICAL_RELEASE_MESSAGE) {
+function deployment(versionId: string, message = CANONICAL_RELEASE_MESSAGE, createdOn?: string) {
   return {
     id: `deployment-${versionId}`,
     annotations: { 'workers/message': message },
     versions: [{ version_id: versionId, percentage: 100 }],
+    ...(createdOn ? { created_on: createdOn } : {}),
+  };
+}
+
+const BASELINE_RELEASE_MESSAGE = `git:${'b'.repeat(40)}`;
+// Creation times in the order a release meets them: an earlier deployment, the
+// captured baseline, this release's own deployment, and one made after it.
+const OLDER_CREATED_ON = '2026-11-18T18:20:27.936540Z';
+const BASELINE_CREATED_ON = '2026-11-19T09:00:00.000000Z';
+const RELEASE_CREATED_ON = '2026-11-20T00:42:06.247097Z';
+const NEWER_CREATED_ON = '2026-11-20T00:43:00.000000Z';
+
+function deploymentRead(payload: ReturnType<typeof deployment>) {
+  return {
+    deployment: payload,
+    deploymentId: payload.id,
+    versionId: payload.versions[0]!.version_id,
+    message: payload.annotations['workers/message'],
+    createdOn: payload.created_on ?? null,
+  };
+}
+
+// Answers each production read with the next payload and keeps repeating the
+// last one, the way a lagging Cloudflare deployments list keeps answering.
+function sequencedDeploymentQuery(payloads: ReadonlyArray<ReturnType<typeof deployment>>) {
+  const reads: string[] = [];
+  const query = (target: string) => {
+    const payload = payloads[Math.min(reads.length, payloads.length - 1)]!;
+    reads.push(`${target}:${payload.id}`);
+    return deploymentRead(payload);
+  };
+  return { query, reads };
+}
+
+function recordingRetry(maxAttempts: number) {
+  const delays: number[] = [];
+  return {
+    delays,
+    retry: {
+      maxAttempts,
+      baseDelayMs: 5,
+      maxDelayMs: 10,
+      sleep: (delayMs: number) => delays.push(delayMs),
+      onRetry: () => undefined,
+    },
   };
 }
 
@@ -65,6 +112,61 @@ function runScript(
     encoding: 'utf8',
     env: { ...process.env, ...environment },
   });
+}
+
+// Prepares and marks an attempted release whose captured baseline carries an
+// earlier release's message and creation time, as a production baseline does.
+function prepareAttemptedRelease(target: string, baselineCreatedOn = BASELINE_CREATED_ON): string {
+  const directory = createDirectory();
+  writeFileSync(
+    resolve(directory, `${target}-before.json`),
+    JSON.stringify(deployment('before', BASELINE_RELEASE_MESSAGE, baselineCreatedOn)),
+  );
+  const prepared = runScript(['prepare', target, directory], {
+    RELEASE_MESSAGE: CANONICAL_RELEASE_MESSAGE,
+  });
+  expect(prepared.status, String(prepared.stderr)).toBe(0);
+  expect(runScript(['attempt', target, directory]).status).toBe(0);
+  return directory;
+}
+
+// Writes the state a recorded, release-owned deployment leaves for final
+// verification: its captured baseline and the deployment it recorded.
+function writeRecordedState(directory: string, target: string, versionId: string): void {
+  writeFileSync(
+    resolve(directory, `${target}-state.json`),
+    JSON.stringify({
+      schemaVersion: 1,
+      target,
+      config: `cloudflare/wrangler.${target}.toml`,
+      attempted: true,
+      ownedByRelease: true,
+      beforeDeploymentId: `deployment-${target}-before`,
+      beforeVersionId: `${target}-before`,
+      beforeCreatedOn: BASELINE_CREATED_ON,
+      releaseMessage: CANONICAL_RELEASE_MESSAGE,
+      afterDeploymentId: `deployment-${versionId}`,
+      afterVersionId: versionId,
+      afterCreatedOn: RELEASE_CREATED_ON,
+    }),
+  );
+}
+
+function readFinalVerification(directory: string): {
+  status: string;
+  results: Array<Record<string, unknown>>;
+} {
+  return JSON.parse(readFileSync(resolve(directory, 'final-verification-report.json'), 'utf8')) as {
+    status: string;
+    results: Array<Record<string, unknown>>;
+  };
+}
+
+function readState(directory: string, target: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(resolve(directory, `${target}-state.json`), 'utf8')) as Record<
+    string,
+    unknown
+  >;
 }
 
 function workflowStepSource(workflow: string, name: string): string {
@@ -1798,6 +1900,7 @@ describe('release deployment rollback state', () => {
           beforeDeploymentId: 'deployment-before',
           beforeVersionId: 'before',
           beforeMessage: CANONICAL_RELEASE_MESSAGE,
+          beforeCreatedOn: null,
           attempted: false,
           afterDeploymentId: null,
           afterVersionId: null,
@@ -2206,6 +2309,443 @@ describe('release deployment rollback state', () => {
     }
   });
 
+  it('keeps reading after a deploy until this release owns the new 100% version', () => {
+    const directory = prepareAttemptedRelease('app');
+    const stale = deployment('before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON);
+    const owned = deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON);
+    const { query, reads } = sequencedDeploymentQuery([stale, stale, owned]);
+    const { delays, retry } = recordingRetry(4);
+
+    const state = recordCurrentDeployment('app', directory, {
+      queryCurrent: query,
+      visibilityRetry: retry,
+    });
+
+    expect(reads).toEqual([
+      'app:deployment-before',
+      'app:deployment-before',
+      'app:deployment-after',
+    ]);
+    expect(delays).toEqual([5, 10]);
+    expect(state).toMatchObject({
+      beforeVersionId: 'before',
+      beforeCreatedOn: BASELINE_CREATED_ON,
+      afterDeploymentId: 'deployment-after',
+      afterVersionId: 'after',
+      afterMessage: CANONICAL_RELEASE_MESSAGE,
+      afterCreatedOn: RELEASE_CREATED_ON,
+      changed: true,
+      ownedByRelease: true,
+      visibilityReads: 3,
+    });
+    const staleIdentity = {
+      deploymentId: 'deployment-before',
+      versionId: 'before',
+      message: BASELINE_RELEASE_MESSAGE,
+      createdOn: BASELINE_CREATED_ON,
+    };
+    expect(readState(directory, 'app')).toMatchObject({
+      afterVersionId: 'after',
+      staleReads: [staleIdentity, staleIdentity],
+    });
+    expect(JSON.parse(readFileSync(resolve(directory, 'app.json'), 'utf8'))).toEqual(owned);
+  });
+
+  it('keeps reading past a stale deployment older than the captured baseline', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('older', `git:${'c'.repeat(40)}`, OLDER_CREATED_ON),
+      deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    const { delays, retry } = recordingRetry(3);
+
+    const state = recordCurrentDeployment('app', directory, {
+      queryCurrent: query,
+      visibilityRetry: retry,
+    });
+
+    expect(reads).toEqual(['app:deployment-older', 'app:deployment-after']);
+    expect(delays).toEqual([5]);
+    expect(state).toMatchObject({ afterVersionId: 'after', changed: true, ownedByRelease: true });
+  });
+
+  it('fails at once on a newer deployment this release does not own, as the single read did', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('external', 'manual-deploy', NEWER_CREATED_ON),
+      deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    const { delays, retry } = recordingRetry(4);
+
+    expect(() =>
+      recordCurrentDeployment('app', directory, { queryCurrent: query, visibilityRetry: retry }),
+    ).toThrow('app production deployment is not owned by this release.');
+    expect(reads).toEqual(['app:deployment-external']);
+    expect(delays).toEqual([]);
+    expect(readState(directory, 'app')).toMatchObject({
+      afterVersionId: 'external',
+      changed: true,
+      ownedByRelease: false,
+      visibilityReads: 1,
+      staleReads: [],
+    });
+  });
+
+  it('treats only the captured baseline as stale when a creation time is unreadable', () => {
+    for (const [label, baselineCreatedOn, foreignCreatedOn] of [
+      ['answer without a creation time', BASELINE_CREATED_ON, undefined],
+      ['baseline without a creation time', '', OLDER_CREATED_ON],
+    ] as const) {
+      const directory = prepareAttemptedRelease('app', baselineCreatedOn);
+      const { query, reads } = sequencedDeploymentQuery([
+        deployment('external', 'manual-deploy', foreignCreatedOn),
+        deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+      ]);
+      const { delays, retry } = recordingRetry(4);
+
+      expect(
+        () =>
+          recordCurrentDeployment('app', directory, {
+            queryCurrent: query,
+            visibilityRetry: retry,
+          }),
+        label,
+      ).toThrow('app production deployment is not owned by this release.');
+      expect(reads, label).toHaveLength(1);
+      expect(delays, label).toEqual([]);
+    }
+  });
+
+  it('records the last stale read, never as its own, and names the lag once the budget runs out', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+    ]);
+    const { delays, retry } = recordingRetry(3);
+
+    expect(() =>
+      recordCurrentDeployment('app', directory, { queryCurrent: query, visibilityRetry: retry }),
+    ).toThrow('app deployments list still answered deployment deployment-before / version before');
+    expect(() =>
+      recordCurrentDeployment('app', prepareAttemptedRelease('app'), {
+        queryCurrent: sequencedDeploymentQuery([
+          deployment('before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+        ]).query,
+        visibilityRetry: recordingRetry(2).retry,
+      }),
+    ).toThrow("after 2 reads; this release's new 100% production version never became visible.");
+    expect(reads).toHaveLength(3);
+    expect(delays).toEqual([5, 10]);
+    const state = readState(directory, 'app');
+    expect(state).toMatchObject({
+      afterDeploymentId: 'deployment-before',
+      afterVersionId: 'before',
+      changed: false,
+      ownedByRelease: false,
+      visibilityReads: 3,
+    });
+    expect(state.staleReads).toHaveLength(3);
+  });
+
+  it('fails naming the lag when only older stale answers come through the budget', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('external', 'manual-deploy', OLDER_CREATED_ON),
+    ]);
+    const { delays, retry } = recordingRetry(2);
+
+    expect(() =>
+      recordCurrentDeployment('app', directory, { queryCurrent: query, visibilityRetry: retry }),
+    ).toThrow('app deployments list still answered deployment deployment-external');
+    expect(reads).toHaveLength(2);
+    expect(delays).toEqual([5]);
+    expect(readState(directory, 'app')).toMatchObject({
+      afterVersionId: 'external',
+      changed: true,
+      ownedByRelease: false,
+    });
+  });
+
+  it('keeps reading past an earlier deployment of the same commit made before the baseline', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('earlier-same-commit', CANONICAL_RELEASE_MESSAGE, OLDER_CREATED_ON),
+      deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    const { delays, retry } = recordingRetry(3);
+
+    expect(
+      recordCurrentDeployment('app', directory, { queryCurrent: query, visibilityRetry: retry }),
+    ).toMatchObject({ afterVersionId: 'after', ownedByRelease: true });
+    expect(reads).toEqual(['app:deployment-earlier-same-commit', 'app:deployment-after']);
+    expect(delays).toEqual([5]);
+  });
+
+  it('never takes a persisting earlier deployment of the same commit as its own', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('earlier-same-commit', CANONICAL_RELEASE_MESSAGE, OLDER_CREATED_ON),
+    ]);
+    const { retry } = recordingRetry(2);
+
+    expect(() =>
+      recordCurrentDeployment('app', directory, { queryCurrent: query, visibilityRetry: retry }),
+    ).toThrow('never became visible');
+    expect(reads).toHaveLength(2);
+    expect(readState(directory, 'app')).toMatchObject({
+      afterVersionId: 'earlier-same-commit',
+      ownedByRelease: false,
+    });
+  });
+
+  it('treats an answer created at the same time as the captured baseline as stale', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('same-time', 'manual-deploy', BASELINE_CREATED_ON),
+      deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    const { retry } = recordingRetry(3);
+
+    expect(
+      recordCurrentDeployment('app', directory, { queryCurrent: query, visibilityRetry: retry }),
+    ).toMatchObject({ afterVersionId: 'after', ownedByRelease: true });
+    expect(reads).toHaveLength(2);
+  });
+
+  it('leaves no app.json when the first read fails', () => {
+    const directory = prepareAttemptedRelease('app');
+
+    expect(() =>
+      recordCurrentDeployment('app', directory, {
+        queryOptions: {
+          runner: () => {
+            throw new Error('Cloudflare API 503');
+          },
+          retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, sleep: () => undefined },
+        },
+        visibilityRetry: recordingRetry(3).retry,
+      }),
+    ).toThrow('Cloudflare API 503');
+    expect(existsSync(resolve(directory, 'app.json'))).toBe(false);
+    expect(readState(directory, 'app')).toMatchObject({ visibilityReads: 0, staleReads: [] });
+  });
+
+  it('judges ownership by message, so a stale baseline lets an earlier deployment of the same commit pass', () => {
+    // The captured baseline is an older deployment while production already
+    // runs an earlier deployment of this same commit; both the single read and
+    // the wait take that deployment as this release's own.
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('earlier-same-commit', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    const { delays, retry } = recordingRetry(4);
+
+    expect(
+      recordCurrentDeployment('app', directory, { queryCurrent: query, visibilityRetry: retry }),
+    ).toMatchObject({ afterVersionId: 'earlier-same-commit', ownedByRelease: true });
+    expect(reads).toHaveLength(1);
+    expect(delays).toEqual([]);
+  });
+
+  it('does not stretch a failing deployment read across the visibility budget', () => {
+    const directory = prepareAttemptedRelease('app');
+    let calls = 0;
+    const { delays, retry } = recordingRetry(4);
+
+    expect(() =>
+      recordCurrentDeployment('app', directory, {
+        queryCurrent: () => {
+          calls += 1;
+          throw new Error('Cloudflare API 503');
+        },
+        visibilityRetry: retry,
+      }),
+    ).toThrow('Cloudflare API 503');
+    expect(calls).toBe(1);
+    expect(delays).toEqual([]);
+    expect(readState(directory, 'app')).toMatchObject({ afterVersionId: null, changed: false });
+  });
+
+  it('waits through the real deployment query and keeps its read retry inside each read', () => {
+    const directory = prepareAttemptedRelease('app');
+    const stale = JSON.stringify(
+      deployment('before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+    );
+    const owned = deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON);
+    const answers = [stale, stale, JSON.stringify(owned)];
+    let calls = 0;
+    const { delays, retry } = recordingRetry(4);
+
+    const state = recordCurrentDeployment('app', directory, {
+      queryOptions: {
+        runner: () => answers[Math.min(calls++, answers.length - 1)],
+        retry: { maxAttempts: 4, baseDelayMs: 1, maxDelayMs: 2, sleep: () => undefined },
+      },
+      visibilityRetry: retry,
+    });
+
+    expect(calls).toBe(3);
+    expect(delays).toEqual([5, 10]);
+    expect(state).toMatchObject({
+      afterVersionId: 'after',
+      afterCreatedOn: RELEASE_CREATED_ON,
+      ownedByRelease: true,
+    });
+    expect(readFileSync(resolve(directory, 'app.json'), 'utf8')).toBe(
+      `${JSON.stringify(owned, null, 2)}\n`,
+    );
+  });
+
+  it('rethrows a read that keeps failing after a stale answer without spending the visibility budget', () => {
+    const directory = prepareAttemptedRelease('app');
+    const stale = deployment('before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON);
+    let calls = 0;
+    const queryDelays: number[] = [];
+    const { delays, retry } = recordingRetry(6);
+
+    expect(() =>
+      recordCurrentDeployment('app', directory, {
+        queryOptions: {
+          runner: () => {
+            calls += 1;
+            if (calls === 1) return JSON.stringify(stale);
+            throw new Error('Cloudflare API 503');
+          },
+          retry: {
+            maxAttempts: 4,
+            baseDelayMs: 1,
+            maxDelayMs: 2,
+            sleep: (delayMs: number) => queryDelays.push(delayMs),
+            onRetry: () => undefined,
+          },
+        },
+        visibilityRetry: retry,
+      }),
+    ).toThrow('Cloudflare API 503');
+    expect(calls).toBe(5);
+    expect(queryDelays).toEqual([1, 2, 2]);
+    expect(delays).toEqual([5]);
+    expect(JSON.parse(readFileSync(resolve(directory, 'app.json'), 'utf8'))).toEqual(stale);
+    const state = readState(directory, 'app');
+    expect(state).toMatchObject({ afterVersionId: null, changed: false, visibilityReads: 1 });
+    expect(state.staleReads).toHaveLength(1);
+  });
+
+  it('waits at most 59.5 s of backoff over 18 reads by default after a deploy', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+    ]);
+    const delays: number[] = [];
+
+    expect(() =>
+      recordCurrentDeployment('app', directory, {
+        queryCurrent: query,
+        visibilityRetry: {
+          sleep: (delayMs: number) => delays.push(delayMs),
+          onRetry: () => undefined,
+        },
+      }),
+    ).toThrow('after 18 reads');
+    expect(reads).toHaveLength(18);
+    expect(delays).toEqual([500, 1_000, 2_000, ...Array.from({ length: 14 }, () => 4_000)]);
+    expect(delays.reduce((total, delayMs) => total + delayMs, 0)).toBe(59_500);
+  });
+
+  it('names each stale answer in the job log instead of reporting a failure', () => {
+    const directory = prepareAttemptedRelease('app');
+    const { query } = sequencedDeploymentQuery([
+      deployment('before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+      deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      recordCurrentDeployment('app', directory, {
+        queryCurrent: query,
+        visibilityRetry: { maxAttempts: 3, baseDelayMs: 5, maxDelayMs: 10, sleep: () => undefined },
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = String(warn.mock.calls[0]?.[0]);
+      expect(line).toContain('app new deployment visibility: production still shows deployment');
+      expect(line).toContain('deployment-before / version before');
+      expect(line).toContain(BASELINE_CREATED_ON);
+      expect(line).toContain('reading again in 5 ms');
+      expect(line).not.toContain('failed on attempt');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('reads once without waiting when the deploy command itself failed', () => {
+    const stale = deployment('before', BASELINE_RELEASE_MESSAGE);
+
+    const once = prepareAttemptedRelease('app');
+    const onceQuery = sequencedDeploymentQuery([stale, deployment('after')]);
+    const onceRetry = recordingRetry(4);
+    expect(() =>
+      recordCurrentForMode('app', 'once', once, {
+        queryCurrent: onceQuery.query,
+        visibilityRetry: onceRetry.retry,
+      }),
+    ).toThrow('app deploy did not create a new 100% production version.');
+    expect(onceQuery.reads).toHaveLength(1);
+    expect(onceRetry.delays).toEqual([]);
+
+    const wait = prepareAttemptedRelease('app');
+    const waitQuery = sequencedDeploymentQuery([stale, deployment('after')]);
+    const waitRetry = recordingRetry(4);
+    expect(
+      recordCurrentForMode('app', 'wait', wait, {
+        queryCurrent: waitQuery.query,
+        visibilityRetry: waitRetry.retry,
+      }),
+    ).toMatchObject({ afterVersionId: 'after', ownedByRelease: true });
+    expect(waitQuery.reads).toHaveLength(2);
+    expect(waitRetry.delays).toEqual([5]);
+
+    const query = vi.fn();
+    expect(() =>
+      recordCurrentForMode('app', 'sometimes', createDirectory(), { queryCurrent: query }),
+    ).toThrow('record-current needs "wait" or "once"');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown record-current target or wait mode before any production read', () => {
+    const directory = createDirectory();
+    const unknownTarget = runScript(['record-current', 'unknown-worker', 'wait', directory]);
+    expect(unknownTarget.status).not.toBe(0);
+    expect(String(unknownTarget.stderr)).toContain('Unknown release target: unknown-worker');
+
+    const unknownMode = runScript(['record-current', 'app', 'sometimes', directory]);
+    expect(unknownMode.status).not.toBe(0);
+    expect(String(unknownMode.stderr)).toContain('record-current needs "wait" or "once"');
+  });
+
+  it('rethrows at once when the retry predicate rejects the error', () => {
+    const delays: number[] = [];
+    let attempts = 0;
+
+    expect(() =>
+      retrySync(
+        'selective operation',
+        () => {
+          attempts += 1;
+          throw new Error('not retryable');
+        },
+        {
+          maxAttempts: 5,
+          baseDelayMs: 5,
+          maxDelayMs: 10,
+          sleep: (delayMs: number) => delays.push(delayMs),
+          onRetry: () => undefined,
+          shouldRetry: (error: unknown) => error instanceof Error && error.message === 'retryable',
+        },
+      ),
+    ).toThrow('not retryable');
+    expect(attempts).toBe(1);
+    expect(delays).toEqual([]);
+  });
+
   it('rolls back only a version owned by the failed release', () => {
     const state = {
       beforeVersionId: 'before',
@@ -2407,43 +2947,316 @@ describe('release deployment rollback state', () => {
     ]);
   });
 
-  it('fails final verification when another deployment replaces the recorded release', () => {
+  it('fails final verification at once when a newer deployment replaced the recorded release', () => {
+    for (const [label, foreignCreatedOn] of [
+      ['newer creation time', NEWER_CREATED_ON],
+      ['unreadable creation time', undefined],
+    ] as const) {
+      const directory = createDirectory();
+      writeRecordedState(directory, 'app', 'after');
+      const { query, reads } = sequencedDeploymentQuery([
+        deployment('external', 'manual-deploy', foreignCreatedOn),
+        deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+      ]);
+      const { delays, retry } = recordingRetry(4);
+
+      expect(
+        () => verifyCurrentRelease(directory, { queryCurrent: query, visibilityRetry: retry }),
+        label,
+      ).toThrow('another deployment may have replaced this release');
+      expect(reads, label).toEqual(['app:deployment-external']);
+      expect(delays, label).toEqual([]);
+
+      const report = readFinalVerification(directory);
+      expect(report.status, label).toBe('failed');
+      expect(report.results, label).toEqual([
+        expect.objectContaining({
+          target: 'app',
+          status: 'conflict',
+          currentDeploymentId: 'deployment-external',
+          currentMessage: 'manual-deploy',
+          visibilityReads: 1,
+        }),
+      ]);
+    }
+  });
+
+  it('waits for the recorded deployment to become visible before final verification fails', () => {
     const directory = createDirectory();
-    writeFileSync(
-      resolve(directory, 'app-state.json'),
-      JSON.stringify({
-        schemaVersion: 1,
+    writeRecordedState(directory, 'app', 'after');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('app-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+      deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    const { delays, retry } = recordingRetry(3);
+
+    const report = verifyCurrentRelease(directory, { queryCurrent: query, visibilityRetry: retry });
+
+    expect(report.status).toBe('verified');
+    expect(reads).toEqual(['app:deployment-app-before', 'app:deployment-after']);
+    expect(delays).toEqual([5]);
+    expect(report.results).toEqual([
+      expect.objectContaining({
         target: 'app',
-        config: 'cloudflare/wrangler.app.toml',
-        attempted: true,
-        ownedByRelease: true,
-        beforeVersionId: 'before',
-        releaseMessage: CANONICAL_RELEASE_MESSAGE,
-        afterDeploymentId: 'deployment-after',
-        afterVersionId: 'after',
+        status: 'verified',
+        currentDeploymentId: 'deployment-after',
+        visibilityReads: 2,
+        staleReads: [
+          {
+            deploymentId: 'deployment-app-before',
+            versionId: 'app-before',
+            message: BASELINE_RELEASE_MESSAGE,
+            createdOn: BASELINE_CREATED_ON,
+          },
+        ],
       }),
-    );
+    ]);
+  });
+
+  it('waits past an older deployment that its creation time shows to be stale', () => {
+    const directory = createDirectory();
+    writeRecordedState(directory, 'app', 'after');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('older', `git:${'c'.repeat(40)}`, OLDER_CREATED_ON),
+      deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    const { delays, retry } = recordingRetry(3);
+
+    expect(
+      verifyCurrentRelease(directory, { queryCurrent: query, visibilityRetry: retry }).status,
+    ).toBe('verified');
+    expect(reads).toHaveLength(2);
+    expect(delays).toEqual([5]);
+  });
+
+  it('bounds final verification by the recorded deployment, not by the baseline', () => {
+    for (const [label, createdOn] of [
+      ['made between the baseline and the recorded deployment', '2026-11-19T12:00:00.000000Z'],
+      ['made at the same time as the recorded deployment', RELEASE_CREATED_ON],
+    ] as const) {
+      const directory = createDirectory();
+      writeRecordedState(directory, 'app', 'after');
+      const { query, reads } = sequencedDeploymentQuery([
+        deployment('between', 'manual-deploy', createdOn),
+        deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+      ]);
+      const { retry } = recordingRetry(3);
+
+      expect(
+        verifyCurrentRelease(directory, { queryCurrent: query, visibilityRetry: retry }).status,
+        label,
+      ).toBe('verified');
+      expect(reads, label).toHaveLength(2);
+    }
+  });
+
+  it('fails only its Worker when a final verification read fails after a stale answer', () => {
+    const directory = createDirectory();
+    writeRecordedState(directory, 'app', 'after');
+    let calls = 0;
+    const { retry } = recordingRetry(4);
 
     expect(() =>
       verifyCurrentRelease(directory, {
-        queryCurrent: () => ({
-          deploymentId: 'deployment-external',
-          versionId: 'after',
-          message: 'manual-deploy',
-        }),
+        queryOptions: {
+          runner: () => {
+            calls += 1;
+            if (calls === 1) {
+              return JSON.stringify(
+                deployment('app-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+              );
+            }
+            throw new Error('Cloudflare API 503');
+          },
+          retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, sleep: () => undefined },
+        },
+        visibilityRetry: retry,
+      }),
+    ).toThrow('Final production deployment verification failed');
+    expect(calls).toBe(3);
+    const [result] = readFinalVerification(directory).results;
+    expect(result).toMatchObject({
+      target: 'app',
+      status: 'failed',
+      error: 'Cloudflare API 503',
+      visibilityReads: 1,
+    });
+    expect(result?.staleReads).toHaveLength(1);
+  });
+
+  it('gives final verification the same default visibility budget as the recorder', () => {
+    const directory = createDirectory();
+    writeRecordedState(directory, 'app', 'after');
+    const { query, reads } = sequencedDeploymentQuery([
+      deployment('app-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+    ]);
+    const delays: number[] = [];
+
+    expect(() =>
+      verifyCurrentRelease(directory, {
+        queryCurrent: query,
+        visibilityRetry: {
+          sleep: (delayMs: number) => delays.push(delayMs),
+          onRetry: () => undefined,
+        },
       }),
     ).toThrow('another deployment may have replaced this release');
-
-    const report = JSON.parse(
-      readFileSync(resolve(directory, 'final-verification-report.json'), 'utf8'),
-    ) as {
-      status: string;
-      results: Array<{ target: string; status: string }>;
-    };
-    expect(report.status).toBe('failed');
-    expect(report.results).toEqual([
-      expect.objectContaining({ target: 'app', status: 'conflict' }),
+    expect(reads).toHaveLength(18);
+    expect(delays.reduce((total, delayMs) => total + delayMs, 0)).toBe(59_500);
+    expect(readFinalVerification(directory).results).toEqual([
+      expect.objectContaining({
+        target: 'app',
+        status: 'conflict',
+        visibilityReads: 18,
+        error:
+          'The deployments list still answered an earlier deployment after 18 reads; the recorded deployment never became visible.',
+      }),
     ]);
+  });
+
+  it('shares one visibility budget across every recorded Worker and always writes its report', () => {
+    const settles = createDirectory();
+    writeRecordedState(settles, 'remote-share', 'share-after');
+    writeRecordedState(settles, 'app', 'app-after');
+    const answers: Record<string, ReturnType<typeof deployment>[]> = {
+      'remote-share': [
+        deployment('remote-share-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+        deployment('remote-share-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+        deployment('share-after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+      ],
+      app: [
+        deployment('app-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+        deployment('app-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+        deployment('app-after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+      ],
+    };
+    const reads: Record<string, number> = { 'remote-share': 0, app: 0 };
+    const { delays, retry } = recordingRetry(4);
+
+    const report = verifyCurrentRelease(settles, {
+      queryCurrent: (target: string) => {
+        const list = answers[target]!;
+        return deploymentRead(list[Math.min(reads[target]!++, list.length - 1)]!);
+      },
+      visibilityRetry: retry,
+    });
+
+    expect(report.status).toBe('verified');
+    expect(reads).toEqual({ 'remote-share': 3, app: 3 });
+    expect(delays).toEqual([5, 10]);
+    expect(report.results).toEqual([
+      expect.objectContaining({ target: 'remote-share', status: 'verified', visibilityReads: 3 }),
+      expect.objectContaining({ target: 'app', status: 'verified', visibilityReads: 3 }),
+    ]);
+
+    const stays = createDirectory();
+    writeRecordedState(stays, 'remote-share', 'share-after');
+    writeRecordedState(stays, 'app', 'app-after');
+    const staleReads: Record<string, number> = { 'remote-share': 0, app: 0 };
+    const sleeps: number[] = [];
+    expect(() =>
+      verifyCurrentRelease(stays, {
+        queryCurrent: (target: string) => {
+          staleReads[target]! += 1;
+          return deploymentRead(
+            deployment(`${target}-before`, BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+          );
+        },
+        visibilityRetry: {
+          sleep: (delayMs: number) => sleeps.push(delayMs),
+          onRetry: () => undefined,
+        },
+      }),
+    ).toThrow('another deployment may have replaced this release');
+    expect(staleReads).toEqual({ 'remote-share': 18, app: 18 });
+    expect(sleeps.reduce((total, delayMs) => total + delayMs, 0)).toBe(59_500);
+    expect(readFinalVerification(stays).results).toEqual([
+      expect.objectContaining({ target: 'remote-share', status: 'conflict', visibilityReads: 18 }),
+      expect.objectContaining({ target: 'app', status: 'conflict', visibilityReads: 18 }),
+    ]);
+  });
+
+  it('keeps checking the other Workers when one final verification read fails', () => {
+    const directory = createDirectory();
+    writeRecordedState(directory, 'remote-share', 'share-after');
+    writeRecordedState(directory, 'app', 'app-after');
+    const { query: appQuery, reads: appReads } = sequencedDeploymentQuery([
+      deployment('app-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON),
+      deployment('app-after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    ]);
+    let shareReads = 0;
+    const { delays, retry } = recordingRetry(3);
+
+    expect(() =>
+      verifyCurrentRelease(directory, {
+        queryCurrent: (target: string) => {
+          if (target === 'app') return appQuery(target);
+          shareReads += 1;
+          throw new Error('Cloudflare API 503');
+        },
+        visibilityRetry: retry,
+      }),
+    ).toThrow('Final production deployment verification failed');
+    expect(shareReads).toBe(1);
+    expect(appReads).toHaveLength(2);
+    expect(delays).toEqual([5]);
+    expect(readFinalVerification(directory).results).toEqual([
+      expect.objectContaining({
+        target: 'remote-share',
+        status: 'failed',
+        error: 'Cloudflare API 503',
+        visibilityReads: 0,
+      }),
+      expect.objectContaining({ target: 'app', status: 'verified', visibilityReads: 2 }),
+    ]);
+  });
+
+  it('does not stretch a failing final verification read across the visibility budget', () => {
+    const directory = createDirectory();
+    writeRecordedState(directory, 'app', 'after');
+    let reads = 0;
+    const { delays, retry } = recordingRetry(4);
+
+    expect(() =>
+      verifyCurrentRelease(directory, {
+        queryCurrent: () => {
+          reads += 1;
+          throw new Error('Cloudflare API 503');
+        },
+        visibilityRetry: retry,
+      }),
+    ).toThrow('Final production deployment verification failed');
+    expect(reads).toBe(1);
+    expect(delays).toEqual([]);
+    expect(readFinalVerification(directory).results).toEqual([
+      expect.objectContaining({ target: 'app', status: 'failed', error: 'Cloudflare API 503' }),
+    ]);
+  });
+
+  it('waits for final ownership through the real deployment query', () => {
+    const directory = createDirectory();
+    writeRecordedState(directory, 'app', 'after');
+    const answers = [
+      JSON.stringify(deployment('app-before', BASELINE_RELEASE_MESSAGE, BASELINE_CREATED_ON)),
+      JSON.stringify(deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON)),
+    ];
+    let calls = 0;
+    const { delays, retry } = recordingRetry(3);
+
+    const report = verifyCurrentRelease(directory, {
+      queryOptions: {
+        runner: () => answers[Math.min(calls++, answers.length - 1)],
+        retry: { maxAttempts: 4, baseDelayMs: 1, maxDelayMs: 2, sleep: () => undefined },
+      },
+      visibilityRetry: retry,
+    });
+
+    expect(report.status).toBe('verified');
+    expect(calls).toBe(2);
+    expect(delays).toEqual([5]);
+    expect(JSON.parse(readFileSync(resolve(directory, 'app-final-current.json'), 'utf8'))).toEqual(
+      deployment('after', CANONICAL_RELEASE_MESSAGE, RELEASE_CREATED_ON),
+    );
   });
 
   it('keeps the Worker deployment token out of setup and smoke steps', () => {
@@ -2944,6 +3757,51 @@ describe('release deployment rollback state', () => {
     expect(workflow.match(/compatibility-recheck "\$RELEASE_TARGET" "\$GITHUB_SHA"/g)).toHaveLength(
       deployments.length,
     );
+  });
+
+  it('waits for every deployed Worker to become visible before recording it', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const deployments = [
+      ['Deploy and record PRO room Worker', 'pro-room'],
+      ['Deploy and record remote-share Worker', 'remote-share'],
+      ['Deploy and record signaling Worker', 'signaling'],
+      ['Deploy and record Developer API facade Worker', 'developer-api-facade'],
+      ['Deploy and record Developer API Worker', 'developer-api'],
+      ['Deploy and record app Worker with immutable dist', 'app'],
+    ] as const;
+
+    for (const [stepName, target] of deployments) {
+      const step = workflowStepSource(workflow, stepName);
+      const deploy = step.indexOf('npm run --silent wrangler -- deploy');
+      const deployExit = step.indexOf('deploy_exit=$?', deploy);
+      const waitByDefault = step.search(/^ {10}record_wait=wait$/mu);
+      const onceAfterFailedDeploy = step.indexOf(
+        'if (( deploy_exit != 0 )); then record_wait=once; fi',
+      );
+      const record = step.indexOf(
+        `node scripts/release-deployment-state.mts record-current ${target} "$record_wait"`,
+      );
+      const deployFirst = step.indexOf('if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi');
+      expect(deploy, stepName).toBeGreaterThan(-1);
+      expect(deployExit, stepName).toBeGreaterThan(deploy);
+      expect(waitByDefault, stepName).toBeGreaterThan(deployExit);
+      expect(onceAfterFailedDeploy, stepName).toBeGreaterThan(waitByDefault);
+      expect(record, stepName).toBeGreaterThan(onceAfterFailedDeploy);
+      expect(deployFirst, stepName).toBeGreaterThan(record);
+      expect(step, stepName).toContain('record_exit=$?');
+      expect(step, stepName).not.toContain('deployments status');
+      expect(step, stepName).not.toContain(`release-artifacts/deployments/${target}.json`);
+      expect(step, stepName).not.toMatch(
+        new RegExp(`release-deployment-state\\.mts record ${target}\\s*$`, 'mu'),
+      );
+    }
+    expect(workflow.match(/ record-current [a-z-]+ "\$record_wait"/gu)).toHaveLength(
+      deployments.length,
+    );
+    expect(workflow.match(/^ {10}record_wait=wait$/gmu)).toHaveLength(deployments.length);
+    expect(
+      workflowStepSource(workflow, 'Verify release still owns current production deployments'),
+    ).toContain('run: node scripts/release-deployment-state.mts verify-current');
   });
 
   it('reuses the successful exact-SHA main CI artifact for every release target', () => {

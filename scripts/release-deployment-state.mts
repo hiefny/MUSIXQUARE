@@ -26,6 +26,7 @@ export interface DeploymentVersion {
   readonly deploymentId?: string | null;
   readonly versionId: string;
   readonly message: string | null;
+  readonly createdOn?: string | null;
 }
 
 export interface ReleaseState extends Record<string, unknown> {
@@ -38,6 +39,8 @@ interface RetryOptions {
   readonly maxDelayMs?: number;
   readonly sleep?: (delayMs: number) => void;
   readonly onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
+  /** Retries only errors this returns true for; every other error is rethrown at once. */
+  readonly shouldRetry?: (error: unknown) => boolean;
 }
 
 type QueryCurrentFunction = (
@@ -89,6 +92,10 @@ interface QueryInjectionOptions {
   readonly queryOptions?: QueryCurrentOptions | undefined;
 }
 
+interface VisibilityWaitOptions extends QueryInjectionOptions {
+  readonly visibilityRetry?: RetryOptions | undefined;
+}
+
 interface ReportResult extends Record<string, unknown> {
   target: string;
   status: string;
@@ -110,6 +117,8 @@ interface ReportResult extends Record<string, unknown> {
   rollbackStatus?: string | null;
   beforeVersionId?: string;
   restoredVersionId?: string;
+  visibilityReads?: number;
+  staleReads?: DeploymentIdentity[];
 }
 
 interface OperationReport extends Record<string, unknown> {
@@ -197,6 +206,15 @@ const DEFAULT_DIRECTORY = 'release-artifacts/deployments';
 const QUERY_RETRY = Object.freeze({ maxAttempts: 4, baseDelayMs: 500, maxDelayMs: 2_000 });
 const ROLLBACK_RETRY = Object.freeze({ maxAttempts: 3, baseDelayMs: 750, maxDelayMs: 2_000 });
 const VERIFY_RETRY = Object.freeze({ maxAttempts: 6, baseDelayMs: 500, maxDelayMs: 4_000 });
+// Cloudflare's Workers deployments list can keep answering an earlier
+// deployment after a deploy returns, and its answers can alternate. Release
+// 44647634158 (App 9.0.832) read the previous deployment in its single
+// post-deploy read and again in a request made up to 56.5 s after the deploy
+// finished; Release 38426762796 (App 8.10.9) stopped the same way. Reads that
+// wait for this release's own deployment to become visible reuse VERIFY_RETRY's
+// backoff with enough attempts that its sleeps alone (0.5 + 1 + 2 + 4 x 14 =
+// 59.5 s) cover that window.
+const VISIBILITY_RETRY = Object.freeze({ ...VERIFY_RETRY, maxAttempts: 18 });
 const D1_MIGRATION_MANIFEST = loadD1MigrationManifest();
 
 function trackedD1Paths(databaseNames: readonly string[]): string[] {
@@ -844,6 +862,7 @@ function retrySync<T>(
       return operation(attempt);
     } catch (error) {
       if (attempt === maxAttempts) throw error;
+      if (options.shouldRetry && !options.shouldRetry(error)) throw error;
       const delayMs = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
       onRetry(error, attempt, delayMs);
       sleep(delayMs);
@@ -871,6 +890,7 @@ function prepare(target: string, directory: string): void {
     beforeDeploymentId: before.id || null,
     beforeVersionId: productionVersion(before, `${target} before deployment`),
     beforeMessage: deploymentMessage(before),
+    beforeCreatedOn: stringOrNull(before.created_on),
     attempted: false,
     afterDeploymentId: null,
     afterVersionId: null,
@@ -898,6 +918,7 @@ function deploymentState(
     beforeDeploymentId: before.deploymentId || null,
     beforeVersionId: before.versionId,
     beforeMessage: before.message,
+    beforeCreatedOn: before.createdOn || null,
     attempted,
     ...(attempted ? { attemptedAt: new Date().toISOString() } : {}),
     afterDeploymentId: null,
@@ -1049,6 +1070,7 @@ function record(target: string, directory: string): Record<string, unknown> {
     afterDeploymentId: after.id || null,
     afterVersionId,
     afterMessage,
+    afterCreatedOn: stringOrNull(after.created_on),
     changed,
     ownedByRelease,
     recordedAt: new Date().toISOString(),
@@ -1063,24 +1085,210 @@ function record(target: string, directory: string): Record<string, unknown> {
   return state;
 }
 
+class DeploymentNotYetVisibleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DeploymentNotYetVisibleError';
+  }
+}
+
+function isDeploymentNotYetVisible(error: unknown): boolean {
+  return error instanceof DeploymentNotYetVisibleError;
+}
+
+interface DeploymentIdentity extends Record<string, string | null> {
+  readonly deploymentId: string | null;
+  readonly versionId: string;
+  readonly message: string | null;
+  readonly createdOn: string | null;
+}
+
+function deploymentIdentity(current: DeploymentVersion): DeploymentIdentity {
+  return {
+    deploymentId: current.deploymentId || null,
+    versionId: current.versionId,
+    message: current.message || null,
+    createdOn: current.createdOn || null,
+  };
+}
+
+function describeDeployment(current: DeploymentVersion): string {
+  return (
+    `deployment ${current.deploymentId || '(none)'} / version ${current.versionId} ` +
+    `(${current.message || 'no message'}, created ${current.createdOn || 'at an unknown time'})`
+  );
+}
+
+function deploymentTime(value: unknown): number | null {
+  if (typeof value !== 'string' || !value) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : null;
+}
+
+// A lagging deployments list can only answer a deployment that already existed.
+// So an answer may be stale only when it is the captured baseline, or when it
+// was created no later than the bound the caller gives: the captured baseline
+// for the post-deploy recorder, the recorded deployment for final verification.
+// When either creation time is unreadable, only the baseline counts. Any other
+// answer is newer than the bound and is judged at once, as the single read did.
+function mayBeStaleAnswer(
+  state: Record<string, unknown>,
+  current: DeploymentVersion,
+  newestPossibleCreatedOn: unknown,
+): boolean {
+  if (
+    (current.deploymentId || null) === stringOrNull(state.beforeDeploymentId) &&
+    current.versionId === state.beforeVersionId
+  ) {
+    return true;
+  }
+  const answerTime = deploymentTime(current.createdOn);
+  const limitTime = deploymentTime(newestPossibleCreatedOn);
+  return answerTime !== null && limitTime !== null && answerTime <= limitTime;
+}
+
+function visibilityRetryNotice(error: unknown, attempt: number, delayMs: number): void {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.warn(`${detail} Read ${attempt} may be stale; reading again in ${delayMs} ms.`);
+}
+
+interface VisibilityEvidence {
+  reads: number;
+  readonly staleReads: DeploymentIdentity[];
+}
+
+interface FinalVerificationEntry {
+  readonly state: AttemptedReleaseState;
+  readonly result: ReportResult;
+  readonly staleReads: DeploymentIdentity[];
+  reads: number;
+  done: boolean;
+}
+
+// Re-reads production within the visibility budget while the answer may still
+// be stale, and returns the first answer that is not, or the last stale answer
+// with exhausted set when the budget runs out. Every read and stale answer goes
+// into evidence, also when a read error (which keeps its own QUERY_RETRY budget)
+// is rethrown at once.
+function waitForVisibleDeployment(
+  label: string,
+  read: () => DeploymentVersion,
+  mayBeStale: (current: DeploymentVersion) => boolean,
+  evidence: VisibilityEvidence,
+  retry: RetryOptions | undefined,
+): { readonly current: DeploymentVersion; readonly exhausted: boolean } {
+  let last = null as DeploymentVersion | null;
+  try {
+    const current = retrySync(
+      label,
+      () => {
+        const answer = read();
+        evidence.reads += 1;
+        last = answer;
+        if (!mayBeStale(answer)) return answer;
+        evidence.staleReads.push(deploymentIdentity(answer));
+        throw new DeploymentNotYetVisibleError(
+          `${label}: production still shows ${describeDeployment(answer)}.`,
+        );
+      },
+      {
+        ...VISIBILITY_RETRY,
+        onRetry: visibilityRetryNotice,
+        ...retry,
+        shouldRetry: isDeploymentNotYetVisible,
+      },
+    );
+    return { current, exhausted: false };
+  } catch (error) {
+    if (error instanceof DeploymentNotYetVisibleError && last) {
+      return { current: last, exhausted: true };
+    }
+    throw error;
+  }
+}
+
+interface RecordCurrentOptions extends VisibilityWaitOptions {
+  /** False reads once and judges that read exactly as the single read did. */
+  readonly waitForVisibility?: boolean;
+}
+
 function recordCurrentDeployment(
   target: string,
   directory: string,
-  options: QueryInjectionOptions = {},
+  options: RecordCurrentOptions = {},
 ): Record<string, unknown> {
   const definition = targetDefinition(target);
   const paths = pathsFor(target, directory);
-  const current = (options.queryCurrent || queryCurrent)(
-    target,
-    definition.config,
-    paths.after,
-    options.queryOptions,
-  );
-  if (!current?.deployment) {
-    throw new Error(`${target} current deployment query did not return its source payload.`);
+  const state = readJson(paths.state);
+  const query = options.queryCurrent || queryCurrent;
+  const wait = options.waitForVisibility !== false;
+  const evidence: VisibilityEvidence = { reads: 0, staleReads: [] };
+  // A returned deploy is not yet a visible one. While the answer may be stale
+  // (the captured baseline, or a deployment created no later than it), keep
+  // reading: this release's own deployment is newer than the baseline, so a
+  // stale answer is never taken as its own, whatever message it carries. The
+  // first answer that is not stale goes to record(), which judges it exactly as
+  // before; a newer deployment this release does not own fails at once. The
+  // bound is the captured baseline, so when that read was itself stale, a real
+  // deployment made after it still fails at once, as the single read did, and
+  // an earlier deployment of this same commit made after it can still pass as
+  // this release's own, because ownership is judged by the message.
+  let visibility: { readonly current: DeploymentVersion; readonly exhausted: boolean };
+  try {
+    visibility = waitForVisibleDeployment(
+      `${target} new deployment visibility`,
+      () => {
+        const current = query(target, definition.config, paths.after, options.queryOptions);
+        if (!current?.deployment) {
+          throw new Error(`${target} current deployment query did not return its source payload.`);
+        }
+        writeJson(paths.after, current.deployment);
+        return current;
+      },
+      (current) => mayBeStaleAnswer(state, current, state.beforeCreatedOn),
+      evidence,
+      wait ? options.visibilityRetry : { ...options.visibilityRetry, maxAttempts: 1 },
+    );
+  } finally {
+    updateState(target, directory, {
+      visibilityReads: evidence.reads,
+      staleReads: evidence.staleReads,
+    });
   }
-  writeJson(paths.after, current.deployment);
+  if (wait && visibility.exhausted) {
+    // The budget ended on an answer that may still be stale: keep it in the
+    // state for the evidence, but never as this release's own deployment.
+    try {
+      record(target, directory);
+    } catch {
+      // record() has written its judgement of the stale answer; the error
+      // below names the lag instead.
+    }
+    updateState(target, directory, { ownedByRelease: false });
+    throw new Error(
+      `${target} deployments list still answered ${describeDeployment(visibility.current)} ` +
+        `after ${evidence.reads} reads; this release's new 100% production version never ` +
+        'became visible.',
+    );
+  }
   return record(target, directory);
+}
+
+// "once" is for a deploy command that itself failed: it may not have created a
+// deployment, so one read records the state without delaying recovery.
+function recordCurrentForMode(
+  target: string,
+  waitMode: string,
+  directory: string,
+  options: VisibilityWaitOptions = {},
+): Record<string, unknown> {
+  if (waitMode !== 'wait' && waitMode !== 'once') {
+    throw new Error(`record-current needs "wait" or "once" after the target; got "${waitMode}".`);
+  }
+  return recordCurrentDeployment(target, directory, {
+    ...options,
+    waitForVisibility: waitMode === 'wait',
+  });
 }
 
 function recordedVersion(target: string, directory: string): void {
@@ -1120,6 +1328,7 @@ function queryCurrentOnce(
     deploymentId: stringOrNull(deployment.id),
     versionId: productionVersion(deployment, `${target} current deployment`),
     message: deploymentMessage(deployment),
+    createdOn: stringOrNull(deployment.created_on),
   };
 }
 
@@ -1556,7 +1765,7 @@ function attemptedStates(directory: string): AttemptedReleaseState[] {
 
 function verifyCurrentRelease(
   directory: string,
-  options: QueryInjectionOptions = {},
+  options: VisibilityWaitOptions = {},
 ): OperationReport {
   const reportPath = resolve(directory, 'final-verification-report.json');
   const report: OperationReport = {
@@ -1579,6 +1788,7 @@ function verifyCurrentRelease(
     failed = true;
   }
 
+  const waiting: FinalVerificationEntry[] = [];
   for (const state of states) {
     const result: ReportResult = {
       target: state.target,
@@ -1601,36 +1811,95 @@ function verifyCurrentRelease(
       failed = true;
       continue;
     }
+    waiting.push({ state, result, reads: 0, staleReads: [], done: false });
+  }
 
-    try {
-      const current = query(
-        state.target,
-        state.config,
-        pathsFor(state.target, directory).finalCurrent,
-        options.queryOptions,
-      );
-      result.currentDeploymentId = current.deploymentId || null;
-      result.currentVersionId = current.versionId || null;
-      result.currentMessage = current.message || null;
+  const conclude = (entry: FinalVerificationEntry, status: string, error?: string): void => {
+    entry.result.status = status;
+    if (error) entry.result.error = error;
+    entry.done = true;
+    if (status !== 'verified') failed = true;
+  };
+  const conflict = 'Current production no longer matches the deployment recorded by this release.';
 
-      const matchesRelease =
-        current.deploymentId === state.afterDeploymentId &&
-        current.versionId === state.afterVersionId &&
-        current.message === state.releaseMessage;
-      if (!matchesRelease) {
-        result.status = 'conflict';
-        result.error =
-          'Current production no longer matches the deployment recorded by this release.';
-        failed = true;
-        continue;
+  // The same lagging list can still answer an earlier deployment after the
+  // smokes. Every recorded Worker shares one visibility budget: each round reads
+  // each Worker still waiting, so the sleeps do not grow with the number of
+  // Workers and this report is always written. A newer deployment that is not
+  // the recorded one is a conflict at once. A replacement that the list never
+  // shows during the wait is not seen; that needs the list to lag at least two
+  // deployments behind.
+  try {
+    retrySync(
+      'final ownership visibility',
+      () => {
+        const stale: string[] = [];
+        for (const entry of waiting) {
+          if (entry.done) continue;
+          let current: DeploymentVersion;
+          try {
+            current = query(
+              entry.state.target,
+              entry.state.config,
+              pathsFor(entry.state.target, directory).finalCurrent,
+              options.queryOptions,
+            );
+          } catch (error) {
+            conclude(entry, 'failed', error instanceof Error ? error.message : String(error));
+            continue;
+          }
+          entry.reads += 1;
+          entry.result.currentDeploymentId = current.deploymentId || null;
+          entry.result.currentVersionId = current.versionId || null;
+          entry.result.currentMessage = current.message || null;
+          if (
+            current.deploymentId === entry.state.afterDeploymentId &&
+            current.versionId === entry.state.afterVersionId &&
+            current.message === entry.state.releaseMessage
+          ) {
+            conclude(entry, 'verified');
+          } else if (mayBeStaleAnswer(entry.state, current, entry.state.afterCreatedOn)) {
+            entry.staleReads.push(deploymentIdentity(current));
+            stale.push(`${entry.state.target} still shows ${describeDeployment(current)}`);
+          } else {
+            conclude(entry, 'conflict', conflict);
+          }
+        }
+        if (stale.length > 0) {
+          throw new DeploymentNotYetVisibleError(
+            `Final ownership visibility: ${stale.join('; ')}.`,
+          );
+        }
+      },
+      {
+        ...VISIBILITY_RETRY,
+        onRetry: visibilityRetryNotice,
+        ...options.visibilityRetry,
+        shouldRetry: isDeploymentNotYetVisible,
+      },
+    );
+  } catch (error) {
+    // An exhausted budget leaves each waiting Worker on its last, possibly stale
+    // read, which is a conflict that names the lag; anything else fails the
+    // Workers it left unchecked.
+    const exhausted = error instanceof DeploymentNotYetVisibleError;
+    for (const entry of waiting) {
+      if (entry.done) continue;
+      if (exhausted) {
+        conclude(
+          entry,
+          'conflict',
+          `The deployments list still answered an earlier deployment after ${entry.reads} ` +
+            'reads; the recorded deployment never became visible.',
+        );
+      } else {
+        conclude(entry, 'failed', error instanceof Error ? error.message : String(error));
       }
-
-      result.status = 'verified';
-    } catch (error) {
-      result.status = 'failed';
-      result.error = error instanceof Error ? error.message : String(error);
-      failed = true;
     }
+  }
+  for (const entry of waiting) {
+    entry.result.visibilityReads = entry.reads;
+    if (entry.staleReads.length > 0) entry.result.staleReads = entry.staleReads;
   }
 
   report.completedAt = new Date().toISOString();
@@ -2062,7 +2331,7 @@ function main(): void {
   const target = targetArgument || '';
   const value = valueArgument || '';
   const directory = resolve(
-    mode === 'compatibility' || mode === 'compatibility-recheck'
+    mode === 'compatibility' || mode === 'compatibility-recheck' || mode === 'record-current'
       ? directoryArgument || DEFAULT_DIRECTORY
       : mode === 'service-control-forward-floor' ||
           mode === 'remote-share-forward-floor' ||
@@ -2085,6 +2354,7 @@ function main(): void {
   else if (mode === 'preflight') preflight(target, directory);
   else if (mode === 'attempt') markAttempt(target, directory);
   else if (mode === 'record') record(target, directory);
+  else if (mode === 'record-current') recordCurrentForMode(target, value, directory);
   else if (mode === 'version') recordedVersion(target, directory);
   else if (mode === 'checkpoint') {
     captureDeploymentCheckpoint(target, process.env.RELEASE_MESSAGE, directory);
@@ -2183,7 +2453,7 @@ function main(): void {
   } else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
-      'Usage: node scripts/release-deployment-state.mts <prepare|preflight|attempt|record|version> <target> [directory] | checkpoint <release-target> [directory] | emergency-code-only <git-sha> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | <service-control-forward-floor|remote-share-forward-floor|pro-system-audio-forward-floor|pro-room-entry-policy-forward-floor|standard-room-pin-forward-floor|soro-article-visibility-forward-floor> <git-sha> [directory] | <verify-current|verify-recovery|rollback|summary> [directory]',
+      'Usage: node scripts/release-deployment-state.mts <prepare|preflight|attempt|record|version> <target> [directory] | record-current <target> <wait|once> [directory] | checkpoint <release-target> [directory] | emergency-code-only <git-sha> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | <service-control-forward-floor|remote-share-forward-floor|pro-system-audio-forward-floor|pro-room-entry-policy-forward-floor|standard-room-pin-forward-floor|soro-article-visibility-forward-floor> <git-sha> [directory] | <verify-current|verify-recovery|rollback|summary> [directory]',
     );
   }
 }
@@ -2205,6 +2475,7 @@ export {
   productionVersion,
   queryCurrent,
   recordCurrentDeployment,
+  recordCurrentForMode,
   recheckPartialReleaseCompatibility,
   releaseGitSha,
   releaseTargetWorkers,

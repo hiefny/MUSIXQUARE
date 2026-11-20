@@ -476,6 +476,18 @@ Chromium gate belongs to exact-SHA CI. After the deploy is live, verify the
 production URL. The full Playwright E2E suite remains auxiliary.
 Confirm the active version with
 `npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`.
+Cloudflare's deployments list can keep answering an earlier deployment after a
+deploy returns. In Production Release 38426762796 the first read, about 5 s
+after the new deployment was created, answered the previous one; in Production
+Release 44647634158 the answers alternated between the previous and the new
+deployment for about a minute. The release and emergency tools wait within a
+fixed budget until their own deployment is visible. A manual read tells an old
+answer by comparing its 100% version with the `Current Version ID` that
+`wrangler deploy` printed. Where no such ID was printed (a secret change, or a
+read before deploying), read several times over a few minutes and order the
+answers by `created_on`: a lagging list can only answer a deployment that
+already existed, so the answer with the newest `created_on`, newer than the
+change you made, is the current one.
 
 As manually recorded on 2026-08-17, the `production` environment uses an
 account-owned Cloudflare Worker deployment token with a recorded 2027-07-16
@@ -552,7 +564,9 @@ forward fix or an explicit operator data-restore procedure instead.
 Before an emergency local deploy, save the version reported by
 `npm run wrangler -- deployments status --config <config> --json`. Confirm that the
 saved version is compatible with every migration already applied before using
-it as the immediate rollback target.
+it as the immediate rollback target. Within a few minutes of another deploy this
+read can answer an earlier deployment; read it as
+[Local emergency deployment](#local-emergency-deployment) describes.
 
 ## Client Update Behavior
 

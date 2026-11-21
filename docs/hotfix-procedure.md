@@ -27,7 +27,7 @@ git switch -c agent/describe-the-fix
 # make the fix
 
 # For public/PWA runtime inputs or product copy, bump SERVICE_WORKER_CACHE_VERSION
-# and set the product patch to that new epoch (9.0.834 with v834) in the same
+# and set the product patch to that new epoch (9.0.835 with v835) in the same
 # commit, with both package-lock entries and both admin mirrors. A Worker-only
 # change bumps neither. See "Client Update Behavior" below.
 
@@ -642,7 +642,7 @@ Use this when stale clients are likely to keep hitting a severe bug.
 
 1. Make the minimal code fix.
 2. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
-3. Set the product patch to that new epoch (9.0.834 with v834) with every
+3. Set the product patch to that new epoch (9.0.835 with v835) with every
    required mirror, as defined by [release versioning](release-versioning.md).
 4. Run the repository's non-E2E verification baseline:
 
@@ -1099,6 +1099,11 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   its deploy job done at 02:13 KST) replaced it. 9.0.833 does not read schemaVersion 1 either, so
   the same holds for 9.0.833 and its tabs, and step (1) of both orders does not go to the 9.0.833
   release's checkpoint App (9.0.832, `d8f27952`, which reads only schemaVersion 2).
+  9.0.833 stayed live until 9.0.834 (build 834, the `app` release of merge `79342cca` (#623),
+  Production Release 44874793217, which deployed App version `60f18e96` on 2026-11-21 at 15:19 KST)
+  replaced it. 9.0.834 does not read schemaVersion 1 either, so the same holds for 9.0.834 and its
+  tabs, and step (1) of both orders does not go to the 9.0.834 release's checkpoint App (9.0.833,
+  `fedf9e18`, as inferred from the release log; it reads only schemaVersion 2).
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling

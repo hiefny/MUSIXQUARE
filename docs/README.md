@@ -102,18 +102,18 @@ runbooks. Neither belongs in a general setup document.
   changed (`d8f27952` to `fedf9e18`); the four smokes passed at the first try, the final ownership check verified, and
   the Drift Audit passed (32 pass, 0 fail, 5 manual-only, live build 833). It is the first App release after #620: its
   deploy step recorded the new deployment with `record-current app` in wait mode, and the first read already saw it
-  (one visibility read, no stale read), so the bounded re-read was used but never had to read again. That meets the
+  (one visibility read, no stale read), so the re-read path was not needed. That meets, as written, the
   first closing basis of the 9.0.832 release tooling item, which stays open until the owner decides its three remaining
   questions. Post-deploy reads found `/` and `/ko/` loading `bootstrap.js?cache=v833`, the entry `main-FVSmuJyW.js` and
   the main CSS `main--vEvUZ5a.css` that the final gate and the exact-main candidate built, the preflight pin unchanged
   in their CSP with the preflight body equal to it, and v833; headless Chromium and WebKit iPhone first visits reached
   the start screen with no CSP violation or page error, Japanese, Simplified Chinese and Traditional Chinese first
   visits loaded only their own Han family, and the English start screen fetched only the symbol spaces face (and the
-  math face once ≤ was drawn) while the Korean one fetched none. Its post-merge Full E2E 44781228681 passed at
-  attempt 1 (Chromium 1,173 passed with the three scrollbar rows the train added, WebKit 214 passed and 12 skipped,
-  the same counts as the final gate's WebKit lane, with the production-build service worker test, and the large-room
-  R2 smoke). The App update after
-  9.0.832 / v832, on main `4e012ad1` (#619), for the owner's own scrollbar change of 2026-11-20, which the train carries unchanged as its first commit (`cefea6e5`,
+  math face once ≤ was drawn) while the Korean one fetched none. Its post-merge Full E2E 44781228681 passed at attempt 1
+  (Chromium 1,173 passed with the three scrollbar rows the train added, WebKit 214 passed and 12 skipped, the same
+  counts as the final gate's WebKit lane, with the production-build service worker test, and the large-room R2 smoke).
+  The App update after 9.0.832 / v832, on main `4e012ad1` (#619),
+  for the owner's own scrollbar change of 2026-11-20, which the train carries unchanged as its first commit (`cefea6e5`,
   from a snapshot the owner's working tree still matches byte for byte): over an overflowing scroll area a mouse or pen
   shows the bar (thumb at 0.2), the bar stays while a hover pointer rests anywhere on it (the thumb shows 0.4 under the
   pointer) and fades a full 1.2 s delay after the pointer leaves, a dragged thumb shows 0.6, only the innermost overflowing area reveals, a touch
@@ -177,9 +177,9 @@ runbooks. Neither belongs in a general setup document.
   decided the three questions that change left open (a rule for the recovery reads and the checkpoint, waiting for the
   exact version `wrangler deploy` reports, and a resource-ownership record for release tooling), or the owner decides
   otherwise; the owner accepted that change's 18-read budget and its single read after a failed deploy on 2026-11-20.
-  That change merged as #620, and the first App release after it, 9.0.833's Release 44780691557 (2026-11-21), ran the
-  bounded re-read in its record step (`record-current app` in wait mode, whose first read already saw the new
-  deployment), which meets the first half of that basis; the item stays open for the owner's three questions.
+  That change merged as #620, and the first App release after it, 9.0.833's Release 44780691557 (2026-11-21), ran its
+  wait-mode record step (`record-current app`, whose first read already saw the new deployment, so the re-read path was
+  not needed), which meets the first half of that basis as written; the item stays open for the owner's three questions.
   The App update after 9.0.831 / v831, on main `6c675c0c` (#617), for
   the owner's choice of 2026-11-20 to fix the app: on a busy page (seen with WebKit, the iPhone engine) the session
   reset screen that leaving or refreshing a session shows could leave before its 0.2 s fade-in began or halfway through

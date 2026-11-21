@@ -206,12 +206,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       기다리지 않고 한 번만 읽기를 받아들였고(릴리스 담당이 전한 답, 뜻만 적음), 복구 쪽 읽기와 checkpoint의 규칙, `wrangler deploy`가 알려 주는
       정확한 버전을 기다리는 방법(같은 커밋을 다시 낼 때의 한계를 닫음), 릴리스 도구에 자원 소유 기록을 둘지는 아직 정하지 않았다. 닫는 근거: (1) 그
       변경이 머지되고, 그 뒤 첫 App 릴리스의 배포 단계 로그에서 그 다시 읽기가 쓰였음이 보이고(제안된 명령 이름은 `record-current`), (2) 남은 세 가지를
-      오너가 정함, 또는 오너가 달리 정함. (1)은 채워졌다(9.0.833의 기록, 2026-11-21): #620 뒤 첫 App 릴리스인 9.0.833의
+      오너가 정함, 또는 오너가 달리 정함. (1)은 적힌 그대로 채워졌다(9.0.833의 기록, 2026-11-21): #620 뒤 첫 App 릴리스인 9.0.833의
       [Release 44780691557](https://github.com/hiefny/MUSIXQUARE/actions/runs/44780691557)에서 배포 단계가
       `node scripts/release-deployment-state.mts record-current app "$record_wait"`를 기다림 모드(`record_wait=wait`, 배포 명령이 0으로 끝남)로 돌려
       'app production version d8f27952-… -> fedf9e18-…'(02:12:37 KST, 'Current Version ID' 뒤 약 1.4초)를 찍었다. 그 첫 읽기가 이미 새 배포를 봐 다시 읽을 일은 없었고(`deployments/app-state.json`의
       visibilityReads 1, staleReads 없음, 로그에 'may be stale; reading again' 알림 없음), 최종 소유권 확인(`verify-current`)도 visibilityReads 1로
-      verified였다. 그래서 그 다시 읽기는 쓰였지만 실제로 다시 읽는 길은 운영에서 아직 돌지 않았다. (2)가 남아 이 항목은 열린 채다.
+      verified였다. 그래서 기다림 모드의 기록 단계는 돌았지만 다시 읽는 길 자체는 운영에서 아직 돌지 않았다. (2)가 남아 이 항목은 열린 채다.
       [실패한 릴리스 실행](design/app-9-0-832-train-2026-11-20.md#11-실패한-릴리스-실행),
       [9.0.833의 릴리스 라운드](design/app-9-0-833-train-2026-11-20.md#69-머지-뒤-릴리스-라운드).
 - [ ] 열린 항목과 확인하지 않은 것(게이트 아님): 실제 아이폰, 아이패드, Android, Mac Safari에서 보지 않았다. 만든 PC에서는 main 앱의 일찍 떠나기를

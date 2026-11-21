@@ -1,6 +1,7 @@
 /** Guest setup QR scanner. Camera access starts only from the scan button. */
 
 import { log } from '../core/log.ts';
+import { isBrowserReportedOffline } from '../core/browser-offline.ts';
 
 const SCAN_BUTTON_ID = 'btn-setup-qr-scan';
 const CAMERA_ID = 'setup-qr-camera';
@@ -15,7 +16,11 @@ const CAMERA_MUTE_GRACE_MS = 1_500;
 const CAMERA_ATTEMPTS = 2;
 
 type GuestQrScannerError =
-  'permission-denied' | 'camera-not-found' | 'camera-unavailable' | 'camera-start-stalled';
+  | 'permission-denied'
+  | 'camera-not-found'
+  | 'camera-unavailable'
+  | 'camera-start-stalled'
+  | 'network-unavailable';
 
 interface GuestQrScannerCallbacks {
   isCurrent: () => boolean;
@@ -651,9 +656,11 @@ async function startGuestQrScanner(): Promise<void> {
   if (!readyCamera) return;
 
   installActiveCameraGuard(readyCamera, generation, currentCallbacks, elements);
+  let decoderLoaded = false;
   try {
     elements.closeButton.focus({ preventScroll: true });
     const { default: decodeQr } = await decoderPromise;
+    decoderLoaded = true;
     if (!isAttemptCurrent(generation, readyCamera.attemptToken, currentCallbacks)) {
       readyCamera.cleanupActive?.();
       releaseAttemptStream(readyCamera.stream, elements);
@@ -663,7 +670,15 @@ async function startGuestQrScanner(): Promise<void> {
   } catch {
     readyCamera.cleanupActive?.();
     releaseAttemptStream(readyCamera.stream, elements);
-    reportScannerError(generation, currentCallbacks, 'camera-unavailable');
+    // Offline room guidance: the decoder is not in the install precache, so
+    // offline its import can fail although the camera works. That failure
+    // names the network; anything that fails after the decoder loaded stays a
+    // camera failure.
+    reportScannerError(
+      generation,
+      currentCallbacks,
+      !decoderLoaded && isBrowserReportedOffline() ? 'network-unavailable' : 'camera-unavailable',
+    );
   }
 }
 

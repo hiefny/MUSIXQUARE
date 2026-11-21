@@ -22,6 +22,7 @@ import type { SpectrumPoint } from './visualizer-spectrum.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import { isPlaybackModeYouTube, isPlaybackPaused, isPlaybackPlaying } from '../player/ownership.ts';
 import { t, type I18nKey } from '../i18n/index.ts';
+import { createLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -63,10 +64,12 @@ function requestSpectrumRenderer(): void {
     })
     .catch((error: unknown) => {
       // A failed ESM evaluation can remain cached until this document reloads.
+      // The wrapper records whether the browser reported a network at this
+      // moment, and every later report carries that same record.
       _spectrumLoadFailed = true;
-      _spectrumLoadError = error;
+      _spectrumLoadError = createLazyFeatureLoadError('visualizer-spectrum', error);
       if (_vizMode === 'spectrum') {
-        bus.emit('app:lazy-feature-load-failed', 'visualizer-spectrum', error);
+        bus.emit('app:lazy-feature-load-failed', 'visualizer-spectrum', _spectrumLoadError);
       }
     });
 }

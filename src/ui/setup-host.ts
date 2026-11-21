@@ -12,7 +12,11 @@ import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { scheduleDocumentReload } from '../core/session-reset.ts';
-import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
+import {
+  isLazyFeatureLoadError,
+  wasOfflineLazyFeatureFailure,
+} from '../core/lazy-feature-failure.ts';
+import { isOfflineSignalingSetupFailure } from '../network/setup-offline-failure.ts';
 import { isHandledByForcedAppUpdate } from '../core/app-build.ts';
 import { clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { createHostSessionWithShortCode, broadcastDeviceList } from '../network/peer.ts';
@@ -191,12 +195,24 @@ async function proceedToHostCode(mode: number): Promise<void> {
     log.error('[Setup] Host session init failed', e);
     finishHostInviteLoading();
     const reloadRequired = isLazyFeatureLoadError(e);
+    // Offline room guidance: the line names the network when the browser
+    // reports none as creation fails and no server answered, or for a room
+    // chunk that failed while it reported none. Retry or Refresh stays.
+    const offline = reloadRequired
+      ? wasOfflineLazyFeatureFailure(e)
+      : isOfflineSignalingSetupFailure(e);
     // The forced update dialog owns a refusal below the App build floor: no
     // error text under it (Retry stays, for when the dialog cannot show).
     setupSetHostError(
       isHandledByForcedAppUpdate(e)
         ? null
-        : t(reloadRequired ? 'dialog.sw_update_msg' : 'error.session_create_fail'),
+        : t(
+            offline
+              ? 'error.network_issue'
+              : reloadRequired
+                ? 'dialog.sw_update_msg'
+                : 'error.session_create_fail',
+          ),
     );
     setupRenderActions(
       [

@@ -45,6 +45,10 @@ import {
   setSessionResetWindowLayer,
 } from './core/session-reset.ts';
 import { createReloadRecoveryLatch } from './core/reload-recovery-latch.ts';
+import {
+  createLazyFeatureLoadError,
+  wasOfflineLazyFeatureFailure,
+} from './core/lazy-feature-failure.ts';
 import { UPDATE_COMPLETION_KEY } from './core/navigation-contract.ts';
 
 // ── Audio ──
@@ -926,15 +930,21 @@ type LazyFeatureFailure = {
 };
 
 const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
-  async present() {
+  async present({ error }) {
     // Its own copy, not the waiting-worker update dialog's: this dialog can
     // open in a room and says the app was updated and needs a refresh to keep
     // working. Owner decision 2026-10-11. Close on the left (owner decision
     // 2026-10-28, reversing decision 7) declines like Back: only the feature
-    // that failed stays unopened, and the room stays as it is.
+    // that failed stays unopened, and the room stays as it is. Offline room
+    // guidance: a feature that failed while the browser reported no network
+    // was not removed by an update, so the body names the network instead,
+    // with the same title and actions. The record is the one of the moment
+    // the feature failed (core/lazy-feature-failure.ts).
     const result = await showDialog({
       title: t('dialog.feature_refresh_title'),
-      message: t('dialog.feature_refresh_msg'),
+      message: t(
+        wasOfflineLazyFeatureFailure(error) ? 'error.network_issue' : 'dialog.feature_refresh_msg',
+      ),
       buttonText: t('common.refresh'),
       secondaryText: t('common.close'),
       defaultFocus: 'primary',
@@ -1100,10 +1110,12 @@ async function bootstrap(): Promise<void> {
       })().catch((error) => {
         // A failed ESM evaluation may remain cached for this document. Keep
         // this boundary terminal and offer a real reload instead of a fake
-        // same-specifier retry.
-        loadFailure = error;
+        // same-specifier retry. The wrapper records whether the browser
+        // reported a network at this moment, and every later report carries
+        // that same record.
+        loadFailure = createLazyFeatureLoadError('connect', error);
         loadFailed = true;
-        bus.emit('app:lazy-feature-load-failed', 'connect', error);
+        bus.emit('app:lazy-feature-load-failed', 'connect', loadFailure);
       });
     };
     bus.on('state:network.appRole', (role) => {
@@ -1139,9 +1151,11 @@ async function bootstrap(): Promise<void> {
         const { initAnnouncementPolling } = await import('./ui/announcement.ts');
         initAnnouncementPolling();
       })().catch((error) => {
-        loadFailure = error;
+        // Latched like the Connect runtime, with the network record of the
+        // moment it failed.
+        loadFailure = createLazyFeatureLoadError('announcement', error);
         loadFailed = true;
-        bus.emit('app:lazy-feature-load-failed', 'announcement', error);
+        bus.emit('app:lazy-feature-load-failed', 'announcement', loadFailure);
       });
     };
     const loadIfActive = (): void => {

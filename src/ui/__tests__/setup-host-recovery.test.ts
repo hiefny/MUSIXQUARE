@@ -96,6 +96,28 @@ import { setHostGoBack, startHostFlow } from '../setup-host.ts';
 import { requestForcedAppUpdateFor, setForcedAppUpdateHandler } from '../../core/app-build.ts';
 import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
 
+/** The browser's own network report, as navigator.onLine gives it. */
+function setOnline(online: boolean): void {
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: online });
+}
+
+/**
+ * What room creation rejects with when every setup route of an offline device
+ * failed: the HTTPS bridge's error event, with no HTTP answer.
+ */
+function bridgeErrorWithoutAnswer(): Event {
+  return Object.assign(new Event('error'), {
+    phase: 'open',
+    status: null,
+    cause: new TypeError('Failed to fetch'),
+  });
+}
+
+/** What a dynamic import rejects with when its chunk cannot be fetched. */
+function chunkFailure(): TypeError {
+  return new TypeError('Failed to fetch dynamically imported module');
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.animateTransition.mockImplementation((apply: () => void) => apply());
@@ -298,6 +320,49 @@ describe('host setup recovery', () => {
         expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.session_create_fail');
       });
     });
+
+    // Offline room guidance: the forced update stays first while offline too.
+    describe('with no network', () => {
+      beforeEach(() => setOnline(false));
+      afterEach(() => {
+        Reflect.deleteProperty(navigator, 'onLine');
+      });
+
+      it('shows no creation error text when the forced update took it over', async () => {
+        mocks.createSession.mockRejectedValueOnce(refusal(true));
+
+        startHostFlow();
+
+        await vi.waitFor(() => {
+          expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+        });
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith(null);
+        expect(mocks.setupSetHostError).not.toHaveBeenCalledWith('error.network_issue');
+      });
+
+      it('hides the text while the forced dialog is up, even for a failure with no answer', async () => {
+        setForcedAppUpdateHandler({ request: () => true, isPending: () => true });
+        mocks.createSession.mockRejectedValueOnce(bridgeErrorWithoutAnswer());
+
+        startHostFlow();
+
+        await vi.waitFor(() => {
+          expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+        });
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith(null);
+        expect(mocks.setupSetHostError).not.toHaveBeenCalledWith('error.network_issue');
+      });
+
+      it('shows the ordinary creation error when the port declined', async () => {
+        mocks.createSession.mockRejectedValueOnce(refusal(false));
+
+        startHostFlow();
+
+        await vi.waitFor(() => {
+          expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.session_create_fail');
+        });
+      });
+    });
   });
 
   it('replaces a fake retry with Refresh after a terminal room-feature failure', async () => {
@@ -319,5 +384,137 @@ describe('host setup recovery', () => {
     refresh?.();
     expect(mocks.createSession).toHaveBeenCalledOnce();
     expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith('dialog.refreshing_session');
+  });
+
+  // Offline room guidance: when the browser reports no network at the moment
+  // creation fails, and no server answered, the line names the network. The
+  // buttons stay as they are, and nothing is checked before the attempt.
+  describe('a device with no network', () => {
+    beforeEach(() => setOnline(false));
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'onLine');
+    });
+
+    it('names the network when every setup route failed without an answer, and keeps Retry', async () => {
+      mocks.createSession
+        .mockRejectedValueOnce(bridgeErrorWithoutAnswer())
+        .mockResolvedValueOnce('482913');
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.network_issue');
+      });
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+
+      const retry = mocks.actions[1]?.onClick as (() => void) | undefined;
+      retry?.();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetCode).toHaveBeenCalledWith('482913');
+      });
+      expect(mocks.createSession).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      [
+        'admission timeout on a network that hangs',
+        () => Object.assign(new Error('SIGNALING_HOST_ADMISSION_TIMEOUT'), { type: 'network' }),
+      ],
+      ['peer-open deadline', () => new Error('PEER_OPEN_TIMEOUT')],
+    ])('names the network for an offline %s', async (_label, failure) => {
+      mocks.createSession.mockRejectedValueOnce(failure());
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.network_issue');
+      });
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+    });
+
+    it('says network, not update, for a room chunk that failed offline, and keeps Refresh', async () => {
+      mocks.createSession.mockRejectedValueOnce(
+        createLazyFeatureLoadError('room-session', chunkFailure()),
+      );
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.network_issue');
+      });
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.refresh' });
+
+      const refresh = mocks.actions[1]?.onClick as (() => void) | undefined;
+      refresh?.();
+      expect(mocks.createSession).toHaveBeenCalledOnce();
+      expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith('dialog.refreshing_session');
+    });
+
+    it('keeps the network line for a chunk that failed offline when Create meets it again after the network returns', async () => {
+      // The room feature loader keeps its first failure for the document.
+      const latched = createLazyFeatureLoadError('room-session', chunkFailure());
+      setOnline(true);
+      mocks.createSession.mockRejectedValueOnce(latched);
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.network_issue');
+      });
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.refresh' });
+    });
+
+    it('keeps the creation error for a server answer', async () => {
+      mocks.createSession.mockRejectedValueOnce(
+        Object.assign(new Error('SIGNALING_ERROR'), { type: 'server-error' }),
+      );
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.session_create_fail');
+      });
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+    });
+
+    it('keeps the update line for a room chunk that failed while the browser reported a network', async () => {
+      setOnline(true);
+      const failedOnline = createLazyFeatureLoadError('room-session', chunkFailure());
+      setOnline(false);
+      mocks.createSession.mockRejectedValueOnce(failedOnline);
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('dialog.sw_update_msg');
+      });
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.refresh' });
+    });
+
+    it('keeps the creation error for the same failure while the browser reports a network', async () => {
+      setOnline(true);
+      mocks.createSession.mockRejectedValueOnce(bridgeErrorWithoutAnswer());
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.session_create_fail');
+      });
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+    });
+
+    it('checks nothing before the attempt: a room created offline shows its code and no line', async () => {
+      mocks.createSession.mockResolvedValueOnce('482913');
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetCode).toHaveBeenCalledWith('482913');
+      });
+      expect(mocks.createSession).toHaveBeenCalledOnce();
+      expect(mocks.setupSetHostError.mock.calls.every(([text]) => text === null)).toBe(true);
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.start' });
+    });
   });
 });

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   scannerCallbacks: null as null | {
     onStartFromGesture?: () => void;
     onCode: (code: string) => void;
+    onError?: (reason: string) => void;
   },
   pendingAutoCode: null as string | null,
   pendingRole: 0 as number | null,
@@ -297,6 +298,31 @@ describe('guest setup recovery', () => {
     expect(mocks.joinSession).not.toHaveBeenCalled();
     complete(true);
     await vi.waitFor(() => expect(mocks.joinSession).toHaveBeenCalledWith('654321'));
+  });
+
+  // Offline room guidance: a QR decoder that could not load offline is not a
+  // camera fault, so its scan toast names the network.
+  it('names the network in the scan toast for a decoder that could not load offline', () => {
+    startGuestFlow();
+
+    mocks.scannerCallbacks?.onError?.('network-unavailable');
+
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(mocks.showToast.mock.calls[0]?.[0]).toBe('error.network_issue');
+  });
+
+  it.each([
+    ['permission-denied', 'setup.camera_permission_denied'],
+    ['camera-not-found', 'setup.camera_not_found'],
+    ['camera-unavailable', 'setup.camera_unavailable'],
+    ['camera-start-stalled', 'setup.camera_stream_stalled'],
+  ])('keeps the camera toast for %s', (reason, message) => {
+    startGuestFlow();
+
+    mocks.scannerCallbacks?.onError?.(reason);
+
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(mocks.showToast.mock.calls[0]?.[0]).toBe(message);
   });
 
   it('does not admit a canceled attempt after its late activation proof', async () => {

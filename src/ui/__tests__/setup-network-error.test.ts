@@ -119,7 +119,11 @@ import { initSetup } from '../setup.ts';
 import { showDialog } from '../dialog.ts';
 import { setHostGoBack } from '../setup-host.ts';
 import { setupRenderActions, setupRenderActionsInTransition } from '../setup-shared.ts';
-import { restoreGuestJoinControlsAfterFailure, startGuestFlow } from '../setup-guest.ts';
+import {
+  promptForRoomPassword,
+  restoreGuestJoinControlsAfterFailure,
+  startGuestFlow,
+} from '../setup-guest.ts';
 import { showToast } from '../toast.ts';
 import { scheduleDocumentReload, scheduleSessionReset } from '../../core/session-reset.ts';
 import { log } from '../../core/log.ts';
@@ -130,6 +134,28 @@ function startJoining(): void {
   setState('network.isConnecting', true);
   vi.mocked(showToast).mockClear();
   vi.mocked(restoreGuestJoinControlsAfterFailure).mockClear();
+}
+
+/** The browser's own network report, as navigator.onLine gives it. */
+function setOnline(online: boolean): void {
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: online });
+}
+
+/**
+ * What a join reports when every setup route of an offline device failed: the
+ * HTTPS bridge's error event, with no HTTP answer.
+ */
+function bridgeErrorWithoutAnswer(): Event {
+  return Object.assign(new Event('error'), {
+    phase: 'open',
+    status: null,
+    cause: new TypeError('Failed to fetch'),
+  });
+}
+
+/** What a dynamic import rejects with when its chunk cannot be fetched. */
+function chunkFailure(): TypeError {
+  return new TypeError('Failed to fetch dynamically imported module');
 }
 
 beforeEach(() => {
@@ -919,5 +945,232 @@ describe('forced update: refusals below the App build floor (train 9.0.14)', () 
     answer = false;
     bus.emit('network:error', refuse(null));
     expect(showToast).toHaveBeenCalledExactlyOnceWith('error.network_generic');
+  });
+});
+
+// Offline room guidance: while a guest joins, a failure that no server
+// answered names the network when the browser reports no network at that
+// moment. Server answers, the forced update, the PIN prompt and everything in
+// a room keep their own handling.
+describe('a guest with no network', () => {
+  beforeEach(() => setOnline(false));
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'onLine');
+    setForcedAppUpdateHandler({ request: () => false, isPending: () => false });
+  });
+
+  it.each([
+    ['the HTTPS bridge error with no HTTP answer', bridgeErrorWithoutAnswer],
+    ['a WebSocket error event', () => new Event('error')],
+    ['the join deadline', () => new Error('HOST_UNREACHABLE')],
+  ])('names the network for %s', (_label, failure) => {
+    const failures = vi.fn();
+    bus.on('setup:guest-join-failure', failures);
+
+    bus.emit('network:error', failure());
+
+    expect(failures).toHaveBeenCalledOnce();
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'error.network_issue',
+      false,
+      false,
+    );
+    expect(showToast).not.toHaveBeenCalled();
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('names the network on the late path after setup cleared the connecting flag', () => {
+    setState('network.isConnecting', false);
+
+    bus.emit('network:error', bridgeErrorWithoutAnswer());
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'error.network_issue',
+      false,
+      false,
+    );
+    expect(showToast).not.toHaveBeenCalled();
+    expect(showDialog).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['network:error', (failure: Error) => bus.emit('network:error', failure)],
+    [
+      'setup:guest-join-failure',
+      (failure: Error) =>
+        bus.emit('setup:guest-join-failure', {
+          error: failure,
+          userMessage: 'error.network_init_failed',
+        }),
+    ],
+  ])(
+    'names the network for a room chunk that failed offline, reported through %s, and keeps Refresh',
+    (_route, report) => {
+      const terminal = createLazyFeatureLoadError('room-session', chunkFailure());
+      // guest.ts clears this flag before surfacing its wrapped init error.
+      setState('network.isConnecting', false);
+
+      report(new Error('NETWORK_INIT_FAILED', { cause: terminal }));
+
+      expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+        'error.network_issue',
+        true,
+      );
+      expect(showToast).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the network line for a chunk that failed offline when it is reported again after the network returns', () => {
+    // The room feature loader keeps its first failure for the document.
+    const latched = createLazyFeatureLoadError('room-session', chunkFailure());
+    setOnline(true);
+    setState('network.isConnecting', false);
+
+    bus.emit('network:error', new Error('NETWORK_INIT_FAILED', { cause: latched }));
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'error.network_issue',
+      true,
+    );
+  });
+
+  it.each([
+    ['a full room', Object.assign(new Error('x'), { type: 'room-full' }), 'network.session_full'],
+    [
+      'a signaling server error',
+      Object.assign(new Error('SIGNALING_ERROR'), { type: 'server-error' }),
+      'error.signal_server_fail',
+    ],
+    [
+      'an HTTPS bridge answer with an HTTP status',
+      Object.assign(new Event('error'), {
+        phase: 'open',
+        status: 503,
+        cause: new Error('HTTP_SIGNALING_OPEN_503'),
+      }),
+      'error.network_generic',
+    ],
+    [
+      'a transport network failure',
+      Object.assign(new Error('x'), { type: 'network' }),
+      'error.network_issue',
+    ],
+  ])('keeps the line for %s', (_label, error, message) => {
+    bus.emit('network:error', error);
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      message,
+      false,
+      false,
+    );
+  });
+
+  it('still marks the typed code wrong when no room answers it', () => {
+    bus.emit('network:error', Object.assign(new Error('x'), { type: 'peer-unavailable' }));
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'error.peer_unavailable',
+      false,
+      true,
+    );
+  });
+
+  it('resets a refusal the forced update took over with no text', () => {
+    setForcedAppUpdateHandler({ request: () => true, isPending: () => false });
+    const cancelled = vi.fn();
+    bus.on('setup:guest-join-cancelled', cancelled);
+    const refusal = Object.assign(new Error('APP_UPDATE_REQUIRED'), {
+      type: 'app-update-required',
+      minAppBuild: 786,
+    });
+    requestForcedAppUpdateFor(refusal, { minAppBuild: 786, admitted: false, returnCode: '482913' });
+
+    bus.emit('network:error', refusal);
+
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      null,
+      false,
+      false,
+    );
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('hides the join-field text while the forced dialog is up, even for a failure with no answer', () => {
+    setForcedAppUpdateHandler({ request: () => true, isPending: () => true });
+
+    bus.emit('network:error', bridgeErrorWithoutAnswer());
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      null,
+      false,
+      false,
+    );
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('still asks for the room PIN', () => {
+    vi.mocked(promptForRoomPassword).mockClear();
+
+    bus.emit(
+      'network:error',
+      Object.assign(new Error('ROOM_PASSWORD_REQUIRED'), { type: 'room-password-required' }),
+    );
+
+    expect(promptForRoomPassword).toHaveBeenCalledExactlyOnceWith('required');
+    expect(restoreGuestJoinControlsAfterFailure).not.toHaveBeenCalled();
+  });
+
+  it('keeps the in-room toast: only the setup line changes', () => {
+    setState('network.isConnecting', false);
+    setState('setup.sessionStarted', true);
+
+    bus.emit('network:error', bridgeErrorWithoutAnswer());
+
+    expect(showToast).toHaveBeenCalledExactlyOnceWith('error.network_generic');
+    expect(restoreGuestJoinControlsAfterFailure).not.toHaveBeenCalled();
+  });
+
+  // A recorded limit: a guest that goes offline in the short join-bootstrap
+  // window, after its data channel opened, keeps the host-loss dialog.
+  it('keeps the host-loss dialog for a link lost during the join bootstrap', () => {
+    vi.mocked(showDialog).mockImplementationOnce(() => new Promise(() => {}));
+    setState('network.isConnecting', false);
+
+    bus.emit('network:error', new Error('HOST_CONNECTION_ERROR'));
+
+    expect(showDialog).toHaveBeenCalledOnce();
+    expect(vi.mocked(showDialog).mock.calls[0]?.[0]).toMatchObject({
+      title: 'network.disconnected',
+      message: 'error.host_conn_error\ndialog.reconnect_ask',
+    });
+    expect(restoreGuestJoinControlsAfterFailure).not.toHaveBeenCalled();
+  });
+
+  it('keeps the update line for a room chunk that failed while the browser reported a network', () => {
+    setOnline(true);
+    const failedOnline = createLazyFeatureLoadError('room-session', chunkFailure());
+    setOnline(false);
+    setState('network.isConnecting', false);
+
+    bus.emit('network:error', new Error('NETWORK_INIT_FAILED', { cause: failedOnline }));
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'dialog.sw_update_msg',
+      true,
+    );
+  });
+
+  it('keeps the generic line for the same failure while the browser reports a network', () => {
+    setOnline(true);
+
+    bus.emit('network:error', bridgeErrorWithoutAnswer());
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'error.network_generic',
+      false,
+      false,
+    );
   });
 });

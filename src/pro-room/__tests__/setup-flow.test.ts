@@ -66,6 +66,11 @@ const ROOM_CODE = '000001';
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 const ACCOUNT_SCOPE = 's'.repeat(43);
 
+/** The browser's own network report, as navigator.onLine gives it. */
+function setOnline(online: boolean): void {
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: online });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.showDialog.mockReset();
@@ -1783,6 +1788,94 @@ describe('PRO join failure copy', () => {
 
     expect(describeProRoomJoinFailure(failure)).toBe('pro.connect_failed');
   });
+
+  it.each([
+    ['a request with no answer', new ProRoomApiError('NETWORK_ERROR')],
+    ['a signaling socket that could not start', new Error('PRO_SIGNALING_START_FAILED')],
+    ['a signaling socket that did not open in time', new Error('PRO_ROOM_CONNECT_TIMEOUT')],
+  ])(
+    'keeps the generic connection message for %s while the browser reports a network',
+    (_label, error) => {
+      expect(describeProRoomJoinFailure(error)).toBe('pro.connect_failed');
+    },
+  );
+
+  // Offline room guidance: a PRO entry that no server answered names the
+  // network when the browser reports no network at that moment. Every server
+  // answer keeps its own copy.
+  describe('with no network', () => {
+    beforeEach(() => setOnline(false));
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'onLine');
+    });
+
+    it.each([
+      ['a request with no answer', new ProRoomApiError('NETWORK_ERROR')],
+      ['an entry timeout', new ProRoomApiError('PRO_ROOM_ENTRY_TIMEOUT', 408)],
+      ['a signaling socket that could not start', new Error('PRO_SIGNALING_START_FAILED')],
+      ['a signaling socket that did not open in time', new Error('PRO_ROOM_CONNECT_TIMEOUT')],
+    ])('names the network for %s', (_label, error) => {
+      expect(describeProRoomJoinFailure(error)).toBe('error.network_issue');
+    });
+
+    it('names the network when the bootstrap read fails offline', async () => {
+      mocks.bootstrap.mockRejectedValue(new ProRoomApiError('NETWORK_ERROR'));
+
+      const failure = await enterAndCatch();
+
+      expect(failure).toMatchObject({ code: 'NETWORK_ERROR', status: 0 });
+      expect(describeProRoomJoinFailure(failure)).toBe('error.network_issue');
+      expect(mocks.showDialog).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a full room', new ProRoomApiError('ROOM_FULL', 409), ROOM_FULL_COPY],
+      [
+        'the join throttle',
+        new ProRoomApiError('RATE_LIMITED', 429, 125),
+        'pro.join_rate_limited:{"count":3}',
+      ],
+      [
+        'the join throttle with no wait',
+        new ProRoomApiError('RATE_LIMITED', 429),
+        'pro.join_rate_limited_later',
+      ],
+      ['a service outage answer', new ProRoomApiError('HTTP_503', 503), 'pro.connect_failed'],
+      [
+        'an unavailable PRO service',
+        new ProRoomApiError('PRO_ROOM_API_UNAVAILABLE', 502),
+        'pro.connect_failed',
+      ],
+      ['a server timeout answer', new ProRoomApiError('HTTP_408', 408), 'pro.connect_failed'],
+      ['a request the caller aborted', new ProRoomApiError('ABORTED'), 'pro.connect_failed'],
+      ['a raw TypeError', new TypeError('Failed to fetch'), 'pro.connect_failed'],
+      ['an untyped error with the same text', new Error('ROOM_FULL'), 'pro.connect_failed'],
+    ])('keeps its own copy for %s', (_label, error, copy) => {
+      expect(describeProRoomJoinFailure(error)).toBe(copy);
+    });
+
+    // A recorded limit: a claim link keeps its own retry dialog, which already
+    // says the connection was interrupted and that the link is kept.
+    it('keeps the claim retry dialog for a claim link whose bootstrap fails offline', async () => {
+      mocks.takeClaims.mockReturnValue({
+        activationClaimToken: CLAIM,
+        ownerRecoveryClaimToken: null,
+        ownerRecoveryClaimPresent: false,
+      });
+      mocks.bootstrap.mockRejectedValue(new ProRoomApiError('NETWORK_ERROR'));
+      mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
+
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+      expect(mocks.showDialog).toHaveBeenCalledOnce();
+      expect(mocks.showDialog.mock.calls[0]?.[0]).toMatchObject({
+        title: 'pro.claim_retry_title',
+        message: 'pro.claim_retry_message',
+        buttonText: 'common.retry',
+        secondaryText: 'common.close',
+      });
+    });
+  });
 });
 
 /**
@@ -1907,5 +2000,45 @@ describe('PRO entry below the App build floor', () => {
       code: 'APP_UPDATE_REQUIRED',
     });
     expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  // Offline room guidance: a refusal is a server answer, so the forced update
+  // stays first and the network is never named for it.
+  describe('with no network', () => {
+    beforeEach(() => setOnline(false));
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'onLine');
+    });
+
+    it('opens the forced dialog for a refused bootstrap', async () => {
+      mocks.bootstrap.mockRejectedValue(refusal());
+
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
+
+      expect(mocks.showDialog).toHaveBeenCalledOnce();
+      expect(isForcedDialog(mocks.showDialog.mock.calls[0]?.[0])).toBe(true);
+    });
+
+    it('opens the forced dialog for a refused admission', async () => {
+      mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'open' });
+      mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+      mocks.probeJoin.mockRejectedValue(refusal());
+
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
+
+      expect(mocks.showDialog).toHaveBeenCalledOnce();
+      expect(isForcedDialog(mocks.showDialog.mock.calls[0]?.[0])).toBe(true);
+    });
+
+    it('shows the ordinary connection failure when the loop guard declines', async () => {
+      sessionStorage.setItem('mxqr-forced-apply', '0:786');
+      mocks.bootstrap.mockRejectedValue(refusal());
+
+      const error = await enterProRoomFromSetup(ROOM_CODE).catch((reason: unknown) => reason);
+
+      expect(error).toMatchObject({ code: 'APP_UPDATE_REQUIRED' });
+      expect(describeProRoomJoinFailure(error)).toBe('pro.connect_failed');
+      expect(mocks.showDialog).not.toHaveBeenCalled();
+    });
   });
 });

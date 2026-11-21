@@ -13268,11 +13268,20 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
   }
 }
 
-/* Intentional important guards only: inert fallback, bootstrap recovery and reduced motion. Ordinary layout and decoration never enter this layer. */
+/* Intentional important guards only: inert fallback, the hold of a pressed custom scrollbar on its scroller, bootstrap recovery and reduced motion. Ordinary layout and decoration never enter this layer. */
 
 @layer safety {
   [inert] {
     pointer-events: none !important;
+  }
+  /* A press on a custom scrollbar holds its scroller still until the press
+     ends (CUSTOM_SCROLL_HELD_ATTRIBUTE in src/ui/custom-scrollbar.ts); script
+     still scrolls it. Both axes, as iOS drops an element's native scroller,
+     and with it the glide, only when no axis scrolls by hand. Important in
+     this first layer outranks every stylesheet overflow and every inline
+     value without !important. */
+  [data-custom-scroll-held] {
+    overflow: hidden !important;
   }
   html.setup-boot-block body {
     animation: setup-boot-body-fail-open 0s linear var(--setup-boot-failure-delay, 15s) forwards !important;

@@ -1,12 +1,12 @@
 # Resource Ownership Registry
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Maintained contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Last source review | 2026-11-18 (RO-21 re-checked and extended against `main` `eae02e897`, App 9.0.830: the hold for this device's own PRO share, its requesters and anchor tests); 2026-11-11 (the names RO-01, RO-10 and RO-36 cite re-checked against the App 9.0.44 / v819 train's code after the audio recovery owner's rename, branched from `main` `c4a3d6f0`: every cited identifier exists, no owner or flow changed); 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1) |
-| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md)                                                                                                                                                                                                                                                                                                   |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | Maintained contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Last source review | 2026-11-21 (RO-56 added and RO-27's custom scrollbar flows re-checked against `main` `884015a0`, App 9.0.833, with the hold of a pressed custom scrollbar on its scroller); 2026-11-18 (RO-21 re-checked and extended against `main` `eae02e897`, App 9.0.830: the hold for this device's own PRO share, its requesters and anchor tests); 2026-11-11 (the names RO-01, RO-10 and RO-36 cite re-checked against the App 9.0.44 / v819 train's code after the audio recovery owner's rename, branched from `main` `c4a3d6f0`: every cited identifier exists, no owner or flow changed); 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1) |
+| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 This registry names one owner for each shared runtime resource and records where that is not
 yet true. A 2026-10-22 survey of `1bd9cd6f` found 9 resources where the same protocol is
@@ -146,6 +146,7 @@ each record also states the step in words.
 | RO-53 | PRO browser receipt ledger                            | Workers        | owner-in-place     | None                           |
 | RO-54 | Sign-in completion window text wait                   | UI             | accepted-exception | None (by design)               |
 | RO-55 | Boot splash wordmark and loader                       | UI             | accepted-exception | None (by design)               |
+| RO-56 | Custom-scroll container user scrolling                | UI             | accepted-exception | None (by design)               |
 
 ## Machine-readable ID list
 
@@ -213,6 +214,7 @@ RO-52 owner-in-place
 RO-53 owner-in-place
 RO-54 accepted-exception
 RO-55 accepted-exception
+RO-56 accepted-exception
 ```
 
 ## Resource records
@@ -3812,8 +3814,9 @@ RO-55 accepted-exception
   edge auto-scroll); removal (`src/ui/playlist-removal.ts` with
   `src/ui/playlist-selection-morph.ts`: selection, exit layer, glide); the selection-gesture
   auto-scroll (`src/ui/playlist-selection-gestures.ts`); follow and current-jump; the custom
-  scrollbar drag and the wheel its shown bar hands to the scroller (`src/ui/custom-scrollbar.ts`);
-  the render's scroll restore. The three lazy controllers share
+  scrollbar drag and the jump from a press on the bar's empty part, which hold the scroller still
+  from the press until it ends (RO-56), and the wheel its shown bar hands to the scroller
+  (`src/ui/custom-scrollbar.ts`); the render's scroll restore. The three lazy controllers share
   `src/ui/playlist-motion.ts` (lazy; listed with the build's deferred modules) for the edge
   auto-scroll, the row easing and the reduced-motion check. `src/ui/playlist-view.ts` holds the
   interaction gate: `playlistInteraction()` derives one state from both controllers (the reorder
@@ -4941,6 +4944,66 @@ entry needs the owner's acceptance and is not implied by this registry.
   train added the installed app's hold, which the head preflight marks and `platform.ts` alone
   ends. The fix for the owner's 2026-11-17 report put the installed app's page background under
   that same hold in the sheet (its hold and rise), with no new owner and no new timer.
+
+### RO-56 Custom-scroll container user scrolling
+
+- **Resource:** whether a `[data-custom-scroll]` container takes user scrolling: a touch pan and
+  its fling or deceleration, the wheel and touchpad momentum, and keys. Its scroll position stays
+  with its own records (RO-27 for the playlist body).
+- **Current owners/flows:** two machines, kept apart on purpose:
+  - the Android range lock `installAndroidRangeScrollFix` (`src/ui/player-controls.ts`): a count
+    per `.tab-content`, inline `overflow-y: hidden` while a range input in it is touched, and the
+    saved inline value back once the last touched range has no touch left or the controls' scope
+    aborts;
+  - the custom scrollbar's hold (`src/ui/custom-scrollbar.ts`, `setScrollHeld`). The bar sits
+    outside its scroller, so a press on it cannot stop a glide the browser is still running on the
+    list. From a press on the bar until that press ends, the container carries
+    `data-custom-scroll-held` (`CUSTOM_SCROLL_HELD_ATTRIBUTE`), which the `@layer safety` rule in
+    `css/style.css` turns into `overflow: hidden !important`; script still scrolls it. The thumb's
+    drag (mouse or finger), a mouse press on the empty part of the bar (which still jumps the list)
+    and each finger on that part keep their own claims. Each ends on its mouseup, its finger's
+    touchend or touchcancel, a touchcancel without touches, window blur, a later touchstart that no
+    longer lists its finger, or destroy, with no timer. The bar's layout counts its own held
+    container as scrollable, so a relayout during a press keeps the bar and the drag.
+  - They write different channels, the inline value and the attribute, so a pane is not
+    user-scrollable while either holds and neither release can undo the other.
+- **Target single owner:** unchanged. If a third holder appears: one claim ledger with owner keys,
+  as in RO-24.
+- **Allowed requesters:** none beyond the two.
+- **Lifecycle operations:** hold, release.
+- **Deadline owner:** none (no timer).
+- **Timing-constant home:** n/a.
+- **Anchor tests:**
+  - Supersession: `src/ui/__tests__/player-controls.test.ts` "keeps a pane unscrollable while
+    either the range lock or the thumb holds it, in both orders", which runs the real sibling as
+    [Before adding a flow](#before-adding-a-flow) step 7 requires; between the bar's own claims,
+    `src/ui/__tests__/custom-scrollbar.test.ts` "holds while the thumb drag or a press on the empty
+    part of the bar lasts, whichever ends first".
+  - User pause/stop: n/a. The hold is the user's own press and ends with its release
+    (`custom-scrollbar.test.ts` "holds its scroller still from a %s press on the thumb until the
+    drag ends by %s", "holds its scroller still from a mouse press on the empty part of the bar
+    until that press ends by %s" and "holds its scroller still from a finger on the empty part of
+    the bar until that touch ends by %s").
+  - Teardown: the destroy cases of those three rows.
+  - Visibility: their blur cases, and for a touchend a blocker swallowed, "lets a held touch drag
+    go when a later touch no longer lists its finger, and keeps it while it does" and "keeps a
+    finger hold on the bar through another finger, and lets go when its own finger lifts or is
+    lost".
+  - The bar's layout: "keeps a held bar and its drag through every relayout while its scroller
+    computes to overflow hidden".
+  - The rule: "turns the hold into overflow hidden in the safety layer, which no inline overflow
+    outranks" and "exports the hold attribute that these rows and the stylesheet rule name".
+  - With the real stylesheet: `e2e/custom-scrollbar-timeline.test.ts` "custom scrollbar hold while
+    the bar is pressed" and the three hold rows of "custom scrollbar under a finger". In Chromium a
+    wheel stream the engine keeps delivering stands in for touchpad momentum; both lanes read the
+    computed overflow while a mouse or a finger holds the thumb or the bar.
+- **Status:** `accepted-exception`, by design: a primary record like RO-11, RO-54 and RO-55, with
+  no parent. Added with the hold, when it became a second machine beside the Android range lock on
+  the `.tab-content` panes that carry `data-custom-scroll` (the scroller in compact landscape and
+  in the desktop Play tab).
+- **Revisit when:** a third machine needs to stop user scrolling, either machine moves onto the
+  other's channel, or any code writes an inline `!important` overflow on a custom-scroll container,
+  which would outrank the hold.
 
 ## Checked side flows without a record
 

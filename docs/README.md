@@ -99,27 +99,28 @@ runbooks. Neither belongs in a general setup document.
 - [App 9.0.835 / v835 train: opening or joining a room while the browser reports no network says so on the setup screen, in the Refresh needed dialog and in the QR toast, instead of a failed session, a network error or an app update (2026-11-21)](design/app-9-0-835-train-2026-11-21.md):
   built on its train branch, not merged or released. The App update after 9.0.834 / v834, on main `8203e68e` (#624, the
   9.0.834 record, docs only), for the owner's report of 2026-11-21: opening or joining a room without a network never
-  said so; a normal room said the session could not be made or that a network error occurred, and a PRO room whose
-  runtime this version had not downloaded asked for a refresh because the app had been updated. No failure sink on these
-  paths read the browser's network report: room creation mapped every error but a lazy or below-floor one to the session
-  copy, a guest's HTTPS bridge error event (no HTTP status) fell to the generic network copy, and the PRO runtime is not
-  in the reviewed deferred app shell, so offline its import fails and the Refresh needed dialog said the app was
-  updated. Setup now shows the existing `error.network_issue` copy only when the browser reports no network at the
-  moment a failure is handled and no server answered it. Nothing is checked before an attempt, the forced update below
-  the App build floor stays first, and answers that carry a frame type, a code or an HTTP status keep their copy. This
-  covers room creation; a guest join by code, QR or invite link; a PRO entry (a request with no response, the entry
-  deadline, a signaling socket that could not start or open in time); the Refresh needed dialog's body, whose title and
-  Close and Refresh stay; the setup line for a room chunk; and a QR decoder that could not load, which now shows the
-  network toast instead of the camera one. A lazy feature failure records whether the browser reported no network when
-  its chunk failed, so a document keeps that copy after the network returns, until Refresh. No new key, translation,
-  timer, listener, retry or bus event; two new modules. The owner approved the before and after screenshots, which show
-  the recommended options: reuse the copy, offline only, the dialog's body only, the QR toast. Left as they are and
-  recorded as limits: the PRO runtime is not precached, a network without internet reads as online, a stale offline
-  report on WebKit makes a status-less socket upgrade refusal or a chunk removed by a release read as no network, the
-  PRO claim retry and activation account dialogs keep their copy, a guest offline in the join-bootstrap window keeps the
-  host-loss dialog, and the Standard route ladder of about 3 s stays. Tests came first: on the base, 29 new unit rows
-  failed in 9 files and the new classifier file could not load, while 617 rows passed. Mutation: 27 mutants, 26 killed
-  by committed rows; the survivor, the QR scanner's decoder-loaded check, is killed by a row the review added. A review
+  said so (a normal room said the session could not be made, and a PRO room asked to update the app). The investigation
+  found that a guest join also said a network error occurred, and that the PRO case is a runtime this version had not
+  downloaded yet. No failure sink on these paths read the browser's network report: room creation mapped every error but
+  a lazy or below-floor one to the session copy, a guest's HTTPS bridge error event (no HTTP status) fell to the generic
+  network copy, and the PRO runtime is not in the reviewed deferred app shell, so offline its import fails and the
+  Refresh needed dialog said the app was updated. Setup now shows the existing `error.network_issue` copy only when the
+  browser reports no network at the moment a failure is handled and no server answered it. Nothing is checked before an
+  attempt, the forced update below the App build floor stays first, and answers that carry a frame type, a code or an
+  HTTP status keep their copy. This covers room creation; a guest join by code, QR or invite link; a PRO entry (a
+  request with no response, the entry deadline, a signaling socket that could not start or open in time); the Refresh
+  needed dialog's body, whose title and Close and Refresh stay; the setup line for a room chunk; and a QR decoder that
+  could not load, which now shows the network toast instead of the camera one. A lazy feature failure records whether
+  the browser reported no network when its chunk failed, so a document keeps that copy after the network returns, until
+  Refresh. No new key, translation, timer, listener, retry or bus event; two new modules. The owner approved the before
+  and after screenshots, which show the recommended options: reuse the copy, offline only, the dialog's body only, the
+  QR toast. Left as they are and recorded as limits: the PRO runtime is not precached, a network without internet reads
+  as online, a stale offline report on WebKit makes a status-less socket upgrade refusal or a chunk removed by a release
+  read as no network, the PRO claim retry and activation account dialogs keep their copy, a guest offline in the
+  join-bootstrap window keeps the host-loss dialog, and the Standard route ladder of about 3 s stays. Tests came first:
+  on the base, 29 unit rows failed in 9 files (28 new rows and the existing recovery dialog contract row this train
+  changed) and the new classifier file could not load, while 617 rows passed. Mutation: 27 mutants, 26 killed by
+  committed rows; the survivor, the QR scanner's decoder-loaded check, is killed by a row the review added. A review
   with a separate refutation pass found 2 minor and 2 nit items, all confirmed: two new rows (that QR check, and a plain
   PRO entry with no claim), narrower test text on which server answers keep their copy, and the known limits the fix
   commit missed, now in the PR text. A new e2e file, `offline-room-entry` (12 rows, Korean UI, synthetic codes), failed

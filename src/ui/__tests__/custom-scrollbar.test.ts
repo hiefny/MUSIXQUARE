@@ -125,11 +125,7 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
   value: ResizeObserverStub,
 });
 
-import {
-  CUSTOM_SCROLL_HELD_ATTRIBUTE,
-  initCustomScrollbar,
-  destroyCustomScrollbar,
-} from '../custom-scrollbar.ts';
+import { initCustomScrollbar, destroyCustomScrollbar } from '../custom-scrollbar.ts';
 
 /** Fire the recorded 'change' listeners for a media query (page-global event). */
 function fireMqlChange(query: string): void {
@@ -229,9 +225,10 @@ function readVisualTransform(element: HTMLElement): { translateY: number; scaleY
   };
 }
 
-// The bar's hold on its scroller. Rows about the hold spell the attribute out,
-// so they fail on a missing hold rather than on a missing export; one row pins
-// it to the module's export, and the stylesheet row finds its rule by it.
+// The bar's hold on its scroller, as custom-scrollbar.ts names it
+// (CUSTOM_SCROLL_HELD_ATTRIBUTE, kept to that module). The hold rows read the
+// attribute by this name and the stylesheet row finds its rule by it, so a
+// rename on either side fails rows here.
 const HELD_ATTRIBUTE = 'data-custom-scroll-held';
 
 /** Whether the bar holds its scroller still (overflow hidden, by the safety-layer rule). */
@@ -790,10 +787,6 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
       reuseOnThumb: { dragging: true, held: true, scrollTop: 650 },
       afterReuseLifts: { dragging: false, held: false },
     });
-  });
-
-  it('exports the hold attribute that these rows and the stylesheet rule name', () => {
-    expect(CUSTOM_SCROLL_HELD_ATTRIBUTE).toBe(HELD_ATTRIBUTE);
   });
 
   it('turns the hold into overflow hidden in the safety layer, which no inline overflow outranks', async () => {

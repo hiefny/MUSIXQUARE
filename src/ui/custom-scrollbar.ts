@@ -33,7 +33,7 @@ const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
  * none of the bar's observers, and letting go lays the bar out once
  * (setScrollHeld).
  */
-export const CUSTOM_SCROLL_HELD_ATTRIBUTE = 'data-custom-scroll-held';
+const CUSTOM_SCROLL_HELD_ATTRIBUTE = 'data-custom-scroll-held';
 
 type ScrollDriver = 'script' | 'timeline';
 

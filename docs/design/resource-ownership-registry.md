@@ -4998,7 +4998,7 @@ entry needs the owner's acceptance and is not implied by this registry.
   - The wheel: "hands no wheel to a scroller its pressed bar holds, and hands the wheel over again
     once the press ends".
   - The rule: "turns the hold into overflow hidden in the safety layer, which no inline overflow
-    outranks" and "exports the hold attribute that these rows and the stylesheet rule name".
+    outranks".
   - With the real stylesheet: `e2e/custom-scrollbar-timeline.test.ts` "custom scrollbar hold while
     the bar is pressed" and the three hold rows of "custom scrollbar under a finger". In Chromium a
     wheel stream the engine keeps delivering stands in for touchpad momentum, to the list or, for a

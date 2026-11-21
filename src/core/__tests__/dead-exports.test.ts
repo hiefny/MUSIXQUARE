@@ -46,10 +46,8 @@ describe('Dead-export ratchet', () => {
       // The multiple-playlist work consumes one more previously self-only export.
       // The background-stop return e2e spec reads the resume guard's threshold.
       // The PRO runtime reads the room's share view from the system-audio service.
-      // The custom scrollbar exports its hold's attribute for its tests to pin
-      // the stylesheet rule to, a reviewed self-only addition.
-      expect(summary).toContain('baseline 20), self-only: 75 ');
-      expect(summary).toMatch(/self-only: 75 .*baseline 75\)$/u);
+      expect(summary).toContain('baseline 20), self-only: 74 ');
+      expect(summary).toMatch(/self-only: 74 .*baseline 74\)$/u);
       expect(output).toContain('OK');
     },
     DEAD_EXPORT_TEST_TIMEOUT_MS,

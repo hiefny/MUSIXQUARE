@@ -730,10 +730,9 @@ describe('Android range scroll ownership', () => {
   });
 
   // The custom scrollbar holds a pane it scrolls (compact landscape, or the
-  // desktop Play pane) from a thumb press until that drag ends. Spelled out so
-  // the row below fails on a missing hold rather than on a missing export;
-  // custom-scrollbar.ts exports it as CUSTOM_SCROLL_HELD_ATTRIBUTE, and that
-  // module's own tests pin the two together.
+  // desktop Play pane) from a thumb press until that drag ends, under this
+  // attribute. custom-scrollbar.ts keeps it as CUSTOM_SCROLL_HELD_ATTRIBUTE,
+  // and that module's own tests read it by the same name.
   const HELD_ATTRIBUTE = 'data-custom-scroll-held';
   let releasePaneScrollbar: (() => void) | null = null;
 

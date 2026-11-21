@@ -860,6 +860,499 @@ interface Point {
   y: number;
 }
 
+/**
+ * The bar's hold on its scroller, as src/ui/custom-scrollbar.ts names it
+ * (CUSTOM_SCROLL_HELD_ATTRIBUTE).
+ */
+const HELD_ATTRIBUTE = 'data-custom-scroll-held';
+
+type PressInput = 'mouse' | 'finger';
+
+interface PressStamp {
+  t: number;
+  scrollTop: number;
+  target: 'thumb' | 'track' | 'other';
+}
+
+interface ScrollFrames {
+  press: PressStamp | null;
+  frames: Array<{ t: number; scrollTop: number }>;
+}
+
+interface GlidingBar {
+  scrollTop: number;
+  thumb: Point & { top: number };
+  track: Point & { top: number };
+}
+
+/**
+ * Lays the bar over the panel's right edge, as the app's contained bars sit
+ * over their scroller's edge.
+ */
+async function layTrackOverPanelEdge(fixture: ScrollFixture): Promise<void> {
+  await fixture.track.evaluate((track) => {
+    const shell = track.parentElement!;
+    const owner = shell.querySelector<HTMLElement>(':scope > .tab-body')!;
+    const inset = shell.getBoundingClientRect().right - owner.getBoundingClientRect().right;
+    track.style.setProperty('right', `${inset}px`, 'important');
+  });
+}
+
+/**
+ * The fixture pins the owner's overflow-y inline and important, which outranks
+ * every stylesheet rule, the bar's hold among them. Rows about the hold give
+ * overflow back to the app stylesheet, where a tab body scrolls.
+ */
+async function letStylesheetOwnOverflow(fixture: ScrollFixture): Promise<void> {
+  await fixture.owner.evaluate((owner) => {
+    owner.style.removeProperty('overflow-y');
+  });
+  await expect(fixture.owner).toHaveCSS('overflow-y', 'auto');
+}
+
+/**
+ * Shows the bar with a scroll event until `point` hits `part` of it. Every poll
+ * shows it again, so a slow machine cannot slip the fade in between.
+ */
+async function showBarUnder(
+  fixture: ScrollFixture,
+  part: 'thumb' | 'track',
+  point: Point,
+): Promise<void> {
+  await expect
+    .poll(() =>
+      fixture.owner.evaluate((owner, { x, y }) => {
+        owner.dispatchEvent(new Event('scroll'));
+        const track = owner.parentElement!.querySelector<HTMLElement>(':scope > .cscroll-track')!;
+        const thumb = track.querySelector(':scope > .cscroll-thumb');
+        const hit = document.elementFromPoint(x, y);
+        let hitPart = 'other';
+        if (hit && thumb?.contains(hit)) hitPart = 'thumb';
+        else if (hit === track) hitPart = 'track';
+        return { pointerEvents: getComputedStyle(track).pointerEvents, hit: hitPart };
+      }, point),
+    )
+    .toEqual({ pointerEvents: 'auto', hit: part });
+}
+
+/** The bar has let its scroller go: user scrolling is back, and no drag is left. */
+async function expectLetGo(fixture: ScrollFixture): Promise<void> {
+  await expect(fixture.owner).toHaveCSS('overflow-y', 'auto');
+  await expect(fixture.owner).not.toHaveAttribute(HELD_ATTRIBUTE);
+  await expect(fixture.thumb).not.toHaveClass(/\bdragging\b/);
+}
+
+async function emitScrollbarRelayout(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const runtime = window as Window & {
+      __MUSIXQUARE_BUS__?: { emit(type: string, ...args: unknown[]): void };
+    };
+    if (!runtime.__MUSIXQUARE_BUS__) throw new Error('The app bus is not exposed');
+    runtime.__MUSIXQUARE_BUS__.emit('ui:scrollbar-relayout');
+  });
+}
+
+async function nextFrames(page: Page, count: number): Promise<void> {
+  await page.evaluate(async (frames) => {
+    for (let frame = 0; frame < frames; frame += 1) {
+      await new Promise<number>((resolve) => window.requestAnimationFrame(resolve));
+    }
+  }, count);
+}
+
+async function hasScrollTimeline(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () =>
+      typeof (globalThis as typeof globalThis & { ScrollTimeline?: unknown }).ScrollTimeline ===
+      'function',
+  );
+}
+
+/** The list comes to rest within a pixel of `expected`. */
+async function expectScrollTopNear(fixture: ScrollFixture, expected: number): Promise<void> {
+  await expect
+    .poll(async () => {
+      const scrollTop = await fixture.owner.evaluate((owner) => owner.scrollTop);
+      return Math.abs(scrollTop - expected);
+    })
+    .toBeLessThanOrEqual(1);
+}
+
+/** Records the owner's scrollTop every frame and stamps the first press, in page time. */
+async function recordScrollFrames(fixture: ScrollFixture): Promise<void> {
+  await fixture.owner.evaluate((owner) => {
+    const track = owner.parentElement!.querySelector<HTMLElement>(':scope > .cscroll-track')!;
+    const thumb = track.querySelector<HTMLElement>(':scope > .cscroll-thumb')!;
+    const record: ScrollFrames = { press: null, frames: [] };
+    const sample = (): void => {
+      record.frames.push({ t: performance.now(), scrollTop: owner.scrollTop });
+      window.requestAnimationFrame(sample);
+    };
+    window.requestAnimationFrame(sample);
+    const stamp = (event: Event): void => {
+      if (record.press) return;
+      let target: PressStamp['target'] = 'other';
+      if (event.target instanceof Node && thumb.contains(event.target)) target = 'thumb';
+      else if (event.target === track) target = 'track';
+      record.press = { t: performance.now(), scrollTop: owner.scrollTop, target };
+    };
+    window.addEventListener('mousedown', stamp, { capture: true });
+    window.addEventListener('touchstart', stamp, { capture: true });
+    (window as Window & { __scrollFrames?: ScrollFrames }).__scrollFrames = record;
+  });
+}
+
+async function readScrollFrames(page: Page): Promise<ScrollFrames> {
+  return page.evaluate(() => {
+    const record = (window as Window & { __scrollFrames?: ScrollFrames }).__scrollFrames;
+    if (!record) throw new Error('No scroll frames were recorded');
+    return { press: record.press, frames: [...record.frames] };
+  });
+}
+
+/**
+ * How the list moved while the press was held. The press's own frame and the
+ * next may still show the scroll that was already in flight, so moves count
+ * from the third frame after the press.
+ */
+function heldMovement(
+  record: ScrollFrames,
+  until: number,
+): { frames: number; settledAt: number; movedFrames: number; drift: number } {
+  const pressedAt = record.press?.t ?? Number.POSITIVE_INFINITY;
+  const held = record.frames.filter((frame) => frame.t > pressedAt && frame.t <= until);
+  let movedFrames = 0;
+  for (let index = 2; index < held.length; index += 1) {
+    if (held[index].scrollTop !== held[index - 1].scrollTop) movedFrames += 1;
+  }
+  return {
+    frames: held.length,
+    settledAt: held[1]?.scrollTop ?? Number.NaN,
+    movedFrames,
+    drift: held.length > 2 ? held[held.length - 1].scrollTop - held[1].scrollTop : 0,
+  };
+}
+
+/**
+ * Scrolling the engine keeps delivering to the list, which a page can neither
+ * cancel nor stop by writing scrollTop: a wheel stream inside the list, as
+ * touchpad momentum arrives in Chromium (900 px at 500 px/s). Resolves with
+ * null once the stream ends, or with its error.
+ */
+function startEngineScroll(cdp: CDPSession, at: Point): Promise<unknown> {
+  return cdp
+    .send('Input.synthesizeScrollGesture', {
+      x: at.x,
+      y: at.y,
+      xDistance: 0,
+      yDistance: -900,
+      speed: 500,
+      gestureSourceType: 'mouse',
+      preventFling: true,
+    })
+    .then(
+      () => null,
+      (error: unknown) => error,
+    );
+}
+
+/** Waits frame by frame until the engine has scrolled the list past `beyond`, then reads the bar. */
+async function waitForEngineScroll(fixture: ScrollFixture, beyond: number): Promise<GlidingBar> {
+  return fixture.owner.evaluate(
+    (owner, past) =>
+      new Promise<GlidingBar>((resolve) => {
+        const started = performance.now();
+        const check = (): void => {
+          if (owner.scrollTop <= past && performance.now() - started < 5_000) {
+            window.requestAnimationFrame(check);
+            return;
+          }
+          const track = owner.parentElement!.querySelector<HTMLElement>(':scope > .cscroll-track')!;
+          const thumb = track.querySelector<HTMLElement>(':scope > .cscroll-thumb')!;
+          const trackBox = track.getBoundingClientRect();
+          const thumbBox = thumb.getBoundingClientRect();
+          resolve({
+            scrollTop: owner.scrollTop,
+            thumb: {
+              x: thumbBox.left + thumbBox.width / 2,
+              y: thumbBox.top + thumbBox.height / 2,
+              top: thumbBox.top,
+            },
+            track: {
+              x: trackBox.left + trackBox.width / 2,
+              y: trackBox.top + trackBox.height / 2,
+              top: trackBox.top,
+            },
+          });
+        };
+        check();
+      }),
+    beyond,
+  );
+}
+
+function touchPoints(at: Point): Array<{
+  x: number;
+  y: number;
+  id: number;
+  radiusX: number;
+  radiusY: number;
+  force: number;
+}> {
+  return [{ x: at.x, y: at.y, id: 1, radiusX: 1, radiusY: 1, force: 1 }];
+}
+
+async function pressWith(cdp: CDPSession, input: PressInput, at: Point): Promise<void> {
+  if (input === 'finger') {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: touchPoints(at),
+    });
+    return;
+  }
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: at.x,
+    y: at.y,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  });
+}
+
+async function moveWith(cdp: CDPSession, input: PressInput, at: Point): Promise<void> {
+  if (input === 'finger') {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: touchPoints(at) });
+    return;
+  }
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: at.x,
+    y: at.y,
+    button: 'left',
+    buttons: 1,
+  });
+}
+
+async function releaseWith(cdp: CDPSession, input: PressInput, at: Point): Promise<void> {
+  if (input === 'finger') {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    return;
+  }
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: at.x,
+    y: at.y,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  });
+}
+
+/**
+ * Records the owner's computed overflow-y at every touchstart on `part`. A
+ * listener added after the app's runs after the app's own on that element,
+ * which the app's stopPropagation does not stop.
+ */
+async function recordOverflowAtTouchStart(part: Locator): Promise<void> {
+  await part.evaluate((element) => {
+    const owner = element.closest('#tab-play')!.querySelector<HTMLElement>(':scope > .tab-body')!;
+    const seen: string[] = [];
+    element.addEventListener(
+      'touchstart',
+      () => {
+        seen.push(getComputedStyle(owner).overflowY);
+      },
+      { passive: true },
+    );
+    (element as Element & { __overflowAtTouchStart?: string[] }).__overflowAtTouchStart = seen;
+  });
+}
+
+async function overflowAtTouchStart(part: Locator): Promise<string[]> {
+  return part.evaluate((element) => [
+    ...((element as Element & { __overflowAtTouchStart?: string[] }).__overflowAtTouchStart ?? []),
+  ]);
+}
+
+/**
+ * Grabs the thumb while the engine keeps scrolling the list. The list holds
+ * still at once, follows the thumb through a relayout and a still pause, and
+ * scrolls by hand again once the thumb is let go.
+ */
+async function grabThumbWhileEngineScrolls(page: Page, input: PressInput): Promise<void> {
+  await openReadyApp(page);
+  const fixture = await installFixture(page);
+  await layTrackOverPanelEdge(fixture);
+  await letStylesheetOwnOverflow(fixture);
+  const ownerBox = await fixture.owner.boundingBox();
+  expect(ownerBox).not.toBeNull();
+  const inside = { x: ownerBox!.x + 70, y: ownerBox!.y + 100 };
+
+  await recordScrollFrames(fixture);
+  const cdp = await page.context().newCDPSession(page);
+  const stream = startEngineScroll(cdp, inside);
+  const gliding = await waitForEngineScroll(fixture, 60);
+  expect(gliding.scrollTop).toBeGreaterThan(60);
+
+  // Press the thumb where it was a moment ago, and hold still.
+  const press = { x: gliding.thumb.x, y: gliding.thumb.y };
+  await pressWith(cdp, input, press);
+  await page.waitForTimeout(250);
+  const heldUntil = await page.evaluate(() => performance.now());
+  const record = await readScrollFrames(page);
+  expect(record.press?.target).toBe('thumb');
+  const held = heldMovement(record, heldUntil);
+  expect(held.frames).toBeGreaterThanOrEqual(8);
+  expect({ movedFrames: held.movedFrames, drift: held.drift }).toEqual({
+    movedFrames: 0,
+    drift: 0,
+  });
+
+  // A relayout, then a still pause past the 1.2 s fade delay, so the first
+  // move also opens a new scroll session that lays the bar out again. The bar
+  // stays, and the list follows the thumb from where the press found it.
+  await emitScrollbarRelayout(page);
+  await page.waitForTimeout(1_300);
+  await expect(fixture.track).toHaveCSS('opacity', '1');
+  await expect(fixture.thumb).toBeVisible();
+  const pressedAt = record.press!.scrollTop;
+  await moveWith(cdp, input, { x: press.x, y: press.y - 12 });
+  await expectScrollTopNear(fixture, pressedAt - 60);
+  await nextFrames(page, 2);
+  await expect(fixture.track).toHaveCSS('opacity', '1');
+  await expect(fixture.thumb).toBeVisible();
+  await moveWith(cdp, input, { x: press.x, y: press.y - 4 });
+  await expectScrollTopNear(fixture, pressedAt - 20);
+
+  await releaseWith(cdp, input, { x: press.x, y: press.y - 4 });
+  await expectLetGo(fixture);
+  if (await hasScrollTimeline(page)) await waitForDriver(fixture, 'timeline');
+  expect(await stream).toBeNull();
+
+  // The list scrolls by hand again.
+  await scrollToRatio(fixture, 0.5);
+  if (input === 'finger') {
+    await fingerStroke(page, cdp, { x: inside.x, y: inside.y + 60 }, inside);
+  } else {
+    await page.mouse.move(inside.x, inside.y);
+    await page.mouse.wheel(0, 100);
+  }
+  await expect.poll(() => fixture.owner.evaluate((owner) => owner.scrollTop)).toBeGreaterThan(400);
+}
+
+// A press on the bar lands outside its scroller, so it cannot stop a glide the
+// browser is still running on the list, and the list followed the thumb only
+// once the glide had run down. From the press until that press ends, the bar
+// holds its scroller still (not user-scrollable). Headless browsers make no
+// real momentum: the Chromium rows use a wheel stream the engine keeps
+// delivering to the list instead, the way touchpad momentum arrives.
+test.describe('custom scrollbar hold while the bar is pressed', () => {
+  test('stops a scroll the engine keeps delivering when the thumb is grabbed, then the list follows the thumb', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(
+      browserName !== 'chromium',
+      'Playwright synthesizes engine scrolling only through the Chromium DevTools protocol',
+    );
+    await grabThumbWhileEngineScrolls(page, 'mouse');
+  });
+
+  test('holds its scroller while the thumb is held, keeps the bar and the drag through a relayout and a still pause, and lets go on release', async ({
+    page,
+    browserName,
+    isMobile,
+  }) => {
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await letStylesheetOwnOverflow(fixture);
+    await scrollToRatio(fixture, 0.5);
+    await expectThumbAtRatio(fixture, 0.5);
+    const box = await fixture.thumb.boundingBox();
+    expect(box).not.toBeNull();
+    const press = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+    await showBarUnder(fixture, 'thumb', press);
+    await page.mouse.move(press.x, press.y);
+    await page.mouse.down();
+    await expect(fixture.thumb).toHaveClass(/\bdragging\b/);
+    await expect(fixture.owner).toHaveCSS('overflow-y', 'hidden');
+
+    // A relayout, then a still pause past the fade delay: the first move opens
+    // a new scroll session, and the bar stays through both layouts.
+    await emitScrollbarRelayout(page);
+    await page.waitForTimeout(1_300);
+    await expect(fixture.track).toHaveCSS('opacity', '1');
+    await expect(fixture.thumb).toBeVisible();
+    await page.mouse.move(press.x, press.y + 16);
+    await expectScrollTopNear(fixture, 480);
+    await nextFrames(page, 2);
+    await expect(fixture.track).toHaveCSS('opacity', '1');
+    await expect(fixture.thumb).toBeVisible();
+    await page.mouse.move(press.x, press.y + 24);
+    await expectScrollTopNear(fixture, 520);
+
+    await page.mouse.up();
+    await expectLetGo(fixture);
+    if (await hasScrollTimeline(page)) await waitForDriver(fixture, 'timeline');
+    await scrollToRatio(fixture, 1);
+    await expectThumbAtRatio(fixture, 1);
+    // Playwright has no mouse wheel in mobile WebKit.
+    if (browserName === 'webkit' && isMobile) return;
+    const ownerBox = await fixture.owner.boundingBox();
+    expect(ownerBox).not.toBeNull();
+    await page.mouse.move(ownerBox!.x + 70, ownerBox!.y + 100);
+    await page.mouse.wheel(0, -100);
+    await expect.poll(() => fixture.owner.evaluate((owner) => owner.scrollTop)).toBeLessThan(800);
+  });
+
+  test('stops a scroll the engine keeps delivering while the empty part of the bar is pressed, and lets go on release', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(
+      browserName !== 'chromium',
+      'Playwright synthesizes engine scrolling only through the Chromium DevTools protocol',
+    );
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await layTrackOverPanelEdge(fixture);
+    await letStylesheetOwnOverflow(fixture);
+    const ownerBox = await fixture.owner.boundingBox();
+    expect(ownerBox).not.toBeNull();
+    const inside = { x: ownerBox!.x + 70, y: ownerBox!.y + 100 };
+
+    await recordScrollFrames(fixture);
+    const cdp = await page.context().newCDPSession(page);
+    const stream = startEngineScroll(cdp, inside);
+    // Far enough down that the bar above the thumb is empty; the scroll then
+    // carries the thumb further from the press.
+    const gliding = await waitForEngineScroll(fixture, 200);
+    expect(gliding.scrollTop).toBeGreaterThan(200);
+    const press = { x: gliding.track.x, y: gliding.track.top + 10 };
+    expect(press.y).toBeLessThan(gliding.thumb.top - 20);
+
+    // The press still jumps the list up to the point pressed, then holds it.
+    await pressWith(cdp, 'mouse', press);
+    await page.waitForTimeout(250);
+    const heldUntil = await page.evaluate(() => performance.now());
+    const record = await readScrollFrames(page);
+    expect(record.press?.target).toBe('track');
+    const held = heldMovement(record, heldUntil);
+    expect(held.frames).toBeGreaterThanOrEqual(8);
+    expect(held.settledAt).toBeLessThan(record.press!.scrollTop - 100);
+    expect({ movedFrames: held.movedFrames, drift: held.drift }).toEqual({
+      movedFrames: 0,
+      drift: 0,
+    });
+    await expect(fixture.owner).toHaveCSS('overflow-y', 'hidden');
+
+    await releaseWith(cdp, 'mouse', press);
+    await expectLetGo(fixture);
+    expect(await stream).toBeNull();
+  });
+});
+
 /** One finger moves from `from` to `to` in steps, then rests before lifting. */
 async function fingerStroke(page: Page, cdp: CDPSession, from: Point, to: Point): Promise<void> {
   const contact = (point: Point) => [{ ...point, id: 1, radiusX: 1, radiusY: 1, force: 1 }];
@@ -966,5 +1459,55 @@ test.describe('custom scrollbar under a finger', () => {
         }, startScrollTop),
       )
       .toEqual({ dragged: false, scrolledDown: true });
+  });
+
+  test('stops a scroll the engine keeps delivering when a finger grabs the thumb, then the list follows the finger', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(
+      browserName !== 'chromium',
+      'Playwright moves a finger only through the Chromium DevTools protocol',
+    );
+    await grabThumbWhileEngineScrolls(page, 'finger');
+  });
+
+  // Playwright's WebKit cannot move a finger, but a tap is enough here: the
+  // hold has to be in place while the touchstart runs, as the finger lands.
+  test('holds its scroller for a finger on the thumb and lets go when it lifts', async ({
+    page,
+  }) => {
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await letStylesheetOwnOverflow(fixture);
+    await scrollToRatio(fixture, 0.5);
+    await expectThumbAtRatio(fixture, 0.5);
+    await recordOverflowAtTouchStart(fixture.thumb);
+    const box = await fixture.thumb.boundingBox();
+    expect(box).not.toBeNull();
+    const point = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+    await showBarUnder(fixture, 'thumb', point);
+    await page.touchscreen.tap(point.x, point.y);
+    expect(await overflowAtTouchStart(fixture.thumb)).toEqual(['hidden']);
+    await expectLetGo(fixture);
+  });
+
+  test('holds its scroller for a finger on the empty part of the bar and lets go when it lifts', async ({
+    page,
+  }) => {
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await letStylesheetOwnOverflow(fixture);
+    // The thumb at the bottom leaves the top of the bar empty.
+    await scrollToRatio(fixture, 1);
+    await expectThumbAtRatio(fixture, 1);
+    await recordOverflowAtTouchStart(fixture.track);
+    const box = await fixture.track.boundingBox();
+    expect(box).not.toBeNull();
+    const point = { x: box!.x + box!.width / 2, y: box!.y + 20 };
+    await showBarUnder(fixture, 'track', point);
+    await page.touchscreen.tap(point.x, point.y);
+    expect(await overflowAtTouchStart(fixture.track)).toEqual(['hidden']);
+    await expectLetGo(fixture);
   });
 });

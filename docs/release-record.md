@@ -96,7 +96,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       프레임 되돌아감, 고무줄이 바로 끝남, 다시 그리기 깜빡임, 전환 뒤 `scrollTop` 유지, 터치패드 접촉이 운영체제의 관성을 이미 끝내는지는 모른다.
       남긴 한계(보고서 §12): 놓은 뒤 잡아 두지 않으므로(오너 결정) 짧게 잡았다 놓으면 아직 오는 관성이 목록을 다시 움직일 수 있다(대역 측정에서
       놓은 뒤 500ms에 약 200 ~ 240px). mouseup이 페이지에 오지 않는 누름(macOS의 ctrl+클릭 메뉴)과 mouseup 없이 pointercancel로 팬이 되는 펜 누름은
-      다음 mouseup이나 blur까지 목록을 잡아 둔다(main에서도 끌기를 같은 만큼 남기던 길). 다시 쓰인 터치 식별자는 미루어 본 것이고 잰 것이 아니다.
+      다음 mouseup이나 blur까지 목록을 잡아 둔다(썸 누름은 main에서도 끌기를 같은 만큼 남기던 길, 막대 빈 곳 누름은 새로 생긴 길). 다시 쓰인 터치
+      식별자는 미루어 본 것이고 잰 것이 아니다.
       잡아 두는 동안 시작한 다른 몸짓이 overscroll-behavior 없는 목록에서 부모로 넘어가는지, 저사양 휴대폰에서 끄는 동안의 다시 그리기, Firefox는
       확인하지 않았고, Android 범위 잠금과의 맞물림은 jsdom에서만 봤다. `security:audit`, `security:signatures`와 Chromium e2e 전체는 만든 PC에서
       돌리지 않았다(Chromium e2e 전체는 머지 뒤 Full E2E가 돎). 블라인드 기기 후보(오너의 기기 확인, 판정 기준은 건네지 않음): 휴대폰에서 손가락으로

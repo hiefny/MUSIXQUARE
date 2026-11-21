@@ -1241,12 +1241,99 @@ async function grabThumbWhileEngineScrolls(page: Page, input: PressInput): Promi
   await expect.poll(() => fixture.owner.evaluate((owner) => owner.scrollTop)).toBeGreaterThan(400);
 }
 
+/** Records when a wheel event reaches the bar, in page time. */
+async function recordBarWheels(fixture: ScrollFixture): Promise<void> {
+  await fixture.track.evaluate((track) => {
+    const times: number[] = [];
+    window.addEventListener(
+      'wheel',
+      (event) => {
+        if (event.target instanceof Node && track.contains(event.target)) {
+          times.push(performance.now());
+        }
+      },
+      { capture: true, passive: true },
+    );
+    (window as Window & { __barWheels?: number[] }).__barWheels = times;
+  });
+}
+
+async function readBarWheels(page: Page): Promise<number[]> {
+  return page.evaluate(() => [
+    ...((window as Window & { __barWheels?: number[] }).__barWheels ?? []),
+  ]);
+}
+
+/**
+ * A flick that began over the bar keeps sending its touchpad momentum to the
+ * bar, which hands a wheel to its scroller. Presses `part` of the bar while
+ * such a stream keeps arriving there: the bar hands none of it to the scroller
+ * its press holds, so the list stays still and follows only the thumb.
+ */
+async function pressBarWhileWheelStreamArrivesThere(
+  page: Page,
+  part: 'thumb' | 'track',
+): Promise<void> {
+  await openReadyApp(page);
+  const fixture = await installFixture(page);
+  await layTrackOverPanelEdge(fixture);
+  await letStylesheetOwnOverflow(fixture);
+  const trackBox = await fixture.track.boundingBox();
+  expect(trackBox).not.toBeNull();
+  // On the bar, below the thumb at the top of the list.
+  const onBar = { x: trackBox!.x + trackBox!.width / 2, y: trackBox!.y + 150 };
+  await showBarUnder(fixture, 'track', onBar);
+
+  await recordScrollFrames(fixture);
+  await recordBarWheels(fixture);
+  const cdp = await page.context().newCDPSession(page);
+  const stream = startEngineScroll(cdp, onBar);
+  // The thumb is pressed where it was a moment ago. The empty part is pressed
+  // once the list is far enough down that the bar above the thumb is empty.
+  const gliding = await waitForEngineScroll(fixture, part === 'thumb' ? 60 : 200);
+  const press =
+    part === 'thumb'
+      ? { x: gliding.thumb.x, y: gliding.thumb.y }
+      : { x: gliding.track.x, y: gliding.track.top + 10 };
+  if (part === 'track') expect(press.y).toBeLessThan(gliding.thumb.top - 20);
+  await pressWith(cdp, 'mouse', press);
+  await page.waitForTimeout(250);
+  const heldUntil = await page.evaluate(() => performance.now());
+  const record = await readScrollFrames(page);
+  expect(record.press?.target).toBe(part);
+  const pressedAt = record.press!;
+  // The stream still reaches the bar while it is pressed.
+  const wheelsWhileHeld = (await readBarWheels(page)).filter(
+    (time) => time > pressedAt.t && time <= heldUntil,
+  );
+  expect(wheelsWhileHeld.length).toBeGreaterThan(0);
+  const held = heldMovement(record, heldUntil);
+  expect(held.frames).toBeGreaterThanOrEqual(8);
+  // A press on the empty part still jumps the list up to the point pressed.
+  if (part === 'track') expect(held.settledAt).toBeLessThan(pressedAt.scrollTop - 100);
+  expect({ movedFrames: held.movedFrames, drift: held.drift }).toEqual({
+    movedFrames: 0,
+    drift: 0,
+  });
+  await expect(fixture.owner).toHaveCSS('overflow-y', 'hidden');
+
+  // The list follows the thumb from where the press found it.
+  if (part === 'thumb') {
+    await moveWith(cdp, 'mouse', { x: press.x, y: press.y - 12 });
+    await expectScrollTopNear(fixture, pressedAt.scrollTop - 60);
+  }
+  await releaseWith(cdp, 'mouse', press);
+  await expectLetGo(fixture);
+  expect(await stream).toBeNull();
+}
+
 // A press on the bar lands outside its scroller, so it cannot stop a glide the
 // browser is still running on the list, and the list followed the thumb only
 // once the glide had run down. From the press until that press ends, the bar
-// holds its scroller still (not user-scrollable). Headless browsers make no
-// real momentum: the Chromium rows use a wheel stream the engine keeps
-// delivering to the list instead, the way touchpad momentum arrives.
+// holds its scroller still (not user-scrollable), and hands it no wheel.
+// Headless browsers make no real momentum: the Chromium rows use a wheel
+// stream the engine keeps delivering instead, the way touchpad momentum
+// arrives, to the list or, for a flick that began over the bar, to the bar.
 test.describe('custom scrollbar hold while the bar is pressed', () => {
   test('stops a scroll the engine keeps delivering when the thumb is grabbed, then the list follows the thumb', async ({
     page,
@@ -1350,6 +1437,70 @@ test.describe('custom scrollbar hold while the bar is pressed', () => {
     await releaseWith(cdp, 'mouse', press);
     await expectLetGo(fixture);
     expect(await stream).toBeNull();
+  });
+
+  test('stops a wheel stream that began over the bar when the thumb is grabbed, then the list follows the thumb', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(
+      browserName !== 'chromium',
+      'Playwright synthesizes engine scrolling only through the Chromium DevTools protocol',
+    );
+    await pressBarWhileWheelStreamArrivesThere(page, 'thumb');
+  });
+
+  test('stops a wheel stream that began over the bar while the empty part of the bar is pressed', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(
+      browserName !== 'chromium',
+      'Playwright synthesizes engine scrolling only through the Chromium DevTools protocol',
+    );
+    await pressBarWhileWheelStreamArrivesThere(page, 'track');
+  });
+
+  test('keeps the bar shown while a press on its empty part lays it out, after the list has rested under the pointer', async ({
+    page,
+  }) => {
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await layTrackOverPanelEdge(fixture);
+    await letStylesheetOwnOverflow(fixture);
+    // The thumb at the bottom leaves the top of the bar empty.
+    await scrollToRatio(fixture, 1);
+    await expectThumbAtRatio(fixture, 1);
+    const ownerBox = await fixture.owner.boundingBox();
+    const trackBox = await fixture.track.boundingBox();
+    expect(ownerBox && trackBox).toBeTruthy();
+    const point = { x: trackBox!.x + trackBox!.width / 2, y: trackBox!.y + 20 };
+
+    // A mouse over the list shows the bar, then rests on it, which keeps it
+    // shown while the list rests past the 1.2 s fade delay.
+    await page.mouse.move(ownerBox!.x + 60, ownerBox!.y + 60);
+    await page.mouse.move(point.x, point.y, { steps: 4 });
+    await expect(fixture.track).toHaveCSS('pointer-events', 'auto');
+    await page.waitForTimeout(1_500);
+    await expect(fixture.track).toHaveCSS('pointer-events', 'auto');
+
+    // The press jumps the list to the point pressed, and the jump's scroll
+    // starts a new scroll session, which lays the bar out while the press
+    // holds the list.
+    await page.mouse.down();
+    await expectScrollTopNear(fixture, 80);
+    await expect(fixture.owner).toHaveCSS('overflow-y', 'hidden');
+    await nextFrames(page, 6);
+    expect(
+      await fixture.track.evaluate((track) => ({
+        opacity: track.style.opacity,
+        pointerEvents: track.style.pointerEvents,
+      })),
+    ).toEqual({ opacity: '1', pointerEvents: 'auto' });
+    await expect(fixture.thumb).toBeVisible();
+
+    await page.mouse.up();
+    await expectLetGo(fixture);
   });
 });
 

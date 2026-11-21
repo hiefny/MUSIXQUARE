@@ -239,6 +239,28 @@ function isHeld(container: HTMLElement): boolean {
   return container.hasAttribute(HELD_ATTRIBUTE);
 }
 
+/**
+ * In a browser the safety-layer rule makes a held scroller compute to overflow
+ * hidden, and the bar's own layout reads that value. jsdom applies no
+ * stylesheet, so this stands in for the rule until the row restores it.
+ */
+function computeHeldScrollersHidden(): { mockRestore(): void } {
+  const nativeComputedStyle = window.getComputedStyle.bind(window);
+  return vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((element, pseudoElement) => {
+    const style = nativeComputedStyle(element, pseudoElement);
+    if (!element.hasAttribute(HELD_ATTRIBUTE)) return style;
+    return new Proxy(style, {
+      get(target, property) {
+        if (property === 'overflow' || property === 'overflowX' || property === 'overflowY') {
+          return 'hidden';
+        }
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  });
+}
+
 interface TouchPoint {
   identifier: number;
   clientY: number;
@@ -442,6 +464,24 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
   // it. jsdom applies no stylesheet, so these rows read the hold's attribute,
   // and one row reads the safety-layer rule that turns it into overflow hidden.
 
+  /** What the bar shows, and whether it holds its scroller. */
+  function readBar(box: Scrollbox): {
+    held: boolean;
+    opacity: string;
+    pointerEvents: string;
+    thumbDisplay: string;
+    gutter: boolean;
+  } {
+    const track = box.track();
+    return {
+      held: isHeld(box.container),
+      opacity: track.style.opacity,
+      pointerEvents: track.style.pointerEvents,
+      thumbDisplay: track.querySelector<HTMLElement>('.cscroll-thumb')!.style.display,
+      gutter: box.container.classList.contains('has-scroll-overflow'),
+    };
+  }
+
   it.each<['mouse' | 'touch', PressEnd]>([
     ['mouse', 'mouseup'],
     ['mouse', 'blur'],
@@ -498,24 +538,7 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
   );
 
   it('keeps a held bar and its drag through every relayout while its scroller computes to overflow hidden', async () => {
-    // In a browser the safety-layer rule makes a held scroller compute to
-    // overflow hidden, and the bar's own layout reads that value.
-    const nativeComputedStyle = window.getComputedStyle.bind(window);
-    const computedStyle = vi
-      .spyOn(globalThis, 'getComputedStyle')
-      .mockImplementation((element, pseudoElement) => {
-        const style = nativeComputedStyle(element, pseudoElement);
-        if (!element.hasAttribute(HELD_ATTRIBUTE)) return style;
-        return new Proxy(style, {
-          get(target, property) {
-            if (property === 'overflow' || property === 'overflowX' || property === 'overflowY') {
-              return 'hidden';
-            }
-            const value: unknown = Reflect.get(target, property, target);
-            return typeof value === 'function' ? value.bind(target) : value;
-          },
-        });
-      });
+    const computedStyle = computeHeldScrollersHidden();
     try {
       const box = createScrollbox('held-through-relayout');
       box.container.setAttribute('data-custom-scroll-gutter', '');
@@ -590,7 +613,95 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
     }
   });
 
-  it('lets a held touch drag go when a later touch no longer lists its finger, and keeps it while it does', () => {
+  it('keeps the bar through a relayout while a mouse press or a finger on its empty part holds its scroller', () => {
+    const computedStyle = computeHeldScrollersHidden();
+    try {
+      const box = createScrollbox('bar-press-through-relayout');
+      box.container.setAttribute('data-custom-scroll-gutter', '');
+      initCustomScrollbar(box.container);
+      box.container.scrollTop = 100;
+      const track = box.track();
+      track.getBoundingClientRect = () => makeRect(200);
+
+      // The list has rested past the fade delay, so the scroll of the press's
+      // own jump starts a new scroll session, which lays the bar out while the
+      // press holds the scroller.
+      vi.advanceTimersByTime(1_200);
+      track.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientY: 150 }),
+      );
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame();
+      const duringMousePress = readBar(box);
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+      flushAnimationFrame();
+
+      // A finger on the empty part of the bar, through a relayout from the bus.
+      const finger = { identifier: 1, clientY: 150 };
+      dispatchTouches(track, 'touchstart', [finger], [finger]);
+      bus.emit('ui:scrollbar-relayout');
+      flushAnimationFrame();
+      const duringFinger = readBar(box);
+      dispatchTouches(track, 'touchend', [], [finger]);
+
+      const shown = {
+        held: true,
+        opacity: '1',
+        pointerEvents: 'auto',
+        thumbDisplay: '',
+        gutter: true,
+      };
+      expect({ duringMousePress, duringFinger }).toEqual({
+        duringMousePress: shown,
+        duringFinger: shown,
+      });
+    } finally {
+      computedStyle.mockRestore();
+    }
+  });
+
+  it('lays the bar out once its hold ends, so a scroller another holder keeps unscrollable loses its bar', async () => {
+    const computedStyle = computeHeldScrollersHidden();
+    try {
+      const box = createScrollbox('held-then-unscrollable');
+      box.container.setAttribute('data-custom-scroll-gutter', '');
+      initCustomScrollbar(box.container);
+      const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+
+      thumb.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientY: 0 }),
+      );
+      // Another holder writes an inline overflow-y hidden while the thumb
+      // holds, as the Android range lock does. The held bar keeps its scroller.
+      box.container.style.overflowY = 'hidden';
+      await flushMutationObservers();
+      flushAnimationFrame();
+      const whileHeld = readBar(box);
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+      flushAnimationFrame();
+
+      expect({ whileHeld, afterRelease: readBar(box) }).toEqual({
+        whileHeld: {
+          held: true,
+          opacity: '1',
+          pointerEvents: 'auto',
+          thumbDisplay: '',
+          gutter: true,
+        },
+        afterRelease: {
+          held: false,
+          opacity: '0',
+          pointerEvents: 'none',
+          thumbDisplay: 'none',
+          gutter: false,
+        },
+      });
+    } finally {
+      computedStyle.mockRestore();
+    }
+  });
+
+  it('lets a held touch drag go when a later touch no longer lists its finger or adds a contact under its identifier, and keeps it while it does', () => {
     const box = createScrollbox('lost-thumb-finger');
     initCustomScrollbar(box.container);
     box.container.scrollTop = 100;
@@ -632,6 +743,30 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
     dispatchTouches(document.body, 'touchstart', [touch], [touch]);
     const mouseDragThroughTouch = state();
     document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    const afterMouseUp = state();
+
+    // Chromium on Android and Windows can number touches from 0 again, so the
+    // next touch may carry a lost finger's identifier. A contact that a
+    // touchstart adds is new: the lost finger's drag goes, and a finger that
+    // lands on the thumb drags from its own press.
+    box.container.scrollTop = 100;
+    const reused = { identifier: 0, clientY: 0 };
+    dispatchTouches(thumb, 'touchstart', [reused], [reused]);
+    const elsewhere = { identifier: 0, clientY: 50 };
+    dispatchTouches(document.body, 'touchstart', [elsewhere], [elsewhere]);
+    const afterReuseElsewhere = state();
+    dispatchTouches(document.body, 'touchend', [], [elsewhere]);
+    dispatchTouches(thumb, 'touchstart', [reused], [reused]);
+    const draggedDown = { ...reused, clientY: 100 };
+    dispatchTouches(thumb, 'touchmove', [draggedDown], [draggedDown]);
+    // That finger's touchend is lost too, and the next lands on the thumb where
+    // the drag left it (600 of 800 puts the thumb 120 to 160 px down the bar).
+    const onThumb = { identifier: 0, clientY: 140 };
+    dispatchTouches(thumb, 'touchstart', [onThumb], [onThumb]);
+    const nudged = { ...onThumb, clientY: 150 };
+    dispatchTouches(thumb, 'touchmove', [nudged], [nudged]);
+    const reuseOnThumb = { ...state(), scrollTop: box.container.scrollTop };
+    dispatchTouches(thumb, 'touchend', [], [nudged]);
 
     expect({
       whileListed,
@@ -639,7 +774,10 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
       lostAtPress,
       afterLoss,
       mouseDragThroughTouch,
-      afterMouseUp: state(),
+      afterMouseUp,
+      afterReuseElsewhere,
+      reuseOnThumb,
+      afterReuseLifts: state(),
     }).toEqual({
       whileListed: { dragging: true, held: true, scrollTop: 300 },
       afterOwnEnd: { dragging: false, held: false },
@@ -647,6 +785,10 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
       afterLoss: { dragging: false, held: false, scrollTop: 300 },
       mouseDragThroughTouch: { dragging: true, held: true },
       afterMouseUp: { dragging: false, held: false },
+      afterReuseElsewhere: { dragging: false, held: false },
+      // 10 px down from its own press at 600; the lost press would give 850.
+      reuseOnThumb: { dragging: true, held: true, scrollTop: 650 },
+      afterReuseLifts: { dragging: false, held: false },
     });
   });
 
@@ -752,7 +894,7 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
     },
   );
 
-  it('keeps a finger hold on the bar through another finger, and lets go when its own finger lifts or is lost', () => {
+  it('keeps a finger hold on the bar through another finger, and lets go when its own finger lifts or is lost, even under a reused identifier', () => {
     const box = createScrollbox('bar-hold-fingers');
     initCustomScrollbar(box.container);
     const track = box.track();
@@ -780,8 +922,18 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
     const next = { identifier: 4, clientY: 50 };
     dispatchTouches(box.container, 'touchstart', [next], [next]);
     note();
+    dispatchTouches(box.container, 'touchend', [], [next]);
 
-    expect(held).toEqual([true, true, true, false, true, false]);
+    // Chromium on Android and Windows can give the next touch the lost
+    // finger's identifier, which that touchstart adds as a new contact.
+    const reused = { identifier: 0, clientY: 150 };
+    dispatchTouches(track, 'touchstart', [reused], [reused]);
+    note();
+    const reusing = { identifier: 0, clientY: 50 };
+    dispatchTouches(box.container, 'touchstart', [reusing], [reusing]);
+    note();
+
+    expect(held).toEqual([true, true, true, false, true, false, true, false]);
   });
 
   it('holds while the thumb drag or a press on the empty part of the bar lasts, whichever ends first', () => {
@@ -839,6 +991,53 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
     note();
 
     expect(held).toEqual([true, true, false, true, true, false, true, false, true, false]);
+  });
+
+  it('hands no wheel to a scroller its pressed bar holds, and hands the wheel over again once the press ends', () => {
+    const box = createScrollbox('held-wheel');
+    initCustomScrollbar(box.container);
+    box.container.scrollTop = 100;
+    const track = box.track();
+    track.getBoundingClientRect = () => makeRect(200);
+    const thumb = track.querySelector<HTMLElement>('.cscroll-thumb')!;
+    // Touchpad momentum from a flick that began over the bar keeps arriving at
+    // the bar while it is pressed, over its track or its thumb.
+    const wheel = (target: HTMLElement): { moved: number; prevented: boolean } => {
+      const before = box.container.scrollTop;
+      const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 50 });
+      target.dispatchEvent(event);
+      return { moved: box.container.scrollTop - before, prevented: event.defaultPrevented };
+    };
+    const wheelOverBar = (): Array<{ moved: number; prevented: boolean }> => [
+      wheel(track),
+      wheel(thumb),
+    ];
+
+    thumb.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientY: 0 }),
+    );
+    const duringThumbDrag = wheelOverBar();
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    track.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientY: 150 }),
+    );
+    const duringBarPress = wheelOverBar();
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    const finger = { identifier: 1, clientY: 150 };
+    dispatchTouches(track, 'touchstart', [finger], [finger]);
+    const duringBarFinger = wheelOverBar();
+    dispatchTouches(track, 'touchend', [], [finger]);
+    const afterRelease = wheelOverBar();
+
+    // Each wheel stays the bar's, so it scrolls nothing behind the bar either.
+    const handedNone = { moved: 0, prevented: true };
+    const handedOver = { moved: 50, prevented: true };
+    expect({ duringThumbDrag, duringBarPress, duringBarFinger, afterRelease }).toEqual({
+      duringThumbDrag: [handedNone, handedNone],
+      duringBarPress: [handedNone, handedNone],
+      duringBarFinger: [handedNone, handedNone],
+      afterRelease: [handedOver, handedOver],
+    });
   });
 });
 

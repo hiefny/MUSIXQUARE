@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-11-20 (배포 SHA `8fc3c7b7`, Release `44671941713` attempt 1 성공, 같은 SHA의 앞 Release `44647634158`은 실패)                                                                                              |
+| Last source review | 2026-11-21 (배포 SHA `884015a0`, Release `44780691557` attempt 1 성공)                                                                                                                                          |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -23,43 +23,53 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ## 1. 현재 운영 상태
 
-아래는 2026-11-20 13:06 KST 배포(App 9.0.832 열차: 바쁜 페이지에서도 프레임이 오는 한 세션 초기화 화면이 0.2초 페이드인을 다 보인 뒤 떠남, 9.0.832 / v832, target `app`) 후 릴리스 smoke, 공개 최소 앱 빌드 상태와 홈 페이지·서비스 워커 읽기, 운영 첫 방문 확인, Operations Drift Audit, 머지 뒤 Full E2E까지의 상태다. 이 배포는 같은 커밋 `8fc3c7b7`을 두 번째로 낸 [Release 44671941713](https://github.com/hiefny/MUSIXQUARE/actions/runs/44671941713)이고 attempt 1에 성공했다. 그 앞 [Release 44647634158](https://github.com/hiefny/MUSIXQUARE/actions/runs/44647634158)에서는 09:42:06 KST에 새 배포 `c088443a`(App `5d23f1ca`)가 100%로 생겼지만 바로 뒤 배포 단계의 한 번뿐인 배포 상태 읽기가 이전 배포를 돌려받아 기록 단계가 멈춰 그 실행은 실패했고, 두 자동 복구도 옛 답을 읽어 아무것도 되돌리지 않았다(우연). 09:43:56 KST의 공개 읽기부터 운영은 9.0.832를 냈다. 오너가 같은 커밋을 한 번 더 배포하기로 했고(2026-11-20, §2 9.0.832 절), 두 번째 실행은 checkpoint에서 첫 실행이 남긴 9.0.832(`5d23f1ca`)를 읽은 뒤 새 배포를 기록하고 smoke 넷과 최종 소유권 확인을 통과해 커밋 표지를 남겼다(§2 최근 해결 근거). 머지 뒤 Full E2E 44648826932는 첫 실행 뒤, 두 번째 실행 전에 같은 커밋 `8fc3c7b7`에서 돌았다. 이 기록의 git 대조는 열차 갈래의 머리 `4c654c1c`에서 했고, main `8fc3c7b7`의 트리는 `4c654c1c`의 트리와 같다. App Worker만 바뀌었고 PRO room Worker는 R4의 버전, 다른 넷 Worker는 9.0.22의 버전 그대로다. 최소 앱 빌드는 795 그대로다. 9.0.832는 오너가 2026-11-20에 정한 것(§2 9.0.832 절)이고, 오너의 2026-11-11 배포 허가(배포는 모두 허가)와 바로 배포 원칙(2026-10-25)대로 exact-main CI가 통과한 뒤 냈다. 배포 뒤 브라우저 확인은 두 실행 뒤 모두 헤드리스 Chromium과 WebKit으로 운영 홈을 처음 방문으로 열어 읽기만 했고, 이 기록까지 기기 판정은 없다. 이 기록은 머지 뒤 Full E2E 44648826932의 attempt 1 통과로 §2 9.0.831 절의 세션 초기화 화면 불투명도 항목을 닫고, 첫 실행의 실패를 Release 44671941713으로 닫으며(§2 최근 해결 근거), 배포 뒤 한 번 읽기에 기대는 릴리스 도구를 §2 9.0.832 절의 열린 항목으로 둔다.
+아래는 2026-11-21 02:13 KST 배포(App 9.0.833 열차: 스크롤 막대가 마우스·펜을 올리면 나타나고 막대 위에 있는 동안 남으며 숨은 막대는 손가락도 통과, 9.0.833 / v833, target `app`) 후 릴리스 smoke, 공개 최소 앱 빌드 상태와 홈 페이지·서비스 워커 읽기, 운영 첫 방문 확인, Operations Drift Audit, 머지 뒤 Full E2E까지의 상태다. 이 배포는 [Release 44780691557](https://github.com/hiefny/MUSIXQUARE/actions/runs/44780691557)이고 attempt 1에 성공했다. 이 기록의 git 대조는 main `884015a0`에서 했고, 그 트리는 열차 갈래의 머리 `ea1d632d`의 트리와 같다. App Worker만 바뀌었고 PRO room Worker는 R4의 버전, 다른 넷 Worker는 9.0.22의 버전 그대로다. 최소 앱 빌드는 795 그대로다. 9.0.833은 오너가 2026-11-20에 정한 것(§2 9.0.833 절)이고, 오너의 2026-11-11 배포 허가(배포는 모두 허가)와 바로 배포 원칙(2026-10-25)대로 exact-main CI가 통과한 뒤 냈다. 이 릴리스는 배포한 Worker가 보일 때까지 기다린 뒤 기록하고 확인하게 한 #620 뒤의 첫 App 릴리스이고, 배포 단계의 기록이 `record-current app`을 기다림 모드로 돌려 첫 읽기에서 새 배포를 봤다. 그래서 이 기록은 §2 9.0.832 절의 릴리스 도구 항목에 닫는 근거 (1)이 채워졌다고 적고, 그 항목은 남은 오너 결정 셋 때문에 열린 채 둔다. 배포 뒤 브라우저 확인은 헤드리스 Chromium과 WebKit으로 운영 홈을 처음 방문으로 열어 읽기만 했고, 이 기록까지 기기 판정은 없다. 머지 뒤 Full E2E 44781228681은 attempt 1에 `e2e`(Linux Chromium), `webkit-mobile`, 운영 large-room R2 smoke가 모두 통과했다.
 
 | 항목                   | 값 |
 | ---------------------- | -- |
-| App 버전 / SW 캐시     | `9.0.832` / `v832`(9.0.832 열차, 업데이트 창이 뜬다). 빌드 번호는 832이다. 첫 실행 전에는 9.0.831 / v831이, 두 번째 실행 전에는 첫 실행이 남긴 같은 9.0.832(App `5d23f1ca`)가 배포돼 있었다. 버전 끝자리가 App 빌드 번호인 규칙(9.0.829부터, 둘째 자리는 오너가 정함)대로 다음 번호는 9.0.833 / v833 이상이다. 마지막 런타임 커밋은 버전 올리기 `f1444418`이고 그 뒤는 문서 `4c654c1c`뿐이다(`git diff f1444418 4c654c1c`는 `docs/`의 세 파일뿐, 이 기록의 git 대조). 열차의 최종 관문(보고서 §6.9)이 release identity 'MUSIXQUARE 9.0.832; service-worker cache epoch v832'와 `guard:sw-cache-version` 'PASS: v832 (f1444418) covers all committed PWA runtime changes.'를 냈고, exact-main CI의 Production release candidate job은 같은 release identity와 `guard:sw-cache-version` 'PASS: v832 (8fc3c7b7) covers all committed PWA runtime changes.'를 냈다(그 job의 로그). 두 릴리스 실행의 후보 확인(`release:verify`)은 이 SHA의 릴리스 파일 937개를 확인했다(배포 단계 로그). 두 번째 실행의 App generation smoke가 읽은 진입 `main-vNexHw4v.js`(862,689 B, 22 assets)는 그 job의 옛 TV 빌드 검사(`main-vNexHw4v.js`, `main-DxFJZr4y.css`)와 최종 관문의 운영 빌드(보고서 §6.9)가 낸 이름과 같다(주 CSS는 9.0.831과 같은 이름). 첫 실행이 진입을 포함한 정적 자산 79개를 올렸고, 두 번째 실행은 바뀐 정적 자산이 없었다('No updated asset files to upload', 배포 단계 로그). 배포 뒤 공개 `/`는 `bootstrap.js?cache=v832`를 부르고 `/service-worker.js`는 `CACHE_VERSION = "v832"`이다(릴리스 담당의 GET, 2026-11-20 첫 실행 뒤 09:43:56 KST와 09:47:11 ~ 09:47:12 KST, 두 번째 실행 뒤 13:08:30 KST). 코드와 캐시 epoch가 그대로라 두 번째 실행은 업데이트 창을 다시 띄우지 않는다 |
-| 마지막 프로덕션 변경   | 2026-11-20 13:06:54 KST deploy job 완료, [Release 44671941713](https://github.com/hiefny/MUSIXQUARE/actions/runs/44671941713) attempt 1 성공, target=app, Developer API D1=false, `raise_app_build_floor`=false(올리기 단계 skip). workflow_dispatch(실행 생성 13:04:32 KST, Validate 13:04:36 ~ 13:04:45, Deploy 13:04:49 ~ 13:06:54 KST, 독립 recovery job은 skipped)이고, 새 App 배포 `a7b2e737`(version `d8f27952` 100%)은 13:06:25 KST에 생겼다. 같은 SHA의 앞 실행 [Release 44647634158](https://github.com/hiefny/MUSIXQUARE/actions/runs/44647634158) attempt 1(실행 생성 09:39:47 KST, Validate 09:39:50 ~ 09:40:07 success, Deploy 09:40:12 ~ 09:42:23 KST failure, 독립 recovery job 'Preserve failed-release recovery boundary' 09:42:28 ~ 09:43:10 KST failure)은 09:42:06 KST에 App 새 배포(deployment `c088443a`, version `5d23f1ca` 100%)를 만들었지만, 바로 뒤 배포 단계의 한 번뿐인 배포 상태 읽기가 이전 배포를 돌려받아 기록 단계가 멈췄고, 두 자동 복구도 옛 답을 읽어 아무것도 되돌리지 않아(우연) 9.0.832가 운영에 남았다(§2 최근 해결 근거). 두 실행 사이(09:43:10 ~ 13:04:32 KST)에 다른 Production Release와 App Build Floor 실행은 없었다(13:01 KST의 실행 목록에서 마지막 Production Release는 44647634158, 마지막 App Build Floor는 Phase 5.5 F2의 status 40899323158(2026-10-30 00:13 KST)이고, 릴리스 담당이 dispatch 직전에 다시 확인함). 릴리스 담당은 exact-main CI 44646196225가 success로 끝난(09:39:15 KST) 뒤 첫 실행을 dispatch했고, 오너가 같은 커밋을 한 번 더 배포하기로 한 뒤 main 머리가 `8fc3c7b7`이고 후보 artifact 14589091292가 남아 있음을 확인하고 두 번째 실행을 dispatch했다. 배포 뒤 공개 경계 smoke가 유효 795를, Drift Audit과 릴리스 담당의 배포 뒤 읽기가 저장·유효 795를 봤다. 근거가 된 오너 결정: 2026-11-20 01:0x(아이폰 엔진에서 앱이 바쁠 때 세션 나가기 화면이 안 보이거나 반쯤 보인 채 넘어가는 것을 앱에서 고치기로 함), 01:2x(보이는데 프레임을 한 장도 그리지 못하는 페이지가 첫 프레임을 기다리는 한도 0.8초), 첫 실행이 실패한 뒤 같은 날(같은 커밋을 한 번 더 배포하기로 함), 2026-11-11(배포는 모두 허가), 바로 배포 원칙(2026-10-25), 최종 관문은 지금처럼(2026-11-17) |
-| 배포 main SHA          | `8fc3c7b7c6d3fed7b46f07d39749b25546277c3a`, PR [#618](https://github.com/hiefny/MUSIXQUARE/pull/618) squash(2026-11-20 09:28:51 KST, 부모 `6c675c0c`(#617)). 머지 트리는 열차 갈래의 머리 `4c654c1c`의 트리와 같다(`fffbd5ee`, 이 기록의 git 대조). PR #618(2026-11-20 07:36:24 KST에 엶)의 열차 갈래는 main `6c675c0c`(#617) 위 커밋 여덟(릴리스 담당의 시험만 셋 `f58c4803`, `76fe4254`, `5c415e5a`, 앱 고침 `a5d35347`, e2e 엄격화 `e95b44b6`, 단위 행 `5accfe0b`, 검토 반영 `57731ef3`, 버전 올리기 `f1444418`)과 문서 `4c654c1c`다([보고서 §10 SHA](design/app-9-0-832-train-2026-11-20.md#10-sha)). 머지 전 PR CI [44630217677](https://github.com/hiefny/MUSIXQUARE/actions/runs/44630217677)(attempt 1, 07:36:28 ~ 07:46:43 KST)은 11 jobs success였다. Exact-main [CI 44646196225](https://github.com/hiefny/MUSIXQUARE/actions/runs/44646196225)(push, attempt 1, 09:28:54 ~ 09:39:15 KST, 11 jobs 모두 success)의 후보 artifact 14589091292(digest sha256 `6d29a25c180ef45a6d8d661f85c0395f3c3db6717b942ec03e72e1695952dc83`, 28,835,480 B)를 두 실행이 함께 썼고, 두 실행 모두 내려받아 이 digest와 릴리스 파일 937개를 확인했다 |
-| Worker                 | App만 이번 실행의 버전이다: App `d8f27952-a7ca-464d-ab2a-40d335547e55`(deployment `a7b2e737-cbf6-4b74-abad-6f05b7e97a22`, 100%, message=`git:8fc3c7b7c6d3fed7b46f07d39749b25546277c3a`, created_on 2026-11-20T04:06:25.793704Z(13:06:25 KST)), 올린 Worker 크기 987.53 / gzip 201.87 KiB, startup 5 ms, 바뀐 정적 자산 없음, 'Current Version ID: d8f27952-…'(13:06:30 KST). 배포 전 App은 첫 실행이 남긴 9.0.832의 `5d23f1ca-64a8-4f0b-bcc7-f6d0f4969623`(deployment `c088443a-be0c-4893-a7c7-b48189b2aa3e`, 같은 message, created_on 2026-11-20T00:42:06.247097Z(09:42:06 KST))였다. 배포 단계의 기록은 'Current Version ID' 뒤 약 1.3초 안의 한 번 읽기로 새 배포를 보아 'app production version 5d23f1ca-… -> d8f27952-…'(13:06:31 KST)를 찍었고(`deployments/app-state.json`의 changed true, ownedByRelease true), 최종 배포 확인은 13:06:47 ~ 13:06:48 KST verified였다. 그 앞 첫 실행은 9.0.831의 `046b29c6-8e77-4868-a200-d0417a6c33ad`(deployment `0f29bc7e-3454-4ae3-8291-e5867141179b`) 위에 `5d23f1ca`를 배포했지만(올린 Worker 크기 같음, startup 9 ms, 새로 올리거나 바뀐 정적 자산 79개, 'Current Version ID: 5d23f1ca-…' 09:42:08 KST), 그 실행의 기록은 'app production version 046b29c6-… -> 046b29c6-…'(09:42:10 KST)로 이전 배포를 읽고 멈췄고 최종 배포 확인은 돌지 않았다. 그래서 첫 실행의 `deployments/app-state.json`(changed false, ownedByRelease false)과 두 복구 보고는 그때의 운영과 달랐다. 나머지 다섯은 그대로다: PRO room `e7657f88-8f73-4510-9c36-801973aca7fa`(R4, message=`git:683074bc177325ac83f2042e83f80fb29609707c`, 두 번째 실행의 App 배포 뒤 PRO 공개 경계 smoke가 이 버전을 읽음), remote-share `1ea9191a-64d4-4623-ad58-29d81cded644`, signaling `36579bdf-b308-4f64-8218-6a778c80d8a0`, Developer API facade `7ca55caa-971a-4d15-a6b3-438c2c1818d1`, Developer API `2c275ad3-8a9d-44e6-b366-2864adf05f29`(넷 모두 9.0.22, message=`git:71f5b96c1ec03d9a376fdae05687cc93787626a5`). 두 실행은 그 다섯의 기록·배포·smoke 단계를 건너뛰었고 부분 릴리스 판정이 compatible이었다(두 번째 실행 13:05:45 KST, 배포 직전 다시 compatible 13:06:19 KST, 첫 실행 09:41:08 KST와 09:41:57 KST). target `app`이라 PRO generation readiness는 건드리지 않았다 |
-| 운영 smoke / 공개 자산 | 두 번째 실행의 App generation(13:06:31 ~ 13:06:37 KST, `main-vNexHw4v.js` 862,689 B·22 assets, 세 번 연속 읽기로 수렴), 익명 계정·능력·출처 경계와 페이지의 최소 빌드 읽기(13:06:37 ~ 13:06:42 KST, strict, `effectiveMinAppBuild` 795, 언어별 SEO 페이지 7, 모르는 HTML 주소 거절), App 배포 뒤 PRO 공개 경계(13:06:42 ~ 13:06:43 KST, R4의 `e7657f88`, 고정 smoke 방 둘의 `activation_required`와 `pin_required`·`passwordRequired` true, 익명 스냅샷 거절), Standard HTTPS signaling(13:06:43 ~ 13:06:46 KST, `appBuild.build` 832로 방장·게스트 입장과 offer·answer 중계, `bridgeOpenMs` 방장 860ms·게스트 444ms) success. 503·502 재시도와 실패한 smoke는 없었다. 이 smoke들은 HTTP만 보고 세션 초기화 화면을 보지 않는다. 첫 실행에서는 App 배포 단계가 실패해 이 넷이 돌지 않았다(그 로그에 네 smoke 단계가 없고, 릴리스 요약은 'Standard HTTPS signaling fallback smoke: skipped'와 'Final production ownership verification: skipped'). 배포 뒤 공개 읽기(GET, 릴리스 담당, 2026-11-20): 첫 실행 뒤 09:43:56 KST의 읽기는 공개 최소 빌드 상태의 `liveAppBuild` 832, `/`와 `/ko/`의 `bootstrap.js?cache=v832`와 진입 `assets/main-vNexHw4v.js`, 서비스 워커 `CACHE_VERSION` "v832"를 봤다. 첫 실행 뒤 09:47:10 ~ 09:47:12 KST와 두 번째 실행 뒤 13:08:29 ~ 13:08:30 KST의 두 읽기는 공개 최소 빌드 상태(`liveAppBuild` 832, `reportedLiveAppBuild` 832, 저장·유효 795, revision 3, state `valid`), `/`(156,069 B)와 `/ko/`(158,948 B)가 HTTP 200으로 `bootstrap.js?cache=v832`를 부르고 진입 `assets/main-vNexHw4v.js`와 주 CSS `assets/main-DxFJZr4y.css`(최종 관문이 빌드한 이름)를 실으며, CSP `script-src`에 그대로인 핀(`fEshNMQN…`, 이 열차는 미리 실행과 앱 문서 헤더를 바꾸지 않음)이 있고 `'unsafe-inline'`이 없으며 두 문서의 미리 실행 몸통이 핀과 같고, `/service-worker.js`의 `CACHE_VERSION = "v832"`임을 봤다(두 읽기 모두 같은 값). 배포 뒤 브라우저 확인(릴리스 담당의 헤드리스 Chromium과 WebKit 아이폰, 첫 방문, 운영 홈 읽기만, 첫 실행 뒤 09:47:19 ~ 09:48:18 KST와 두 번째 실행 뒤 13:08:39 ~ 13:09:45 KST): 두 번 모두 두 엔진의 시작 화면이 열리고 부팅 실패 화면과 부팅 가드 없이 앱 스타일이 적용됐으며 CSP 위반과 페이지 오류가 0이었다. `ja-JP`, `zh-CN`, `zh-TW` 첫 방문은 한자 가족 가운데 자기 가족(Noto Sans JP 면 22개, SC 11개, TC 13개)만 받기 시작했고 다른 한자 가족은 없었다. `en-US`는 Inter 면 14개를 선언하고 시작 화면에서 기호 면은 공백 면 하나만 받았고(≤를 그린 뒤 수학 면을 더 받음), `ko-KR`은 시작 화면에서 기호 면을 받지 않았다(≤를 그린 뒤 수학 면만, 받은 면은 모두 200). 이 첫 방문은 세션 나가기나 새로고침을 하지 않아 이 열차의 고침은 보지 않는다. 이 기록까지 기기 판정은 없다(§2 9.0.832 절의 블라인드 기기 후보) |
-| 최소 앱 빌드           | 795(Phase 5.5 F2, 2026-10-30 00:12:41 KST [set 40899114265](https://github.com/hiefny/MUSIXQUARE/actions/runs/40899114265), revision 3. 그 앞 바닥은 789와 첫 최소 빌드 787). 두 실행 모두 바꾸지 않았다(`raise_app_build_floor` false, 9.0.832는 새 바닥에 기대지 않음: 방 안 통신, PRO 요청과 응답, 서버 계약, 저장 모양이 같고, 바뀐 것은 그 기기 안에서 페이지를 떠나기 전의 기다림뿐이라 9.0.22 ~ 9.0.831 탭과 같은 방에서 그대로 함께 쓴다). live App은 이제 832이고(공개 최소 빌드 상태와 Drift Audit) 유효 최소 빌드는 저장값과 live 보고 중 낮은 795다. 9.0.22(795) 이상은 새 입장과 재접속이 되고, 9.0.21 이하는 거절되며 다시 열면 회복한다 |
-| 복구                   | 성공한 두 번째 실행은 rollback 불필요·미실행, 독립 recovery job(Preserve failed-release recovery boundary) skipped, 실패 자동 복구 단계도 skip이다. 그 배포 전 [checkpoint](https://github.com/hiefny/MUSIXQUARE/actions/runs/44671941713/artifacts/14600771841)(artifact 14600771841, 'Captured immutable recovery checkpoint for app', 13:05:46 KST, 올림 13:05:49 KST)는 App 하나(첫 실행이 남긴 운영 App 9.0.832, deployment `c088443a`, version `5d23f1ca-64a8-4f0b-bcc7-f6d0f4969623`, message `git:8fc3c7b7…`)를 보존하고(배포 전 'Record current app deployment'의 읽기(13:06:13 ~ 13:06:14 KST)와 App 배포 직전 'Verified unchanged production deployment for app'(13:06:20 KST)도 같은 배포), Worker 호환 floor도 함께 담는다. 그래서 이 실행이 실패했어도 자동 복구는 같은 9.0.832 코드로만 갈 수 있었다. 이 기록은 그 artifact와 deployment 기록(artifact 14600567302, 파일 32개), 커밋 표지(artifact 14599793742, `production-committed.json`)의 파일을 읽었다. 첫 실행(Release 44647634158)은 App 배포 뒤 기록 단계에서 실패해 실패 자동 복구 단계와 독립 recovery job이 돌았지만 아무것도 되돌리지 않았다: 배포 job의 되돌리기 판정(09:42:13 ~ 09:42:14 KST)은 첫 읽기가 이전 배포(`0f29bc7e`, `046b29c6`)라 `already-restored`로 끝났고(소유 확인 읽기와 되돌리기 명령 없음), 독립 recovery job은 커밋 표지 artifact를 두 번 찾지 못한 뒤('Artifact not found', 09:42:31 KST) 되돌리기 판정(09:42:58 ~ 09:43:01 KST)의 첫 읽기가 새 배포(`c088443a`)를 보아 9.0.831로 되돌리기로 했지만 바로 뒤 소유 확인 읽기가 이전 배포를 답해 `already-restored`로 끝났으며(`wrangler rollback`은 돌지 않음), 두 job 모두 R2 정책 맞추기와 R2·Worker 짝 확인에서 실패했다('Automatic release recovery was incomplete.' 09:42:21 KST, 'Independent automatic recovery was incomplete.' 09:43:08 KST). Worker floor 확인은 두 job 모두 verified(rollback-compatible, forward repair 대상 없음)였고 `app`에는 R2 정책이 없다. 그 `already-restored`와 `verified-baseline`은 옛 API 답을 읽은 결과이고, 소유 확인 읽기도 새 답이었다면 9.0.831로 되돌아갔으므로 아무것도 되돌아가지 않은 것은 우연이다(§2 최근 해결 근거). 첫 실행의 [checkpoint](https://github.com/hiefny/MUSIXQUARE/actions/runs/44647634158/artifacts/14589391887)(artifact 14589391887, 09:41:10 KST)는 배포 전 운영 App 9.0.831 / v831(`0889df09`, deployment `0f29bc7e`, version `046b29c6-8e77-4868-a200-d0417a6c33ad`)을 담고, 그 실행에는 커밋 표지가 없다. 이 기록은 그 artifact와 deployment 기록(artifact 14589526956, 파일 40개), 복구 보고(artifact 14590036253)의 파일도 읽었다. 다른 다섯 Worker는 이 릴리스가 바꾸지 않았고, PRO room의 되돌리기 기준은 R4의 checkpoint(artifact 12971063046), 넷은 9.0.22의 checkpoint(artifact 12886313200)다(§4). `app`의 smoke는 HTTP뿐이라 9.0.832가 세션 초기화 화면을 깨뜨리는 결함에는 자동 복구가 돌지 않으므로 배포 뒤 확인이 그 몫이다(§2). 이 릴리스의 되돌리기 경계는 §4 머리의 현재 경계 줄 (5)와 §4의 'App 9.0.832 열차' 항목이다: 새 경계는 없고, 보통 길은 가장 최근 main 위에서 이 열차의 squash `8fc3c7b7`을 되돌리는 9.0.833 / v833 이상(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다)의 앞으로 되돌리기이며, 급할 때 9.0.832의 코드를 빼는 Cloudflare App 되돌리기 대상은 첫 실행 checkpoint의 9.0.831 App `046b29c6`이다(두 번째 실행의 checkpoint App `5d23f1ca`는 같은 9.0.832 코드, §2 9.0.832 절의 되돌리기) |
-| 활성 복구 floor        | 앱 버전 최소 빌드 795(위 '최소 앱 빌드'). target `app`이라 PRO generation readiness의 읽기·막기·복원 단계는 skip이었다(마지막 기록은 9.0.22가 되돌린 `ready`, release `71f5b96c`, floor release `4c5612d5`이고 두 실행의 Worker floor checkpoint도 같음). 이미 있는 바닥 셋(신호 8.0.8, 일반방 입장 bootstrap 8.3.16, PRO 하트비트 9.0.0)은 그대로이고 최소 빌드가 그 위에 있다. 9.0.832는 계약 표지, forward floor, 새 되돌리기 경계를 더하지 않았다(그래서 실패한 `app` 실행의 자동 복구를 막지 않는다. 첫 실행의 두 복구가 아무것도 되돌리지 않은 것은 floor가 아니라 옛 읽기 때문이다. 낮은 epoch로 가는 손 되돌리기의 규칙은 §2 9.0.29 절, App Worker CLI 되돌리기의 한계는 §4). 9.0.25가 문서로 적은 경계와 R2가 적은 두 경계(§4 머리의 현재 경계 줄 (4), (6) ~ (9))는 schemaVersion 1을 읽지 않는 9.0.26 ~ 9.0.832에도 그대로다 |
-| 검증 범위              | Exact-main CI [44646196225](https://github.com/hiefny/MUSIXQUARE/actions/runs/44646196225) success(push, attempt 1, 11 jobs, 09:28:54 ~ 09:39:15 KST): Production release candidate(09:28:56 ~ 09:30:37), Release tooling coverage(~ 09:30:16, 시험 파일 14개), Worker runtime coverage(~ 09:31:08), Lint and formatting(~ 09:31:54), Types and source guards(~ 09:32:25), Static checks(09:32:27 ~ 09:32:32), Critical runtime coverage(~ 09:32:34), Unit tests (1/2)와 (2/2)(09:33:23, 09:38:20에 끝남), Critical browser gate(09:30:38 ~ 09:38:16, 운영 후보 브라우저·서비스 워커 smoke 19 passed, critical 경로 101 passed), Broad unit coverage(09:38:23 ~ 09:39:14). coverage 셋, 단위 시험 둘, Broad unit coverage의 행 수는 이 기록이 읽지 않았다. Production release candidate job은 release identity 'MUSIXQUARE 9.0.832; service-worker cache epoch v832'와 `guard:sw-cache-version` 'PASS: v832 (8fc3c7b7) covers all committed PWA runtime changes.'를 냈다. 그 job의 옛 TV 빌드 검사와 `guard:initial-transfer-budget`은 통과했다(Chromium 79 정적 호환 검사의 `main-vNexHw4v.js`와 `main-DxFJZr4y.css`, 진입 842.5 KiB raw / 249.3 KiB gzip, eager JS 459.6 KiB gzip, eager total 2003.3 KiB raw / 537.3 KiB gzip, eager 글꼴 0.0 KiB, 모든 양의 예산에 5% 여유). 두 릴리스 실행의 Validate가 이 SHA의 exact-main 후보를 골랐고(09:39:50 ~ 09:40:07 KST, 13:04:36 ~ 13:04:45 KST), 두 deploy job이 후보(artifact 14589091292)를 내려받아 digest를 확인하고 `release:verify`로 릴리스 파일 937개를 확인했으며, 시간에 민감한 운영 보안 가드('[prod-security-guard] OK: no unapproved bypass or retired rollout flags.')와 여섯 Worker 번들의 dry-run(Wrangler 4.148.0)이 통과했다. 최종 관문(보고서 §6.9: 단위 794 파일 19,361 통과·1 건너뜀, Chromium 29파일 389 통과, WebKit 레인 213 통과·10 건너뜀, CI 후보 job이 더 도는 브라우저 실행 1, 19, 101 통과)은 로컬 결과이고 exact-main 후보를 대신하지 않는다 |
+| App 버전 / SW 캐시     | `9.0.833` / `v833`(9.0.833 열차, 업데이트 창이 뜬다). 빌드 번호는 833이다. 9.0.832 / v832(두 번째 실행의 App `d8f27952`)가 배포돼 있었다. 버전 끝자리가 App 빌드 번호인 규칙(9.0.829부터, 둘째 자리는 오너가 정함)대로 다음 번호는 9.0.834 / v834 이상이다. 마지막 런타임 커밋은 버전 올리기 `3fbe9c64`이고 그 뒤는 문서 `d7506bc0`과 `ea1d632d`뿐이다(`git diff 3fbe9c64 ea1d632d`는 `docs/`의 네 파일뿐, 이 기록의 git 대조). 열차의 최종 관문(보고서 §6.6)이 release identity 'MUSIXQUARE 9.0.833; service-worker cache epoch v833'과 `guard:sw-cache-version` 'PASS: v833 (3fbe9c64) covers all committed PWA runtime changes.'를 냈고, exact-main CI의 Production release candidate job은 같은 release identity와 `guard:sw-cache-version` 'PASS: v833 (884015a0) covers all committed PWA runtime changes.'를 냈다(그 job의 로그). 릴리스의 후보 확인(`release:verify`)은 이 SHA의 릴리스 파일 937개를 확인했다(배포 단계 로그). App generation smoke가 읽은 진입 `main-FVSmuJyW.js`(860,047 B, 22 assets)는 그 job이 빌드한 진입(`dist/assets/main-FVSmuJyW.js` 860.04 kB, 주 CSS `dist/assets/main--vEvUZ5a.css` 316.93 kB), 그 job의 옛 TV 빌드 검사, 최종 관문의 운영 빌드(보고서 §6.6)가 낸 이름과 같다. 이 실행은 진입을 포함한 정적 자산 80개를 새로 올리거나 바꿨다('Found 80 new or modified static assets to upload.', 배포 단계 로그). 배포 뒤 공개 `/`는 `bootstrap.js?cache=v833`을 부르고 `/service-worker.js`는 `CACHE_VERSION = "v833"`이다(릴리스 담당의 GET, 2026-11-21 02:13:59 ~ 02:14:00 KST) |
+| 마지막 프로덕션 변경   | 2026-11-21 02:13:07 KST deploy job 완료, [Release 44780691557](https://github.com/hiefny/MUSIXQUARE/actions/runs/44780691557) attempt 1 성공, target=app, Developer API D1=false, `raise_app_build_floor`=false(올리기 단계 skip). workflow_dispatch(실행 생성 02:10:24 KST, Validate 02:10:29 ~ 02:10:41, Deploy 02:10:46 ~ 02:13:07 KST, 독립 recovery job 'Preserve failed-release recovery boundary'는 skipped)이고, 새 App 배포 `979752a1`(version `fedf9e18` 100%)은 02:12:33 KST에 생겼다. 이 SHA의 다른 Production Release는 없고, 9.0.832의 두 번째 실행(Release 44671941713, 2026-11-20 13:04:32 KST 생성)과 이 실행 사이에 다른 Production Release는 없었으며, App Build Floor의 마지막 실행은 여전히 Phase 5.5 F2의 status 40899323158(2026-10-30 00:13 KST)이다(02:39 KST의 실행 목록). 릴리스 담당은 exact-main CI 44778965456이 success로 끝난(02:10:11 KST) 뒤 dispatch했고, 열차 PR 머지에서 deploy job까지 main은 움직이지 않았다('Verify release commit is still current main' 통과, 02:11:02 KST). 배포 뒤 공개 경계 smoke가 유효 795를, Drift Audit과 릴리스 담당의 배포 뒤 읽기가 저장·유효 795를 봤다. 근거가 된 오너 결정: 2026-11-20(오너가 main `4e012ad1` 위에서 사용자 정의 스크롤 막대를 직접 바꿨고, 20:1x KST의 터치 질문에 숨은 막대가 손가락도 통과시키는 그 변경을 그대로 두고 이 스크롤 막대 변경을 내보내기로 함), 호버 관문 하나(2026-10-27), 2026-11-11(배포는 모두 허가), 바로 배포 원칙(2026-10-25), 최종 관문은 지금처럼(2026-11-17) |
+| 배포 main SHA          | `884015a0c0c1054c4e36ca5585d4d7e018e86408`, PR [#621](https://github.com/hiefny/MUSIXQUARE/pull/621) squash(2026-11-21 02:00:11 KST, 부모 `4e012ad1`(#619)). 머지 트리는 열차 갈래의 머리 `ea1d632d`의 트리와 같다(`5ab8be7e`, 이 기록의 git 대조). PR #621(2026-11-20 22:55:39 KST에 엶)의 열차 갈래는 main `4e012ad1`(#619) 위 커밋 여섯(오너 변경 그대로 `cefea6e5`, 시험만 `e11cae19`, 고침 `e9629161`과 `c9e86a59`, 터치 행 `b3e39e00`, 버전 올리기 `3fbe9c64`)과 문서 둘(`d7506bc0`, 검토 뒤 고침 `ea1d632d`)이다([보고서 §12 SHA](design/app-9-0-833-train-2026-11-20.md#12-sha)). 머지 전 PR CI [44748634942](https://github.com/hiefny/MUSIXQUARE/actions/runs/44748634942)(pull_request, attempt 1, 2026-11-20 22:55:43 ~ 23:07:56 KST)는 11 jobs success였고, 그 머리의 다른 실행과 다시 돌리기는 없었다. Exact-main [CI 44778965456](https://github.com/hiefny/MUSIXQUARE/actions/runs/44778965456)(push, attempt 1, 02:00:14 ~ 02:10:11 KST, 11 jobs 모두 success)의 후보 artifact 14651356072(digest sha256 `edd278f061829aec45977f1435d52c62dbc45b4dcb39e6cf529787a90d9dc6da`, 28,836,070 B)를 사용했고, 릴리스가 내려받아 이 digest와 릴리스 파일 937개를 확인했다 |
+| Worker                 | App만 이번 실행의 버전이다: App `fedf9e18-62f1-4131-972b-f01d89830161`(deployment `979752a1-68aa-4b0c-8ada-6d689b7cdaf9`, 100%, message=`git:884015a0c0c1054c4e36ca5585d4d7e018e86408`, created_on 2026-11-20T17:12:33.543496Z(02:12:33 KST)), 올린 Worker 크기 987.53 / gzip 201.87 KiB, startup 4 ms, 새로 올리거나 바뀐 정적 자산 80개('Uploaded 80 files (855 already uploaded)'), 'Current Version ID: fedf9e18-…'(02:12:35 KST). 배포 전 App은 9.0.832 두 번째 실행의 `d8f27952-a7ca-464d-ab2a-40d335547e55`(deployment `a7b2e737-cbf6-4b74-abad-6f05b7e97a22`, message `git:8fc3c7b7…`, created_on 2026-11-20T04:06:25.793704Z(13:06:25 KST))였다. 배포 단계의 기록은 #620의 `node scripts/release-deployment-state.mts record-current app "$record_wait"`를 기다림 모드(`wait`, 배포 명령이 0으로 끝남)로 돌려 'Current Version ID' 뒤 약 1.4초 안의 첫 읽기에서 새 배포를 보아 'app production version d8f27952-… -> fedf9e18-…'(02:12:37 KST)를 찍었다(`deployments/app-state.json`의 visibilityReads 1, staleReads 없음, changed true, ownedByRelease true, 로그에 'may be stale; reading again' 알림 없음). 최종 배포 확인(`verify-current`)은 02:12:59 ~ 02:13:00 KST verified였고 그 읽기도 한 번이었다(`final-verification-report.json`의 visibilityReads 1). 나머지 다섯은 그대로다: PRO room `e7657f88-8f73-4510-9c36-801973aca7fa`(R4, message=`git:683074bc177325ac83f2042e83f80fb29609707c`, App 배포 뒤 PRO 공개 경계 smoke가 이 버전을 읽음), remote-share `1ea9191a-64d4-4623-ad58-29d81cded644`, signaling `36579bdf-b308-4f64-8218-6a778c80d8a0`, Developer API facade `7ca55caa-971a-4d15-a6b3-438c2c1818d1`, Developer API `2c275ad3-8a9d-44e6-b366-2864adf05f29`(넷 모두 9.0.22, message=`git:71f5b96c1ec03d9a376fdae05687cc93787626a5`). 이 실행은 그 다섯의 기록·배포·smoke 단계를 건너뛰었고 부분 릴리스 판정이 compatible이었다(02:11:47 KST, 배포 직전 다시 compatible 02:12:25 KST, 다섯 모두 바뀐 경로 없음). target `app`이라 PRO generation readiness는 건드리지 않았다 |
+| 운영 smoke / 공개 자산 | App generation(02:12:37 ~ 02:12:52 KST, `main-FVSmuJyW.js` 860,047 B·22 assets, 세 번 연속 읽기로 수렴), 익명 계정·능력·출처 경계와 페이지의 최소 빌드 읽기(02:12:52 ~ 02:12:53 KST, strict, `effectiveMinAppBuild` 795, 언어별 SEO 페이지 7, 모르는 HTML 주소 거절), App 배포 뒤 PRO 공개 경계(02:12:53 ~ 02:12:55 KST, R4의 `e7657f88`, 고정 smoke 방 둘의 `activation_required`와 `pin_required`·`passwordRequired` true, 익명 스냅샷 거절), Standard HTTPS signaling(02:12:55 ~ 02:12:59 KST, `appBuild.build` 833으로 방장·게스트 입장과 offer·answer 중계, `bridgeOpenMs` 방장 733ms·게스트 390ms) success. 503·502 재시도, 경고와 실패한 smoke는 없었다. 이 smoke들은 HTTP만 보고 스크롤 막대를 보지 않는다. 배포 뒤 공개 읽기(GET, 릴리스 담당, 2026-11-21 02:13:58 ~ 02:14:00 KST): 공개 최소 빌드 상태(`minAppBuild` 795, `effectiveMinAppBuild` 795, revision 3, `liveAppBuild` 833, `reportedLiveAppBuild` 833, state `valid`, App 보고 02:13:47 KST), `/`(156,069 B)와 `/ko/`(158,948 B)가 HTTP 200으로 `bootstrap.js?cache=v833`을 부르고 진입 `assets/main-FVSmuJyW.js`와 주 CSS `assets/main--vEvUZ5a.css`(최종 관문과 exact-main 후보가 빌드한 이름)를 실으며, CSP `script-src`에 그대로인 핀(`fEshNMQN…`, 이 열차는 미리 실행과 앱 문서 헤더를 바꾸지 않음)이 있고 `'unsafe-inline'`이 없으며 두 문서의 미리 실행 몸통이 핀과 같고, `/service-worker.js`의 `CACHE_VERSION = "v833"`(두 문서의 크기는 9.0.832의 읽기와 같음). 배포 뒤 브라우저 확인(02:14:08 ~ 02:15:14 KST, 릴리스 담당의 헤드리스 Chromium과 WebKit 아이폰, 새 브라우저 문맥의 첫 방문, 운영 홈 읽기만): 두 엔진 모두 시작 화면이 열리고 부팅 실패 화면과 부팅 가드 없이 앱 스타일이 적용됐으며 CSP 위반과 페이지 오류가 0이었다. `ja-JP`, `zh-CN`, `zh-TW` 첫 방문은 한자 가족 가운데 자기 가족(Noto Sans JP 면 22개, SC 11개, TC 13개)만 받기 시작했고 다른 한자 가족은 없었다. `en-US`는 Inter 면 14개를 선언하고 시작 화면에서 기호 면은 공백 면 하나만 받았고(≤를 그린 뒤 수학 면을 더 받음), `ko-KR`은 시작 화면에서 기호 면을 받지 않았다(≤를 그린 뒤 수학 면만, 받은 면은 모두 200). 이 첫 방문은 시작 화면과 글꼴만 읽어 이 열차의 스크롤 막대는 보지 않는다. 이 기록까지 기기 판정은 없다(§2 9.0.833 절의 블라인드 기기 후보) |
+| 최소 앱 빌드           | 795(Phase 5.5 F2, 2026-10-30 00:12:41 KST [set 40899114265](https://github.com/hiefny/MUSIXQUARE/actions/runs/40899114265), revision 3. 그 앞 바닥은 789와 첫 최소 빌드 787). 이 실행은 바꾸지 않았다(`raise_app_build_floor` false, 9.0.833은 새 바닥에 기대지 않음: 방 안 통신, PRO 요청과 응답, 서버 계약, 저장 모양이 같고, 바뀐 것은 그 기기 안의 스크롤 막대 그림과 입력뿐이라 9.0.22 ~ 9.0.832 탭과 같은 방에서 그대로 함께 쓴다). live App은 이제 833이고(공개 최소 빌드 상태와 Drift Audit) 유효 최소 빌드는 저장값과 live 보고 중 낮은 795다. 9.0.22(795) 이상은 새 입장과 재접속이 되고, 9.0.21 이하는 거절되며 다시 열면 회복한다 |
+| 복구                   | 성공한 실행이라 rollback 불필요·미실행, 독립 recovery job(Preserve failed-release recovery boundary) skipped, 실패 자동 복구 단계도 skip이다. 배포 전 [checkpoint](https://github.com/hiefny/MUSIXQUARE/actions/runs/44780691557/artifacts/14651313108)(artifact 14651313108, 'Captured immutable recovery checkpoint for app', 02:11:48 KST, 올림 02:11:52 KST)는 App 하나(배포 전 운영 App 9.0.832 / v832, deployment `a7b2e737`, version `d8f27952-a7ca-464d-ab2a-40d335547e55`, message `git:8fc3c7b7…`)를 보존하고(배포 전 'Record current app deployment'의 읽기(02:12:17 ~ 02:12:19 KST)와 App 배포 직전 'Verified unchanged production deployment for app'(02:12:26 KST)도 같은 배포), Worker 호환 floor도 함께 담는다(status `ready`, release `71f5b96c`, floor release `4c5612d5`, App의 출처는 verified-release-ancestor). `app`에는 R2 정책이 없다. 이 기록은 그 artifact와 deployment 기록(artifact 14651103596, 파일 32개), 커밋 표지(artifact 14651082097, `production-committed.json`)의 파일을 읽었다. 다른 다섯 Worker는 이 릴리스가 바꾸지 않았고, PRO room의 되돌리기 기준은 R4의 checkpoint(artifact 12971063046), 넷은 9.0.22의 checkpoint(artifact 12886313200)다(§4). `app`의 smoke는 HTTP뿐이라 9.0.833이 스크롤 막대를 깨뜨리는 결함에는 자동 복구가 돌지 않으므로 배포 뒤 확인이 그 몫이다(§2). 이 릴리스의 되돌리기 경계는 §4 머리의 현재 경계 줄 (5)와 §4의 'App 9.0.833 열차' 항목이다: 새 경계는 없고, 보통 길은 가장 최근 main 위에서 이 열차의 squash `884015a0`을 되돌리는 9.0.834 / v834 이상(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다)의 앞으로 되돌리기이며, 급할 때 9.0.833의 코드를 빼는 Cloudflare App 되돌리기 대상은 이 실행 checkpoint의 9.0.832 App `d8f27952`이다(§2 9.0.833 절의 되돌리기) |
+| 활성 복구 floor        | 앱 버전 최소 빌드 795(위 '최소 앱 빌드'). target `app`이라 PRO generation readiness의 읽기·막기·복원 단계는 skip이었다(마지막 기록은 9.0.22가 되돌린 `ready`, release `71f5b96c`, floor release `4c5612d5`이고 이 실행의 Worker floor checkpoint도 같음). 이미 있는 바닥 셋(신호 8.0.8, 일반방 입장 bootstrap 8.3.16, PRO 하트비트 9.0.0)은 그대로이고 최소 빌드가 그 위에 있다. 9.0.833은 계약 표지, forward floor, 새 되돌리기 경계를 더하지 않았다(그래서 실패한 `app` 실행의 자동 복구를 막지 않는다. 낮은 epoch로 가는 손 되돌리기의 규칙은 §2 9.0.29 절, App Worker CLI 되돌리기의 한계는 §4). 9.0.25가 문서로 적은 경계와 R2가 적은 두 경계(§4 머리의 현재 경계 줄 (4), (6) ~ (9))는 schemaVersion 1을 읽지 않는 9.0.26 ~ 9.0.833에도 그대로다 |
+| 검증 범위              | Exact-main CI [44778965456](https://github.com/hiefny/MUSIXQUARE/actions/runs/44778965456) success(push, attempt 1, 11 jobs, 02:00:14 ~ 02:10:11 KST): Production release candidate(02:00:17 ~ 02:01:46), Release tooling coverage(~ 02:01:48, 시험 파일 14개 463 통과), Worker runtime coverage(~ 02:02:35), Types and source guards(~ 02:03:17), Critical runtime coverage(~ 02:03:36), Lint and formatting(~ 02:04:30), Static checks(02:04:32 ~ 02:04:36), Unit tests (1/2)와 (2/2)(02:05:20, 02:09:12에 끝남), Critical browser gate(02:01:48 ~ 02:08:49, 운영 후보 브라우저·서비스 워커 smoke 19 passed, critical 경로 101 passed), Broad unit coverage(02:09:14 ~ 02:10:10). Worker runtime coverage, Critical runtime coverage, 단위 시험 둘, Broad unit coverage의 행 수는 이 기록이 읽지 않았다. Production release candidate job은 release identity 'MUSIXQUARE 9.0.833; service-worker cache epoch v833'과 `guard:sw-cache-version` 'PASS: v833 (884015a0) covers all committed PWA runtime changes.'를 냈다. 그 job의 옛 TV 빌드 검사와 `guard:initial-transfer-budget`은 통과했다(Chromium 79 정적 호환 검사의 `main-FVSmuJyW.js`와 `main--vEvUZ5a.css`, 진입 839.9 KiB raw / 248.4 KiB gzip, eager JS 460.0 KiB gzip, eager total 2005.0 KiB raw / 537.7 KiB gzip, eager 글꼴 0.0 KiB, 모든 양의 예산에 5% 여유). 릴리스의 Validate가 이 SHA의 exact-main 후보를 골랐고(02:10:29 ~ 02:10:41 KST), deploy job이 후보(artifact 14651356072)를 내려받아 digest를 확인하고 `release:verify`로 릴리스 파일 937개를 확인했으며, 시간에 민감한 운영 보안 가드('[prod-security-guard] OK: no unapproved bypass or retired rollout flags.')와 여섯 Worker 번들의 dry-run(Wrangler 4.148.0)이 통과했다. 최종 관문(보고서 §6.6: 단위 794 파일 19,411 통과·1 건너뜀, 스크롤 막대나 호버 관문을 언급하는 Chromium 17파일 280 통과, WebKit 레인 214 통과·12 건너뜀, 검토 뒤 더한 브라우저 실행 1, 19, 101, 2 통과)은 로컬 결과이고 exact-main 후보를 대신하지 않는다 |
 | 잔여 성능 조사         | 리버브 팝 원인은 실기기에서 미확정이다(9.0.0 이후 변화 없음). 9.0.0으로 리버브 Off의 계산은 거의 0이 됐고 켠 상태에서도 가상 저음·익사이터 몫이 빠졌다. 제보 기기 재확인은 §2에 유지한다. 허용 위험 #18은 2026-10-25 운영 9.0.10의 오너 실기기 확인으로 은퇴했다([은퇴 기록](known-accepted.md#retired-risks), §2 최근 해결 근거) |
-| Operations Drift Audit | 두 번째 실행 뒤 [44672399718](https://github.com/hiefny/MUSIXQUARE/actions/runs/44672399718), `8fc3c7b7`(workflow_dispatch, attempt 1, 13:08:28 ~ 13:09:02 KST) success, 결과 automated-checks-passed: 요약 표는 32 pass / 0 fail / 5 manual-only다. App build floor 행은 'Stored floor 795 (enforced 795) is within the live App build 832 reported 11 s ago.'다. 첫 실행 뒤의 [44648415498](https://github.com/hiefny/MUSIXQUARE/actions/runs/44648415498)(workflow_dispatch, `8fc3c7b7`, attempt 1, 09:45:44 KST 생성, 09:46:25 KST에 끝남)도 success, automated-checks-passed, 32 pass / 0 fail / 5 manual-only였고, App build floor 행은 'Stored floor 795 (enforced 795) is within the live App build 832 reported 33 s ago.'였다. 그 표의 MANUAL 다섯(zone route, Access와 MFA, WAF와 비용 알림, 두 번째 Git 배포 길, main 리뷰·필수 검사 정책)은 이 저장소가 증명하지 않는 계정 단위 상태다 |
-| Full E2E               | 매주 월 18:17 UTC. 9.0.832의 머지 뒤 Full E2E [44648826932](https://github.com/hiefny/MUSIXQUARE/actions/runs/44648826932)(workflow_dispatch, main `8fc3c7b7`, 2026-11-20 09:48:53 KST 생성)는 첫 릴리스 실행 뒤, 두 번째 실행 전에 같은 커밋에서 돌았고 attempt 1 success였다. 운영 large-room R2 smoke(09:48:56 ~ 09:50:19 KST) 1 passed(29.5초), `webkit-mobile`(Linux WebKit iPhone, 09:48:56 ~ 09:57:03 KST) 213 passed·10 skipped(6.7분)와 운영 빌드 SW 시험 1 passed(8.6초), `e2e`(Linux Chromium, 09:48:56 ~ 11:17:16 KST) 1170 passed(1.5시간). `webkit-mobile`은 이 열차가 다시 엄격하게 한 세션 초기화 행(`e2e/boot-splash.test.ts:352`, 'session reset screen › shows the splash's wordmark and loader without text, and the page it opens continues them')을 포함해 실패가 없어, 이 기록이 §2 9.0.831 절의 'Full E2E 44467012706 attempt 1의 세션 초기화 화면 불투명도' 항목을 닫는다(최근 해결 근거). 열차를 만든 PC에서 가끔 실패하던 Chromium `e2e/keyboard-focus-ring.test.ts`의 한 행(대화상자를 키보드로 오가는 행)도 이 실행에서는 통과했다. `8fc3c7b7`은 두 실행이 낸 운영 App의 메시지와 같은 커밋이고 이 실행은 exact-main 후보가 아니다(후보는 exact-main CI 44646196225). 앞 머지 뒤 실행은 #616 뒤 main `771af223`의 [44467012706](https://github.com/hiefny/MUSIXQUARE/actions/runs/44467012706)(`webkit-mobile` attempt 1이 세션 초기화 행 하나로 실패하고 그 job만 다시 돌린 attempt 2에서 통과)이다 |
-| 의존성·호환            | App 9.0.832 열차(세션 초기화 화면의 페이드인, target `app`, 2026-11-20 09:42 KST 첫 실행이 배포하고 13:06 KST 같은 커밋을 다시 배포): 신규 npm 의존성·D1 스키마·비밀·바인딩·Wrangler 설정·CORS·응답 헤더(앱 문서 CSP 포함, 미리 실행 핀 `fEshNMQN…` 그대로)·계약 표지·IndexedDB·localStorage·sessionStorage 데이터 모양(다음 페이지로 넘기는 sessionStorage 표지와 그 시점 규칙 포함)·신호와 중계 프레임 모양·PRO 요청과 응답·서비스 워커 코드·번역 문구 변경 없음(`package.json`과 `package-lock.json`은 버전 줄뿐). 바뀐 것: 세션 초기화 화면이 페이지를 떠나기 전에 기다리는 규칙(`src/core/session-reset.ts`, RO-23의 주인을 제자리에서 넓힘)과 새 시간 값 하나 `RESET_FIRST_FRAME_LIMIT_MS` 800(`src/core/navigation-contract.ts`, RO-23의 시간 값 집). 운영(App 9.0.831 `0889df09`, PRO room R4 `683074bc`, 다른 넷 9.0.22 `71f5b96c`)과 견준 바뀐 런타임 경로는 App 6개(`src/core/session-reset.ts`, `src/core/navigation-contract.ts`, 버전 거울 넷 `index.html`·`cloudflare/app-worker.ts`·`browser/classic-runtime/admin.ts`·`scripts/service-worker-asset.ts`)이고 다른 다섯 Worker는 0개다(릴리스의 부분 릴리스 판정 compatible. 6개는 보고서 §7과 이 기록의 git 대조). 계약 경로(`cloudflare/`, `src/network/`, `src/chat/protocol.ts`, `src/core/`, `src/types/`)의 차이는 `cloudflare/app-worker.ts`의 버전 한 줄, `src/core/session-reset.ts`, `src/core/navigation-contract.ts`와 `src/core/__tests__`의 시험 둘뿐이다(이 기록의 git 대조). 서비스 워커 캐시 epoch는 v832이고 업데이트 창이 한 번 뜬다(두 번째 실행은 다시 띄우지 않음). 섞인 버전: 바뀐 것은 그 기기 안에서 페이지를 떠나기 전의 기다림뿐이라 9.0.831 이하 탭과 같은 방에서 그대로 함께 쓴다[추론: 섞인 방을 따로 시험하지 않음] |
+| Operations Drift Audit | [44781234453](https://github.com/hiefny/MUSIXQUARE/actions/runs/44781234453), `884015a0`(workflow_dispatch, attempt 1, 02:13:40 ~ 02:14:18 KST) success, 결과 automated-checks-passed(보고서 02:14:05 KST): 요약 표는 32 pass / 0 fail / 5 manual-only다. App build floor 행은 'Stored floor 795 (enforced 795) is within the live App build 833 reported 27 s ago.'다. 그 표의 MANUAL 다섯(zone route, Access와 MFA, WAF와 비용 알림, 두 번째 Git 배포 길, main 리뷰·필수 검사 정책)은 이 저장소가 증명하지 않는 계정 단위 상태다 |
+| Full E2E               | 매주 월 18:17 UTC. 9.0.833의 머지 뒤 Full E2E [44781228681](https://github.com/hiefny/MUSIXQUARE/actions/runs/44781228681)(workflow_dispatch, main `884015a0`, 2026-11-21 02:13:38 KST 생성)는 릴리스 뒤에 돌았고 attempt 1 success였다(03:43:43 KST에 끝남). 운영 large-room R2 smoke(02:13:42 ~ 02:15:08 KST) 1 passed(27.3초), `webkit-mobile`(Linux WebKit iPhone, 02:13:41 ~ 02:21:20 KST) 226행 가운데 214 passed·12 skipped(6.4분)와 운영 빌드 SW 시험 1 passed(7.4초), `e2e`(Linux Chromium, 02:13:41 ~ 03:43:42 KST) 1173 passed(1.5시간). 세 job의 로그에 실패, 불안정, 재시도 줄이 없다. `e2e`는 9.0.832의 실행(1170 passed)보다 세 행 많고, 그 셋은 이 열차가 `e2e/custom-scrollbar-timeline.test.ts`에 더한 행(오너 변경의 호버 행, 포인터가 머문 막대 위의 휠 행, 숨은 썸에서 시작한 손가락 밀기의 터치 행)으로 모두 통과했다. `webkit-mobile`의 수는 이 열차의 최종 관문의 WebKit 레인(214 통과·12 건너뜀, 보고서 §6.6)과 같다. `884015a0`은 운영 App의 메시지와 같은 커밋이고 이 실행은 exact-main 후보가 아니다(후보는 exact-main CI 44778965456). 앞 머지 뒤 실행은 9.0.832의 첫 릴리스 실행 뒤 main `8fc3c7b7`의 [44648826932](https://github.com/hiefny/MUSIXQUARE/actions/runs/44648826932)(attempt 1 success)다 |
+| 의존성·호환            | App 9.0.833 열차(스크롤 막대의 호버 나타남과 붙잡기, 숨은 막대의 손가락 통과, target `app`, 2026-11-21 02:13 KST 배포): 신규 npm 의존성·D1 스키마·비밀·바인딩·Wrangler 설정·CORS·응답 헤더(앱 문서 CSP 포함, 미리 실행 핀 `fEshNMQN…` 그대로)·계약 표지·IndexedDB·localStorage·sessionStorage 데이터 모양·신호와 중계 프레임 모양·PRO 요청과 응답·서비스 워커 코드·번역 문구 변경 없음(`package.json`과 `package-lock.json`은 버전 줄뿐). 바뀐 것: 사용자 정의 스크롤 막대의 호버 나타남, 막대 붙잡기, 막대 위 휠과 숨은 썸의 포인터 통과(`css/style.css`, `src/ui/custom-scrollbar.ts`)와 호버를 켜는 판단 `isHoverInput`의 내보내기(`src/ui/hover-pointer.ts`, 호버 관문의 동작 그대로). 자원 주인은 새 레코드 없이 RO-27의 흐름 목록에 막대 위 휠의 이름만 더했다. 운영(App 9.0.832 `8fc3c7b7`, PRO room R4 `683074bc`, 다른 넷 9.0.22 `71f5b96c`)과 견준 바뀐 런타임 경로는 App 7개(`css/style.css`, `src/ui/custom-scrollbar.ts`, `src/ui/hover-pointer.ts`, 버전 거울 넷 `index.html`·`cloudflare/app-worker.ts`·`browser/classic-runtime/admin.ts`·`scripts/service-worker-asset.ts`)이고 다른 다섯 Worker는 0개다(릴리스의 부분 릴리스 판정 compatible. 7개는 보고서 §8과 이 기록의 git 대조). 운영 9.0.832 뒤 main에 먼저 들어간 #620(`d8c90edc`)은 릴리스 도구(`.github/workflows/release.yml`, `scripts/release-deployment-state.mts`)와 그 시험, 문서(`cloudflare/remote-share-ops.md` 포함)뿐이라 어느 Worker의 런타임 경로에도 들지 않는다. 계약 경로(`cloudflare/`, `src/network/`, `src/chat/protocol.ts`, `src/core/`, `src/types/`)의 차이는 `cloudflare/app-worker.ts`의 버전 한 줄과 #620의 `cloudflare/remote-share-ops.md`(운영 문서), `src/core/__tests__/release-deployment-state.test.ts`(시험)뿐이다(이 기록의 git 대조). 서비스 워커 캐시 epoch는 v833이고 업데이트 창이 한 번 뜬다. 섞인 버전: 바뀐 것은 그 기기 안의 스크롤 막대 그림과 입력뿐이라 9.0.832 이하 탭과 같은 방에서 그대로 함께 쓴다[추론: 섞인 방을 따로 시험하지 않음] |
 
 ## 2. 열린 확인 항목
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### App 9.0.833 / v833 열차(스크롤 막대가 마우스·펜을 올리면 나타나고 막대 위에 있는 동안 남음, 숨은 막대는 손가락도 통과, 9.0.833/v833) 배포 전: 증분 하나([화면 바뀜] 모든 사용자 정의 스크롤 막대의 호버와 손가락), 오너가 직접 만든 변경 그대로와 그 검증이 찾은 결함의 고침, 미병합·미배포
+### App 9.0.833 / v833 열차(스크롤 막대가 마우스·펜을 올리면 나타나고 막대 위에 있는 동안 남음, 숨은 막대는 손가락도 통과, 9.0.833/v833) 배포 뒤 확인: Release 44780691557이 attempt 1에 성공했고(#620 뒤 첫 App 릴리스로, 배포 단계의 기록이 `record-current app`을 기다림 모드로 돌려 첫 읽기에서 새 배포를 봐 아래 9.0.832 절의 릴리스 도구 항목의 닫는 근거 (1)을 채움), 릴리스 smoke와 공개 읽기(최소 빌드 상태, `/`와 `/ko/`의 `bootstrap.js?cache=v833`과 진입 자산 이름, 그대로인 CSP 핀과 미리 실행 몸통, 서비스 워커)와 헤드리스 Chromium·WebKit 첫 방문(시작 화면과 CSP 위반 0, 일본어·중국어 첫 방문의 한자 가족, 영어·한국어 시작 화면의 기호 면)만 봤고, 기기 판정은 아직, 머지 뒤 Full E2E는 첫 시도에 통과(이 열차가 더한 스크롤 막대 세 행 포함)
 
-- [ ] 범위와 상태(미병합·미배포): 9.0.832 / v832 다음 App 업데이트인 9.0.833 / v833(App 빌드 833)으로 target `app`, 업데이트 창 한 번, 바닥 795
-      그대로(`raise_app_build_floor` false, Developer API D1 false)다. 열차 갈래는 main `4e012ad1`(#619) 위 커밋 여섯(오너 변경 그대로 `cefea6e5`,
-      시험만 `e11cae19`, 고침 `e9629161`과 `c9e86a59`, 터치 행 `b3e39e00`, 버전 올리기 `3fbe9c64`)과 문서다. 오너 변경: 마우스나 펜이 넘치는 스크롤
-      영역에 들어오거나 움직이면 막대가 나타나고(썸 0.2), 호버 포인터가 막대 위에 있는 동안 사라지지 않으며(포인터가 썸 위에 있으면 썸 0.4), 끄는 동안 썸은 0.6이고, 숨은
-      막대의 썸이 더는 포인터와 손가락을 받지 않는다(`.cscroll-thumb`의 `pointer-events: auto`를 지움). 검증이 찾아 실패 시험을 먼저 더하고 고친 것:
-      호버로 띄운 막대가 스크롤 세션의 한 번 다시 재기를 끔, 붙잡기가 호버 관문 하나를 따르지 않음(이제 관문 아래 막대의 :hover를 포커스 있는 창에서
-      묻고, `src/ui/hover-pointer.ts`가 호버를 켜는 판단 `isHoverInput`을 내보내 함께 씀), 숨은 막대를 넘침 캐시로 보임, 안쪽 영역의 막대 위에서 바깥
-      막대가 나타남, 붙잡힌 막대 위 휠이 아무것도 굴리지 않음(이제 목록으로 넘김), 고침 검토가 찾은 것으로 손가락이 막대를 떠날 때도 카운트다운이 다시
-      시작함. 기존 e2e 한 행은 느린 기계에서 사라짐이 끼어들지 않게 다졌다(실패 시험 없음). 새 터치 e2e 행은 숨은 썸에서 시작한 손가락 밀기가 목록을 굴리고 썸을 끌지 않음을 고정한다(main에서 실패, 갈래에서 10번 중 10번
-      통과, WebKit 레인은 건너뜀). 버전 올리기 `3fbe9c64`가 마지막 런타임 커밋이고 그 뒤는 문서뿐이다. 최종 관문과 검토 뒤 더한 브라우저 실행(CI 후보 job의 셋과 초점 고리 파일 하나, 모두 통과)은 보고서 §6.6, 사진은 §7이다. 운영
-      9.0.832(`8fc3c7b7`)와 견준 App 런타임 경로는 7개(`css/style.css`, `src/ui/custom-scrollbar.ts`, `src/ui/hover-pointer.ts`와 버전 거울 넷), 다른
-      다섯 Worker는 0개다. 자원 주인: 새 레코드 없음, RO-27의 흐름 목록에 막대 위 휠의 이름만 더함, `check-resource-ownership` 기준값 그대로.
+- [ ] 범위와 상태(오너 결정 2026-11-20, PR #621, 배포 뒤): 운영이던 9.0.832 / v832(아래 9.0.832 절) 다음 App 업데이트로 App 9.0.833 / v833(App 빌드 833,
+      target `app`, 업데이트 창 한 번)이 2026-11-21 02:13 KST에 운영에 올랐다([Release 44780691557](https://github.com/hiefny/MUSIXQUARE/actions/runs/44780691557)
+      attempt 1 성공, App `d8f27952` → `fedf9e18`(deployment `979752a1`)). 바닥은 795 그대로다(`raise_app_build_floor` false, Developer API D1 false).
+      열차 갈래(main `4e012ad1`(#619) 위 커밋 여섯과 문서 둘 `d7506bc0`, `ea1d632d`)가 #621로 2026-11-21 02:00:11 KST에 main `884015a0`에 squash로
+      머지됐다(머지 트리는 `ea1d632d`의 트리와 같다). 배포 조건(배포 전 이 절)은 이렇게 채웠다: (1) 한 번에 한 열차였고, 9.0.832가 배포되고
+      기록됐으며(#619) 그 머지 뒤 Full E2E 44648826932가 attempt 1에 통과한 뒤 main `4e012ad1` 위의 갈래였다(머지 `884015a0`의 부모도 `4e012ad1`).
+      머지에서 deploy job까지 main은 움직이지 않았고('Verify release commit is still current main' 통과, 02:11:02 KST), 이 배포까지 런타임 의존성
+      변경은 머지되지 않았다(열린 PR은 Dependabot 묶음 #297뿐). (2) 버전 올리기 `3fbe9c64`가 마지막 런타임 커밋이고 그 머리의 최종 관문과 검토 뒤
+      더한 브라우저 실행이 모두 통과했다(보고서 §6.6). (3) 머지 전 PR CI [44748634942](https://github.com/hiefny/MUSIXQUARE/actions/runs/44748634942)(attempt
+      1, 11 jobs, 2026-11-20 22:55:43 ~ 23:07:56 KST)는 success였다. exact-main CI 44778965456 success(02:10:11 KST에 끝남) 뒤 Release target `app`,
+      Developer API D1 false, `raise_app_build_floor` false를 dispatch했고(§1), 열차 PR 머지와 deploy job 시작 사이에 기록 PR은 머지되지 않았다.
+      (4) 배포 뒤 공개 읽기, 첫 방문, Operations Drift Audit은 아래 배포 직후 확인과 §1이고, 머지 뒤 Full E2E는 아래 다음 단계 (1)이다(첫 시도에 통과).
+      실은 것(배포 전 이 절이 적은 그대로): 오너 변경: 마우스나 펜이 넘치는 스크롤 영역에 들어오거나 움직이면 막대가 나타나고(썸
+      0.2), 호버 포인터가 막대 위에 있는 동안 사라지지 않으며(포인터가 썸 위에 있으면 썸 0.4), 끄는 동안 썸은 0.6이고, 숨은 막대의 썸이 더는
+      포인터와 손가락을 받지 않는다(`.cscroll-thumb`의 `pointer-events: auto`를 지움). 검증이 찾아 실패 시험을 먼저 더하고 고친 것: 호버로 띄운
+      막대가 스크롤 세션의 한 번 다시 재기를 끔, 붙잡기가 호버 관문 하나를 따르지 않음(이제 관문 아래 막대의 :hover를 포커스 있는 창에서 묻고,
+      `src/ui/hover-pointer.ts`가 호버를 켜는 판단 `isHoverInput`을 내보내 함께 씀), 숨은 막대를 넘침 캐시로 보임, 안쪽 영역의 막대 위에서 바깥
+      막대가 나타남, 붙잡힌 막대 위 휠이 아무것도 굴리지 않음(이제 목록으로 넘김), 고침 검토가 찾은 것으로 손가락이 막대를 떠날 때도 카운트다운이
+      다시 시작함. 기존 e2e 한 행은 느린 기계에서 사라짐이 끼어들지 않게 다졌다(실패 시험 없음). 새 터치 e2e 행은 숨은 썸에서 시작한 손가락 밀기가
+      목록을 굴리고 썸을 끌지 않음을 고정한다(main에서 실패, 갈래에서 10번 중 10번 통과, WebKit 레인은 건너뜀). 운영 9.0.832(`8fc3c7b7`)와 견준 App
+      런타임 경로는 7개(`css/style.css`, `src/ui/custom-scrollbar.ts`, `src/ui/hover-pointer.ts`와 버전 거울 넷), 다른 다섯 Worker는 0개다. 자원
+      주인: 새 레코드 없음, RO-27의 흐름 목록에 막대 위 휠의 이름만 더함, `check-resource-ownership` 기준값 그대로.
       [보고서](design/app-9-0-833-train-2026-11-20.md).
 - [ ] 기댄 오너 결정과 규칙(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-20 오너가 main `4e012ad1` 위에서 스크롤 막대를 직접 바꿨고(커밋
       전 변경, 16:39:20 KST 스냅샷, 패치 SHA-256 `e9421e1f…`, 오너의 작업 폴더에 남은 변경도 바이트까지 같음), 이 열차는 그것을 고치지 않고 첫
@@ -69,34 +79,55 @@ gh run list --workflow e2e.yml --branch main --limit 3
       담당이 지금 동작 그대로 두고 한계로 적게 했다(다르게 하려면 오너에게 물음). 호버 관문 하나(2026-10-27), 배포 허가(2026-11-11), 바로 배포
       원칙(2026-10-25), 최종 관문은 지금처럼(2026-11-17). 기기 근거는 게이트가 아니다. [오너
       결정](design/app-9-0-833-train-2026-11-20.md#1-오너-결정).
-- [ ] 배포 조건(모두 채운 뒤에만 머지하고 dispatch한다): (1) 한 번에 한 열차이고 9.0.832 / v832 다음이다. 9.0.832가 배포되고 기록됐으며(#619), 그
-      머지 뒤 Full E2E 44648826932가 attempt 1에 통과했고(9.0.832 절), 이 갈래는 main `4e012ad1`(#619) 위에 있다. 그 뒤 main이 움직이면 다시 옮기고
-      관문을 다시 돈다. 이 배포까지 런타임 의존성 변경(Dependabot 포함)을 머지하지 않는다. (2) 버전 올리기 `3fbe9c64`가 마지막 런타임 커밋이고 그
-      머리의 최종 관문이 통과했다(보고서 §6.6). (3) PR CI 뒤 머지하고, exact-main CI success 뒤 Release target `app`, Developer API D1 false,
-      `raise_app_build_floor` false를 dispatch한다. 열차 PR 머지와 deploy job 시작 사이에 기록 PR을 머지하지 않는다. (4) 배포 뒤 공개 읽기(최소 빌드
-      상태 `liveAppBuild` 833, `/`와 `/ko/`의 `bootstrap.js?cache=v833`과 그대로인 CSP 핀, 서비스 워커 `v833`), 헤드리스 첫 방문, 머지 뒤 Full E2E,
-      Operations Drift Audit. [릴리스 담당이 할 일](design/app-9-0-833-train-2026-11-20.md#11-릴리스-담당이-할-일).
-- [ ] 9.0.832 절의 열린 항목과의 관계(게이트 아님): '배포 뒤 한 번 읽기에 기대는 릴리스 도구'의 닫는 근거 (1)이 말하는 변경(정해진 한도 안의 다시
-      읽기, `record-current`)은 #620(`d8c90edc`)으로 main에 있고 이 갈래의 바탕 아래에 있다. 이 열차가 그 뒤 첫 App 릴리스가 되면, 배포 기록 PR이 이
-      릴리스의 배포 단계 로그에서 App의 `record-current app wait`가 쓰였는지 보고 그 항목에 적는다. 그 항목의 (2)(남은 세 가지의 오너 결정)는 이
-      열차와 무관하고, 이 열차는 릴리스 도구를 바꾸지 않는다. [릴리스 담당이 할
-      일](design/app-9-0-833-train-2026-11-20.md#11-릴리스-담당이-할-일).
-- [ ] 되돌리기(보고서 §9): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash를 되돌리는 다음 App 업데이트(9.0.834 / v834 이상)의 앞으로
-      되돌리기다. 실패한 `app`의 자동 복구는 그 릴리스 checkpoint의 App, 곧 dispatch 때의 운영 App(지금은 9.0.832 / v832의 `d8f27952`)으로 간다(795
-      이상이라 `lower` 불필요, PRO 그대로). 섞인 버전: 바뀐 것은 그 기기 안의 스크롤 막대 그림과 입력뿐이라 9.0.832 이하 탭과 그대로 함께
-      쓴다[추론: 섞인 방을 따로 시험하지 않음]. [되돌리기](design/app-9-0-833-train-2026-11-20.md#9-되돌리기와-섞인-버전).
+- [ ] 되돌리기(보고서 §9): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `884015a0`(#621)을 되돌리는 9.0.834 / v834 이상(버전 끝자리가
+      App 빌드 번호이고 둘째 자리는 오너가 정한다. 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 되돌리기다. 급할 때 9.0.833의 코드를 빼는
+      Cloudflare App 되돌리기 대상은 이 릴리스의 checkpoint App(artifact 14651313108, 9.0.832 / v832 `8fc3c7b7`의 App `d8f27952`, 빌드 832, 795 이상이라
+      `lower` 불필요, PRO 그대로)이고, 낮은 epoch로 가므로 §4의 현재 경계 줄 (5)와 아래 9.0.29 절의 열린 항목을 따른다. 미리 실행과 CSP 핀은 이
+      열차가 바꾸지 않아 되돌린 App도 같은 핀을 낸다. 실패한 `app`의 자동 복구는 그 실행의 checkpoint App(9.0.832 `d8f27952`)으로 가고, 이 실행은
+      성공해 복구는 돌지 않았다. 섞인 버전: 바뀐 것은 그 기기 안의 스크롤 막대 그림과 입력뿐이라 9.0.832 이하 탭과 그대로 함께 쓴다[추론: 섞인 방을
+      따로 시험하지 않음]. §4 이 릴리스 항목과 현재 경계 줄 (5)가 같은 것을 적는다.
+      [되돌리기](design/app-9-0-833-train-2026-11-20.md#9-되돌리기와-섞인-버전).
+- [ ] 배포 직후 확인(게이트 아님, 보고서 §6.9): 결과. 릴리스 smoke 넷은 첫 시도에 통과했고 최종 소유권 확인은 verified였다(§1). (a) 공개 읽기:
+      릴리스 담당의 읽기에서 02:13:58 ~ 02:14:00 KST에 공개 최소 빌드 상태는 `minAppBuild` 795, `effectiveMinAppBuild` 795, revision 3, `liveAppBuild`
+      833, `reportedLiveAppBuild` 833, state `valid`였다. `/`(156,069 B)와 `/ko/`(158,948 B)가 HTTP 200으로 `bootstrap.js?cache=v833`을 부르고 진입
+      `assets/main-FVSmuJyW.js`와 주 CSS `assets/main--vEvUZ5a.css`(최종 관문과 exact-main 후보가 빌드한 이름, 보고서 §6.6)를 실었다(두 크기는
+      9.0.832의 읽기와 같음). CSP `script-src`에 그대로인 핀(`fEshNMQN…`)이 있고 `'unsafe-inline'`이 없으며 두 문서의 미리 실행 몸통이 핀과 같았다.
+      `/service-worker.js`는 `CACHE_VERSION = "v833"`이었다. (b) 첫 방문(릴리스 담당의 헤드리스 브라우저, 운영 홈 읽기만, 02:14:08 ~ 02:15:14 KST):
+      Chromium과 WebKit 아이폰 모두 시작 화면이 열리고 부팅 실패 화면과 부팅 가드 없이 앱 스타일이 적용됐으며 CSP 위반과 페이지 오류가 0이었다.
+      `ja-JP`, `zh-CN`, `zh-TW` 첫 방문은 한자 가족 가운데 자기 가족(Noto Sans JP 면 22개, SC 11개, TC 13개)만 받기 시작했고 다른 한자 가족은
+      없었다. `en-US`는 Inter 면 14개를 선언하고 시작 화면에서 기호 면은 공백 면 하나만 받았고 ≤를 그린 뒤 수학 면을 더 받았으며, `ko-KR`은 시작
+      화면에서 기호 면을 받지 않고 ≤를 그린 뒤 수학 면만 받았다(받은 면은 모두 200). 이 첫 방문은 시작 화면과 글꼴만 읽어 스크롤 막대는 보지
+      않는다. Operations Drift Audit은 §1. (c) 기록 단계: 이 릴리스는 #620 뒤 첫 App 릴리스이고, 배포 단계가 `record-current app`을 기다림
+      모드(`wait`)로 돌려 첫 읽기에서 새 배포를 봤다('app production version d8f27952-… -> fedf9e18-…' 02:12:37 KST, `deployments/app-state.json`의
+      visibilityReads 1, staleReads 없음). 최종 소유권 확인도 한 번 읽어 verified였다. 그래서 아래 9.0.832 절의 릴리스 도구 항목은 닫는 근거
+      (1)이 채워졌고, 다시 읽을 일은 없었으므로 다시 읽는 길 자체는 운영에서 아직 돌지 않았다. (d) 블라인드 기기 후보(오너의 기기 확인, 게이트
+      아님, 판정 기준은 건네지 않음): 마우스나 펜으로 긴 재생목록과 대화상자 목록을 가리키고 막대 위에 머물기, 태블릿 자세에서 펜이나 마우스로 같은
+      것, 휴대폰에서 긴 재생목록의 오른쪽 끝을 엄지로 밀기. 이 기록까지 기기 판정은 없다. 실패하면 먼저 새 서비스 워커(v833)인지 다시 보고, 위
+      되돌리기대로 정한다. 닫는 근거: (d)의 판정. [릴리스 라운드](design/app-9-0-833-train-2026-11-20.md#69-머지-뒤-릴리스-라운드).
+- [ ] 다음 단계(게이트 아님): (1) 이 열차의 머지 뒤 Full E2E: 릴리스 뒤 main `884015a0`에서
+      [44781228681](https://github.com/hiefny/MUSIXQUARE/actions/runs/44781228681)(workflow_dispatch, 02:13:38 KST 생성)을 돌렸고 attempt 1에
+      success였다(03:43:43 KST에 끝남): 운영 large-room R2 smoke(02:13:42 ~ 02:15:08 KST) 1 passed(27.3초), `webkit-mobile`(Linux WebKit iPhone,
+      02:13:41 ~ 02:21:20 KST) 214 passed·12 skipped(6.4분, 최종 관문의 WebKit 레인과 같은 수, 보고서 §6.6)와 운영 빌드 SW 시험 1 passed(7.4초),
+      `e2e`(Linux Chromium, 02:13:41 ~ 03:43:42 KST) 1173 passed(1.5시간). `e2e`는 이 열차가 `e2e/custom-scrollbar-timeline.test.ts`에 더한 세
+      행(호버, 막대 위 휠, 숨은 썸에서 시작한 손가락 밀기)을 포함해 모두 통과했고, 세 job의 로그에 실패, 불안정, 재시도 줄이 없다. 이 실행은
+      exact-main 후보가 아니다(후보는 exact-main CI 44778965456). (2) Operations Drift Audit
+      [44781234453](https://github.com/hiefny/MUSIXQUARE/actions/runs/44781234453)(`884015a0`, workflow_dispatch, 02:13:40 ~ 02:14:18 KST)은 success,
+      automated-checks-passed, 32 pass / 0 fail / 5 manual-only였다(§1). (3) 다음 App 업데이트는 9.0.834 / v834 이상이고(버전 끝자리가 App 빌드 번호,
+      둘째 자리는 오너가 정함), 이 열차의 머지 뒤 Full E2E는 통과했으므로(위 (1)) 이 기록이 머지된 뒤에만 머지한다(한 번에 한 열차).
+      [릴리스 라운드](design/app-9-0-833-train-2026-11-20.md#69-머지-뒤-릴리스-라운드).
 - [ ] 열린 항목과 확인하지 않은 것(게이트 아님): 실제 iPhone, iPad, Android 휴대폰, Mac, 마우스가 있는 Windows 노트북, 태블릿 자세의 변환형
       노트북에서 보지 않았다. 터치 e2e 행과 휴대폰 사진은 Chromium의 터치 흉내(DevTools 프로토콜)로만 돌았고(WebKit 레인은 그 행과 휠 행을 건너뜀),
       고정 장치 패널과 언어 목록이지 실제 트랙 300개 재생목록이 아니다. 남긴 한계 넷(보고서 §10): 릴리스 담당이 그대로 두게 한 셋은 포커스가
       없는 창에서는 막대 위에 있어도 붙잡지 않음, 막대 위 휠은 한 번에 넘어가 부드럽지 않음, Chromium에서 막대가 나타날 때 이미 그 자리에 멈춰 있던
       포인터가 붙잡지 못할 때가 있음(다시 움직이면 붙잡음. WebKit은 붙잡고, main은 붙잡기가 없어 퇴행은 아님)이고, main과 같은 하나는 언어 목록에서
-      보이는 막대의 오른쪽 절반이 목록 상자 밖이라 오른쪽에서 와서 거기 멈춘 마우스로는 막대가 뜨지 않음이다. `security:audit`, `security:signatures`와 Chromium e2e 전체는 만든 PC에서
-      돌리지 않았다(Chromium e2e 전체는 머지 뒤 Full E2E가 돎). 블라인드 기기 후보(오너의 기기 확인, 판정 기준은 건네지 않음): 마우스나 펜으로 긴 재생목록과
-      대화상자 목록을 가리키고 막대 위에 머물기, 태블릿 자세에서 펜이나 마우스로 같은 것, 휴대폰에서 긴 재생목록의 오른쪽 끝을 엄지로 밀기. 닫는 근거:
-      배포 뒤 Full E2E와 오너의 기기 확인. [남긴 한계](design/app-9-0-833-train-2026-11-20.md#10-남긴-한계), [하지 않은
+      보이는 막대의 오른쪽 절반이 목록 상자 밖이라 오른쪽에서 와서 거기 멈춘 마우스로는 막대가 뜨지 않음이다. `security:audit`, `security:signatures`와
+      Chromium e2e 전체는 만든 PC에서 돌리지 않았다(Chromium e2e 전체는 머지 뒤 Full E2E의 `e2e`가 돌아 1173 passed였다, 위 다음 단계
+      (1)). 배포 뒤 운영에서는 위 배포 직후 확인의 릴리스 smoke(HTTP만), 공개 읽기와 헤드리스 첫 방문만 봤다. 블라인드 기기 후보는 위 배포 직후
+      확인 (d). 닫는 근거: 배포 뒤 Full E2E(위 다음 단계 (1), 첫 시도에 통과해 이 몫은 채움)와 오너의 기기 확인(위 배포 직후 확인 (d),
+      아직). [남긴 한계](design/app-9-0-833-train-2026-11-20.md#10-남긴-한계), [하지 않은
       것](design/app-9-0-833-train-2026-11-20.md#68-하지-않은-것과-확인하지-않은-것).
 
-### App 9.0.832 / v832 열차(세션 초기화 화면이 바쁜 페이지에서도 프레임이 오는 한 0.2초 페이드인을 다 보인 뒤 떠남, 9.0.832/v832) 배포 뒤 확인: 첫 Release 44647634158은 App 배포 뒤 기록 단계에서 실패했지만 9.0.832가 운영에 남았고(되돌아가지 않은 것은 우연), 오너가 같은 커밋을 한 번 더 배포하기로 해 Release 44671941713이 attempt 1에 성공했으며(이 기록이 첫 실행의 실패를 그 실행으로 닫음, 아래 최근 해결 근거), 릴리스 smoke(두 번째 실행)와 공개 읽기(최소 빌드 상태, `/`와 `/ko/`의 `bootstrap.js?cache=v832`와 진입 자산 이름, 그대로인 CSP 핀과 미리 실행 몸통, 서비스 워커)와 헤드리스 Chromium·WebKit 첫 방문(시작 화면과 CSP 위반 0, 일본어·중국어 첫 방문의 한자 가족, 영어·한국어 시작 화면의 기호 면)만 봤고, 기기 판정은 아직, 머지 뒤 Full E2E는 첫 시도에 통과(엄격해진 세션 초기화 행 포함), 이 기록이 9.0.831 절의 세션 초기화 화면 불투명도 항목을 그 실행으로 닫음(아래 최근 해결 근거), 배포 뒤 한 번 읽기에 기대는 릴리스 도구는 아래 열린 항목
+### App 9.0.832 / v832 열차(세션 초기화 화면이 바쁜 페이지에서도 프레임이 오는 한 0.2초 페이드인을 다 보인 뒤 떠남, 9.0.832/v832) 배포 뒤 확인: 첫 Release 44647634158은 App 배포 뒤 기록 단계에서 실패했지만 9.0.832가 운영에 남았고(되돌아가지 않은 것은 우연), 오너가 같은 커밋을 한 번 더 배포하기로 해 Release 44671941713이 attempt 1에 성공했으며(이 기록이 첫 실행의 실패를 그 실행으로 닫음, 아래 최근 해결 근거), 릴리스 smoke(두 번째 실행)와 공개 읽기(최소 빌드 상태, `/`와 `/ko/`의 `bootstrap.js?cache=v832`와 진입 자산 이름, 그대로인 CSP 핀과 미리 실행 몸통, 서비스 워커)와 헤드리스 Chromium·WebKit 첫 방문(시작 화면과 CSP 위반 0, 일본어·중국어 첫 방문의 한자 가족, 영어·한국어 시작 화면의 기호 면)만 봤고, 기기 판정은 아직, 머지 뒤 Full E2E는 첫 시도에 통과(엄격해진 세션 초기화 행 포함), 이 기록이 9.0.831 절의 세션 초기화 화면 불투명도 항목을 그 실행으로 닫음(아래 최근 해결 근거), 배포 뒤 한 번 읽기에 기대는 릴리스 도구는 아래 열린 항목(닫는 근거 (1)은 9.0.833의 Release 44780691557이 채웠고, 남은 오너 결정 셋 때문에 열린 채), 다음 App 업데이트 9.0.833 / v833 열차(스크롤 막대의 호버 나타남과 붙잡기, 숨은 막대의 손가락 통과)가 2026-11-21 02:13 KST 그 위로 나감(위 9.0.833 절)
 
 - [ ] 범위와 상태(오너 결정 2026-11-20, PR #618, 배포 뒤): 운영이던 9.0.831 / v831(아래 9.0.831 절) 다음 App 업데이트로 App 9.0.832 / v832(App 빌드 832,
       target `app`, 업데이트 창 한 번)가 2026-11-20 09:42 KST에 운영에 올랐다. 첫 Release 실행(44647634158)은 실패로 끝났고, 오너의 결정으로 같은
@@ -128,7 +159,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       2026-11-19 20:23 ~ 11-20 00:10 KST에 만들었고, 그 가운데 나가기 행이 대비 타이머로 떠난 경우도 통과시키던 부분은 이 열차가 다시 엄격하게 했다.
       배포 허가(2026-11-11), 바로 배포 원칙(2026-10-25), 최종 관문은 지금처럼(2026-11-17). 기기 근거는 게이트가 아니다. [오너
       결정](design/app-9-0-832-train-2026-11-20.md#1-오너-결정), [다시 낸 실행](design/app-9-0-832-train-2026-11-20.md#117-오너의-결정과-두-번째-실행).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `8fc3c7b7`(#618)을 되돌리는 9.0.833 / v833 이상(버전 끝자리가
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `8fc3c7b7`(#618)을 되돌리는 9.0.834 / v834 이상(버전 끝자리가
       App 빌드 번호이고 둘째 자리는 오너가 정한다. 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 되돌리기다. 급할 때 9.0.832의 코드를 빼는
       Cloudflare App 되돌리기 대상은 첫 실행의 checkpoint App(artifact 14589391887, 9.0.831 / v831 `0889df09`의 App `046b29c6`, 빌드 831, 795 이상이라
       `lower` 불필요, PRO 그대로)이고, 낮은 epoch로 가므로 §4의 현재 경계 줄 (5)와 아래 9.0.29 절의 열린 항목을 따른다. 두 번째 실행의 checkpoint
@@ -163,18 +194,26 @@ gh run list --workflow e2e.yml --branch main --limit 3
       후보가 아니다(후보는 exact-main CI 44646196225). (2) Operations Drift Audit은 첫 실행 뒤 [44648415498](https://github.com/hiefny/MUSIXQUARE/actions/runs/44648415498)(`8fc3c7b7`,
       workflow_dispatch, 09:45:44 KST 생성)과 두 번째 실행 뒤 [44672399718](https://github.com/hiefny/MUSIXQUARE/actions/runs/44672399718)(`8fc3c7b7`,
       workflow_dispatch, 13:08:28 ~ 13:09:02 KST)이 모두 success, automated-checks-passed, 32 pass / 0 fail / 5 manual-only였다(§1). (3) 다음 App 업데이트는
-      9.0.833 / v833 이상이고(버전 끝자리가 App 빌드 번호, 둘째 자리는 오너가 정함), 이 기록이 머지된 뒤에만 머지한다(한 번에 한 열차). 첫 실행의
-      실패는 오너가 고른 다시 배포(Release 44671941713)로 맞췄고(최근 해결 근거), 배포 뒤 한 번 읽기에 기대는 릴리스 도구는 아래 열린 항목이다.
+      이 기록이 머지된 뒤에만 머지했다(한 번에 한 열차). 9.0.833 / v833 열차가 #621로 머지돼 2026-11-21 02:13 KST에 그 위로 나갔다(위 9.0.833 절). 첫
+      실행의 실패는 오너가 고른 다시 배포(Release 44671941713)로 맞췄고(최근 해결 근거), 배포 뒤 한 번 읽기에 기대는 릴리스 도구는 아래 열린 항목이다(닫는
+      근거 (1)은 9.0.833의 릴리스가 채움).
       [릴리스 라운드](design/app-9-0-832-train-2026-11-20.md#611-머지-뒤-릴리스-라운드).
 - [ ] 배포 뒤 한 번 읽기에 기대는 릴리스 도구(게이트 아님): 9.0.832의 두 실행에서 App 배포 뒤의 기록 단계와 최종 소유권 확인은 Cloudflare 배포
       목록을 한 번만 읽고 그 답을 믿었다(첫 실행이 그 한 번 읽기의 옛 답으로 실패했고, 두 번째 실행은 그 읽기가 새 답을 받아 성공함, 최근 해결 근거).
-      기록 단계와 최종 확인에 정해진 한도 안의 다시 읽기를 더하는 변경은 이 기록과 따로 낸다. 되돌리기 판정, 소유 확인, 경계 확인의 읽기와 checkpoint는 한 번
+      기록 단계와 최종 확인에 정해진 한도 안의 다시 읽기를 더하는 변경은 이 기록과 따로 냈고, #620(`d8c90edc`, 2026-11-20 머지)으로 main에 들어갔다. 되돌리기 판정, 소유 확인, 경계 확인의 읽기와 checkpoint는 한 번
       읽기 그대로이고(재시도 `QUERY_RETRY`는 명령이 오류로 끝날 때만, 옛 답이 맞는 답일 수도 있어 같은 규칙을 쓸 수 없음), 되돌리기 명령 뒤의 확인은
       이미 버전이 어긋나면 여섯 번까지 읽는다(`VERIFY_RETRY`). 오너는 2026-11-20에 그 변경의 한도(18번, 기다림 59.5초)와 배포 명령이 실패하면
       기다리지 않고 한 번만 읽기를 받아들였고(릴리스 담당이 전한 답, 뜻만 적음), 복구 쪽 읽기와 checkpoint의 규칙, `wrangler deploy`가 알려 주는
       정확한 버전을 기다리는 방법(같은 커밋을 다시 낼 때의 한계를 닫음), 릴리스 도구에 자원 소유 기록을 둘지는 아직 정하지 않았다. 닫는 근거: (1) 그
       변경이 머지되고, 그 뒤 첫 App 릴리스의 배포 단계 로그에서 그 다시 읽기가 쓰였음이 보이고(제안된 명령 이름은 `record-current`), (2) 남은 세 가지를
-      오너가 정함, 또는 오너가 달리 정함. [실패한 릴리스 실행](design/app-9-0-832-train-2026-11-20.md#11-실패한-릴리스-실행).
+      오너가 정함, 또는 오너가 달리 정함. (1)은 적힌 그대로 채워졌다(9.0.833의 기록, 2026-11-21): #620 뒤 첫 App 릴리스인 9.0.833의
+      [Release 44780691557](https://github.com/hiefny/MUSIXQUARE/actions/runs/44780691557)에서 배포 단계가
+      `node scripts/release-deployment-state.mts record-current app "$record_wait"`를 기다림 모드(`record_wait=wait`, 배포 명령이 0으로 끝남)로 돌려
+      'app production version d8f27952-… -> fedf9e18-…'(02:12:37 KST, 'Current Version ID' 뒤 약 1.4초)를 찍었다. 그 첫 읽기가 이미 새 배포를 봐 다시 읽을 일은 없었고(`deployments/app-state.json`의
+      visibilityReads 1, staleReads 없음, 로그에 'may be stale; reading again' 알림 없음), 최종 소유권 확인(`verify-current`)도 visibilityReads 1로
+      verified였다. 그래서 기다림 모드의 기록 단계는 돌았지만 다시 읽는 길 자체는 운영에서 아직 돌지 않았다. (2)가 남아 이 항목은 열린 채다.
+      [실패한 릴리스 실행](design/app-9-0-832-train-2026-11-20.md#11-실패한-릴리스-실행),
+      [9.0.833의 릴리스 라운드](design/app-9-0-833-train-2026-11-20.md#69-머지-뒤-릴리스-라운드).
 - [ ] 열린 항목과 확인하지 않은 것(게이트 아님): 실제 아이폰, 아이패드, Android, Mac Safari에서 보지 않았다. 만든 PC에서는 main 앱의 일찍 떠나기를
       e2e로 재현하지 못해(WebKit 흉내 넷, 마지막 수단 행 뒤의 쌍, Chromium 감속 모두 통과) 그 대조는 단위 행 넷과 릴리스 담당의 PC가 진다(CI 기록은
       이것과 맞을 뿐[추론]). Chromium의 프레임마다 바쁜 흉내는 두 앱 모두 화면 읽기에서 시간 초과였고(고친 앱 10번 중 10번, main 앱 10번 중 8번), 20배
@@ -249,7 +288,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       원칙(2026-10-25), 최종 관문은 지금처럼(2026-11-17). 기기 근거는 게이트가 아니다.
       [오너 결정](design/app-9-0-830-train-2026-11-17.md#1-오너-결정).
 - [ ] 되돌리기(보고서 §15): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 두 squash(9.0.831의 #614 `0889df09`를 먼저, 그다음 9.0.830의 #613
-      `eae02e89`)를 되돌리는 9.0.833 / v833 이상(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다. 그 전에 다른 App 업데이트가 나가면 그다음
+      `eae02e89`)를 되돌리는 9.0.834 / v834 이상(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다. 그 전에 다른 App 업데이트가 나가면 그다음
       번호)의 앞으로 되돌리기이고(9.0.830의 패치는 9.0.831의 패치를 먼저 거꾸로 적용해야 깨끗함, §4 이 릴리스 항목), 증분 하나만 되돌릴 때는 그 증분의
       커밋만 되돌린다(보고서 §15, §20). 급할 때의 Cloudflare App 되돌리기 대상은 이 릴리스의 checkpoint App(artifact 14457172879, 9.0.829 / v829
       `1cd64575`의 App `79634692`, 빌드 829, 795 이상이라 `lower` 불필요, PRO 그대로)이고, 낮은 epoch로 가므로 §4의 현재 경계 줄 (5)와 아래 9.0.29 절의
@@ -335,7 +374,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       괜찮음, 다크·라이트 모두, 로드 끝무렵), 그 고침을 9.0.829에 합쳐 한 번에 내라고 했으며, 최종 관문에 전체 e2e를 더하지 않고 지금처럼 하라고
       했다. 배포 허가(2026-11-11): 자동 관문이 통과하면 업데이트 창이 뜨는 열차도 묻지 않고 낸다. 기기
       근거는 게이트가 아니다. [오너 결정](design/app-9-0-829-train-2026-11-17.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §10): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `1cd64575`를 되돌리는 9.0.833 / v833 이상(새 규칙으로 버전 끝자리가
+- [ ] 되돌리기(보고서 §10): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `1cd64575`를 되돌리는 9.0.834 / v834 이상(새 규칙으로 버전 끝자리가
       App 빌드 번호이고 둘째 자리는 오너가 정한다. 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 되돌리기이고, 증분 하나만 되돌릴 때는 그 증분의
       커밋만 되돌린다. 급할 때의 Cloudflare App 되돌리기 대상은 이 릴리스의 checkpoint App(artifact 14298778854, 9.0.53 / v828 `9fb7c8a8`의 App `b7d3fede`, 빌드
       828, 795 이상이라 `lower` 불필요, PRO 그대로)이고, 낮은 epoch로 가므로 §4의 현재 경계 줄 (5)와 아래 9.0.29 절의 열린 항목을 따른다. 미리 실행과 CSP 핀은 이 열차가
@@ -399,7 +438,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       배포까지 가라고 했고, 버전 이름은 다음 업데이트부터 끝자리를 빌드 번호로 하기로 했으며, 지운 번역 키의 제안 대기열 확인은 배포 조건으로 두지
       않기로 했다. 배포 허가(2026-11-11): 자동 관문이 통과하면 업데이트 창이 뜨는 열차도 묻지 않고 낸다. 기기 근거는 게이트가 아니다. [오너
       결정](design/app-9-0-53-train-2026-11-16.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `9fb7c8a8`을 되돌리는 9.0.833 / v833 이상(2026-11-17 오너
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `9fb7c8a8`을 되돌리는 9.0.834 / v834 이상(2026-11-17 오너
       결정으로 9.0.829부터 버전 끝자리가 App 빌드 번호다. 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 되돌리기다. 급할 때의
       Cloudflare App 되돌리기 대상은 이 릴리스의 checkpoint App(artifact 14249302407, 9.0.52 / v827 `d363de7e`의 App `2d9bd678`, 빌드 827, 795
       이상이라 `lower` 불필요, PRO 그대로)이고, 낮은 epoch로 가므로 §4의 현재 경계 줄 (5)와 아래 9.0.29 절의 열린 항목을 따른다. 그 App은 옛 미리
@@ -459,7 +498,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `app:setup.brand_tagline_html`의 번역 제안 대기열 확인을 배포 조건으로 두지 않기로 했다(배포 전후 모두 보지 않음): 배포와 사용자에게는 영향이
       없고, 승인된 묶음에 그 키가 있으면 다음 `translation:apply`가 아무것도 쓰기 전에 'Unsupported translation: <언어>/<id>'로 그 제안을 짚으며
       멈추므로(`scripts/apply-translation-suggestions.mts`) 그때 그 제안만 뺀다. [오너 결정](design/app-9-0-52-train-2026-11-16.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §10): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `d363de7e`를 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §10): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `d363de7e`를 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 번호)의 앞으로 되돌리기이고, 지운 번역 키와 마크업이 함께 돌아온다. 급할 때의 Cloudflare App 되돌리기 대상은 이
       릴리스의 checkpoint App(artifact 14219898933, 9.0.51 / v826 `f0369f67`의 App `2e265903`, 빌드 826, 795 이상이라 `lower` 불필요, PRO 그대로)이고,
       낮은 epoch로 가므로 §4의 현재 경계 줄 (5)와 아래 9.0.29 절의 열린 항목을 따른다. 섞인 버전: 방 안 통신과 저장 모양이 같아 9.0.51 이하 탭과
@@ -518,7 +557,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       로딩 표시가 위로 갔다 돌아온다고 알리고 그 원인을 물었다. 원인 설명과 흉내 사진, 시안을 [화면 바뀜] 질문으로 보냈고 오너가 고치라고 답했다. 실제
       고친 코드로 다시 찍은 사진도 보냈다. 배포 허가(2026-11-11): 자동 관문이 통과하면 업데이트 창이 뜨는 열차도 묻지 않고 낸다. 기기 근거는 게이트가
       아니다. [오너 결정](design/app-9-0-51-train-2026-11-16.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §7): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `f0369f67`을 되돌리는 9.0.833 / v833 이상(그 전에 다른 App
+- [ ] 되돌리기(보고서 §7): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `f0369f67`을 되돌리는 9.0.834 / v834 이상(그 전에 다른 App
       업데이트가 나가면 그다음 번호)의 앞으로 되돌리기다. 급할 때의 Cloudflare App 되돌리기 대상은 이 릴리스의 checkpoint App(artifact 14197942017,
       9.0.50 / v825 `cbce861f`의 App `947a0403`, 빌드 825, 795 이상이라 `lower` 불필요, PRO 그대로)이고, 낮은 epoch로 가므로 §4의 현재 경계 줄 (5)와
       아래 9.0.29 절의 열린 항목을 따른다. 그 App은 옛 미리 실행과 옛 CSP 해시를 같은 Worker에서 함께 내주므로 둘이 어긋나지 않고, 상자 키를 읽지
@@ -570,7 +609,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       배포 전 비교 사진을 같은 날 보냈다. 2026-11-16 오너는 CI가 끝나면 머지와 배포를 이어서 하라고 답했다. 배포 허가(2026-11-11): 자동
       관문이 통과하면 업데이트 창이 뜨는 열차도 묻지 않고 낸다. 기기 근거는 게이트가 아니다.
       [오너 결정](design/app-9-0-50-train-2026-11-15.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §7): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `cbce861f`를 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §7): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `cbce861f`를 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 번호)의 앞으로 되돌리기다. 급할 때의 Cloudflare App 되돌리기 대상은 이 릴리스의 checkpoint App(artifact
       14168866544, 9.0.49 / v824 `1b1b672e`의 App `defaf685`, 빌드 824, 795 이상이라 `lower` 불필요, PRO 그대로)이고, 낮은 epoch로 가므로 §4의 현재
       경계 줄 (5)와 아래 9.0.29 절의 열린 항목을 따른다. 섞인 버전: 방 안 통신과 저장 모양이 같아 9.0.49 이하 탭과 그대로 함께 쓴다[추론: 섞인
@@ -636,7 +675,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       화면이 의미가 있는지 물었고, 첫 그림 전 테마·이어 받기 적용과 나타나기가 끝난 뒤 떠나기를 그렇게 고치라고 답했다. 배포 전 고친 뒤의 프레임
       사진을 같은 날 보냈고, 오너는 PR CI가 도는 동안 머지하라고 했다(남은 검사가 통과한 뒤 머지). 배포 허가(2026-11-11): 자동 관문이 통과하면
       업데이트 창이 뜨는 열차도 묻지 않고 낸다. 기기 근거는 게이트가 아니다. [오너 결정](design/app-9-0-49-train-2026-11-15.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `1b1b672e`를 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `1b1b672e`를 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 번호)의 앞으로 되돌리기이고, 미리 실행과 CSP 해시가 함께 되돌아간다. 급할 때의 Cloudflare App 되돌리기 대상은 이
       릴리스의 checkpoint App(artifact 14153011349, 9.0.48 / v823 `3b75753e`의 App `2725ae79`, 빌드 823, 795 이상이라 `lower` 불필요, PRO 그대로)이고,
       낮은 epoch로 가므로 §4의 현재 경계 줄 (5)와 아래 9.0.29 절의 열린 항목을 따른다. 섞인 버전: 방 안 통신과 저장 모양이 같아 9.0.48 이하 탭과
@@ -728,7 +767,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       올라간 모습인 것을 제안해 프레임 사진으로 보고 승인했으며, 할 수 있는 것을 다 해서 배포까지 한 번에 하라고 했다. 배포 허가(2026-11-11):
       자동 관문이 통과하면 업데이트 창이 뜨는 열차도 따로 묻지 않고 낸다. 기기 근거는 게이트가 아니다.
       [오너 결정](design/app-9-0-48-train-2026-11-15.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `3b75753e`를 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `3b75753e`를 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 연출과 세션 새로고침 화면이 로딩
       화면의 마크업 위에 있어 보통은 squash 전체를 함께 되돌린다(로딩 화면의 되돌리기 메모는 보고서 §3.6). 실패한 `app`의 자동 복구는 릴리스
       안에서 그 릴리스 checkpoint(artifact 14142242845)의 App, 곧 dispatch 때의 운영 App 9.0.47 / v822(빌드 822, App 버전 `7e7ef536`, 배포 SHA
@@ -826,7 +865,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       목록, 공개 페이지의 규칙(번역, 사이트맵, 화면 보호기 포함), 검토가 찾은 둘을 같은 열차에 넣은 것은 만든 쪽의 판단이다. 배포
       허가(2026-11-11): 자동 관문이 통과하면 업데이트 창이 뜨는 열차도 따로 묻지 않고 낸다. 기기 근거는 게이트가 아니다.
       [오너 결정](design/app-9-0-47-train-2026-11-14.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `4abbf312`를 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `4abbf312`를 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 변경 하나만 빼는 것도 같은 길이다(서비스
       워커의 두 고침은 함께). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 14098000139)의 App, 곧 dispatch 때의 운영 App
       9.0.46 / v821(빌드 821, App 버전 `1f40c6de`, 배포 SHA `74d46d9e`, Release 43162776905)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는
@@ -898,7 +937,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       사진과 함께 오너에게 알렸다. 배포 허가(2026-11-11): 자동 관문이 통과하면 업데이트 창이 뜨는 열차도 따로 묻지 않고 낸다. 기기 근거는
       게이트가 아니다.
       [오너 결정](design/app-9-0-46-train-2026-11-12.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `74d46d9e`를 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `74d46d9e`를 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 변경 하나만 빼는 것도 같은 길이다.
       실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13919305566)의 App, 곧 dispatch 때의 운영 App
       9.0.45 / v820(빌드 820, App 버전 `1d5b0a8b`, 배포 SHA `c4675c51`, Release 43128370307)으로 간다. 795 이상이라 `lower`가 필요 없고 PRO는
@@ -972,7 +1011,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       App 업데이트 9.0.46이 실었다(위 9.0.46 절). 오른쪽에서 왼쪽 언어의 고침을 같은 열차에 넣은 것은 만든 쪽의 판단이고 전후 사진을 오너에게 보냈다. 배포
       허가(2026-11-11): 자동 관문이 통과하면 업데이트 창이 뜨는 열차도 따로 묻지 않고 낸다. 기기 근거는 게이트가 아니다.
       [오너 결정](design/app-9-0-45-train-2026-11-12.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `c4675c51`을 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `c4675c51`을 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 고침 하나만 빼는 것도 같은 길이다.
       실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13902869847)의 App, 곧 dispatch 때의 운영 App
       9.0.44 / v819(빌드 819, App 버전 `2af24151`, 배포 SHA `3dd9d05d`, Release 43007375910)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는
@@ -1052,7 +1091,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       허가(2026-11-11): 자동 관문이 통과하면 업데이트 창이 뜨는 열차도 따로 묻지 않고 낸다. 재생 화면만 늘리고 목록 탭 넷을 그대로 둔 범위는
       만든 쪽의 판단이고 사진과 함께 오너에게 알렸다. 기기 근거는 게이트가 아니다.
       [오너 결정](design/app-9-0-44-train-2026-11-11.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `3dd9d05d`를 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `3dd9d05d`를 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 재생 화면의 규칙 하나만, 또는 이름
       맞추기만 빼는 것도 같은 길이다. 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact
       13848343170)의 App, 곧 dispatch 때의 운영 App 9.0.43 / v818(빌드 818, App 버전 `ce3d671f`, 배포 SHA `3b8ec6e3`,
@@ -1128,7 +1167,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       업데이트로 내자고 했지만(릴리스 담당이 전달받은 바), 그 말은 dispatch(15:14 KST) 뒤에 릴리스 담당에게 닿았다. 이름 정리는 이 열차에 들어 있지
       않고, 오너는 배포 뒤 그것을 혼자 내지 않고 다음 App 업데이트에 얹기로 했다(릴리스 담당이 전달받은 바). 기기 근거는 게이트가 아니다.
       [오너 결정](design/safe-area-layout-consistency-2026-11-11.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `3b8ec6e3`을 되돌리는 9.0.833 / v833 이상(그 전에 다른 App
+- [ ] 되돌리기(보고서 §8): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `3b8ec6e3`을 되돌리는 9.0.834 / v834 이상(그 전에 다른 App
       업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그
       릴리스 checkpoint(artifact 13833173702)의 App, 곧 dispatch 때의 운영 App 9.0.42 / v815(빌드 815, App 버전 `45dade96`, 배포 SHA `808d0d9d`,
       Release 42948976516)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped).
@@ -1204,7 +1243,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       허가했고, 업데이트 열차를 오너가 깨어 있을 때 dispatch한다는 2026-10-31 규칙을 이 결정으로 거뒀다(그래서 이 열차는 자동 관문이 통과하자 바로
       dispatch했고, 깨어 있는지 따로 확인하지 않음). 바로 배포 원칙(2026-10-25)은 그대로다. 기기 근거는 게이트가 아니다.
       [오너 결정](design/app-9-0-42-train-2026-11-11.md#1-오너-결정).
-- [ ] 되돌리기(보고서 §13): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `808d0d9d`를 되돌리는 9.0.833 / v833 이상(그 전에 다른
+- [ ] 되돌리기(보고서 §13): 새 경계는 없다. 기본은 가장 최근 main 위에서 이 열차의 squash `808d0d9d`를 되돌리는 9.0.834 / v834 이상(그 전에 다른
       App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그
       릴리스 checkpoint(artifact 13824511180)의 App, 곧 dispatch 때의 운영 App 9.0.41 / v814(빌드 814, App 버전 `a89ade21`, 배포 SHA `91f6bb0c`,
       Release 42852117870)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped).
@@ -1310,12 +1349,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       그것을 따른다.
       [오너 결정](design/phase7-7c-audio-recovery-owner-2026-11-10.md#1-오너-결정).
 - [ ] 되돌리기(보고서 §11): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 가장 최근 main 위에서 이
-      열차의 squash `91f6bb0c`를 되돌리는 9.0.833 / v833 이상(그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체
+      열차의 squash `91f6bb0c`를 되돌리는 9.0.834 / v834 이상(그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체
       관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13780298445)의 App, 곧 dispatch 때의 운영 App
       9.0.40 / v813(빌드 813, App 버전 `e61f7de9`, 배포 SHA `b44cbbfb`, Release 42170829938)으로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로다.
       이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped). 배포 뒤 checkpoint App(v813)으로 가는 손 되돌리기는 이 열차 전체를 한꺼번에 빼고
       v814를 받은 클라이언트에 낮은 epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이
-      날 때까지 급하지 않으면 9.0.833 / v833 이상의 앞으로 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라
+      날 때까지 급하지 않으면 9.0.834 / v834 이상의 앞으로 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라
       기록 PR과 이력 한 행을 내고, 그 App 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다. 7C는 다른 App 열차가 그 위에
       쌓이기 전까지 혼자 되돌릴 수 있다. T2의 머지(2026-11-07)로 7B만 혼자 되돌리는 길은 닫혔고(아래 9.0.39 절), 이 열차의 머지(2026-11-11 01:00
       KST)로 7B는 7C와 함께 앞으로만 되돌린다(7C가 7B의 장부, 분배기, 회복 재개를 옮김). 7C-K8만 되돌리기(머지 뒤라 새 App 릴리스에서 앞으로): 그 다섯
@@ -1339,7 +1378,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       창을 받아들인 뒤 앱 정보의 9.0.41, 814를 적고 단계마다 `/debug sync`와 `/debug console`. D10 ~ D14(잠금 화면 PLAY, 돌아올 때의 복구 창, 일시정지된
       파일 재생, 숨긴 채 잠금 화면 PLAY, 첫 시작 탭과 'UI 사운드')와 7C-K8의 장면(YouTube 복구가 탭을 기다리는 사이 로컬 파일로 바꾼 뒤 복구 창 버튼 한
       번, 소리와 방 위치, 휴대폰에서). 7C의 '전' 세트가 없어 기준선이 없다. 실패하면: 먼저 새 빌드인지 다시 보고, 증상의 증분을 적고 위 되돌리기대로
-      앞으로 고치기(9.0.833 / v833 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다. 닫는 근거: 운영 App이 이 열차를 담은 SHA라는 배포
+      앞으로 고치기(9.0.834 / v834 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다. 닫는 근거: 운영 App이 이 열차를 담은 SHA라는 배포
       기록(이 기록이 채움: §1 배포 main `91f6bb0c`, App `a89ade21`), 위 (a)의 남은 읽기와 (b), (c)의 판정. (a)는 `/service-worker.js` 읽기만 빼고
       채웠고, (b)와 (c)는 아직이다.
       [배포 뒤 확인](design/phase7-7c-audio-recovery-owner-2026-11-10.md#123-배포-뒤-확인-블라인드-기기-후보-게이트-아님),
@@ -1463,11 +1502,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       순간의 오너 상태는 근거에 따로 없다. 기기 근거는 게이트가 아니다. 오너가 다르게 정하면 그것을 따른다.
       [오너 결정](design/app-9-0-40-train-2026-11-06.md#1-오너-결정).
 - [ ] 되돌리기(보고서 §8): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 가장 최근 main 위에서
-      이 열차의 변경을 되돌리는 9.0.833 / v833 이상(Phase 7 7C 열차(위 9.0.41 절)가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고, 그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스
+      이 열차의 변경을 되돌리는 9.0.834 / v834 이상(Phase 7 7C 열차(위 9.0.41 절)가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고, 그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스
       checkpoint(artifact 13480649065)의 App, 곧 dispatch 때의 운영 App 9.0.39 / v812(빌드 812, App 버전 `4cf5e560`, 배포 SHA `5b3cfcb0`, Release
       42026274351)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped). 배포 뒤
       checkpoint App(v812)으로 가는 손 되돌리기는 이 열차 전체(두 부분)와 그 위의 9.0.41(7C 열차, 위 9.0.41 절)을 한꺼번에 빼고 v813 이상을 받은 클라이언트에 낮은 epoch를 돌려주므로 아래 9.0.29
-      절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 9.0.833 / v833 이상의 앞으로
+      절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 9.0.834 / v834 이상의 앞으로
       되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그 App 버전은
       `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다. 부분 하나만 되돌리기(squash `b44cbbfb`로 머지됐으므로 그 부분 커밋들의
       패치를 거꾸로 적용): 최종 머리에서 한국어 자간 넷(`7eb697df`, `8471495c`, `6f529761`, `6128a481`. 시험만 둘이 `6128a481`이 만든 시험 파일을
@@ -1500,7 +1539,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       뒤 앱 정보의 9.0.40, 813을 적고(9.0.41 / v814가 그 위로 나갔으므로(2026-11-11 01:14 KST, 위 9.0.41 절) 이제는 9.0.41, 814다. 9.0.41은 공개 페이지, CSS, 글꼴 파일을 바꾸지 않았으므로(9.0.41의 기록의 git 대조) 아래 (A)와 (B)의 화면과 판정 기준은 그대로다) 단계마다 화면 사진. (A) iPhone Safari와 데스크톱 브라우저 하나에서 한국어 소개의 첫 화면, 절 제목 하나, 원격
       절의 채팅 말풍선, 마지막 제목과 영어 소개의 같은 자리, 폭 390px급 휴대폰의 이벤트 페이지 첫 화면. (B) 폭 320px급 화면의 한국어, 말라얄람어와
       오른쪽에서 왼쪽으로 쓰는 언어 하나의 데모 단계 버튼(1 → 2 → 3단계, 가능하면 여는 순간의 화면 녹화), iPhone Safari에서 한 번. 실패하면: 먼저 새
-      빌드인지(공개 페이지는 한 번 다시 불러온 뒤인지, 위 (b)) 다시 보고, 증상의 부분((1), (2))을 적고 위 되돌리기대로 앞으로 고치기(9.0.833 / v833
+      빌드인지(공개 페이지는 한 번 다시 불러온 뒤인지, 위 (b)) 다시 보고, 증상의 부분((1), (2))을 적고 위 되돌리기대로 앞으로 고치기(9.0.834 / v834
       이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다. 닫는 근거: 운영 App이 이 열차를 담은 SHA라는 배포 기록(9.0.40의 기록이 채움: 배포 main
       `b44cbbfb`, App `e61f7de9`. 9.0.41의 기록까지 운영 App은 이 열차를 담음), 위 (a)와 (b)의 남은 것, (c)의 (A)와 (B) 판정. (a)는 채웠고 (b)는 일부만 채웠으며, (c)는 아직이다.
       [배포 뒤 확인](design/app-9-0-40-train-2026-11-06.md#9-배포-뒤-확인-블라인드-기기-후보-게이트-아님),
@@ -1633,11 +1672,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너 결정](design/app-9-0-39-train-2026-11-05.md#1-오너-결정),
       [7B 보고서의 오너에게](design/phase7-7b-audio-recovery-behaviour-2026-11-05.md#오너에게).
 - [ ] 되돌리기(보고서 §9): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 가장 최근 main 위에서 이
-      열차의 변경을 되돌리는 9.0.833 / v833 이상(9.0.40 열차(공개 페이지의 한국어 자간 0, 데모 단계 라벨, 위 9.0.40 절)가 9.0.40 / v813으로 2026-11-06 14:53 KST에, Phase 7 7C 열차(위 9.0.41 절)가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고, 그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact
+      열차의 변경을 되돌리는 9.0.834 / v834 이상(9.0.40 열차(공개 페이지의 한국어 자간 0, 데모 단계 라벨, 위 9.0.40 절)가 9.0.40 / v813으로 2026-11-06 14:53 KST에, Phase 7 7C 열차(위 9.0.41 절)가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고, 그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact
       13414665903)의 App, 곧 dispatch 때의 운영 App 9.0.38 / v811(빌드 811, App 버전 `984397d9`, 배포 SHA `9e62c26c`, Release 41913839299)로 간다.
       795 이상이라 `lower`가 필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped). 배포 뒤 checkpoint App(v811)으로
       가는 손 되돌리기는 이 열차 전체(세 부분)와 그 위의 9.0.40(공개 페이지 한국어 자간·데모 단계 라벨 열차, 위 9.0.40 절)과 9.0.41(7C 열차, 위 9.0.41 절)을 한꺼번에 빼고 v812 이상을 받은 클라이언트에 낮은 epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은
-      epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 9.0.833 / v833 이상의 앞으로 되돌리기가 기본이고, 급할 때만
+      epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 9.0.834 / v834 이상의 앞으로 되돌리기가 기본이고, 급할 때만
       명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그 App 버전은 `Rollback:` 메시지라 git 출처가 없으므로
       다음 수리 릴리스는 `all`이다. 부분 하나만 되돌리기(squash `5b3cfcb0`으로 머지됐으므로 그 부분 커밋들의 패치를 거꾸로 적용): 버전 올리기 머리에서
       7B 스무 커밋, 숫자 세 커밋, 단계 버튼 네 커밋의 패치가 부분마다 새것부터 차례로 깨끗하게 거꾸로 적용된다(임시 인덱스, 보고서 라운드 2. 머지
@@ -1680,7 +1719,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       더함. 7C가 나가기 전에 받지 못해 7C의 기준선은 없고, 이제 D10 ~ D12는 9.0.41 절의 것으로 9.0.41에서 본다). (B) 숫자: 재생 시간, 채팅 시각, 트랙 100개 넘는 재생목록의 100번대(YouTube 재생목록의 안쪽 번호 칸도), 리버브 고급의 반사 지연 `0.1s`.
       (C) 폭 320px급 화면의 한국어, 말라얄람어와 오른쪽에서 왼쪽으로 쓰는 언어 하나(아랍어나 히브리어)의 데모 단계 버튼(1 → 2 → 3단계, 가능하면 여는
       순간의 화면 녹화). (D) (B)와 (C)를 iPhone Safari에서 한 번씩(오른쪽에서 왼쪽 언어는 점이 열리는 순간을 화면 녹화로). 실패하면: 먼저 새 빌드인지
-      다시 보고, 증상의 부분((1) ~ (3))을 적고 위 되돌리기대로 앞으로 고치기(9.0.833 / v833 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다.
+      다시 보고, 증상의 부분((1) ~ (3))을 적고 위 되돌리기대로 앞으로 고치기(9.0.834 / v834 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다.
       오른쪽에서 왼쪽 언어의 여는 순간에 말줄임표가 숫자 위에 보이면 고치기 전에 프레임 사진으로 오너께 묻는다(아래 열린 항목). 잠긴 화면 사례는
       iPhone 확인 뒤 오너께 다시 묻는다. 닫는 근거: 운영 App이 이 열차를 담은 SHA라는 배포 기록(이 기록이 채움: §1 배포 main `5b3cfcb0`, App
       `4cf5e560`), 위 (a)와 (b)의 남은 것, (c)의 (A) ~ (D) 판정. (a)는 채웠고 (b)는 일부만 채웠으며, (c)는 아직이다.
@@ -1822,12 +1861,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너 결정](design/app-9-0-38-train-2026-11-04.md#1-오너-결정),
       [9.0.39 열차 보고서의 오너 결정](design/app-9-0-39-train-2026-11-05.md#1-오너-결정).
 - [ ] 되돌리기(보고서 §11): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 가장 최근 main 위에서
-      이 열차의 변경을 되돌리는 9.0.833 / v833 이상(9.0.39 열차(Phase 7 7B, 숫자 고정폭, 데모 단계 버튼, 위 9.0.39 절)가 9.0.39 / v812로 2026-11-05 21:22 KST에 먼저 나갔고, 공개 페이지 한국어 자간·데모 단계 라벨 열차(위 9.0.40 절)가 9.0.40 / v813으로 2026-11-06 14:53 KST에, Phase 7 7C 열차(위 9.0.41 절)가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔으며, 그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스,
+      이 열차의 변경을 되돌리는 9.0.834 / v834 이상(9.0.39 열차(Phase 7 7B, 숫자 고정폭, 데모 단계 버튼, 위 9.0.39 절)가 9.0.39 / v812로 2026-11-05 21:22 KST에 먼저 나갔고, 공개 페이지 한국어 자간·데모 단계 라벨 열차(위 9.0.40 절)가 9.0.40 / v813으로 2026-11-06 14:53 KST에, Phase 7 7C 열차(위 9.0.41 절)가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔으며, 그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스,
       기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13363537242)의 App, 곧 dispatch 때의 운영 App 9.0.37 / v810(빌드 810, App
       버전 `80534771`, 배포 SHA `d1665230`, Release 41775435927)으로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지
       않았다(recovery job skipped). 배포 뒤 checkpoint App(v810)으로 가는 손 되돌리기는 이 열차 전체(다섯 부분)와 그 위의 9.0.39(7B·숫자 고정폭·데모 단계 버튼 열차, 위 9.0.39 절), 9.0.40(공개 페이지 한국어 자간·데모 단계 라벨 열차, 위 9.0.40 절)과 9.0.41(7C 열차, 위 9.0.41 절)을 한꺼번에 빼고 v811 이상을 받은 클라이언트에 낮은
-      epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 9.0.833 /
-      v833 이상의 앞으로 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그 App 버전은
+      epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 9.0.834 /
+      v834 이상의 앞으로 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그 App 버전은
       `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다. 부분 하나만 되돌리기(squash `9e62c26c`로 머지됐으므로 그 부분 커밋들의 패치를
       거꾸로 적용): 다섯 부분은 `css/style.css`의 서로 다른 자리를 바꾸고, 버전 올리기 머리에서 부분마다 그 커밋들(시험 먼저 커밋 포함)의 패치가 새것부터
       차례로 깨끗하게 거꾸로 적용된다(임시 인덱스, 보고서 라운드 2. 머지 트리는 그 머리 뒤 문서 커밋만 더한 트리와 같음). (1)을 되돌리면 아래 9.0.33·9.0.31·9.0.29·9.0.21
@@ -1857,7 +1896,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `/debug console`을 보내고 키보드를 내리지 않은 채 화면 사진, COPY를 누른 뒤 메모에 붙여넣기, 데스크톱 Chromium에서도 한 번. 그 결과가 아래 '후속 작업과 유지
       결정'의 iPhone `/debug console` 복사 항목을 닫거나 잇는다. COPY가 키보드에 가리면 터치 기기에서 `/debug` 창이 열릴 때 채팅 칸의 초점을 빼거나 단추 줄을
       보이는 자리에 두는 고침을 뒤 열차에 적는다. (D) 세로가 짧은 휴대폰과 가로로 든 휴대폰에서 시작, 방 참여, 방 만들기 화면을 스크롤하고 양옆 빈 곳에서도
-      밀어 보기. 실패하면: 먼저 새 빌드인지 다시 보고, 증상의 부분((1) ~ (5))을 적고 위 되돌리기대로 앞으로 고치기(9.0.833 / v833 이상)나, 급할 때만
+      밀어 보기. 실패하면: 먼저 새 빌드인지 다시 보고, 증상의 부분((1) ~ (5))을 적고 위 되돌리기대로 앞으로 고치기(9.0.834 / v834 이상)나, 급할 때만
       명시적으로 검토한 CLI 되돌리기를 정한다. 닫는 근거: 운영 App이 이 열차를 담은 SHA라는 배포 기록(이 기록이 채움: §1 배포 main `9e62c26c`, App
       `984397d9`), 위 (a)와 (b)의 남은 것, (c)의 (A) ~ (D) 판정. (a)는 채웠고 (b)는 일부만 채웠으며, (c)는 아직이다.
       [배포 뒤 확인](design/app-9-0-38-train-2026-11-04.md#12-배포-뒤-확인-블라인드-기기-후보-게이트-아님),
@@ -1991,13 +2030,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너 결정](design/app-9-0-37-train-2026-11-04.md#1-오너-결정),
       [7A 보고서의 오너 결정](design/phase7-7a-audio-recovery-counters-2026-11-03.md#오너-결정-2026-11-02-밤과-11-03-아침-모두-권장).
 - [ ] 되돌리기(보고서 §10): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음. sessionStorage 키는 기기 안이고 옛
-      빌드는 읽지 않음). 기본은 가장 최근 main 위에서 이 열차의 변경을 되돌리는 9.0.833 / v833 이상(9.0.38 열차(오너의 UI 정리, 위 9.0.38 절)가 9.0.38 / v811로 2026-11-05 06:14 KST에, Phase 7 7B를 담은
+      빌드는 읽지 않음). 기본은 가장 최근 main 위에서 이 열차의 변경을 되돌리는 9.0.834 / v834 이상(9.0.38 열차(오너의 UI 정리, 위 9.0.38 절)가 9.0.38 / v811로 2026-11-05 06:14 KST에, Phase 7 7B를 담은
       9.0.39 열차(위 9.0.39 절)가 9.0.39 / v812로 같은 날 21:22 KST에 먼저 나갔고, 공개 페이지 한국어 자간·데모 단계 라벨 열차(위 9.0.40 절)가 9.0.40 / v813으로 2026-11-06 14:53 KST에, Phase 7 7C 열차(위 9.0.41 절)가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔으며, 그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 전체 관문, App 릴리스, 기록). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스
       checkpoint(artifact 13295929236)의 App, 곧 dispatch 때의 운영 App 9.0.36 / v809(빌드 809, App 버전 `385d84fe`, 배포
       SHA `6f9cf6f8`, Release 41643392133)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지
       않았다(recovery job skipped). 배포 뒤 checkpoint App(v809)으로 가는 손 되돌리기는 이 열차 전체(7A, 아이폰 복귀 고침, 입력칸)와 그 위의 9.0.38(오너의 UI 정리 열차, 위 9.0.38 절), 9.0.39(7B·숫자 고정폭·데모 단계 버튼 열차, 위 9.0.39 절), 9.0.40(공개 페이지 한국어 자간·데모 단계 라벨 열차, 위 9.0.40 절)과 9.0.41(7C 열차, 위 9.0.41 절)을 한꺼번에 빼고
       v810 이상을 받은 클라이언트에 낮은 epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지
-      급하지 않으면 9.0.833 / v833 이상의 앞으로 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그
+      급하지 않으면 9.0.834 / v834 이상의 앞으로 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그
       App 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다. 증분 하나만 되돌리기(squash `d1665230`으로 머지됐으므로 그 증분
       커밋들의 패치를 거꾸로 적용): 세 증분의 런타임 파일은 `src/types/index.ts`의 서로 다른 두 자리 말고 겹치지 않고, 버전 올리기 머리의 인덱스에서
       `git apply -R --check`로 7A의 문서 밖 패치, 7A-1의 네 커밋(`3bdb8aa7`, `260c9f3a`, `021cc106`, `8cf659aa`), 아이폰 고침
@@ -2036,7 +2075,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       너비에서 여섯 자리, 닉네임 대화상자(평소, 13자, 이미 쓰는 이름), 방 암호 대화상자(누름, 틀린 암호), YouTube 시트(빈 칸, 검색어, 검색 중, 결과, 잘못된 링크, 결과
       직후 큰 버튼 두 번 빠르게, 한 번 검색한 검색어를 지우고 다시 친 뒤 '검색' 두 번 빠르게. 그 마지막 단계의 판정은 건네지 않으며 결과만 보이고 재생목록에 더해지지 않아야 하고,
       더해지면 짧은 막기를 registry를 거쳐 뒤 열차에, 보고서 §5.7과 §11), 채팅 입력과 수동 싱크, Windows 고대비의 틀린 초대 코드. 실패하면: 먼저 새 빌드인지 다시
-      보고, 증상의 길(7A 숫자 줄, 아이폰 복귀 사슬, 입력칸의 어느 칸)을 적고 위 되돌리기대로 앞으로 고치기(9.0.833 / v833 이상)나, 급할 때만 명시적으로 검토한 CLI
+      보고, 증상의 길(7A 숫자 줄, 아이폰 복귀 사슬, 입력칸의 어느 칸)을 적고 위 되돌리기대로 앞으로 고치기(9.0.834 / v834 이상)나, 급할 때만 명시적으로 검토한 CLI
       되돌리기를 정한다. 닫는 근거: 운영 App이 이 열차를 담은 SHA라는 배포 기록(9.0.37의 기록이 채움: 배포 main `d1665230`, App `80534771`. 9.0.41의 기록까지 운영 App은 이 열차를 담음), 위 (a)와
       (b)의 남은 것, (c)의 (A) ~ (C) 판정. (a)와 (b)는 일부만 채웠고, (c)는 아직이다.
       [배포 뒤 확인](design/app-9-0-37-train-2026-11-04.md#11-배포-뒤-확인-블라인드-기기-후보-게이트-아님),
@@ -2200,7 +2239,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [릴리스 담당이 할 일](design/public-page-fonts-2026-11-02.md#11-릴리스-담당이-할-일),
       [9.0.37 열차 보고서의 입력칸](design/app-9-0-37-train-2026-11-04.md#5-입력칸-디자인-시스템).
 - [ ] 되돌리기(보고서 §10): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 main에서
-      이 열차의 squash `6f9cf6f8`을 되돌리는 9.0.833 / v833 이상(9.0.37 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위
+      이 열차의 squash `6f9cf6f8`을 되돌리는 9.0.834 / v834 이상(9.0.37 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위
       9.0.37 절), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 9.0.38 절), Phase 7 7B를 담은 열차가 9.0.39 / v812로(같은 날 21:22 KST, 위 9.0.39 절) 먼저 나갔고, 공개 페이지 한국어 자간·데모 단계 라벨 열차(위 9.0.40 절)가 9.0.40 / v813으로 2026-11-06 14:53 KST에, Phase 7 7C 열차(위 9.0.41 절)가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔으며, 그 전에 다른 App 업데이트가 나가면 그다음 빈 번호)의 앞으로 되돌리기다(target `app`, 되돌리는
       커밋이 지운 Pretendard 사본과 시트, Noto Cyrillic·Greek 파일, 번호 없는 면, 공개 글꼴 로더 둘과 옛 링크를 git에서 되살리므로
       내려받기가 필요 없음). 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13233084692)의 App, 곧 dispatch 때의
@@ -2208,7 +2247,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped). 배포 뒤 checkpoint App(v808)으로 가는
       손 되돌리기는 이 열차 전체(공개 페이지 글꼴, Typography 절, 로그인 완료 창)와 그 위의 9.0.37(7A·아이폰 복귀·입력칸 열차, 위 9.0.37 절), 9.0.38(오너의 UI 정리 열차, 위 9.0.38 절), 9.0.39(7B·숫자 고정폭·데모 단계 버튼 열차, 위 9.0.39 절), 9.0.40(공개 페이지 한국어 자간·데모 단계 라벨 열차, 위 9.0.40 절)과 9.0.41(7C 열차, 위 9.0.41 절)을 한꺼번에 빼고 v809 이상을 받은 클라이언트에 낮은 epoch를
       돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지
-      않으면 9.0.833 / v833 이상의 앞으로 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록
+      않으면 9.0.834 / v834 이상의 앞으로 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록
       PR과 이력 한 행을 내고, 그 App 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다. 페이지 묶음 하나만
       되돌리는 길은 없다(I9의 은퇴 가드와 지운 파일이 묶임, A2). 이 열차의 머지(2026-11-03 22:08 KST)로 9.0.35의 6D를 혼자 되돌리는 창이
       닫혔다(아래 9.0.35 절). T1(#569, 2026-11-04 13:22 KST, 시험·가드·문서만)의 머지로 이 열차의 되돌리기는 가장 최근 main 위에서 하게 됐고, 이 열차 자신을
@@ -2443,13 +2482,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너에게](design/phase6-6d-recovery-pro-arm-2026-11-02.md#오너에게-2026-11-02-밤-답-반영),
       [공개 페이지 글꼴 열차 보고서](design/public-page-fonts-2026-11-02.md).
 - [ ] 되돌리기(보고서 '되돌리기'): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 더
-      높은 SemVer·epoch(공개 페이지 글꼴 열차가 9.0.36 / v809로, 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로, 오너의 UI 정리 열차가 9.0.38 / v811로, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로, 7C 열차가 9.0.41 / v814로, 소리 복구 고침 열차가 9.0.42 / v815로 나간 뒤로는 9.0.833 / v833 이상, 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 고치기다. 실패한 `app`의 자동 복구는
+      높은 SemVer·epoch(공개 페이지 글꼴 열차가 9.0.36 / v809로, 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로, 오너의 UI 정리 열차가 9.0.38 / v811로, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로, 7C 열차가 9.0.41 / v814로, 소리 복구 고침 열차가 9.0.42 / v815로 나간 뒤로는 9.0.834 / v834 이상, 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 고치기다. 실패한 `app`의 자동 복구는
       릴리스 안에서 그 릴리스 checkpoint(artifact 13212877229)의 App, 곧 dispatch 때의 운영 App 9.0.34 / v807(빌드 807, App 버전 `b5278b0b`,
       배포 SHA `cd8eaf47`, Release 41443521522)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로이며, 와이어가 같아 되돌린 App과 이
       열차가 섞인 방도 같은 프레임을 같은 시각에 보낸다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped). 배포 뒤 checkpoint
       App(v807)으로 가는 손 되돌리기는 이 열차 전체(6D-1 ~ 6D-5, 6D-6과 그 대비 길, 6C-3)와 그 위의 9.0.36(공개 페이지 글꼴 열차), 9.0.37(7A·아이폰 복귀·입력칸 열차), 9.0.38(오너의 UI 정리 열차), 9.0.39(7B·숫자 고정폭·데모 단계 버튼 열차), 9.0.40(공개 페이지 한국어 자간·데모 단계 라벨 열차)과 9.0.41(7C 열차)을 한꺼번에 빼고 v808 이상을 받은 클라이언트에 낮은
       epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지
-      않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록
+      않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록
       PR과 이력 한 행을 내고, 그 App 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다. 혼자 되돌리기: 6D는
       6A-3의 시간 집과 6A-4·6C-2의 `iframe-audio.ts` 위에 있어, 이 열차의 머지(2026-11-03 16:27 KST)로 6C만 되돌릴 수 없게 됐고 이제
       6C부터 6D까지 앞으로 되돌린다(계획 §6, 아래 9.0.34 절의 되돌리기). 같은 머지로 9.0.34의 라이트 테두리와 라이트 구분선을 각각 혼자
@@ -2485,7 +2524,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       행과 Chromium 사진, 6C-3은 보통 조작으로 닿지 않는 값). 기기가 없는 단계는 '기기 없음'이고 실패가 아니다. Phase 6 앞의 기기
       기준선(Q6)이 없어 판정 기준과만 견준다. 실패하면: 먼저 새 빌드인지 다시 보고(옛 페이지는 옛 코드를 씀), 일시적 네트워크로 설명되지
       않으면 증상의 경로(게스트 복구, 방장 복구, 로컬 시작 대기, PRO 토큰, 늦은 PRO 합류의 따라잡기)를 적고 위 되돌리기대로 앞으로
-      고치기(9.0.833 / v833 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다. 결과(게이트 아님, 2026-11-03 16:42 KST쯤, 보고서 QA
+      고치기(9.0.834 / v834 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다. 결과(게이트 아님, 2026-11-03 16:42 KST쯤, 보고서 QA
       라운드 14): 릴리스 담당이 운영의 데스크톱 Chromium에서 9.0.34 / v807이 설치돼 있던 프로필(라이트 테마, 한국어)로 시작 화면을 열었다
       (블라인드가 아님, 운영 방은 만들지 않음). 시작 화면이 열리고 이 릴리스의 업데이트 창이 떴다(제목 '업데이트', 버튼 '나중에'와
       '적용하기', 창 모양은 지금 그대로). '적용하기'가 페이지를 다시 불러왔고, 그 뒤 static과 runtime 두 캐시의 이름은
@@ -2525,7 +2564,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       빌드 809)로 준비됐고(갈래 `agent/public-page-fonts`를 `432d4ae7`에서 `88550bc4` 위로 옮김, 커밋마다 문서 밖 패치가 같음, 그
       보고서 라운드 12. 버전 올리기 `f47d5733`이 마지막 런타임 커밋, 그 머리 `018e013a`의 전체 로컬 관문 통과, 그 보고서 라운드 13),
       PR #567로 2026-11-03 22:08 KST에 머지돼(`6f9cf6f8`) 22:22 KST에 나갔다(위 9.0.36 절). 그래서 위 되돌리기의 앞으로 되돌리기 번호는 그다음(9.0.37 / v810 이상)으로 갔다가 9.0.37 열차가 2026-11-04 13:51 KST에
-      나가 9.0.38 / v811 이상이 됐다가 9.0.38 열차가 2026-11-05 06:14 KST에 나가 9.0.39 / v812 이상이 됐다가 9.0.39 열차가 같은 날 21:22 KST에 나가 9.0.40 / v813 이상이 됐다가 9.0.40 열차가 2026-11-06 14:53 KST에 나가 9.0.41 / v814 이상이 됐다가 9.0.41 열차가 2026-11-11 01:14 KST에 나가 9.0.833 / v833 이상이 됐고(위 9.0.38 절, 9.0.39 절, 9.0.40 절, 9.0.41 절), 6D를 혼자 되돌리는 창은 공개 페이지 글꼴 열차의 머지로 닫혔다(위 되돌리기). (3)
+      나가 9.0.38 / v811 이상이 됐다가 9.0.38 열차가 2026-11-05 06:14 KST에 나가 9.0.39 / v812 이상이 됐다가 9.0.39 열차가 같은 날 21:22 KST에 나가 9.0.40 / v813 이상이 됐다가 9.0.40 열차가 2026-11-06 14:53 KST에 나가 9.0.41 / v814 이상이 됐다가 9.0.41 열차가 2026-11-11 01:14 KST에 나가 9.0.834 / v834 이상이 됐고(위 9.0.38 절, 9.0.39 절, 9.0.40 절, 9.0.41 절), 6D를 혼자 되돌리는 창은 공개 페이지 글꼴 열차의 머지로 닫혔다(위 되돌리기). (3)
       Phase 7: T1(가드와 문서, 릴리스 없음)이 2026-11-04 13:22 KST에 #569로 먼저 따로 머지됐고, 7A는 아이폰 복귀 고침, 입력칸 디자인 시스템과 함께 9.0.37 / v810 열차로 그 열차 다음에 13:36 KST에 머지돼 13:51 KST에 나갔다(오너 결정 2026-11-04 새벽, 위 9.0.37 절). 다음 App 업데이트인 9.0.38 / v811 열차(오너의 UI 정리)는 2026-11-05 05:59 KST에 머지돼 06:14 KST에 나갔고(위 9.0.38 절) 그다음 7B는 숫자 고정폭, 데모 단계 버튼과 함께 9.0.39 / v812 열차로 같은 날 21:08 KST에 머지돼 21:22 KST에 나갔고(위 9.0.39 절), 그다음 App 업데이트인 9.0.40 / v813 열차(공개 페이지의 한국어 자간 0, 데모 단계 라벨)는 2026-11-06 14:41 KST에 머지돼 14:53 KST에 나갔으며(위 9.0.40 절), 그다음 T2(시험만)는 2026-11-07에 머지됐고(#578) 그 뒤 App 업데이트인 7C를 담은 9.0.41 / v814 열차는 2026-11-11 01:00 KST에 머지돼 01:14 KST에 나갔다(위 9.0.41 절, Phase 7의 셋째이자 마지막 App 업데이트). Phase 6 끝 조건 6의 14일은
       Phase 7의 시작과 배포를 막지 않는다(Q25, 아래 Phase 6 끝 조건 항목). (4) 오너 질문: 6D의 질문(6C-3, 6D-6, Q18 결함, 끝 조건 2, Q29)은
       답을 받았다. 남은 것은 6C가 찾은 Q18의 로그만 다른 결함 하나(아래 9.0.34 절)와 T0b 결함 넷(아래 6B 절)이다. 닫는 근거:
@@ -2693,13 +2732,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [6C-3](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#6c-3-준비함-만들지-않음-오너를-기다림),
       [오너에게](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#오너에게), [6D 보고서의 오너 결정](design/phase6-6d-recovery-pro-arm-2026-11-02.md#오너-결정-2026-10-30-모두-권장-2026-11-02-밤-추가-답).
 - [ ] 되돌리기(보고서 '되돌리기'): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은
-      더 높은 SemVer·epoch(6D가 9.0.35 / v808로, 공개 페이지 글꼴 열차가 9.0.36 / v809로, 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로, 오너의 UI 정리 열차가 9.0.38 / v811로, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로, 7C 열차가 9.0.41 / v814로, 소리 복구 고침 열차가 9.0.42 / v815로 나간 뒤로는 9.0.833 / v833 이상, 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 고치기다. 실패한 `app`의 자동
+      더 높은 SemVer·epoch(6D가 9.0.35 / v808로, 공개 페이지 글꼴 열차가 9.0.36 / v809로, 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로, 오너의 UI 정리 열차가 9.0.38 / v811로, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로, 7C 열차가 9.0.41 / v814로, 소리 복구 고침 열차가 9.0.42 / v815로 나간 뒤로는 9.0.834 / v834 이상, 그 전에 다른 App 업데이트가 나가면 그다음 번호)의 앞으로 고치기다. 실패한 `app`의 자동
       복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13141009365)의 App, 곧 dispatch 때의 운영 App 9.0.33 / v806(빌드 806, App 버전
       `047e6f68`, 배포 SHA `4faf38d9`, Release 41386906358)으로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로이며, 와이어가 같아
       되돌린 App과 이 열차가 섞인 방도 같은 프레임을 같은 시각에 보낸다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped).
       배포 뒤 checkpoint App(v806)으로 가는 손 되돌리기는 이 열차 전체(6C, 라이트 테두리, 라이트 구분선)와 그 위의 9.0.35(6D), 9.0.36(공개 페이지 글꼴 열차), 9.0.37(7A·아이폰 복귀·입력칸 열차), 9.0.38(오너의 UI 정리 열차), 9.0.39(7B·숫자 고정폭·데모 단계 버튼 열차), 9.0.40(공개 페이지 한국어 자간·데모 단계 라벨 열차), 9.0.41(7C 열차)을 한꺼번에 빼고 v807 이상을 받은
       클라이언트에 낮은 epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다:
-      결정이 날 때까지 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손
+      결정이 날 때까지 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손
       되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그 App 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
       혼자 되돌리기: 6C, 라이트 테두리(`c3281b45`, CSS 두 파일), 라이트 구분선(`9fb6f1f8`, 일곱 파일)은 서로 얽히지 않아 각각 혼자
       되돌릴 수 있다(squash `cd8eaf47`로 머지됐으므로 그 커밋의 패치를 거꾸로 적용하고, 6C 안의 증분을 골라 되돌리는 길은 보고서
@@ -2744,7 +2783,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       둘레 선이 보이는지와 선의 진하기를 적고, 고대비를 켜고 한 번, 다크로 한 번 더 본다. 기기가 없는 단계는 '기기 없음'이고 실패가
       아니다. Phase 6 앞의 기기 기준선(Q6)이 없어 판정 기준과만 견준다. 실패하면: 먼저 새 빌드인지 다시 보고(옛 페이지는 옛 CSS와
       코드를 씀), 일시적 네트워크로 설명되지 않으면 증상의 경로(라우터, iframe 오디오 쓰기, 무장 단계, 라이트 테두리, 라이트 구분선)를
-      적고 위 되돌리기대로 앞으로 고치기(9.0.833 / v833 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다. 결과(게이트 아님,
+      적고 위 되돌리기대로 앞으로 고치기(9.0.834 / v834 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기를 정한다. 결과(게이트 아님,
       2026-11-02 21:21 KST쯤, 보고서 QA 라운드 14): 릴리스 담당이 운영의 데스크톱 Chromium에서 라이트 테마(저장값 `musixquare-theme`
       light, 대비 설정 없음)의 시작 화면을 직접 봤다(블라인드가 아님, (G)의 일부도 아님, 운영 방은 만들지 않음). 시작 화면의 계산 값은
       `--glass-border`가 `transparent`, `--divider`가 `#e4e6e8`이었다. 그 창에는 9.0.33이 열려 있어 이 릴리스의 업데이트 창이 떴고, 그
@@ -2895,7 +2934,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너 결정](design/app-hangul-pretendard-2026-11-02.md#1-오너-결정-2026-11-02-0810-kst쯤),
       [오너 질문](design/app-hangul-pretendard-2026-11-02.md#9-오너-질문).
 - [ ] 되돌리기(보고서 §10, §11.4): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음).
-      기본은 더 높은 SemVer·epoch(9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813과 9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상)의 앞으로 되돌리기다. 이 열차만 혼자 되돌리는 것(squash `4faf38d9` 하나를
+      기본은 더 높은 SemVer·epoch(9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813과 9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상)의 앞으로 되돌리기다. 이 열차만 혼자 되돌리는 것(squash `4faf38d9` 하나를
       되돌림)은 다음 App 업데이트(9.0.34 / v807: 6C와 라이트 두 증분, 위 9.0.34 절)가 머지되기 전까지였고, 그 열차가 2026-11-02 21:06 KST에 머지돼(`cd8eaf47`) 그 창은 닫혔다. 이제는 가장 최근 main 위에서 새 `agent/` 갈래로
       이 열차의 변경을 되돌리는 앞으로 고치기다(다음 SemVer·epoch, 전체 관문, App 릴리스, 기록. 9.0.34는 글꼴 파일, 앱 글꼴 시트, `src/i18n/`을 건드리지 않았고 `css/style.css`에서는 라이트 팔레트의 두 줄과 선택 막대 주석만 바꿔 그 되돌림과 겹치지 않음. 9.0.35는 글꼴과 CSS를 건드리지 않음). 내려받기가 필요 없다: 되돌리는 커밋이
       KR 시트 120면과 구운 KR 사본 67개를 되살리고(입력 `fonts/noto/noto-sans-kr`과 생성기 `generate:app-faces`도 저장소에 그대로),
@@ -2903,8 +2942,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       릴리스 checkpoint(artifact 13115751050)의 App, 곧 dispatch 때의 운영 App 9.0.32 / v805(빌드 805, App 버전 `e19b7085`, 배포 SHA
       `3ea689b9`, Release 41347347201)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지
       않았다(recovery job skipped). 배포 뒤 checkpoint App(v805)으로 가는 손 되돌리기는 v806 이상을 받은 클라이언트에 낮은 epoch를 돌려주고 9.0.34(위 9.0.34 절), 9.0.35(위 9.0.35 절), 9.0.36(위 9.0.36 절)과 9.0.37(위 9.0.37 절)도 함께 빼므로
-      아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 가장 최근 main 위에서 이 열차의 변경을 되돌리는 9.0.833 /
-      v833 이상의 앞으로 고치기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한
+      아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 가장 최근 main 위에서 이 열차의 변경을 되돌리는 9.0.834 /
+      v834 이상의 앞으로 고치기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한
       행을 내고, 그 App 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는 `all`이다. 섞인 버전과 릴리스 메모 줄: 이
       빌드는 9.0.32의 KR 시트가 가리키던 한글만 든 KR 조각 67개를 내보내지 않는다(남는 KR 53개는 같은 바이트라 주소가 그대로). 배포
       뒤에도 9.0.32 이하로 도는 탭(업데이트 창을 아직 받지 않음, 새로 고침을 미룸, bfcache 복원)은 아직 받지 않은 그 조각의 한글을
@@ -3056,10 +3095,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [설계 문서의 틈](design/youtube-start-ownership.md#not-covered-yet),
       [9.0.34 열차 보고서의 T0b 결함](design/phase6-6c-router-iframe-audio-arm-steps-2026-11-02.md#하지-않은-것과-확인하지-않은-것), [6D 보고서의 오너에게](design/phase6-6d-recovery-pro-arm-2026-11-02.md#오너에게-2026-11-02-밤-답-반영).
 - [ ] 되돌리기(보고서 '되돌리기', 계획 §4.7, §6): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은 더 높은 SemVer·epoch(9.0.33 /
-      v806, 9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813과 9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상, 그 전에 다른 앱 업데이트가 나가면 그다음 번호)의 앞으로 고치기다. 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13099442949)의 App, 곧 dispatch 때의
+      v806, 9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813과 9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상, 그 전에 다른 앱 업데이트가 나가면 그다음 번호)의 앞으로 고치기다. 실패한 `app`의 자동 복구는 릴리스 안에서 그 릴리스 checkpoint(artifact 13099442949)의 App, 곧 dispatch 때의
       운영 App 9.0.31 / v804(빌드 804, App 버전 `dff554a2`, 배포 SHA `ba28943e`, Release 41315218029)로 간다. 795 이상이라 `lower`가 필요 없고 PRO는 그대로이며,
       와이어가 같아 되돌린 App과 6B가 섞인 방도 같은 프레임을 같은 시각에 보낸다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped). 배포 뒤 checkpoint App(v804)으로 가는 손 되돌리기는
-      v805 이상을 받은 클라이언트에 낮은 epoch를 돌려주고 9.0.33(위 9.0.33 절), 9.0.34(위 9.0.34 절), 9.0.35(위 9.0.35 절), 9.0.36(위 9.0.36 절)과 9.0.37(위 9.0.37 절)도 함께 빼므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 가장 최근 main 위에서 6B의 변경을 되돌리는 9.0.833 / v833
+      v805 이상을 받은 클라이언트에 낮은 epoch를 돌려주고 9.0.33(위 9.0.33 절), 9.0.34(위 9.0.34 절), 9.0.35(위 9.0.35 절), 9.0.36(위 9.0.36 절)과 9.0.37(위 9.0.37 절)도 함께 빼므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 가장 최근 main 위에서 6B의 변경을 되돌리는 9.0.834 / v834
       이상의 앞으로 고치기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 그 App 버전은 `Rollback:` 메시지라 git 출처가 없으므로 다음 수리 릴리스는
       `all`이다. 6B만 혼자 되돌리는 것(squash `3ea689b9` 하나를 되돌림)은 다음 App 업데이트가 머지되기 전까지였다. 6B 보고서는 그 다음 업데이트를 6C로 적었지만(6C-1 라우터가 6B-1 장부 claim으로 갈림), 그보다 먼저
       9.0.33(앱 한글 Pretendard, 위 9.0.33 절)이 2026-11-02 12:59 KST에 머지돼(`4faf38d9`) 그 창은 닫혔다. 이제는 가장 최근 main 위에서 새 `agent/` 갈래로 6B의 변경을 거꾸로 되돌리고 다음
@@ -3084,7 +3123,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `[YouTube ZeroStart] prepare-host`, `armed-guest`, `Playback released`와 게스트의 `waiting-ready`, `timeline-0.8s`, `timeline-2.0s` 줄,
       (C) 시작 직후 seek와 볼륨(hard-mute 주인이 있는 동안의 unMute 가드가 장부 질의로 옮겼으므로). 옛·새 빌드를 섞어 시작하는 기기 행은 두지 않는다(혼합 버전 근거는 T0a 프레임·시각 골든). Q6 기준선이 없어
       판정 기준과만 견준다. 기기가 없는 단계는 '기기 없음'이고 실패가 아니다. 운영 브라우저의 9.0.32 업데이트 창은 9.0.32의 기록까지 보지 않았다. 9.0.32의 기록 때 운영에서 본 것은 HTTP smoke 넷, 공개 상태와 `/service-worker.js`의 공개
-      GET, Drift Audit뿐이었다. 실패하면: 일시적 네트워크로 설명되지 않는 어긋남이면 위 되돌리기대로 앞으로 고치기(9.0.833 / v833 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기로 checkpoint
+      GET, Drift Audit뿐이었다. 실패하면: 일시적 네트워크로 설명되지 않는 어긋남이면 위 되돌리기대로 앞으로 고치기(9.0.834 / v834 이상)나, 급할 때만 명시적으로 검토한 CLI 되돌리기로 checkpoint
       App(9.0.31, 9.0.33, 9.0.34, 9.0.35, 9.0.36, 9.0.37, 9.0.38, 9.0.39, 9.0.40과 9.0.41도 함께 빠짐)을 정한다. 닫는 근거: 운영 App이 6B를 담은 SHA라는 배포 기록과 위 후보의 판정. 앞의 것은 9.0.32의 기록이 채웠고(배포 main `3ea689b9`, App `e19b7085`. 9.0.41의 기록까지 운영 App은 6B를 담음), 뒤의 것은 아직이다.
       [배포 뒤 확인](design/phase6-6b-start-ledger-readers-2026-11-01.md#배포-뒤-확인-블라인드-게이트-아님),
       [9.0.33 보고서](design/app-hangul-pretendard-2026-11-02.md),
@@ -3204,7 +3243,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [오너 결정](design/app-font-baked-metrics-2026-11-01.md#1-오너-결정-2026-11-01-오후),
       [오너 질문과 답](design/app-font-baked-metrics-2026-11-01.md#9-오너-질문).
 - [ ] 되돌리기(보고서 §10): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지 않음). 기본은
-      더 높은 SemVer·epoch(6B가 9.0.32 / v805로, 앱 한글 Pretendard가 9.0.33 / v806으로, 6C와 라이트 두 증분이 9.0.34 / v807로, 6D가 9.0.35 / v808로, 공개 페이지 글꼴 열차가 9.0.36 / v809로, 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로, 오너의 UI 정리 열차가 9.0.38 / v811로, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로, 7C 열차가 9.0.41 / v814로, 소리 복구 고침 열차가 9.0.42 / v815로 나간 뒤로는 9.0.833 / v833 이상)의 앞으로 되돌리기다. 이 열차만 혼자 되돌리는 것(squash `ba28943e` 하나를 되돌림)은
+      더 높은 SemVer·epoch(6B가 9.0.32 / v805로, 앱 한글 Pretendard가 9.0.33 / v806으로, 6C와 라이트 두 증분이 9.0.34 / v807로, 6D가 9.0.35 / v808로, 공개 페이지 글꼴 열차가 9.0.36 / v809로, 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로, 오너의 UI 정리 열차가 9.0.38 / v811로, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로, 7C 열차가 9.0.41 / v814로, 소리 복구 고침 열차가 9.0.42 / v815로 나간 뒤로는 9.0.834 / v834 이상)의 앞으로 되돌리기다. 이 열차만 혼자 되돌리는 것(squash `ba28943e` 하나를 되돌림)은
       다음 App 업데이트(6B)가 머지되기 전까지였고, 6B가 2026-11-02 05:21 KST에 머지돼(`3ea689b9`, 위 6B 절) 그 창은 닫혔다. 이제는 가장 최근 main 위에서 새 `agent/` 갈래로 앞으로 고친다(다음
       SemVer·epoch, 전체 관문, App 릴리스, 기록). 9.0.33이 같은 KR 시트, 구운 KR 사본, `font-metrics.ts`를 바꿨으므로(위 9.0.33 절) 굽기를 되돌리는 변경은 9.0.33 위에서 다시 맞춘다(9.0.34와 9.0.35는 글꼴과 줄 상자를 건드리지 않음). 탭 머리 증분만 되돌리려면 `93db426e`, `ddec0b09`의 diff와 그 시험(증분 4, 5)을
       함께 되돌리고 글꼴 파일과는 상관없다. 입력 글꼴은 저장소에 그대로라 내려받기가 필요 없다. 되돌린 시트는 다시 입력을
@@ -3213,8 +3252,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       안에서 그 릴리스 checkpoint(artifact 13086827457)의 App, 곧 9.0.30 / v803(빌드 803, App 버전 `50e0527d`)으로 간다. 795
       이상이라 `lower`가 필요 없고 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped). 배포 뒤
       checkpoint App(v803)으로 가는 손 되돌리기는 v804 이상을 받은 클라이언트에 낮은 epoch를 돌려주고 6B, 9.0.33, 9.0.34, 9.0.35, 9.0.36, 9.0.37도 함께 빼므로 아래 9.0.29 절의 열린
-      항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 가장 최근 main 위에서 이 열차의 변경을 되돌리는 9.0.833 /
-      v833 이상의 앞으로 고치기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한
+      항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 가장 최근 main 위에서 이 열차의 변경을 되돌리는 9.0.834 /
+      v834 이상의 앞으로 고치기가 기본이고, 급할 때만 명시적으로 검토한 CLI 되돌리기로 간다. 손 되돌리기도 배포라 기록 PR과 이력 한
       행을 낸다. 섞인 버전: 이 빌드는 9.0.29와 9.0.30의 시트가 가리키는 Inter·KR 파일 127개를 내보내지 않는다. 배포 뒤에도 그
       버전으로 도는 탭(업데이트 창을 아직 받지 않음, 방장이 새로 고침을 미룸, bfcache 복원)은 아직 받지 않은 Inter·KR 조각을 받지
       못해 그 글자(드문 한글 음절, 라틴 확장, 키릴, 그리스, 베트남어)를 새로 고칠 때까지 기기 글꼴로 그린다. JP·SC·TC는 소개가
@@ -3367,11 +3406,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       재지 않는다는 오너 답.
       [오너 결정의 Q6](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#오너-결정-2026-10-30-모두-권장).
 - [ ] 되돌리기(보고서 '되돌리기', 계획 §4.5): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지 않아 forward floor가 생기지
-      않음). 기본은 더 높은 SemVer·epoch의 앞으로 고치기이고 9.0.31 / v804(위 9.0.31 절), 9.0.32 / v805(위 6B 절), 9.0.33 / v806(위 9.0.33 절), 9.0.34 / v807(위 9.0.34 절), 9.0.35 / v808(위 9.0.35 절), 9.0.36 / v809(위 9.0.36 절), 9.0.37 / v810(위 9.0.37 절), 9.0.38 / v811(위 9.0.38 절), 9.0.39 / v812(위 9.0.39 절), 9.0.40 / v813(위 9.0.40 절)과 9.0.41 / v814(위 9.0.41 절)가 나간 뒤로는 그 릴리스가 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+      않음). 기본은 더 높은 SemVer·epoch의 앞으로 고치기이고 9.0.31 / v804(위 9.0.31 절), 9.0.32 / v805(위 6B 절), 9.0.33 / v806(위 9.0.33 절), 9.0.34 / v807(위 9.0.34 절), 9.0.35 / v808(위 9.0.35 절), 9.0.36 / v809(위 9.0.36 절), 9.0.37 / v810(위 9.0.37 절), 9.0.38 / v811(위 9.0.38 절), 9.0.39 / v812(위 9.0.39 절), 9.0.40 / v813(위 9.0.40 절)과 9.0.41 / v814(위 9.0.41 절)가 나간 뒤로는 그 릴리스가 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
       그다음 번호). 실패한 `app`의 자동 복구는 그 릴리스 checkpoint의 App, 곧 9.0.29 / v802(빌드 802, App 버전 `f9c684cb`)로 가고, 795
       이상이라 `lower`가 필요 없으며 PRO는 그대로다. 이 릴리스는 성공해 그 복구는 돌지 않았다(recovery job skipped). 배포 뒤 checkpoint
       App(v802)으로 가는 손 되돌리기는 v803을 받은 클라이언트에 낮은 epoch를 돌려주므로 아래 9.0.29 절의 열린 항목('낮은 epoch로 가는 App
-      손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 6A부터 가장 최근 열차까지 거꾸로 되돌리는 9.0.833 / v833 이상의 앞으로 되돌리기가 기본이고(6A만 빼는 창은 아래대로 닫힘),
+      손 되돌리기의 규칙', 결정 전)을 따른다: 결정이 날 때까지 급하지 않으면 6A부터 가장 최근 열차까지 거꾸로 되돌리는 9.0.834 / v834 이상의 앞으로 되돌리기가 기본이고(6A만 빼는 창은 아래대로 닫힘),
       급할 때만 명시적으로 검토한 CLI 되돌리기로 checkpoint App으로 간다(9.0.31 ~ 9.0.41이 나간 뒤로는 그 굽기와 탭 제목, 6B, 앱 한글 Pretendard, 6C와 라이트 두 증분, 6D, 공개 페이지 글꼴 열차, 7A·아이폰 복귀·입력칸 열차, 오너의 UI 정리 열차, 7B·숫자 고정폭·데모 단계 버튼 열차, 공개 페이지 한국어 자간·데모 단계 라벨 열차, 7C 열차도 함께 빠짐). 와이어가 같아 되돌린 App과 9.0.30이 섞인 방도 같은 프레임을
       같은 시각에 보낸다. 손 되돌리기도 배포라 기록 PR과 이력 한 행을 내고, 출처 없는 버전의 다음 수리 릴리스는
       [운영](hotfix-procedure.md#normal-hotfix)대로 정한다. 6A만 혼자 되돌릴 수 있는 것은 6B가 머지되기 전까지였고, 6B가 2026-11-02 05:21 KST에 머지돼(`3ea689b9`, 위 6B 절) 그 창은 닫혔다: 6B 장부가 6A-1의 소유자
@@ -3402,7 +3441,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       (C) 시작 직후의 헤드셋·잠금 화면(H3: 방장 seek 직후 2초 안과 게스트가 수동 오프셋 시작을 기다리는 동안, iPhone 방장 한 번, 약
       25분). 위 Q6 항목대로 기준선이 없어 이 확인은 기준선과 견주지 못한다. 기기가 없는 단계는 '기기 없음'이고 실패가 아니다. 운영
       브라우저의 업데이트 창도 이 기록까지 보지 않았다. 9.0.30의 기록 때 운영에서 본 것은 HTTP smoke 넷, 공개 상태, Drift Audit뿐이었다. 실패하면:
-      일시적 네트워크로 설명되지 않는 어긋남이면 위 되돌리기대로 앞으로 고치기(9.0.833 / v833 이상)나, 급할 때만 명시적으로 검토한 CLI
+      일시적 네트워크로 설명되지 않는 어긋남이면 위 되돌리기대로 앞으로 고치기(9.0.834 / v834 이상)나, 급할 때만 명시적으로 검토한 CLI
       되돌리기로 checkpoint App(9.0.29, 9.0.31의 굽기와 탭 제목, 9.0.32의 6B, 9.0.33의 한글 면, 9.0.34의 6C와 라이트 두 증분, 9.0.35의 6D, 9.0.36의 공개 페이지 글꼴 열차, 9.0.37의 7A·아이폰 복귀·입력칸 열차, 9.0.38의 오너의 UI 정리 열차, 9.0.39의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41의 7C 열차도 함께 빠짐)을 정한다. 닫는 근거: 운영 App이 6A를 담은 SHA라는 배포 기록과 위 후보의 판정. 앞의 것은 9.0.30의 기록이
       채웠고(배포 main `3c098e9d`, App `50e0527d`. 9.0.41의 기록까지 운영 App은 6A를 담음), 뒤의 것은 아직이다.
       [배포 뒤 확인](design/phase6-6a-start-constants-owner-queries-2026-10-31.md#배포-뒤-확인-블라인드-게이트-아님),
@@ -3502,7 +3541,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       503·502 재시도는 없었다(Standard HTTPS 빌드 802 `bridgeOpenMs` 방장 946ms·게스트 529ms). 그 smoke는 HTTP뿐이라 글꼴 그리기나
       줄 높이를 거치지 않는다. 새 제3자 자산(Inter 4.001 부분 파일 7개, Noto Sans KR 2.004 조각 120개, 둘 다 SIL OFL 1.1)과 출처·
       해시·라이선스 파일은 §1 의존성·호환에 적었다. 되돌리기 경계는 §4 머리의 현재 경계 줄 (5), (8), (9)와 §4의 이 릴리스
-      항목이다(보통 길은 9.0.30 / v803 ~ 9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상의 앞으로 되돌리기이고 Pretendard 파일이 배포된 채이며 데이터·바닥·Durable Object·D1
+      항목이다(보통 길은 9.0.30 / v803 ~ 9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상의 앞으로 되돌리기이고 Pretendard 파일이 배포된 채이며 데이터·바닥·Durable Object·D1
       상태가 바뀌지 않아 쉽다. 보고서는 App Worker CLI 되돌리기를 클라이언트가 새 SW를 받기 전 처음 몇 분에만 쓰라고 적고(낮은
       epoch 복원 금지) 그 몇 분 안의 대상은 checkpoint의 9.0.28 App `89ad188d`로 `lower` 없이 PRO는 그대로다. 그 몇 분 뒤 낮은
       epoch로 가는 손 되돌리기(9.0.30 ~ 9.0.41이 나간 뒤로는 6A, 굽기·탭 제목 열차, 6B, 앱 한글 Pretendard, 6C와 라이트 두 증분, 6D, 공개 페이지 글꼴 열차, 7A·아이폰 복귀·입력칸 열차, 오너의 UI 정리 열차, 7B·숫자 고정폭·데모 단계 버튼 열차, 공개 페이지 한국어 자간·데모 단계 라벨 열차, 7C 열차도 함께 뺌)는 아래 열린 항목대로 결정 전이라, 그때까지 hotfix-procedure의 명시적으로 검토한 CLI 되돌리기로만
@@ -3591,7 +3630,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       대상은 모두 v804보다 낮다. 9.0.32 / v805(Phase 6 6B, 2026-11-02 05:34 KST, 위 6B 절)가 나간 뒤에는 그 릴리스 checkpoint의 9.0.31 `dff554a2`(v804)도 낮은 epoch이고(6B 보고서도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v805보다 낮다. 9.0.33 / v806(앱 한글 Pretendard, 같은 날 13:12 KST, 위 9.0.33 절)이 나간 뒤에는 그 릴리스 checkpoint의 9.0.32 `e19b7085`(v805)도 낮은 epoch이고(9.0.33의 머지 커밋 본문도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v806보다 낮다. 9.0.34 / v807(6C와 라이트 두 증분, 같은 날 21:20 KST, 위 9.0.34 절)이 나간 뒤에는 그 릴리스 checkpoint의 9.0.33 `047e6f68`(v806)도 낮은 epoch이고(9.0.34의 머지 커밋 본문도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v807보다 낮다. 9.0.35 / v808(Phase 6 6D, 2026-11-03 16:40 KST, 위 9.0.35 절)이 나간 뒤에는 그 릴리스 checkpoint의 9.0.34 `b5278b0b`(v807)도 낮은 epoch이고(9.0.35의 머지 커밋 본문도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v808보다 낮다. 9.0.36 / v809(공개 페이지 글꼴 열차, 같은 날 22:22 KST, 위 9.0.36 절)가 나간 뒤에는 그 릴리스 checkpoint의 9.0.35 `6bba4c8e`(v808)도 낮은 epoch이고, 위 대상은 모두 v809보다 낮다. 9.0.37 / v810(7A·아이폰 복귀·입력칸 열차, 2026-11-04 13:51 KST, 위 9.0.37 절)이 나간 뒤에는 그 릴리스 checkpoint의 9.0.36 `385d84fe`(v809)도 낮은 epoch이고(9.0.37의 머지 커밋 본문도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v810보다 낮다. 9.0.38 / v811(오너의 UI 정리 열차, 2026-11-05 06:14 KST, 위 9.0.38 절)이 나간 뒤에는 그 릴리스 checkpoint의 9.0.37 `80534771`(v810)도 낮은 epoch이고(9.0.38의 머지 커밋 본문도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v811보다 낮다. 9.0.39 / v812(7B·숫자 고정폭·데모 단계 버튼 열차, 같은 날 21:22 KST, 위 9.0.39 절)가 나간 뒤에는 그 릴리스 checkpoint의 9.0.38 `984397d9`(v811)도 낮은 epoch이고(9.0.39의 머지 커밋 본문도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v812보다 낮다. 9.0.40 / v813(공개 페이지 한국어 자간·데모 단계 라벨 열차, 2026-11-06 14:53 KST, 위 9.0.40 절)이 나간 뒤에는 그 릴리스 checkpoint의 9.0.39 `4cf5e560`(v812)도 낮은 epoch이고(9.0.40의 머지 커밋 본문도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v813보다 낮다. 9.0.41 / v814(Phase 7 7C, 2026-11-11 01:14 KST, 위 9.0.41 절)가 나간 뒤에는 그 릴리스 checkpoint의 9.0.40 `e61f7de9`(v813)도 낮은 epoch이고(7C 보고서 §11도 그 손 되돌리기를 이 항목에 맡김), 위 대상은 모두 v814보다 낮다. 이
       기록은 그 차이를 정하지 않고, 절차 문서가 우선한다는 작업 지침대로 결정이 날
       때까지 hotfix-procedure를 따른다:
-      급하지 않으면 그 증분만 빼는 9.0.833 / v833 이상의 코드 되돌리기가 기본이고, 급해서 위 checkpoint App으로 되돌릴 때는
+      급하지 않으면 그 증분만 빼는 9.0.834 / v834 이상의 코드 되돌리기가 기본이고, 급해서 위 checkpoint App으로 되돌릴 때는
       명시적으로 검토한 CLI 되돌리기로만 하며, 그 검토는 함께 빠지는 증분(9.0.29의 글꼴 전환, 9.0.30의 6A, 9.0.31의 굽기와 탭 제목, 9.0.32의 6B, 9.0.33의 한글 면, 9.0.34의 6C와 라이트 두 증분, 9.0.35의 6D, 9.0.36의 공개 페이지 글꼴 열차)과 v802 ~ v809를 이미
       받은 클라이언트에 낮은 epoch가 돌아가는 것을 함께 본다. §1 '복구', 9.0.41·9.0.40·9.0.39·9.0.38·9.0.37·9.0.36·9.0.35·9.0.34·9.0.33·6B·9.0.31·6A·9.0.28·9.0.27 절의 실패 처리, §4 현재 경계 줄 (5)와
       9.0.27 ~ 9.0.41 항목의 손 되돌리기 문장은 이 항목을 따른다. 닫는 근거: 오너나 릴리스 담당의 결정을 적은 기록(이 기록이나 보고서의 갱신, 필요하면
@@ -3684,7 +3723,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `e3457d38`)은 checkpoint(artifact 13025994464)가 보존한다. smoke는 모두 첫 시도에 통과했고 503·502 재시도는
       없었다(Standard HTTPS 빌드 801 `bridgeOpenMs` 방장 1,080ms·게스트 425ms). 그 smoke는 HTTP뿐이라 시스템 오디오 공유나
       재생목록 그리기를 거치지 않는다. 되돌리기 경계는 §4 머리의 현재 경계 줄 (5), (8), (9)와 §4의 이 릴리스 항목이다(기본은
-      9.0.29 / v802 ~ 9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상의 코드 되돌리기, 급할 때는 checkpoint artifact 13025994464의 9.0.27 App
+      9.0.29 / v802 ~ 9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상의 코드 되돌리기, 급할 때는 checkpoint artifact 13025994464의 9.0.27 App
       `e3457d38`로(9.0.29 ~ 9.0.41도 함께 빼고 낮은 epoch v800이 돌아오므로 위 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만)
       `lower` 없이 PRO는 그대로, PRO를 `ef882f7c` 아래로 손으로 되돌리지 않음, App을 795 아래로는
       9.0.25 릴리스 checkpoint의 9.0.24 App을 먼저 두는 합친 순서, 9.0.29 ~ 9.0.41의 기록은 아래 링크). 이 기록 PR은 §1을 덮어썼고, §4에 이 릴리스 항목을 더하고 현재 경계 줄 (5)를 9.0.28로 고쳤으며,
@@ -3729,7 +3768,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       공개 상태, Drift Audit뿐이라 이 증분의 경로는 아직 운영에서 지나지 않았다(위 항목). 열린 항목: (1) 트랙 없이 협상한 뒤 늦게
       RTP가 시작되는 push 트랙을 운영 Cloudflare가 전달하는지는 배포 뒤에도 아직 보지 않았다. 첫 확인은 열차 보고서의 블라인드
       배포 직후 확인 (2)·(3)이고(아래 배포 직후 확인 항목), 그 공유에서 청취자에 `Subscription to generation N ready`가 있는데
-      소리가 없으면 이 증분을 되돌린다(되돌릴 동작은 9.0.27 / v800. 9.0.29 / v802 ~ 9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상의 코드
+      소리가 없으면 이 증분을 되돌린다(되돌릴 동작은 9.0.27 / v800. 9.0.29 / v802 ~ 9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상의 코드
       되돌리기가 기본이고, 급할 때는 이 릴리스 checkpoint(artifact 13025994464)의 App 9.0.27 `e3457d38`로 손으로 되돌린다(9.0.29의
       글꼴 전환, 9.0.30의 6A, 9.0.31의 굽기와 탭 제목, 9.0.32의 6B, 9.0.33의 한글 면, 9.0.34의 6C와 라이트 두 증분, 9.0.35의 6D, 9.0.36의 공개 페이지 글꼴 열차, 9.0.37의 7A·아이폰 복귀·입력칸 열차, 9.0.38의 오너의 UI 정리 열차, 9.0.39의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41의 7C 열차도 함께 빠지고 낮은 epoch가 돌아오므로 위 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만, §4 9.0.29
       항목). 빌드 800은 저장 바닥 795 이상이라
@@ -3784,7 +3823,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       관찰값만 건네고, 판정은 받은 관찰값을 보고서의 판정 기준과 견줘 QA 라운드에 적는다. 실패하면: SFU 증분의 되돌리기
       조건이나 판정 기준의 결함이면 보고서 '실패하면'대로 App을 이 릴리스 checkpoint의 9.0.27 `e3457d38`로 손으로
       되돌리고(`lower` 없음, PRO는 그대로, 9.0.29의 글꼴 전환, 9.0.30의 6A, 9.0.31의 굽기와 탭 제목, 9.0.32의 6B, 9.0.33의 한글 면, 9.0.34의 6C와 라이트 두 증분, 9.0.35의 6D, 9.0.36의 공개 페이지 글꼴 열차, 9.0.37의 7A·아이폰 복귀·입력칸 열차, 9.0.38의 오너의 UI 정리 열차, 9.0.39의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41의 7C 열차도 함께 빠짐) 기록하며, 다음 수리 릴리스는 `all`이다. 급하지 않으면
-      손 되돌리기 대신 SFU 증분만 빼는 9.0.833 / v833 이상의 코드 되돌리기로 재생목록, 글꼴 전환, 6A, 굽기와 탭 제목, 6B, 한글 면, 6C와 라이트 두 증분, 6D, 공개 페이지 글꼴 열차, 7A·아이폰 복귀·입력칸 열차, 오너의 UI 정리 열차, 7B·숫자 고정폭·데모 단계 버튼 열차, 공개 페이지 한국어 자간·데모 단계 라벨 열차, 7C 열차를 지킨다. 9.0.27의 절차가
+      손 되돌리기 대신 SFU 증분만 빼는 9.0.834 / v834 이상의 코드 되돌리기로 재생목록, 글꼴 전환, 6A, 굽기와 탭 제목, 6B, 한글 면, 6C와 라이트 두 증분, 6D, 공개 페이지 글꼴 열차, 7A·아이폰 복귀·입력칸 열차, 오너의 UI 정리 열차, 7B·숫자 고정폭·데모 단계 버튼 열차, 공개 페이지 한국어 자간·데모 단계 라벨 열차, 7C 열차를 지킨다. 9.0.27의 절차가
       실패하면 되돌릴 App은 9.0.27 릴리스 checkpoint(artifact 13005387697)의 9.0.26 `b8dc4281`이다(빌드 799, 9.0.27 ~ 9.0.41을
       함께 뺌). 이 손 되돌리기들은 9.0.29 보고서가 CLI 되돌리기를 쓰라고 적은 처음 몇 분 뒤에 낮은 epoch(v800이나 v799)로
       돌아가므로, 위 9.0.29 절의 열린 항목대로 결정이 날 때까지 hotfix-procedure의 명시적으로 검토한 CLI 되돌리기로만 한다(§4
@@ -3863,7 +3902,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       버전 그대로다. 배포 전 App(9.0.26 / v799, `b8dc4281`)은 checkpoint(artifact 13005387697)가 보존한다. smoke는 모두 첫
       시도에 통과했고 503·502 재시도는 없었다(Standard HTTPS 빌드 800 `bridgeOpenMs` 방장 1,396ms·게스트 435ms). 그 smoke는
       HTTP뿐이라 시스템 오디오 공유나 채팅 포커스를 거치지 않는다. 되돌리기 경계는 §4 머리의 현재 경계 줄 (5), (8), (9)와
-      §4의 이 릴리스 항목이다(기본은 9.0.28 / v801 ~ 9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상의 코드 되돌리기, 급할 때는
+      §4의 이 릴리스 항목이다(기본은 9.0.28 / v801 ~ 9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상의 코드 되돌리기, 급할 때는
       checkpoint artifact 13005387697의 9.0.26 App `b8dc4281`로(9.0.27 ~ 9.0.41을 함께 빼고 낮은 epoch v799가 돌아오므로 위 9.0.29
       절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만) `lower` 없이 PRO는 그대로, PRO를 `ef882f7c` 아래로 손으로 되돌리지
       않음, App을 795 아래로는 9.0.25 릴리스 checkpoint의 9.0.24 App을 먼저 두는 합친 순서, 9.0.28 ~ 9.0.41의 기록은 아래 링크). 이
@@ -4108,7 +4147,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       checkpoint(artifact 12953960262)가 보존한다. smoke는 모두 첫 시도에 통과했고 503·502 재시도는 없었다(Standard
       HTTPS 빌드 799 `bridgeOpenMs` 방장 1,002ms·게스트 463ms). 그 smoke는 HTTP뿐이라 시스템 오디오 공유나 채팅 시트를
       거치지 않는다. 되돌리기 경계는 §4 머리의 현재 경계 줄 (5), (8), (9)와 §4의 이 릴리스 항목이다(기본은 9.0.27 / v800 ~
-      9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상의 코드 되돌리기, 급할 때는 checkpoint artifact 12953960262의 9.0.25 App
+      9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상의 코드 되돌리기, 급할 때는 checkpoint artifact 12953960262의 9.0.25 App
       `b4e8fc56`로 `lower` 없이 PRO는 그대로, PRO를 `ef882f7c` 아래로 손으로 되돌리지 않음, App을 795 아래로는 9.0.25 릴리스
       checkpoint의 9.0.24 App을 먼저 두는 합친 순서, 9.0.27 ~ 9.0.41의 기록은 아래 링크). 이 기록 PR은 §1을 덮어썼고, §4에 이 릴리스 항목을
       더하고 현재 경계 줄 (5)를 9.0.26으로 고쳤으며, hotfix-procedure의 9.0.25 문단에 9.0.26의 머지 SHA, Release ID, App
@@ -4251,7 +4290,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       읽지 않는다. 배포 뒤 공개 `/service-worker.js`는 `CACHE_VERSION = "v798"`이고, 공개 상태는 저장·유효 795, live App
       798이며, 합성 방 000000과 000001의 공개 bootstrap은 배포 전과 같다. 배포 뒤 Drift Audit 40964945920은 32 pass / 0
       fail / 5 manual-only였다(§1). 되돌리기 경계는 §4 머리의 현재 경계 줄 (5), (8), (9)와 §4의 이 릴리스 항목이다(기본은
-      9.0.26 / v799 ~ 9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상의 코드 되돌리기, 급할 때는 checkpoint artifact
+      9.0.26 / v799 ~ 9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상의 코드 되돌리기, 급할 때는 checkpoint artifact
       12938145012의 9.0.24 App `dd820d37`로 `lower` 없이 PRO는 그대로, PRO를 `ef882f7c` 아래로 손으로 되돌리지 않음, App을
       795 아래로는 App 먼저의 합친 순서, 9.0.26 ~ 9.0.41의 기록은 아래 링크). 이 기록 PR은
       §1을 덮어썼고, §4의 이 릴리스 항목과 현재 경계 줄 (5), (8), hotfix-procedure의 9.0.25 문장에 머지 SHA, Release ID,
@@ -4378,7 +4417,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       'Sign-in was cancelled.'를 보였고 주소가 `/translate?locale=ja`가 됐으며 비컨 스크립트가 없었다(쿼리가 있어 로더가
       닫힘, 설계대로). 배포 뒤 Drift Audit 40929931417은 32 pass / 0 fail / 5 manual-only였다(§1). 이 기록 PR은 §1을
       덮어썼고, §4에 이 릴리스 항목을 더하고 머리의 현재 경계 줄 (5)를 9.0.24로 고쳤으며(기본은 9.0.25 / v798 ~ 9.0.41 /
-      v814가 나간 뒤로는 9.0.833 / v833 이상의 코드 되돌리기, 급할 때는 checkpoint artifact 12921334051의
+      v814가 나간 뒤로는 9.0.834 / v834 이상의 코드 되돌리기, 급할 때는 checkpoint artifact 12921334051의
       9.0.23 App `dddfabe3`로 `lower` 없이, 9.0.25 ~ 9.0.41의 기록은 아래 링크), 9.0.17 ~ 9.0.23 항목의
       다음 되돌리기 번호를 9.0.25 / v798로 옮겼고, `release-history.md`에 한 행을 더했다. 로컬 결과는 exact-main-SHA 후보를
       대신하지 않았다.
@@ -4534,7 +4573,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       smoke는 모두 첫 시도에 통과했고 503·502 재시도는 없었다(Standard HTTPS `bridgeOpenMs` 방장 1,026ms·게스트 621ms).
       배포 뒤 공개 `/service-worker.js`는 `CACHE_VERSION = "v796"`이고, 공개 상태는 저장·유효 789, live App 796이다. 배포
       뒤 Drift Audit 40872861652는 32 pass / 0 fail / 5 manual-only였다(§1). 이 기록 PR은 §1을 덮어썼고, §4에 이 릴리스의
-      되돌리기 경계를 더했으며(기본은 9.0.24 / v797 ~ 9.0.41 / v814가 나간 뒤로는 9.0.833 / v833 이상의 코드 되돌리기,
+      되돌리기 경계를 더했으며(기본은 9.0.24 / v797 ~ 9.0.41 / v814가 나간 뒤로는 9.0.834 / v834 이상의 코드 되돌리기,
       checkpoint artifact 12897175278, 9.0.24 ~ 9.0.41의 기록은 아래 링크),
       `release-history.md`에 한 행을 더했고, 9.0.20 항목에서 이 열차가 구현한 오너 항목을 이 배포 근거로 닫았다(§2 최근
       해결 근거). 로컬 결과는 exact-main-SHA 후보를 대신하지 않았다.
@@ -4619,7 +4658,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       signaling 위에서 통과했다. 배포 뒤 공개 `/service-worker.js`는 `CACHE_VERSION = "v795"`이고, 공개 상태는
       저장·유효 789, live App 795다. 배포 뒤 Drift Audit 40850884347은 32 pass / 0 fail / 5 manual-only였다(§1).
       되돌리기 경계는 §4 머리의 현재 경계 줄과 이 릴리스 항목이다(기본은 9.0.23 / v796 ~ 9.0.41 / v814가 나간 뒤로는
-      9.0.833 / v833 이상의 코드 되돌리기, checkpoint artifact 12886313200, 9.0.23 ~ 9.0.41의 기록은 아래 링크).
+      9.0.834 / v834 이상의 코드 되돌리기, checkpoint artifact 12886313200, 9.0.23 ~ 9.0.41의 기록은 아래 링크).
       이 기록 PR은 §1을 덮어썼고, §4에
       이 릴리스 항목을 더하고 머리 줄에 F1과 이 릴리스의 checkpoint를 채웠으며, `release-history.md`에 한 행을
       더했고(F1은 그 행에 적고 바닥 `set`의 행은 따로 두지 않음), 릴리스 A 항목의 '9.0.14 기기와의 혼합 방' 기기 확인을
@@ -7372,8 +7411,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       통과했고(열차 보고서 QA 라운드 4), main `599465dd` 위로 다시 옮긴 뒤 같은 35 / 35와 101이 다시 통과했다(라운드 5). PR
       CI와 exact-main CI의 Critical browser gate(Linux Chromium)도 통과했다(근거는 job 결론뿐).
       'convertible in tablet posture' 호버 행은 main에서도 불안정하다(그 행만 여섯 번 돌리면 main `682e0fcd`의
-      e2e 빌드에서 다섯 번, 열차 빌드에서 여섯 번 모두 같은 580줄에서 실패, 열차 보고서 QA 라운드 3·4). 되돌리기는 9.0.833 /
-      v833 이상의 코드 되돌리기가 기본이고(9.0.29 ~ 9.0.832가 먼저 나감), 그리기 결함은 손 되돌리기 사유가 아니다. 닫는 근거: 운영 App이 9.0.28 열차의
+      e2e 빌드에서 다섯 번, 열차 빌드에서 여섯 번 모두 같은 580줄에서 실패, 열차 보고서 QA 라운드 3·4). 되돌리기는 9.0.834 /
+      v834 이상의 코드 되돌리기가 기본이고(9.0.29 ~ 9.0.833이 먼저 나감), 그리기 결함은 손 되돌리기 사유가 아니다. 닫는 근거: 운영 App이 9.0.28 열차의
       SHA라는 배포 기록과 오너 기기 확인(휴대폰과 데스크톱에서 현재 행 아이콘과 업로드 행의 번호, 고리, 줄 맞춤이 시안과 같음,
       열차 보고서 오너 기기 확인 목록 2와 3), 그리고 두 오너 질문의 답. 앞의 것은 9.0.28의 기록이 채웠고(배포 main
       `aa7baad5`, App `89ad188d`), 오너 기기 확인과 두 답은 9.0.41의 기록까지도 근거에 없다. 9.0.29(2026-10-31 23:39 KST, §2
@@ -7529,41 +7568,40 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   방에는 0으로 `lower`한 것과 같다(정책 수용,
   [보고서의 '바닥이 거르지 못하는 곳'](design/phase5-5-r2-v2-send-2026-10-29.md#바닥-795와-이-릴리스가-기대는-것)). 그때 고칠
   것은 App 보고이고 바닥을 내리지 않는다.
-  (5) 지금 운영 App은 9.0.832(세션 초기화 화면의 페이드인 열차, 2026-11-20 13:06 KST,
-  [Release 44671941713](https://github.com/hiefny/MUSIXQUARE/actions/runs/44671941713)(같은 커밋을 다시 낸 실행), PR #618 squash `8fc3c7b7`, App
-  `d8f27952`, deployment `a7b2e737`. 같은 코드의 앞 App `5d23f1ca`(deployment `c088443a`)는 09:42 KST의 첫
-  [Release 44647634158](https://github.com/hiefny/MUSIXQUARE/actions/runs/44647634158)이 남겼고, 그 실행은 실패했지만 그 App이 운영에 남았음)이고, PRO room은 아래 '9.0.25 뒤의 PRO 전용 정리 릴리스'의 PRO Worker(2026-10-30 19:56 KST,
+  (5) 지금 운영 App은 9.0.833(스크롤 막대의 호버 나타남과 붙잡기, 숨은 막대의 손가락 통과 열차, 2026-11-21 02:13 KST,
+  [Release 44780691557](https://github.com/hiefny/MUSIXQUARE/actions/runs/44780691557), PR #621 squash `884015a0`, App
+  `fedf9e18`, deployment `979752a1`)이고, PRO room은 아래 '9.0.25 뒤의 PRO 전용 정리 릴리스'의 PRO Worker(2026-10-30 19:56 KST,
   [Release 41044220520](https://github.com/hiefny/MUSIXQUARE/actions/runs/41044220520), PR #537 squash `683074bc`, PRO room
   `e7657f88`, checkpoint artifact 12971063046이 담은 것은 (6)의 PRO Worker `ef882f7c`), remote-share·signaling·Developer
   API facade·Developer API는 9.0.22 `71f5b96c`의 버전이다. 그 PRO 릴리스는 이 줄의 경계를 바꾸지 않았다: 그 PRO Worker는
   (6)의 PRO Worker와 바이트로 같은 기록을 쓰고 schemaVersion 2를 보내므로, (4)와 (6) ~ (9)가 (6)의 PRO Worker의 배포나
   live를 두고 적은 것은 그 PRO Worker가 live인 동안에도 그대로다. 손 PRO 되돌리기 바닥은 여전히 (8)의 `ef882f7c`(그
-  릴리스의 checkpoint이자 실패 자동 복구 대상)이고, (6)과 (9)의 PRO 단계는 그대로 9.0.22의 PRO Worker로 간다. 9.0.832는 이
-  줄의 다른 경계를 바꾸지 않았다: 두 번째 실행의 checkpoint(artifact 14600771841)는 9.0.832 자신(`5d23f1ca`, 빌드 832)을 담고, 첫 실행의 checkpoint(artifact 14589391887)가 담은 App 9.0.831 / v831(`046b29c6`, 빌드 831), 9.0.831의 checkpoint(artifact 14457172879)가 담은 9.0.829 / v829(`79634692`, 빌드 829), 9.0.829의 checkpoint(artifact 14298778854)가 담은 9.0.53 / v828(`b7d3fede`, 빌드 828), 9.0.53의 checkpoint(artifact 14249302407)가 담은 9.0.52 / v827(`2d9bd678`, 빌드 827), 9.0.52의 checkpoint(artifact 14219898933)가 담은 9.0.51 / v826(`2e265903`, 빌드 826), 9.0.51의 checkpoint(artifact 14197942017)가 담은 9.0.50 / v825(`947a0403`, 빌드 825), 9.0.50의 checkpoint(artifact 14168866544)가 담은 9.0.49 / v824(`defaf685`, 빌드 824), 9.0.49의 checkpoint(artifact 14153011349)가 담은 9.0.48 / v823(`2725ae79`, 빌드 823), 9.0.48의 checkpoint(artifact 14142242845)가 담은 9.0.47 / v822(`7e7ef536`, 빌드 822), 9.0.47의 checkpoint(artifact 14098000139)가 담은 9.0.46 / v821(`1f40c6de`, 빌드 821), 9.0.46의 checkpoint(artifact 13919305566)가 담은 9.0.45 / v820(`1d5b0a8b`, 빌드 820), 9.0.45의 checkpoint(artifact 13902869847)가 담은 9.0.44 / v819(`2af24151`, 빌드 819), 9.0.44의 checkpoint(artifact 13848343170)가 담은 9.0.43 / v818(`ce3d671f`, 빌드 818), 9.0.43의 checkpoint(artifact 13833173702)가 담은 9.0.42 / v815(`45dade96`, 빌드 815), 9.0.42의 checkpoint(artifact 13824511180)가 담은 9.0.41 / v814(`a89ade21`, 빌드 814), 9.0.41의 checkpoint(artifact 13780298445)가 담은 9.0.40 / v813(`e61f7de9`, 빌드 813), 9.0.40의 checkpoint(artifact 13480649065)가 담은 9.0.39 / v812(`4cf5e560`, 빌드 812), 9.0.39의 checkpoint(artifact 13414665903)가 담은 9.0.38 / v811(`984397d9`, 빌드 811), 9.0.38의 checkpoint(artifact 13363537242)가 담은 9.0.37 / v810(`80534771`, 빌드 810), 9.0.37의 checkpoint(artifact 13295929236)가 담은 9.0.36 / v809(`385d84fe`, 빌드 809), 9.0.36의 checkpoint(artifact 13233084692)가 담은 9.0.35 / v808(`6bba4c8e`, 빌드 808), 9.0.35의 checkpoint(artifact 13212877229)가 담은 9.0.34 / v807(`b5278b0b`, 빌드 807), 9.0.34의 checkpoint(artifact 13141009365)가 담은 9.0.33 / v806(`047e6f68`, 빌드 806), 9.0.33의 checkpoint(artifact 13115751050)가 담은 9.0.32 / v805(`e19b7085`, 빌드 805), 9.0.32의 checkpoint(artifact 13099442949)가 담은 9.0.31 / v804(`dff554a2`, 빌드 804), 9.0.31의 checkpoint(artifact 13086827457)가 담은 9.0.30 / v803(`50e0527d`, 빌드 803), 9.0.30의
+  릴리스의 checkpoint이자 실패 자동 복구 대상)이고, (6)과 (9)의 PRO 단계는 그대로 9.0.22의 PRO Worker로 간다. 9.0.833은 이
+  줄의 다른 경계를 바꾸지 않았다: 그 checkpoint(artifact 14651313108)가 담은 App 9.0.832 / v832(`d8f27952`, 빌드 832), 9.0.832 두 번째 실행의 checkpoint(artifact 14600771841)가 담은 같은 9.0.832 코드의 `5d23f1ca`(빌드 832), 9.0.832 첫 실행의 checkpoint(artifact 14589391887)가 담은 App 9.0.831 / v831(`046b29c6`, 빌드 831), 9.0.831의 checkpoint(artifact 14457172879)가 담은 9.0.829 / v829(`79634692`, 빌드 829), 9.0.829의 checkpoint(artifact 14298778854)가 담은 9.0.53 / v828(`b7d3fede`, 빌드 828), 9.0.53의 checkpoint(artifact 14249302407)가 담은 9.0.52 / v827(`2d9bd678`, 빌드 827), 9.0.52의 checkpoint(artifact 14219898933)가 담은 9.0.51 / v826(`2e265903`, 빌드 826), 9.0.51의 checkpoint(artifact 14197942017)가 담은 9.0.50 / v825(`947a0403`, 빌드 825), 9.0.50의 checkpoint(artifact 14168866544)가 담은 9.0.49 / v824(`defaf685`, 빌드 824), 9.0.49의 checkpoint(artifact 14153011349)가 담은 9.0.48 / v823(`2725ae79`, 빌드 823), 9.0.48의 checkpoint(artifact 14142242845)가 담은 9.0.47 / v822(`7e7ef536`, 빌드 822), 9.0.47의 checkpoint(artifact 14098000139)가 담은 9.0.46 / v821(`1f40c6de`, 빌드 821), 9.0.46의 checkpoint(artifact 13919305566)가 담은 9.0.45 / v820(`1d5b0a8b`, 빌드 820), 9.0.45의 checkpoint(artifact 13902869847)가 담은 9.0.44 / v819(`2af24151`, 빌드 819), 9.0.44의 checkpoint(artifact 13848343170)가 담은 9.0.43 / v818(`ce3d671f`, 빌드 818), 9.0.43의 checkpoint(artifact 13833173702)가 담은 9.0.42 / v815(`45dade96`, 빌드 815), 9.0.42의 checkpoint(artifact 13824511180)가 담은 9.0.41 / v814(`a89ade21`, 빌드 814), 9.0.41의 checkpoint(artifact 13780298445)가 담은 9.0.40 / v813(`e61f7de9`, 빌드 813), 9.0.40의 checkpoint(artifact 13480649065)가 담은 9.0.39 / v812(`4cf5e560`, 빌드 812), 9.0.39의 checkpoint(artifact 13414665903)가 담은 9.0.38 / v811(`984397d9`, 빌드 811), 9.0.38의 checkpoint(artifact 13363537242)가 담은 9.0.37 / v810(`80534771`, 빌드 810), 9.0.37의 checkpoint(artifact 13295929236)가 담은 9.0.36 / v809(`385d84fe`, 빌드 809), 9.0.36의 checkpoint(artifact 13233084692)가 담은 9.0.35 / v808(`6bba4c8e`, 빌드 808), 9.0.35의 checkpoint(artifact 13212877229)가 담은 9.0.34 / v807(`b5278b0b`, 빌드 807), 9.0.34의 checkpoint(artifact 13141009365)가 담은 9.0.33 / v806(`047e6f68`, 빌드 806), 9.0.33의 checkpoint(artifact 13115751050)가 담은 9.0.32 / v805(`e19b7085`, 빌드 805), 9.0.32의 checkpoint(artifact 13099442949)가 담은 9.0.31 / v804(`dff554a2`, 빌드 804), 9.0.31의 checkpoint(artifact 13086827457)가 담은 9.0.30 / v803(`50e0527d`, 빌드 803), 9.0.30의
   checkpoint(artifact 13055689762)가 담은 9.0.29 / v802(`f9c684cb`, 빌드 802), 9.0.29의
   checkpoint(artifact 13045399758)가 담은 9.0.28 / v801(`89ad188d`, 빌드 801), 9.0.28의
   checkpoint(artifact 13025994464)가 담은 9.0.27 / v800(`e3457d38`, 빌드 800), 9.0.27의
   checkpoint(artifact 13005387697)가 담은 9.0.26 / v799(`b8dc4281`, 빌드 799)와
   9.0.26의 checkpoint(artifact 12953960262)가 담은 9.0.25 / v798(`b4e8fc56`, 빌드 798)은 저장 최소 빌드(F2 뒤 795)
-  이상이라 `lower` 없이 되돌리고 PRO는 그대로 두며(9.0.831부터 9.0.25까지 서른한 App 모두 schemaVersion 2만 읽음), 9.0.25의 checkpoint(artifact
+  이상이라 `lower` 없이 되돌리고 PRO는 그대로 두며(9.0.832부터 9.0.25까지 서른두 App 모두 schemaVersion 2만 읽음), 9.0.25의 checkpoint(artifact
   12938145012)가 담은 그 앞 App 9.0.24 / v797(`dd820d37`, 빌드 797), 9.0.24의 checkpoint(artifact 12921334051)가 담은
   9.0.23 / v796(`dddfabe3`, 빌드 796), 9.0.23의 checkpoint(artifact 12897175278)가 담은 9.0.22 / v795(`e8966418`, 빌드
-  795)도 마찬가지다(9.0.24 이하로는 PRO를 그대로 두고 App만, 두 스키마를 모두 읽음). 다만 9.0.832 아래로의 손 되돌리기는 세션 초기화 화면의 페이드인 열차를
-  빼고 낮은 epoch로 돌아가며(9.0.831 아래로는 9.0.830·9.0.831 열차(늦은 앱 스타일, 소리 복구, 한자 차례, 아이콘 색, 직결 증명 창, 선택 창, Inter 기호, 초점 테두리, 공유 씹힘, 디자인 시스템 로고), 9.0.829 아래로는 휴대폰 시작 화면·버전 규칙·시스템 오디오 준비 중·홈 바 띠 열차, 9.0.53 아래로는 설치 앱 첫 열기·링 마스크 열차, 9.0.52 아래로는 Phase 8 앱 CSS 열차, 9.0.51 아래로는 새로고침 자리 열차, 9.0.50 아래로는 로딩 표시 회전 층 열차, 9.0.49 아래로는 세션 새로고침 이음매 열차, 9.0.48 아래로는 로딩 화면 열차, 9.0.47 아래로는 느린 공개 페이지와 디자인 시스템 나타남 열차, 9.0.46 아래로는 가로 배치의 아래 끝과 오른쪽에서 왼쪽 다섯 곳 열차, 9.0.45 아래로는 미디어 화면과 오른쪽에서 왼쪽 자리 열차, 9.0.44 아래로는 재생 화면과 이름 맞추기 열차, 9.0.43 아래로는 안전 영역 열차, 9.0.42 아래로는 소리 복구의 명백한 결함 열차, 9.0.41 아래로는 7C 열차, 9.0.40 아래로는 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.39 아래로는 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.38 아래로는 오너의 UI 정리 열차, 9.0.37 아래로는 7A·아이폰 복귀·입력칸 열차, 9.0.36 아래로는 공개 페이지 글꼴 열차, 9.0.35 아래로는 6D, 9.0.34 아래로는 6C와 라이트 두 증분, 9.0.33 아래로는 앱 한글 Pretendard, 9.0.32 아래로는 6B, 9.0.31 아래로는 굽기와 탭 제목 열차, 9.0.30 아래로는 6A, 9.0.29 아래로는 글꼴 전환도 함께 뺌), 9.0.29 보고서는 App Worker CLI 되돌리기를 클라이언트가 새 SW를 받기 전 처음 몇
+  795)도 마찬가지다(9.0.24 이하로는 PRO를 그대로 두고 App만, 두 스키마를 모두 읽음). 다만 9.0.833 아래로의 손 되돌리기는 스크롤 막대 열차를
+  빼고 낮은 epoch로 돌아가며(9.0.832 아래로는 세션 초기화 화면의 페이드인 열차, 9.0.831 아래로는 9.0.830·9.0.831 열차(늦은 앱 스타일, 소리 복구, 한자 차례, 아이콘 색, 직결 증명 창, 선택 창, Inter 기호, 초점 테두리, 공유 씹힘, 디자인 시스템 로고), 9.0.829 아래로는 휴대폰 시작 화면·버전 규칙·시스템 오디오 준비 중·홈 바 띠 열차, 9.0.53 아래로는 설치 앱 첫 열기·링 마스크 열차, 9.0.52 아래로는 Phase 8 앱 CSS 열차, 9.0.51 아래로는 새로고침 자리 열차, 9.0.50 아래로는 로딩 표시 회전 층 열차, 9.0.49 아래로는 세션 새로고침 이음매 열차, 9.0.48 아래로는 로딩 화면 열차, 9.0.47 아래로는 느린 공개 페이지와 디자인 시스템 나타남 열차, 9.0.46 아래로는 가로 배치의 아래 끝과 오른쪽에서 왼쪽 다섯 곳 열차, 9.0.45 아래로는 미디어 화면과 오른쪽에서 왼쪽 자리 열차, 9.0.44 아래로는 재생 화면과 이름 맞추기 열차, 9.0.43 아래로는 안전 영역 열차, 9.0.42 아래로는 소리 복구의 명백한 결함 열차, 9.0.41 아래로는 7C 열차, 9.0.40 아래로는 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.39 아래로는 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.38 아래로는 오너의 UI 정리 열차, 9.0.37 아래로는 7A·아이폰 복귀·입력칸 열차, 9.0.36 아래로는 공개 페이지 글꼴 열차, 9.0.35 아래로는 6D, 9.0.34 아래로는 6C와 라이트 두 증분, 9.0.33 아래로는 앱 한글 Pretendard, 9.0.32 아래로는 6B, 9.0.31 아래로는 굽기와 탭 제목 열차, 9.0.30 아래로는 6A, 9.0.29 아래로는 글꼴 전환도 함께 뺌), 9.0.29 보고서는 App Worker CLI 되돌리기를 클라이언트가 새 SW를 받기 전 처음 몇
   분에만 쓰라고 적는다(낮은 epoch 복원 금지, 아래 9.0.29 항목). 낮은 epoch로 가는 이 손 되돌리기(9.0.29의 checkpoint App으로는 그 몇 분 뒤)는 결정 전이라(§2
-  9.0.29 절의 열린 항목) 오너나 릴리스 담당이 정할 때까지 hotfix-procedure를 따른다: 급하지 않으면 9.0.833 / v833 이상의
-  코드 되돌리기, 급하면 명시적으로 검토한 CLI 되돌리기로만 한다. 아래 9.0.27 ~ 9.0.832 항목의 급할 때 되돌리기도 이 문장을
-  따른다. 9.0.26 ~ 9.0.832도 schemaVersion 1을
-  읽지 않으므로 (8)과 (9)가 9.0.25 App과 그 탭에 대해 적은 것은 9.0.26 ~ 9.0.832 App과 그 탭에도 그대로이고, (8)의 App
-  단계와 (9)의 (a)는 여전히 schemaVersion 1도 읽는 9.0.25 릴리스 checkpoint의 App(9.0.24 `dd820d37`)이다(9.0.832 두 번째 실행
-  checkpoint의 9.0.832 `5d23f1ca`, 첫 실행 checkpoint의 9.0.831 `046b29c6`, 9.0.831 릴리스 checkpoint의 9.0.829 `79634692`, 9.0.829 릴리스 checkpoint의 9.0.53 `b7d3fede`, 9.0.53 릴리스 checkpoint의 9.0.52 `2d9bd678`, 9.0.52 릴리스 checkpoint의 9.0.51 `2e265903`, 9.0.51 릴리스 checkpoint의 9.0.50 `947a0403`, 9.0.50 릴리스 checkpoint의 9.0.49 `defaf685`, 9.0.49 릴리스 checkpoint의 9.0.48 `2725ae79`, 9.0.48 릴리스 checkpoint의 9.0.47 `7e7ef536`, 9.0.47 릴리스 checkpoint의 9.0.46 `1f40c6de`, 9.0.46 릴리스 checkpoint의 9.0.45 `1d5b0a8b`, 9.0.45 릴리스 checkpoint의 9.0.44 `2af24151`, 9.0.44 릴리스 checkpoint의 9.0.43 `ce3d671f`, 9.0.43 릴리스 checkpoint의 9.0.42 `45dade96`, 9.0.42 릴리스 checkpoint의 9.0.41 `a89ade21`, 9.0.41 릴리스 checkpoint의 9.0.40 `e61f7de9`, 9.0.40 릴리스 checkpoint의 9.0.39 `4cf5e560`, 9.0.39 릴리스 checkpoint의 9.0.38 `984397d9`, 9.0.38 릴리스 checkpoint의 9.0.37 `80534771`, 9.0.37 릴리스 checkpoint의 9.0.36 `385d84fe`, 9.0.36 릴리스 checkpoint의 9.0.35 `6bba4c8e`, 9.0.35 릴리스 checkpoint의 9.0.34 `b5278b0b`, 9.0.34 릴리스 checkpoint의 9.0.33 `047e6f68`, 9.0.33 릴리스 checkpoint의 9.0.32 `e19b7085`, 9.0.32 릴리스 checkpoint의 9.0.31 `dff554a2`, 9.0.31 릴리스 checkpoint의 9.0.30 `50e0527d`, 9.0.30 릴리스 checkpoint의 9.0.29 `f9c684cb`, 9.0.29 릴리스 checkpoint의 9.0.28 `89ad188d`, 9.0.28 릴리스 checkpoint의 9.0.27 `e3457d38`, 9.0.27 릴리스 checkpoint의 9.0.26 `b8dc4281`,
-  9.0.26 릴리스 checkpoint의 9.0.25 `b4e8fc56`은 schemaVersion 1을 읽지 않음). 앞 운영 App 9.0.832의 첫 App(2026-11-20 09:42 KST, Release 44647634158(실행은 실패), 같은 squash `8fc3c7b7`, App `5d23f1ca`), 9.0.831(2026-11-19 03:20 KST, Release 44368245447, PR #614 squash `0889df09`(9.0.830의 PR #613 squash `eae02e89` 위, 9.0.830은 나가지 않음), App `046b29c6`), 9.0.829(2026-11-17 13:29 KST, Release 44017206355, PR #607 squash `1cd64575`, App `79634692`), 9.0.53(2026-11-17 02:08 KST, Release 43914550117, PR #605 squash `9fb7c8a8`, App `b7d3fede`), 9.0.52(2026-11-16 20:16 KST, Release 43856001203, PR #603 squash `d363de7e`, App `2d9bd678`), 9.0.51(2026-11-16 13:37 KST, Release 43804988699, PR #601 squash `f0369f67`, App `2e265903`), 9.0.50(2026-11-16 00:52 KST, Release 43732082611, PR #599 squash `cbce861f`, App `947a0403`), 9.0.49(2026-11-15 16:50 KST, Release 43691535297, PR #597 squash `1b1b672e`, App `defaf685`), 9.0.48(2026-11-15 11:05 KST, Release 43665977505, PR #594 squash `3b75753e`, App `2725ae79`), 9.0.47(2026-11-14 13:00 KST, Release 43554252266, PR #592 squash `4abbf312`, App `7e7ef536`), 9.0.46(2026-11-12 14:40 KST, Release 43162776905, PR #590 squash `74d46d9e`, App `1f40c6de`), 9.0.45(2026-11-12 09:38 KST, Release 43128370307, PR #588 squash `c4675c51`, App `1d5b0a8b`), 9.0.44(2026-11-11 19:55 KST, Release 43007375910, PR #586 squash `3dd9d05d`, App `2af24151`), 9.0.43(2026-11-11 15:16 KST, Release 42971061565, PR #583 squash `3b8ec6e3`, App `ce3d671f`), 9.0.42(2026-11-11 11:55 KST, Release 42948976516, PR #581 squash `808d0d9d`, App `45dade96`), 9.0.41(2026-11-11 01:14 KST, Release 42852117870, PR #579 squash `91f6bb0c`, App `a89ade21`), 9.0.40(2026-11-06 14:53 KST, Release 42170829938, PR #576 squash `b44cbbfb`, App `e61f7de9`), 9.0.39(2026-11-05 21:22 KST, Release 42026274351, PR #574 squash `5b3cfcb0`, App `4cf5e560`), 9.0.38(2026-11-05 06:14 KST, Release 41913839299, PR #572 squash `9e62c26c`, App `984397d9`), 9.0.37(2026-11-04 13:51 KST, Release 41775435927, PR #570 squash `d1665230`, App `80534771`), 9.0.36(2026-11-03 22:22 KST, Release 41643392133, PR #567 squash `6f9cf6f8`, App `385d84fe`), 9.0.35(2026-11-03 16:40 KST, Release 41597588008, PR #565 squash `cfa81bdc`, App `6bba4c8e`), 9.0.34(2026-11-02 21:20 KST, Release 41443521522, PR #563 squash `cd8eaf47`, App `b5278b0b`), 9.0.33(2026-11-02 13:12 KST, Release 41386906358, PR #560 squash `4faf38d9`, App `047e6f68`), 9.0.32(2026-11-02 05:34 KST, Release 41347347201, PR #557 squash `3ea689b9`, App `e19b7085`), 9.0.31(2026-11-01 23:17 KST, Release 41315218029, PR #555 squash `ba28943e`, App `dff554a2`), 9.0.30(2026-11-01 05:17 KST, Release 41237978646, PR #550 squash `3c098e9d`, App `50e0527d`), 9.0.29(2026-10-31 23:39 KST, Release
+  9.0.29 절의 열린 항목) 오너나 릴리스 담당이 정할 때까지 hotfix-procedure를 따른다: 급하지 않으면 9.0.834 / v834 이상의
+  코드 되돌리기, 급하면 명시적으로 검토한 CLI 되돌리기로만 한다. 아래 9.0.27 ~ 9.0.833 항목의 급할 때 되돌리기도 이 문장을
+  따른다. 9.0.26 ~ 9.0.833도 schemaVersion 1을
+  읽지 않으므로 (8)과 (9)가 9.0.25 App과 그 탭에 대해 적은 것은 9.0.26 ~ 9.0.833 App과 그 탭에도 그대로이고, (8)의 App
+  단계와 (9)의 (a)는 여전히 schemaVersion 1도 읽는 9.0.25 릴리스 checkpoint의 App(9.0.24 `dd820d37`)이다(9.0.833 릴리스
+  checkpoint의 9.0.832 `d8f27952`, 9.0.832 두 번째 실행 checkpoint의 9.0.832 `5d23f1ca`, 첫 실행 checkpoint의 9.0.831 `046b29c6`, 9.0.831 릴리스 checkpoint의 9.0.829 `79634692`, 9.0.829 릴리스 checkpoint의 9.0.53 `b7d3fede`, 9.0.53 릴리스 checkpoint의 9.0.52 `2d9bd678`, 9.0.52 릴리스 checkpoint의 9.0.51 `2e265903`, 9.0.51 릴리스 checkpoint의 9.0.50 `947a0403`, 9.0.50 릴리스 checkpoint의 9.0.49 `defaf685`, 9.0.49 릴리스 checkpoint의 9.0.48 `2725ae79`, 9.0.48 릴리스 checkpoint의 9.0.47 `7e7ef536`, 9.0.47 릴리스 checkpoint의 9.0.46 `1f40c6de`, 9.0.46 릴리스 checkpoint의 9.0.45 `1d5b0a8b`, 9.0.45 릴리스 checkpoint의 9.0.44 `2af24151`, 9.0.44 릴리스 checkpoint의 9.0.43 `ce3d671f`, 9.0.43 릴리스 checkpoint의 9.0.42 `45dade96`, 9.0.42 릴리스 checkpoint의 9.0.41 `a89ade21`, 9.0.41 릴리스 checkpoint의 9.0.40 `e61f7de9`, 9.0.40 릴리스 checkpoint의 9.0.39 `4cf5e560`, 9.0.39 릴리스 checkpoint의 9.0.38 `984397d9`, 9.0.38 릴리스 checkpoint의 9.0.37 `80534771`, 9.0.37 릴리스 checkpoint의 9.0.36 `385d84fe`, 9.0.36 릴리스 checkpoint의 9.0.35 `6bba4c8e`, 9.0.35 릴리스 checkpoint의 9.0.34 `b5278b0b`, 9.0.34 릴리스 checkpoint의 9.0.33 `047e6f68`, 9.0.33 릴리스 checkpoint의 9.0.32 `e19b7085`, 9.0.32 릴리스 checkpoint의 9.0.31 `dff554a2`, 9.0.31 릴리스 checkpoint의 9.0.30 `50e0527d`, 9.0.30 릴리스 checkpoint의 9.0.29 `f9c684cb`, 9.0.29 릴리스 checkpoint의 9.0.28 `89ad188d`, 9.0.28 릴리스 checkpoint의 9.0.27 `e3457d38`, 9.0.27 릴리스 checkpoint의 9.0.26 `b8dc4281`,
+  9.0.26 릴리스 checkpoint의 9.0.25 `b4e8fc56`은 schemaVersion 1을 읽지 않음). 앞 운영 App 9.0.832(2026-11-20 13:06 KST, Release 44671941713(같은 커밋을 다시 낸 실행), PR #618 squash `8fc3c7b7`, App `d8f27952`, deployment `a7b2e737`. 같은 코드의 첫 App `5d23f1ca`는 09:42 KST의 Release 44647634158(실행은 실패)이 남김), 9.0.831(2026-11-19 03:20 KST, Release 44368245447, PR #614 squash `0889df09`(9.0.830의 PR #613 squash `eae02e89` 위, 9.0.830은 나가지 않음), App `046b29c6`), 9.0.829(2026-11-17 13:29 KST, Release 44017206355, PR #607 squash `1cd64575`, App `79634692`), 9.0.53(2026-11-17 02:08 KST, Release 43914550117, PR #605 squash `9fb7c8a8`, App `b7d3fede`), 9.0.52(2026-11-16 20:16 KST, Release 43856001203, PR #603 squash `d363de7e`, App `2d9bd678`), 9.0.51(2026-11-16 13:37 KST, Release 43804988699, PR #601 squash `f0369f67`, App `2e265903`), 9.0.50(2026-11-16 00:52 KST, Release 43732082611, PR #599 squash `cbce861f`, App `947a0403`), 9.0.49(2026-11-15 16:50 KST, Release 43691535297, PR #597 squash `1b1b672e`, App `defaf685`), 9.0.48(2026-11-15 11:05 KST, Release 43665977505, PR #594 squash `3b75753e`, App `2725ae79`), 9.0.47(2026-11-14 13:00 KST, Release 43554252266, PR #592 squash `4abbf312`, App `7e7ef536`), 9.0.46(2026-11-12 14:40 KST, Release 43162776905, PR #590 squash `74d46d9e`, App `1f40c6de`), 9.0.45(2026-11-12 09:38 KST, Release 43128370307, PR #588 squash `c4675c51`, App `1d5b0a8b`), 9.0.44(2026-11-11 19:55 KST, Release 43007375910, PR #586 squash `3dd9d05d`, App `2af24151`), 9.0.43(2026-11-11 15:16 KST, Release 42971061565, PR #583 squash `3b8ec6e3`, App `ce3d671f`), 9.0.42(2026-11-11 11:55 KST, Release 42948976516, PR #581 squash `808d0d9d`, App `45dade96`), 9.0.41(2026-11-11 01:14 KST, Release 42852117870, PR #579 squash `91f6bb0c`, App `a89ade21`), 9.0.40(2026-11-06 14:53 KST, Release 42170829938, PR #576 squash `b44cbbfb`, App `e61f7de9`), 9.0.39(2026-11-05 21:22 KST, Release 42026274351, PR #574 squash `5b3cfcb0`, App `4cf5e560`), 9.0.38(2026-11-05 06:14 KST, Release 41913839299, PR #572 squash `9e62c26c`, App `984397d9`), 9.0.37(2026-11-04 13:51 KST, Release 41775435927, PR #570 squash `d1665230`, App `80534771`), 9.0.36(2026-11-03 22:22 KST, Release 41643392133, PR #567 squash `6f9cf6f8`, App `385d84fe`), 9.0.35(2026-11-03 16:40 KST, Release 41597588008, PR #565 squash `cfa81bdc`, App `6bba4c8e`), 9.0.34(2026-11-02 21:20 KST, Release 41443521522, PR #563 squash `cd8eaf47`, App `b5278b0b`), 9.0.33(2026-11-02 13:12 KST, Release 41386906358, PR #560 squash `4faf38d9`, App `047e6f68`), 9.0.32(2026-11-02 05:34 KST, Release 41347347201, PR #557 squash `3ea689b9`, App `e19b7085`), 9.0.31(2026-11-01 23:17 KST, Release 41315218029, PR #555 squash `ba28943e`, App `dff554a2`), 9.0.30(2026-11-01 05:17 KST, Release 41237978646, PR #550 squash `3c098e9d`, App `50e0527d`), 9.0.29(2026-10-31 23:39 KST, Release
   41210993444, PR #548 squash `c4667abc`, App `f9c684cb`), 9.0.28(2026-10-31 11:29 KST, Release
   41160043955, PR #545 squash `aa7baad5`, App `89ad188d`), 9.0.27(2026-10-31 04:31 KST, Release 41115623163, PR #536 squash
   `23f29283`, App `e3457d38`)과 9.0.26(2026-10-30 13:08 KST, Release 41001009672, PR #534 squash `cbbc56d9`, App
   `b8dc4281`)은 이 줄의 경계를 바꾸지 않았고, 그 앞 9.0.25(2026-10-30 07:18 KST, Release 40964572017, PR #532 squash
   `b8ae59e7`, App `b4e8fc56`)가 (3)의 손 PRO 되돌리기 바닥을 (8)로 올렸다. (3)과 (4)의 '9.0.22 이상 App'에는 9.0.23 ~
-  9.0.832가 든다(9.0.830은 나가지 않음). (6) PRO 스냅샷
+  9.0.833이 든다(9.0.830은 나가지 않음). (6) PRO 스냅샷
   schemaVersion 2를 처음 보내는 PRO Worker(바닥 795 뒤의 `pro-room` 릴리스: PR #528 squash `0e5a9b87`, 2026-10-30 00:30 KST
   [Release 40901986997](https://github.com/hiefny/MUSIXQUARE/actions/runs/40901986997), PRO room `ef882f7c`, checkpoint
   artifact 12909218206)가 배포됐으므로 App을 그 스키마를 읽는 첫 빌드 9.0.22(빌드 795) 아래로 내리는 일은 이 순서로만
@@ -7601,6 +7639,30 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   되돌리면 모든 PRO 방이 깨지고, schemaVersion 1 보내기로 돌아가는 수리는 (8)의 App 변경도 함께 되돌린다), 수리 직후
   바닥을 795로 다시 올린다(그때의 저장 바닥으로 같은 값 `set`, `set` 795, `status`, 신호 입장 smoke). `set`은 live App 위로 올리지 못하므로 수리 전에는 할 수 없고, 그 사이 열린 795 앞 탭은 PRO 방에서
   `INVALID_RESPONSE`를 본다. PRO 최소 빌드 요구 값은 9.0.25의 런타임 변경이 지웠으므로 사전 검사가 이 수리를 막지 않는다.
+- **App 9.0.833 열차: 스크롤 막대가 마우스·펜을 올리면 나타나고 막대 위에 있는 동안 남음, 숨은 막대는 손가락도 통과(2026-11-21 배포 뒤, 9.0.833 / v833, App만):**
+  App을 `app`으로 배포했다(Release 44780691557, PR #621 squash `884015a0`, App `d8f27952` → `fedf9e18`(deployment `979752a1`), checkpoint artifact
+  14651313108(9.0.832 `d8f27952`), 후보 artifact 14651356072, 커밋 표지 artifact 14651082097). PRO room은 R4의 `e7657f88`이고, 다른 넷은 9.0.22 `71f5b96c`의 버전
+  그대로다. 바뀐 것: `css/style.css`(숨은 썸의 `pointer-events: auto`를 지워 숨은 막대는 포인터와 손가락을 통과시킴, 끄는 동안 썸의 누름 색 `.dragging`),
+  `src/ui/custom-scrollbar.ts`(마우스나 펜이 넘치는 스크롤 영역에 오르거나 움직이면 막대를 띄우고, 호버 포인터가 막대 위에 있는 동안 붙잡으며, 막대 위 휠을
+  목록으로 넘기고, 스크롤 세션이 자기 시계를 가짐, 원래 있던 사라짐 지연 `FADE_DELAY` 그대로)와 `src/ui/hover-pointer.ts`(호버를 켜는 판단 `isHoverInput`을 내보냄,
+  호버 관문의 동작 그대로)다. 시험(`src/ui/__tests__/custom-scrollbar.test.ts`, `src/ui/__tests__/hover-pointer.test.ts`, `e2e/custom-scrollbar-timeline.test.ts`)과
+  등록부의 글(RO-27의 흐름 목록에 막대 위 휠의 이름)은 배포물이 아니다. 와이어, 서버, 저장 모양과 키, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩,
+  Wrangler 설정, CORS, 응답 헤더(앱 문서 CSP의 미리 실행 핀 그대로), 신호와 중계 프레임 모양, PRO 요청과 응답, 서비스 워커 코드, 42개 언어의 문구, npm 의존성은
+  바꾸지 않았다. 이 릴리스는 #620 뒤 첫 App 릴리스이고, 배포 단계의 기록은 `record-current app`을 기다림 모드로 돌려 첫 읽기에서 새 배포를 봤다(§2 9.0.832
+  절의 릴리스 도구 항목). 이 항목은 위 현재 경계 줄을 따른다.
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다.
+    그 전에 다른 앱 업데이트가 나가면 그다음 번호). 가장 최근 main 위에서 이 열차의 squash `884015a0`을 되돌린다(보고서 §9). 이 열차는 다른 App 열차가 그 위에
+    쌓이기 전까지 혼자 되돌릴 수 있다(문서와 버전 줄을 뺀 패치가 `884015a0`에서 깨끗하게 거꾸로 적용됨, 이 기록의 git 대조).
+  - 급할 때의 Cloudflare App 되돌리기: 9.0.833의 코드를 빼는 대상은 이 릴리스의 checkpoint App(artifact 14651313108, 9.0.832 / v832 `8fc3c7b7`의 App `d8f27952`, 빌드
+    832)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v833을 받은 클라이언트에 낮은 epoch v832를
+    돌려주고 이 열차를 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드
+    되돌리기가 기본이다. 미리 실행과 CSP 핀은 이 열차가 바꾸지 않아 되돌린 App도 같은 핀을 낸다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
+  - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 그 실행의 checkpoint App(9.0.832 `d8f27952`)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를
+    더하지 않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 스크롤 막대를 보지 않는다. 이 릴리스는 성공해 그 복구는 돌지 않았다.
+  - 사용자가 알아챌 변화: 업데이트 창이 한 번 뜬다. 사용자 정의 스크롤 막대가 붙은 모든 목록에서 마우스나 펜을 넘치는 목록에 올리거나 움직이면 막대가 나타나고(썸
+    0.2), 포인터가 막대 위에 있는 동안 사라지지 않으며(썸 위에서는 0.4), 마우스로 끄는 동안 썸은 0.6이고, 막대 위 휠은 그 목록을 굴린다(부드럽지 않고 한 번에 넘어감). 숨은 막대는 포인터와
+    손가락을 받지 않아, 숨은 썸 자리에서 시작한 손가락 밀기는 썸을 끌지 않고 목록을 손가락만큼 굴린다. 손가락으로는 호버로 나타나지 않는다(스크롤하면 전처럼
+    나타남). 실제 기기에서는 보지 않았다(§2 9.0.833 절의 블라인드 기기 후보).
 - **App 9.0.832 열차: 세션 초기화 화면이 바쁜 페이지에서도 프레임이 오는 한 0.2초 페이드인을 다 보인 뒤 떠남(2026-11-20 배포 뒤, 9.0.832 / v832, App만):**
   App을 `app`으로 두 번 배포했다. 첫 실행(Release 44647634158, PR #618 squash `8fc3c7b7`, App `046b29c6` → `5d23f1ca`(deployment `c088443a`),
   checkpoint artifact 14589391887, 후보 artifact 14589091292)은 App 배포 뒤 기록 단계에서 실패했지만 두 자동 복구가 옛 API 답을 읽어 아무것도
@@ -7613,14 +7675,17 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   `docs/design/page-navigation-ownership.md`는 배포물이 아니다. 와이어, 서버, 저장 모양과 키(다음 페이지로 넘기는 sessionStorage 표지와 그 시점 규칙
   포함), 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 응답 헤더(앱 문서 CSP의 미리 실행 핀 그대로), 신호와 중계 프레임
   모양, PRO 요청과 응답, 서비스 워커 코드, 42개 언어의 문구, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다.
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다.
     그 전에 다른 앱 업데이트가 나가면 그다음 번호). 가장 최근 main 위에서 이 열차의 squash `8fc3c7b7`을 되돌린다(보고서 §8). 이 열차는 다른 App 열차가 그 위에
-    쌓이기 전까지 혼자 되돌릴 수 있다(문서와 버전 줄을 뺀 패치가 열차 머리 `4c654c1c`에서 깨끗하게 거꾸로 적용됨, 이 기록의 git 대조).
+    쌓이기 전까지 혼자 되돌릴 수 있었고(문서와 버전 줄을 뺀 패치가 열차 머리 `4c654c1c`에서 깨끗하게 거꾸로 적용됐음, 9.0.832의 기록의 git 대조), 9.0.833(위 항목,
+    2026-11-21 02:13 KST 배포, squash `884015a0`)이 그 위로 나갔다. 9.0.833과 그 앞 #620(릴리스 도구만)은 이 열차가 바꾼 파일(`src/core/session-reset.ts`,
+    `src/core/navigation-contract.ts`와 그 시험들)을 건드리지 않았다: 문서와 버전 줄을 뺀 이 열차의 패치는 `884015a0`에서도 혼자 깨끗하게 거꾸로 적용된다(이 기록의
+    git 대조).
   - 급할 때의 Cloudflare App 되돌리기: 9.0.832의 코드를 빼는 대상은 첫 실행의 checkpoint App(artifact 14589391887, 9.0.831 / v831 `0889df09`의 App
     `046b29c6`, 빌드 831)이다. 두 번째 실행의 checkpoint App(artifact 14600771841, `5d23f1ca`)은 같은 9.0.832 코드라 그 대상이 아니다. 대상 App은 저장
     최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v832를 받은 클라이언트에 낮은
     epoch v831을 돌려주고 이 열차를 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고,
-    급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 미리 실행과 CSP 핀은 이 열차가 바꾸지 않아 되돌린 App도 같은 핀을 낸다. 그 App 버전은
+    급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 미리 실행과 CSP 핀은 이 열차가 바꾸지 않아 되돌린 App도 같은 핀을 낸다. 그 App 버전은
     git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 그 실행의 checkpoint App을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
     않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 세션 초기화 화면을 보지 않는다. 첫 실행은 App 배포 뒤 기록 단계에서 실패해
@@ -7647,16 +7712,20 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   등록부의 글(RO-01, RO-20, RO-21, RO-29)은 배포물이 아니다. 와이어, 서버, 저장 모양과 키, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 응답 헤더(앱 문서
   CSP의 미리 실행 핀 그대로), 신호와 중계 프레임 모양, PRO 요청과 응답, 서비스 워커 코드, 42개 언어의 문구, npm 의존성은 바꾸지 않았다(버스 사건 하나
   `system-audio:start-captured`와 `<html>`의 속성 하나 `data-keyboard-navigation`은 페이지 안에서만). 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다.
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(버전 끝자리가 App 빌드 번호이고 둘째 자리는 오너가 정한다.
     그 전에 다른 앱 업데이트가 나가면 그다음 번호. 머지만 되고 나가지 않은 9.0.830 / v830은 다시 쓰지 않는다). 가장 최근 main 위에서 이 열차의 두 squash를 9.0.831의 `0889df09`,
     그다음 9.0.830의 `eae02e89` 차례로 되돌린다. 9.0.831의 squash가 9.0.830이 바꾼 자리(`src/ui/hover-pointer.ts`와 그 시험, `src/audio/__tests__/system-capture-stop.test.ts`,
     `e2e/system-audio-controls.test.ts`, `e2e/keyboard-focus-ring.test.ts`)를 다시 바꿨으므로 9.0.830의 패치는 혼자 깨끗하게 거꾸로 적용되지 않고, 문서와 버전 줄을 뺀 두 패치가
-    `0889df09`에서 그 차례로 깨끗하게 거꾸로 적용된다(이 기록의 git 대조). 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 이 두 squash로 되돌릴 수 있다. 증분 하나만 빼는 것은 그
+    `0889df09`에서 그 차례로 깨끗하게 거꾸로 적용됐다(9.0.831의 기록의 git 대조). 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 이 두 squash로 되돌릴 수 있었고, 9.0.832(위 항목,
+    squash `8fc3c7b7`, 그 앞에 시험만 고친 #616 `771af223`)와 9.0.833(위 항목, 2026-11-21 배포, squash `884015a0`)이 그 위로 나갔다. #616과 9.0.832는 두 패치가 바꾼 자리를
+    건드리지 않았지만(두 패치는 `8fc3c7b7`에서도 그 차례로 깨끗함), 9.0.833이 9.0.830이 바꾼 `src/ui/hover-pointer.ts`를 다시 바꿨으므로(호버를 켜는 판단 `isHoverInput`을
+    내보냄), 9.0.830의 패치는 이제 `884015a0`에서 9.0.831의 패치 뒤에도 깨끗하게 거꾸로 적용되지 않고 9.0.833, 9.0.831, 9.0.830의 패치를 그 차례로 거꾸로 적용하면 깨끗하다(9.0.831의
+    패치만은 `884015a0`에서도 혼자 깨끗하고, 9.0.832와 #616은 거치지 않아도 됨, 이 기록의 git 대조). 9.0.833을 먼저, 또는 함께 되돌린다. 증분 하나만 빼는 것은 그
     증분의 커밋만 되돌린다(보고서 §15, §20).
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14457172879, 9.0.829 / v829 `1cd64575`의 App `79634692`, 빌드
     829)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v831을 받은 클라이언트에 낮은
     epoch v829를 돌려주고 이 열차 전체(9.0.830과 9.0.831)를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고,
-    급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App은 자기 마크업, CSS와 글꼴 시트를 같은 Worker에서 함께 내주고, 미리 실행과 CSP 핀은 이 열차가 바꾸지 않았다.
+    급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App은 자기 마크업, CSS와 글꼴 시트를 같은 Worker에서 함께 내주고, 미리 실행과 CSP 핀은 이 열차가 바꾸지 않았다.
     그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.829)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
     않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 WebKit의 첫 열기, 소리 복구 창, 글꼴과 기호, 선택 창과 재생 탭, 초점 테두리, PRO 공유를 보지 않는다. 이
@@ -7678,20 +7747,21 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   가드(`scripts/release-identity.mts`)와 문서 둘(`docs/release-versioning.md`, `docs/hotfix-procedure.md`)은 배포물이 아니다. 와이어, 서버, 저장 모양과 키, 계약 표지,
   forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 응답 헤더(앱 문서 CSP의 미리 실행 핀 그대로), 신호와 중계 프레임 모양, PRO 요청과 응답, 서비스 워커 코드, 글꼴 파일,
   npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(새 규칙으로 버전 끝자리가 App 빌드 번호이고 둘째 자리는
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(새 규칙으로 버전 끝자리가 App 빌드 번호이고 둘째 자리는
     오너가 정한다. 그 전에 다른 앱 업데이트가 나가면 그다음 번호). 가장 최근 main 위에서 이 열차의 squash `1cd64575`를 되돌린다. 이 열차는 다른 App 열차가 그 위에 쌓이기
     전까지 혼자 되돌릴 수 있었고(문서와 버전 줄을 뺀 패치가 `1cd64575`에서 깨끗하게 거꾸로 적용됐음), 9.0.831(위 항목, 2026-11-19 03:20 KST 배포, 9.0.830의 squash `eae02e89`와 9.0.831의
-    squash `0889df09`)과 9.0.832(위 항목, 2026-11-20 배포, squash `8fc3c7b7`)가 그 위로 나갔다. 9.0.830이 시스템 오디오 캡처와 선택 창(`src/audio/system-capture.ts`, `src/audio/system-audio-policy.ts`, `src/ui/player-controls.ts`,
+    squash `0889df09`), 9.0.832(위 항목, 2026-11-20 배포, squash `8fc3c7b7`)와 9.0.833(위 항목, 2026-11-21 배포, squash `884015a0`)이 그 위로 나갔다. 9.0.830이 시스템 오디오 캡처와 선택 창(`src/audio/system-capture.ts`, `src/audio/system-audio-policy.ts`, `src/ui/player-controls.ts`,
     `src/types/index.ts`)과 그 시험들(`src/ui/__tests__/player-controls.test.ts`, `src/ui/__tests__/setup-language-button.test.ts`,
     `src/audio/__tests__/system-capture-stop.test.ts`, `e2e/system-audio-controls.test.ts`)을 같은 자리에서 바꿨고, 그 뒤 시험만 고친 #616 `771af223`과 9.0.832가 이 열차가 더한
-    `e2e/boot-splash.test.ts`의 도움 함수와 설치 앱 행 자리를 다시 바꿨으므로(9.0.832는 #616이 바꾼 자리도 다시 바꿈), 문서와 버전 줄을 뺀 이 열차의
-    패치는 이제 `8fc3c7b7`에서 혼자 깨끗하게 거꾸로 적용되지 않고 9.0.832, #616, 9.0.831의 두 squash(9.0.831, 그다음 9.0.830)의 패치를 그 차례로 먼저 거꾸로 적용하면 깨끗하다(9.0.831의 패치만 먼저 넣거나,
-    #616 없이 9.0.832만 넣거나, 9.0.832보다 #616을 먼저 넣어서는 깨끗하지 않음, 이 기록의 git 대조). 9.0.832, #616과 9.0.831을 먼저, 또는 함께 되돌린다. 증분 하나만 빼는 것도 같은 길이다(보고서 §10). 버전
+    `e2e/boot-splash.test.ts`의 도움 함수와 설치 앱 행 자리를 다시 바꿨고(9.0.832는 #616이 바꾼 자리도 다시 바꿈), 9.0.833이 9.0.830이 바꾼 `src/ui/hover-pointer.ts`를 다시 바꿨으므로,
+    문서와 버전 줄을 뺀 이 열차의 패치는 이제 `884015a0`에서 혼자 깨끗하게 거꾸로 적용되지 않고 9.0.833, 9.0.832, #616, 9.0.831의 두 squash(9.0.831, 그다음 9.0.830)의 패치를 그 차례로 먼저
+    거꾸로 적용하면 깨끗하다(9.0.833 없이는 9.0.830의 패치가 `src/ui/hover-pointer.ts`에서 멈추고, 9.0.831의 패치만 먼저 넣거나, #616 없이 9.0.832만 넣거나, 9.0.832보다 #616을 먼저 넣어서는
+    깨끗하지 않음, 이 기록의 git 대조). 9.0.833, 9.0.832, #616과 9.0.831을 먼저, 또는 함께 되돌린다. 증분 하나만 빼는 것도 같은 길이다(보고서 §10). 버전
     규칙만 되돌릴 일은 없다고 보며, 되돌린다면 가드와 문서 둘을 함께 되돌린다.
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14298778854, 9.0.53 / v828 `9fb7c8a8`의 App `b7d3fede`, 빌드
     828)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v829를 받은 클라이언트에 낮은
     epoch v828을 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고,
-    급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App은 자기 마크업, CSS와 번역을 같은 Worker에서 함께 내주고, 미리 실행과 CSP 핀은 이 열차가 바꾸지 않았다. 그 App 버전은
+    급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App은 자기 마크업, CSS와 번역을 같은 Worker에서 함께 내주고, 미리 실행과 CSP 핀은 이 열차가 바꾸지 않았다. 그 App 버전은
     git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.53)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
     않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 시작 화면의 배치, 시스템 오디오 선택 창이나 설치 앱의 띠를 보지 않는다. 이 릴리스는 성공해 그
@@ -7713,18 +7783,18 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   Components Web 14, MIT)이다. 와이어, 서버, 저장 모양과 키, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS,
   신호와 중계 프레임 모양, 서비스 워커 코드, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지 않았다(응답 헤더는 앱 문서 CSP의 해시 하나만,
   `img-src`의 `data:`는 그대로이고 링 마스크가 그것을 씀). 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(2026-11-17 오너 결정으로 9.0.829부터
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(2026-11-17 오너 결정으로 9.0.829부터
     버전 끝자리가 App 빌드 번호다. 그 전에 다른 앱 업데이트가 나가면 그다음 번호). 가장 최근 main 위에서 이 열차의 squash `9fb7c8a8`을
     되돌리고, 미리 실행과 CSP 해시가 함께 되돌아간다. 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 혼자 되돌릴 수 있었고, 9.0.829(위 항목, 2026-11-17 13:29 KST
     배포)가 그 위로 나갔다. 9.0.829가 설치 앱의 로딩 화면 규칙(`index.html`의 로딩 화면 시트와 주석, `css/style.css`)과 그 시험들(`src/core/__tests__/boot-splash.test.ts`,
-    `e2e/boot-splash.test.ts`)을 같은 자리에서 함께 바꿨고, 9.0.831(위 항목, 2026-11-19 03:20 KST 배포)과 9.0.832(위 항목, 2026-11-20 배포, squash `8fc3c7b7`, 그 앞에 시험만
-    고친 #616 `771af223`)가 그 위에 쌓여 9.0.829의 패치도 9.0.832, #616과 9.0.831의 두 squash를 먼저 되돌려야 거꾸로 적용되므로(위 9.0.829 항목), 문서와 버전 줄을 뺀 이 열차의
-    패치는 이제 `8fc3c7b7`에서 혼자 깨끗하게 거꾸로 적용되지 않고 9.0.832, #616, 9.0.831의 두 squash와 9.0.829의 패치를 그 차례로 먼저 거꾸로 적용하면 깨끗하다(이 기록의 git
-    대조). 9.0.832, #616, 9.0.831과 9.0.829를 먼저, 또는 함께 되돌린다.
+    `e2e/boot-splash.test.ts`)을 같은 자리에서 함께 바꿨고, 9.0.831(위 항목, 2026-11-19 03:20 KST 배포), 9.0.832(위 항목, 2026-11-20 배포, squash `8fc3c7b7`, 그 앞에 시험만
+    고친 #616 `771af223`)와 9.0.833(위 항목, 2026-11-21 배포, squash `884015a0`)이 그 위에 쌓여 9.0.829의 패치도 9.0.833, 9.0.832, #616과 9.0.831의 두 squash를 먼저 되돌려야 거꾸로
+    적용되므로(위 9.0.829 항목), 문서와 버전 줄을 뺀 이 열차의 패치는 이제 `884015a0`에서 혼자 깨끗하게 거꾸로 적용되지 않고 9.0.833, 9.0.832, #616, 9.0.831의 두 squash와 9.0.829의
+    패치를 그 차례로 먼저 거꾸로 적용하면 깨끗하다(이 기록의 git 대조). 9.0.833, 9.0.832, #616, 9.0.831과 9.0.829를 먼저, 또는 함께 되돌린다.
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14249302407, 9.0.52 / v827 `d363de7e`의 App `2d9bd678`, 빌드
     827)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v828을 받은 클라이언트에 낮은
     epoch v827을 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고,
-    급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App은 옛 미리 실행과 옛 CSP 해시를 같은 Worker에서 함께 내준다. 그 App 버전은 git
+    급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App은 옛 미리 실행과 옛 CSP 해시를 같은 Worker에서 함께 내준다. 그 App 버전은 git
     출처가 없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.52)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
     않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 로딩 화면, 로딩 표시나 설치 앱의 첫 열기를 보지 않는다. 이 릴리스는 성공해 그
@@ -7745,19 +7815,20 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   `.workshop/translate/translate.css`다. 와이어, 서버, 저장 모양과 키, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler
   설정, CORS, 응답 헤더(앱 문서 CSP의 미리 실행 핀 그대로), 신호와 중계 프레임 모양, 서비스 워커 코드, 글꼴 파일, npm 의존성은 바꾸지 않았다. 이
   항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `d363de7e`를 되돌리고, 지운 번역 키와 마크업이 함께 돌아온다. 이 열차는 다른 App 열차가 그
     위에 쌓이기 전까지 혼자 되돌릴 수 있었고, 9.0.53(위 항목, 2026-11-17 02:08 KST 배포)이 그 위로 나갔다. 9.0.53이
     `src/core/__tests__/boot-splash.test.ts`를 함께 바꿨고, 9.0.829(위 항목, 2026-11-17 13:29 KST 배포)도 그 위에 쌓여 같은 시험 파일과 시험 셋(`e2e/accessibility-contrast.test.ts`,
     `src/core/__tests__/legacy-tv-compatibility.test.ts`, `src/ui/__tests__/toast.test.ts`)을 같은 자리에서 바꿨고, 9.0.831(위 항목, 2026-11-19 03:20 KST 배포)도 그 위에 쌓였으며,
-    9.0.832(위 항목, 2026-11-20 배포, squash `8fc3c7b7`)와 그 앞에 시험만 고친 #616 `771af223`도 그 위에 쌓였으므로,
-    문서와 버전 줄을 뺀 이 열차의 패치는 이제 `8fc3c7b7`에서 혼자 깨끗하게 거꾸로 적용되지 않고 9.0.832, #616, 9.0.831의 두 squash, 9.0.829와 9.0.53의 패치를 그 차례로 먼저 거꾸로 적용하면
-    깨끗하다(이 기록의 git 대조). 9.0.832, #616, 9.0.831, 9.0.829와 9.0.53을 먼저, 또는 함께 되돌린다. 증분 하나만
+    9.0.832(위 항목, 2026-11-20 배포, squash `8fc3c7b7`)와 그 앞에 시험만 고친 #616 `771af223`도 그 위에 쌓였고, 9.0.833(위 항목, 2026-11-21 배포, squash `884015a0`)도 그 위에 쌓여
+    9.0.830이 바꾼 `src/ui/hover-pointer.ts`를 다시 바꿨으므로, 문서와 버전 줄을 뺀 이 열차의 패치는 이제 `884015a0`에서 혼자 깨끗하게 거꾸로 적용되지 않고 9.0.833, 9.0.832, #616,
+    9.0.831의 두 squash, 9.0.829와 9.0.53의 패치를 그 차례로 먼저 거꾸로 적용하면 깨끗하다(이 기록의 git 대조). 9.0.833, 9.0.832, #616, 9.0.831, 9.0.829와 9.0.53을 먼저, 또는 함께
+    되돌린다. 증분 하나만
     빼는 것도 같은 길이다(보고서 §10).
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14219898933, 9.0.51 / v826 `f0369f67`의 App `2e265903`, 빌드
     826)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v827을 받은 클라이언트에 낮은
     epoch v826을 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고,
-    급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App은 자기 마크업, CSS와 번역(지운 키 포함)을 같은 Worker에서 함께 내준다. 그 App
+    급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App은 자기 마크업, CSS와 번역(지운 키 포함)을 같은 Worker에서 함께 내준다. 그 App
     버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.51)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
     않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 화면의 CSS를 보지 않는다. 이 릴리스는 성공해 그 복구는 돌지 않았다.
@@ -7779,19 +7850,20 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   `script-src`의 미리 실행 해시가 새 핀(`src/core/boot-preflight.ts`, `qJ88pWCj…`)으로 바뀌었다. 와이어, 서버, 버스 사건 이름, 계약 표지, forward
   floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 코드, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지
   않았다(응답 헤더는 앱 문서 CSP의 해시 하나만, 저장 모양은 세션 저장소의 키 하나만). 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `f0369f67`을 되돌리고, 미리 실행과 CSP 해시가 함께 되돌아간다. 이 열차는 다른 App 열차가 그
     위에 쌓이기 전까지 혼자 되돌릴 수 있었고, 9.0.52(위 항목, 2026-11-16 20:16 KST 배포)가 그 위로 나갔다. 문서와 버전 줄을 뺀 이 열차의 패치는
     9.0.52의 `d363de7e` 위에서도 깨끗하게 거꾸로 적용됐지만, 9.0.53(위 항목, 2026-11-17 02:08 KST 배포)이 머리 미리 실행(`index.html`,
     `src/core/boot-preflight.ts`의 핀)과 그 시험들(`src/core/__tests__/boot-splash.test.ts`, `e2e/boot-splash.test.ts`)을 함께 바꿨고, 9.0.829(위 항목, 2026-11-17 13:29 KST 배포)도
     그 위에 쌓여 `index.html`의 로딩 화면 시트와 같은 시험들을 바꿨고, 9.0.831(위 항목, 2026-11-19 03:20 KST 배포)도 그 위에 쌓였으며, 9.0.832(위 항목, 2026-11-20 배포, squash
     `8fc3c7b7`)가 그 위에 쌓여 이 열차가 바꾼 `src/core/__tests__/session-reset.test.ts`를 같은 자리에서 바꾸고 그 앞에 시험만 고친 #616 `771af223`과 함께 `e2e/boot-splash.test.ts`도
-    바꿨으므로 이제 `8fc3c7b7`에서 혼자 깨끗하게 거꾸로 적용되지 않고, 9.0.832, #616, 9.0.831의 두 squash, 9.0.829와 9.0.53의 패치를 그 차례로 먼저 거꾸로 적용하면 깨끗하다(9.0.52는
-    거치지 않아도 됨, 이 기록의 git 대조). 9.0.832, #616, 9.0.831, 9.0.829와 9.0.53을 먼저, 또는 함께 되돌린다.
+    바꿨고, 9.0.833(위 항목, 2026-11-21 배포, squash `884015a0`)도 그 위에 쌓여 9.0.830이 바꾼 `src/ui/hover-pointer.ts`를 다시 바꿨으므로 이제 `884015a0`에서 혼자 깨끗하게 거꾸로
+    적용되지 않고, 9.0.833, 9.0.832, #616, 9.0.831의 두 squash, 9.0.829와 9.0.53의 패치를 그 차례로 먼저 거꾸로 적용하면 깨끗하다(9.0.52는 거치지 않아도 됨, 이 기록의 git 대조).
+    9.0.833, 9.0.832, #616, 9.0.831, 9.0.829와 9.0.53을 먼저, 또는 함께 되돌린다.
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14197942017, 9.0.50 / v825 `cbce861f`의 App `947a0403`, 빌드
     825)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v826을 받은 클라이언트에 낮은
     epoch v825를 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고,
-    급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App은 옛 미리 실행과 옛 CSP 해시를 같은 Worker에서 함께 내준다. 그 App 버전은 git
+    급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App은 옛 미리 실행과 옛 CSP 해시를 같은 Worker에서 함께 내준다. 그 App 버전은 git
     출처가 없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.50)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
     않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 로딩 화면의 높이나 세션 새로고침을 보지 않는다. 이 릴리스는 성공해 그 복구는
@@ -7809,18 +7881,19 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   와이어, 서버, 저장 모양, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 응답 헤더, 신호와 중계 프레임
   모양, 서비스 워커 코드, 머리 미리 실행과 그 CSP 해시, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을
   따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `cbce861f`를 되돌린다. 9.0.51(위 항목)이 그 위에 쌓여 `index.html`의 로딩 화면 스타일과 그
     시험(`src/core/__tests__/boot-splash.test.ts`, `src/core/__tests__/session-reset.test.ts`)을 함께 바꿨으므로, 이 열차의 패치는 이제 혼자 깨끗하게
     거꾸로 적용되지 않는다(이 기록의 git 대조). 9.0.53(위 항목)도 그 위에 쌓여 공유 로딩 표시 부품(`src/ui/material-elastic-spinner.ts`),
     `src/ui/playlist-view.ts`와 그 시험들을 바꿨고, 9.0.829(위 항목)도 그 위에 쌓여 `css/style.css`, `index.html`의 로딩 화면 시트와
     `src/core/__tests__/boot-splash.test.ts`를 바꿨고 9.0.831(위 항목)도 그 위에 쌓였으며, 9.0.832(위 항목, squash `8fc3c7b7`)와 그 앞에 시험만 고친 #616 `771af223`도 그 위에
-    쌓였으므로, 9.0.51과 9.0.53의 패치와 함께 거꾸로 적용해도 `8fc3c7b7`에서 깨끗하지 않고 9.0.829, 그 앞 9.0.831의 두 squash와 그 앞 #616과 9.0.832까지 넣으면 깨끗하다(9.0.832부터
-    새것 차례로, 9.0.52는 거치지 않아도 됨, 이 기록의 git 대조). 9.0.832, #616, 9.0.831, 9.0.829, 9.0.53과 9.0.51을 먼저, 또는 함께 되돌린다.
+    쌓였고, 9.0.833(위 항목, squash `884015a0`)도 그 위에 쌓였으므로, 9.0.51과 9.0.53의 패치와 함께 거꾸로 적용해도 `884015a0`에서 깨끗하지 않고 9.0.829, 그 앞 9.0.831의 두 squash와
+    그 앞 #616, 9.0.832와 9.0.833까지 넣으면 깨끗하다(9.0.833부터 새것 차례로, 9.0.52는 거치지 않아도 됨, 이 기록의 git 대조). 9.0.833, 9.0.832, #616, 9.0.831, 9.0.829, 9.0.53과
+    9.0.51을 먼저, 또는 함께 되돌린다.
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14168866544, 9.0.49 / v824 `1b1b672e`의 App
     `defaf685`, 빌드 824)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v825를
     받은 클라이언트에 낮은 epoch v824를 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로
-    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
+    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.49)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를
     더하지 않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 로딩 표시의 그림이나 세션 새로고침을 보지 않는다. 이 릴리스는
@@ -7837,19 +7910,19 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   빌드(`scripts/localized-html-lib.mts`, `scripts/materialize-localized-html.mts`: 미리 실행 몸통이 핀과 다른 앱 문서를 쓰지 않음)다. 와이어, 서버,
   저장 모양, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커
   코드, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지 않았다(응답 헤더는 앱 문서 CSP의 해시 하나만). 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `1b1b672e`를 되돌리고, 미리 실행과 CSP 해시가 함께 되돌아간다. 9.0.50(위 항목)이 그 위에 쌓여
     `index.html`의 이어 받기 로딩 표시 규칙, `browser/classic-runtime/bootstrap.ts`의 위상 맞추기, 그 시험들을 함께 바꿨으므로, 이 열차의 패치는 이제
     혼자 깨끗하게 거꾸로 적용되지 않는다(이 기록의 git 대조). 9.0.53(위 항목)도 그 위에 쌓여 머리 미리 실행과 그 시험들을 바꿨고, 9.0.829(위 항목)도 그 위에 쌓여 `index.html`의 로딩 화면 시트와
     같은 시험들(`src/core/__tests__/boot-splash.test.ts`, `e2e/boot-splash.test.ts`)을 바꿨고 9.0.831(위 항목)도 그 위에 쌓였으며, 9.0.832(위 항목, squash `8fc3c7b7`)가 그 위에 쌓여
     이 열차가 바꾼 `src/core/session-reset.ts`와 `src/core/__tests__/navigation-contract.test.ts`를 같은 자리에서 바꾸고 그 앞에 시험만 고친 #616 `771af223`과 함께
-    `e2e/boot-splash.test.ts`도 바꿨으므로, 9.0.53, 9.0.51과 9.0.50의 패치와 함께 거꾸로 적용해도 `8fc3c7b7`에서 깨끗하지 않고 9.0.829, 그 앞 9.0.831의 두 squash와 그 앞 #616과
-    9.0.832까지 넣으면 깨끗하다(9.0.832부터 새것 차례로, 9.0.52는 거치지 않아도 됨, 이 기록의 git 대조). 9.0.832, #616, 9.0.831, 9.0.829, 9.0.53, 9.0.51과 9.0.50을
-    먼저, 또는 함께 되돌린다.
+    `e2e/boot-splash.test.ts`도 바꿨고, 9.0.833(위 항목, squash `884015a0`)도 그 위에 쌓였으므로, 9.0.53, 9.0.51과 9.0.50의 패치와 함께 거꾸로 적용해도 `884015a0`에서 깨끗하지 않고
+    9.0.829, 그 앞 9.0.831의 두 squash와 그 앞 #616, 9.0.832와 9.0.833까지 넣으면 깨끗하다(9.0.833부터 새것 차례로, 9.0.52는 거치지 않아도 됨, 이 기록의 git 대조). 9.0.833,
+    9.0.832, #616, 9.0.831, 9.0.829, 9.0.53, 9.0.51과 9.0.50을 먼저, 또는 함께 되돌린다.
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14153011349, 9.0.48 / v823 `3b75753e`의 App
     `2725ae79`, 빌드 823)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v824를
     받은 클라이언트에 낮은 epoch v823을 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로
-    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 되돌린 App은 미리 실행이 없는 문서와 해시 없는
+    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 되돌린 App은 미리 실행이 없는 문서와 해시 없는
     CSP를 함께 내고, 서비스 워커에 캐시된 v824 셸은 해시가 든 제 CSP 헤더를 지녀 어느 쪽도 스크립트를 막지 않는다. 그 App 버전은 git 출처가
     없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.48)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를
@@ -7869,20 +7942,20 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   디자인 시스템의 로고 미리보기와 README, UI 키트다. 와이어, 서버, 저장 모양, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀,
   바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 코드, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지 않았다(탭마다의
   sessionStorage 이어 받기 표시 하나가 새로 생김). 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `3b75753e`를 되돌린다. 9.0.49(위 항목)가 그 위에 쌓여 `index.html`,
     `src/core/session-reset.ts`, 그 시험들을 함께 바꿨으므로, 이 열차의 패치는 이제 혼자 깨끗하게 거꾸로 적용되지 않는다(이 기록의 git 대조).
     9.0.52(위 항목)도 그 위에 쌓여 숨은 시작 화면 워드마크와 브랜드 상자의 마크업, 그 시험들을 지우고 고쳤고, 9.0.53(위 항목)도 그 위에 쌓여 머리 미리
     실행, 로딩 화면 스타일과 그 시험들을 바꿨고, 9.0.829(위 항목)도 그 위에 쌓여 로딩 화면 시트와 그 시험들을 바꿨고, 9.0.831(위 항목)도 그 위에 쌓였으며, 9.0.832(위 항목,
-    squash `8fc3c7b7`)와 그 앞에 시험만 고친 #616 `771af223`도 그 위에 쌓였으므로, 9.0.49 ~ 9.0.53의 패치와
-    함께 거꾸로 적용해도 `8fc3c7b7`에서 깨끗하지 않고 9.0.829, 그 앞 9.0.831의 두 squash와 그 앞 #616과 9.0.832까지 넣으면 깨끗하다(9.0.832부터 새것 차례로, 9.0.48 바로 뒤에 시험만
-    고친 #595 `8d4fec08`의 패치도 함께 넣음, 이 기록의 git 대조). 9.0.832, #616, 9.0.831, 9.0.829, 9.0.53,
+    squash `8fc3c7b7`)와 그 앞에 시험만 고친 #616 `771af223`도 그 위에 쌓였고, 9.0.833(위 항목, squash `884015a0`)도 그 위에 쌓였으므로, 9.0.49 ~ 9.0.53의 패치와
+    함께 거꾸로 적용해도 `884015a0`에서 깨끗하지 않고 9.0.829, 그 앞 9.0.831의 두 squash와 그 앞 #616, 9.0.832와 9.0.833까지 넣으면 깨끗하다(9.0.833부터 새것 차례로, 9.0.48 바로 뒤에
+    시험만 고친 #595 `8d4fec08`의 패치도 함께 넣음, 이 기록의 git 대조). 9.0.833, 9.0.832, #616, 9.0.831, 9.0.829, 9.0.53,
     9.0.52, 9.0.51, 9.0.50과 9.0.49를 먼저, 또는 함께 되돌린다. 연출(보고서 §3B)과 세션 새로고침 화면(§3C)이 로딩 화면(§3)의 마크업 위에 있어 보통은 squash 전체를 함께 되돌린다(로딩 화면의
     되돌리기 메모는 보고서 §3.6).
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14142242845, 9.0.47 / v822 `4abbf312`의 App
     `7e7ef536`, 빌드 822)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v823을
     받은 클라이언트에 낮은 epoch v822를 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로
-    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
+    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.47)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를
     더하지 않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 로딩 화면, 시작 화면, 세션 새로고침 화면을 보지 않는다. 이
@@ -7900,14 +7973,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   페이지 구역의 나타남 기준(IntersectionObserver `threshold` 0)이다. 와이어, 서버, 저장 모양과 키, 버스 사건 이름, 계약 표지, forward floor, 새
   바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 앱 화면의 CSS, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지 않았다.
   이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `4abbf312`를 되돌린다. 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 혼자 되돌릴 수
     있었고, 9.0.48(위 항목, 2026-11-15 11:05 KST 배포)이 그 위로 나갔다. 9.0.48은 9.0.47이 바꾼 파일(`browser/service-worker.ts`, `browser/classic-runtime/editorial-pages.ts`, 디자인 시스템 E2E 명세, 서비스 워커 캐시 단위 시험)을 건드리지 않았다: 9.0.47의 squash에서 문서와 버전만 바뀐 파일을 뺀 패치는 9.0.48 위에서도 거꾸로 깨끗이 적용된다(이 기록의 `git apply -R --check`). 변경 하나만 빼려면 공개 페이지의 탐색은 고침 `29a43e64`와 `5aac95a3`(함께)과 그 시험 행을, 나타남은 고침 `ebe08ab0`과 새 E2E 행을
     되돌린다(보고서 §3.6, §4.6).
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 14098000139, 9.0.46 / v821 `74d46d9e`의 App
     `1f40c6de`, 빌드 821)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v822를
     받은 클라이언트에 낮은 epoch v821을 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로
-    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
+    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.46)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를
     더하지 않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 서비스 워커의 탐색 처리와 공개 페이지의 나타남을 보지 않는다. 이
@@ -7925,14 +7998,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   바뀌면 움직임 없이 다시 놓음)다. 와이어, 서버, 저장 모양과 키, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler
   설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 원본, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을
   따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `74d46d9e`를 되돌린다. 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 혼자 되돌릴 수
     있었고, 9.0.47(위 항목, 2026-11-14 13:00 KST 배포)이 그 위로 나갔다. 9.0.47은 9.0.46이 바꾼 파일(CSS 둘, `src/ui/setup-shared.ts`, 두 안전 영역 명세와 새 오른쪽에서 왼쪽 명세, 단위 시험)을 건드리지 않았다: 9.0.46의 squash에서 문서와 버전만 바뀐 파일을 뺀 패치는 9.0.47 위에서도 거꾸로 깨끗이 적용된다(이 기록의 `git apply -R --check`). 변경 하나만 빼려면 아래 끝은 고침 `ef3805fb`의 CSS와 두 안전 영역 명세의 바뀐 기대를(9.0.45의 동작으로 돌아감), 오른쪽에서 왼쪽은 고침
     `634ec0a2`와 새 명세·단위 시험 행을 되돌린다(보고서 §3.6, §4.6).
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13919305566, 9.0.45 / v820 `c4675c51`의 App
     `1d5b0a8b`, 빌드 820)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v821을
     받은 클라이언트에 낮은 epoch v820을 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로
-    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
+    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.45)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를
     더하지 않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 화면 배치를 보지 않는다. 이 릴리스는 성공해 그 복구는 돌지
@@ -7947,14 +8020,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   아래 안전 영역만큼, `right: auto`), 채팅 창의 규칙(`right: auto`), 미디어 고르기 화면 닫기 버튼 줄의 여백(글 쓰는 방향을 따름)이다.
   TypeScript 런타임, 와이어, 서버, 저장 모양과 키, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS,
   신호와 중계 프레임 모양, 서비스 워커 원본, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `c4675c51`을 되돌린다. 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 혼자 되돌릴 수
     있었고, 9.0.46(위 항목, 2026-11-12 14:40 KST 배포)이 그 위로 나갔다. 9.0.46은 두 안전 영역 명세에서 9.0.45가 더한 행 바로 뒤와 그 둘레에 자기 행과 기대를 더했다: 9.0.45의 squash에서 문서와 버전만 바뀐 여섯 파일을 뺀 패치(세 파일)는 9.0.46 위에서 거꾸로 적용되지 않는다(`e2e/safe-area-layout.test.ts`와 `e2e/safe-area-runtime.test.ts`에서 멈춤, 9.0.46의 기록의 `git apply -R --check`). `css/style.css`의 9.0.45 규칙은 글자로는 혼자 되돌려지지만, 그것만 빼면 모든 탭이 화면 아래 끝까지 그려지는 9.0.46에서 미디어 화면만 홈 표시줄 위에서 끝나 그 아래 띠에 뒤쪽 화면이 다시 비치고, 두 명세에 남은 9.0.45의 행이 실패한다. 그래서 9.0.45의 고침은 이제 9.0.46의 변경과 함께 앞으로만 되돌린다. 고침 하나만 빼려면 미디어 화면의 아래 끝은 세 선언과 두 명세의 그 기대를, 오른쪽에서 왼쪽 자리는 `right: auto` 두 줄과 닫기 버튼 줄의
     여백과 두 명세의 그 기대를 되돌린다(보고서 §3.6, §4.6).
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13902869847, 9.0.44 / v819 `3dd9d05d`의 App
     `2af24151`, 빌드 819)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v820을
     받은 클라이언트에 낮은 epoch v819를 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로
-    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
+    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.44)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를
     더하지 않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 화면 배치를 보지 않는다. 이 릴리스는 성공해 그 복구는 돌지
@@ -7970,13 +8043,13 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   `src/player/transport.ts`, `src/player/media-session.ts`, `src/types/index.ts`)이다. 와이어, 서버, 저장 모양과 키, 버스 사건 이름, 계약
   표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 원본, 글꼴 파일, 42개 언어의 문구,
   npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `3dd9d05d`를 되돌린다. 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 혼자 되돌릴 수
     있었고, 9.0.45(위 항목, 2026-11-12 09:38 KST 배포)가 그 위로 나갔다. 9.0.45는 9.0.44가 화면 아래 끝까지 늘린 재생 화면 위에 미디어 화면 둘을 같은 아래 끝까지 맞췄고, 9.0.44가 fixture 명세에 더한 재생 화면 행 바로 뒤에 자기 행을 더했다: 9.0.44의 squash에서 문서와 버전만 바뀐 여섯 파일을 뺀 패치(20 파일)는 9.0.45 위에서 거꾸로 적용되지 않는다(`e2e/safe-area-layout.test.ts`에서 멈춤, 9.0.45의 기록의 `git apply -R --check`). `css/style.css`의 재생 화면 규칙은 글자로는 혼자 되돌려지지만, 그것만 빼면 재생 화면의 아래 끝이 화면 아래 끝이기를 기대하는 9.0.45의 실제 방 행이 실패한다. 그래서 재생 화면의 규칙은 이제 9.0.45의 미디어 화면 고침과 함께 앞으로만 되돌린다. 증분 하나만 빼려면 재생 화면은 그 규칙 하나와 두 명세의 기대를, 이름 맞추기는 세 커밋의 변경을 되돌린다(보고서 §3.6, §4).
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13848343170, 9.0.43 / v818 `3b8ec6e3`의 App
     `ce3d671f`, 빌드 818)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v819를
     받은 클라이언트에 낮은 epoch v818을 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로
-    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
+    검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.43)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를
     더하지 않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 화면 배치와 소리 복구를 보지 않는다. 이 릴리스는 성공해 그 복구는
@@ -7992,14 +8065,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   화면 영상의 버튼에 같은 안전 영역 기준을 쓰며, 탭 영역의 자리를 바탕 규칙이 잡아 사이드바 배치의 다섯 탭이 모두 고정 배치가 됨). 와이어, 서버,
   저장 모양과 키, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커
   원본, 글꼴 파일, 42개 언어의 문구, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `3b8ec6e3`을 되돌린다. 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 혼자 되돌릴 수
     있었고, 9.0.44(위 항목, 2026-11-11 19:55 KST 배포)가 그 위로 나갔다. 9.0.44는 9.0.43이 고친 `css/style.css`의 사이드바 배치 블록에 규칙 하나를 더하고 9.0.43이 더한 두 안전 영역 명세를 고쳐 그 위에 쌓였다: 9.0.43의 squash에서 문서와 버전만 바뀐 다섯 파일을 뺀 패치는 9.0.44 위에서 거꾸로 적용되지 않는다(`css/style.css`, 두 명세, `index.html`의 cache 키 줄에서 멈춤, 9.0.44의 기록의 `git apply -R --check`). 그래서 이 열차는 이제 9.0.44의 재생 화면 규칙과 함께 앞으로만 되돌린다. 아래 9.0.42 항목의 열차와는 다른 파일을 바꿨다: 9.0.42의 squash에서 문서와 버전 거울 여섯 파일을 뺀 패치는 이 열차 위에서도 깨끗하게
     거꾸로 적용된다(이 기록의 `git apply -R --check`).
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13833173702, 9.0.42 / v815 `808d0d9d`의 App `45dade96`, 빌드
     815)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v818을 받은 클라이언트에 낮은
     epoch v815를 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고,
-    급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
+    급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.42)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
     않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 화면 배치를 보지 않는다. 이 릴리스는 성공해 그 복구는 돌지 않았다.
   - 사용자가 알아챌 변화: 업데이트 창이 한 번 뜬다. 안전 영역이 없는 기기의 왼쪽에서 오른쪽 화면은 그대로다. 홈 화면에 설치한 iPad·iPhone과 노치가
@@ -8013,7 +8086,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   시도에 알림을 다시 내지 않음, 일반 갈래의 늦은 재개를 5초까지 기다려 한 번 맞춤)과 시간 집의 주석 하나다. 와이어, 서버, 저장 모양과 키, 버스 사건
   이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 원본, CSS, 문구, npm 의존성은
   바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `808d0d9d`를 되돌리거나, 증분 하나만 그 커밋들의 변경을 되돌린다(보고서 §3.6, §4.5, §5.4,
     §8.4.6, 모두 머지 전 머리에서 충돌 없이 됨). 이 열차는 다른 App 열차가 그 위에 쌓이기 전까지 혼자 되돌릴 수 있었고, 9.0.43(위 항목, 2026-11-11 15:16 KST 배포)이 그 위로 나갔다. 9.0.43은
     다른 파일을 바꿔, 이 열차의 squash에서 문서와 버전 거울 여섯 파일을 뺀 패치는 9.0.43 위에서도 깨끗하게 거꾸로 적용된다(9.0.43의 기록의 `git apply
@@ -8022,7 +8095,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13824511180, 9.0.41 / v814 `91f6bb0c`의 App `a89ade21`, 빌드
     814)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v815를 받은 클라이언트에 낮은
     epoch v814를 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목대로 명시적으로 검토한 CLI 되돌리기로만 하고,
-    급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
+    급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 checkpoint의 App(9.0.41)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
     않아 그 되돌림을 막지 않는다. `app`의 배포 뒤 smoke는 HTTP만 보고 오디오 복구를 지나지 않는다. 이 릴리스는 성공해 그 복구는 돌지 않았다.
   - 사용자가 알아챌 변화: 업데이트 창이 한 번 뜬다. Chromium에서 돌아올 때 복구 창이 잠깐 닫혔다 다시 뜨던 것이 한 번만 뜬다. 드문 경우 셋이 바뀐다:
@@ -8038,7 +8111,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   맞춤)이다. 와이어, 서버, IndexedDB·localStorage·sessionStorage 모양, 저장 키, 버스 사건 이름, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩,
   Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 원본, CSS, 글꼴 파일, 시스템 오디오 파일, YouTube 코드, PRO 코드, 42개 언어의 문구,
   npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의 squash `91f6bb0c`를 되돌리거나, 7C-K8만 그 다섯 커밋의 변경을 되돌린다(보고서 §4.7: 부딪치는 두
     곳을 RO-37 id 없는 부모의 글로 풀고 7C-7이 7C-K8을 인용한 줄을 손으로 고침). 7C는 다른 App 열차가 그 위에 쌓이기 전까지 혼자 되돌릴 수 있었고, 9.0.42(위 9.0.42 절)가 같은 주인 파일을 고쳐 그 위에 쌓였으므로(2026-11-11 11:55
     KST 배포) 이제 9.0.42의 변경과 함께 앞으로만 되돌린다. 이
@@ -8048,7 +8121,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13780298445, 9.0.40 / v813 `b44cbbfb`의 App `e61f7de9`, 빌드
     813)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v814를 받은 클라이언트에 낮은
     epoch v813을 돌려주고 이 열차 전체를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙',
-    결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는
+    결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는
     `versions deploy`로 그 버전을 100% 되돌리고(`--config cloudflare/wrangler.app.toml`, message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI
     rollback 한 줄을 더한다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.40 ~
     9.0.27 항목의 checkpoint App으로 손으로 되돌리면 이 열차도 함께 빠진다.
@@ -8078,7 +8151,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   알약의 것 사이를 이어 바꾸는 CSS 전환(`css/style.css`)이다. 와이어, 서버, IndexedDB·localStorage·sessionStorage 모양, 저장 키, 버스 사건, 계약 표지,
   forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 원본, `src/`의 런타임 파일, 글꼴 파일, 42개
   언어의 문구, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(7C 열차가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고(위 항목), 그 전에 다른 앱 업데이트가 나가면
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(7C 열차가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고(위 항목), 그 전에 다른 앱 업데이트가 나가면
     그다음 번호). 가장 최근 main 위에서 이 열차의
     변경을 되돌리거나(squash `b44cbbfb` 하나로 혼자 되돌리는 창은 위 항목의 머지(2026-11-11 01:00 KST)로 닫힘. 그 squash에서 문서와 버전 거울 여섯 파일을 뺀 패치는 9.0.41 위에서도 깨끗하게 거꾸로 적용됨, 9.0.41의 기록의 `git apply -R --check`), 부분 하나만 그 부분 커밋들의 패치를 거꾸로 적용한다(최종 머리에서 한국어 자간 넷과 데모 단계 라벨 다섯이 부분마다 새것부터
     깨끗하게 거꾸로 적용됨, 보고서 §8과 라운드 4. 두 부분은 서로 다른 파일을 바꿈). 이 열차의 머지(2026-11-06 14:41 KST)로 아래 9.0.39 항목의 열차를
@@ -8086,7 +8159,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13480649065, 9.0.39 / v812 `5b3cfcb0`의 App `4cf5e560`, 빌드
     812)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만 읽음). v813 이상을 받은 클라이언트에 낮은
     epoch v812를 돌려주고 이 열차 전체와 위 9.0.41 항목의 7C 열차를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙',
-    결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는
+    결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는
     `versions deploy`로 그 버전을 100% 되돌리고(`--config cloudflare/wrangler.app.toml`, message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI
     rollback 한 줄을 더한다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.39 ~
     9.0.27 항목의 checkpoint App으로 손으로 되돌리면 이 열차와 위 9.0.41 항목도 함께 빠진다.
@@ -8117,7 +8190,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   (`css/style.css`)이다. 와이어, 서버, IndexedDB·localStorage·sessionStorage 모양, 저장 키, 버스 사건, 계약 표지, forward floor, 새 바닥, D1, 비밀,
   바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 원본, 시스템 오디오 파일, PRO 코드, 42개 언어의 문구, npm 의존성은 바꾸지 않았다.
   이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로 2026-11-06 14:53 KST에, 7C 열차가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고(위 항목), 그 전에 다른 앱
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로 2026-11-06 14:53 KST에, 7C 열차가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고(위 항목), 그 전에 다른 앱
     업데이트가 나가면 그다음 번호).
     가장 최근 main 위에서 이 열차의 변경을 되돌리거나(squash `5b3cfcb0` 하나로 혼자 되돌리는 창은 위 항목의 머지(2026-11-06 14:41 KST)로 닫힘. 7B의 런타임 파일과 숫자의 글꼴 파일 패치는 9.0.40 위에서 깨끗하게 거꾸로 적용됐고(9.0.41 위에서는 7C가 그 코드를 옮겨 7B의 런타임 파일 패치가 깨끗하게 거꾸로 적용되지 않으며 숫자의 글꼴 파일 패치는 그대로 적용됨, 9.0.41의 기록의 `git apply -R --check`), 단계 버튼의 런타임 패치 `8fb3d9f5`, `8afced6c`는 9.0.40의 데모 부분을 먼저 거꾸로 적용해야 깨끗하며 그 시험 패치 `ed50bc88`은 시험만 커밋 `019091c7`의 행도 되돌림, 9.0.40의 기록의 `git apply -R --check`), 부분 하나만 그 부분 커밋들의 패치를 거꾸로 적용한다(버전 올리기 머리에서 세 부분 모두 새것부터
     깨끗하게 거꾸로 적용됨, 보고서 §9와 라운드 2. 단계 버튼만 빼고 숫자를 남기면 폭 320px의 말라얄람어 1단계가 다시 잘리므로 함께 빼거나 다른 길로
@@ -8127,8 +8200,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13414665903, 9.0.38 / v811 `9e62c26c`의 App
     `984397d9`, 빌드 811)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v812 이상을 받은 클라이언트에 낮은 epoch v811을 돌려주고 이 열차 전체와 위 9.0.40 항목의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41 항목의 7C 열차를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의
-    열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 /
-    v833 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고
+    열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 /
+    v834 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고
     (`--config cloudflare/wrangler.app.toml`, message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을 더한다. 그 App 버전은
     git 출처가 없으므로 다음 수리 릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.38 ~ 9.0.27 항목의
     checkpoint App으로 손으로 되돌리면 이 열차와 위 9.0.40, 9.0.41 항목도 함께 빠진다.
@@ -8161,7 +8234,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   화면 폭으로(스크롤 막대가 화면 끝으로, 글과 단추의 자리는 그대로)이다. 와이어, 서버, IndexedDB·localStorage·sessionStorage 모양, 저장 키, 계약 표지,
   forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 원본, 글꼴 파일, 시스템 오디오 코드, 42개 언어의
   문구, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로 2026-11-05 21:22 KST에, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로 2026-11-06 14:53 KST에, 7C 열차가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고(위 항목), 그 전에 다른 앱
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로 2026-11-05 21:22 KST에, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로 2026-11-06 14:53 KST에, 7C 열차가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고(위 항목), 그 전에 다른 앱
     업데이트가 나가면 그다음 번호).
     가장 최근 main 위에서 이 열차의 변경을 되돌리거나(squash `9e62c26c` 하나로 혼자 되돌리는 창은 위 항목의 머지(2026-11-05 21:08 KST)로 닫힘. 런타임 파일 패치는 9.0.39 ~ 9.0.41 위에서도 깨끗하게 거꾸로 적용되고 시험 파일 `src/i18n/__tests__/chip-label-width.test.ts`만 다시 맞춤, 9.0.39 ~ 9.0.41의 기록의 `git apply -R --check`), 부분 하나만 그 부분 커밋들의 패치를 거꾸로 적용한다(버전 올리기 머리에서 다섯 부분 모두 새것부터 깨끗하게 거꾸로
     적용됨, 보고서 §11과 라운드 2. (1)을 되돌리면 §2 9.0.33·9.0.31·9.0.29·9.0.21 절의 문장 넷도 되돌림). 이 열차의 머지(2026-11-05 05:59
@@ -8169,8 +8242,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13363537242, 9.0.37 / v810 `d1665230`의 App
     `80534771`, 빌드 810)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v811 이상을 받은 클라이언트에 낮은 epoch v810을 돌려주고 이 열차 전체와 위 9.0.39 항목의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40 항목의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41 항목의 7C 열차를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의
-    열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 /
-    v833 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고
+    열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 /
+    v834 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고
     (`--config cloudflare/wrangler.app.toml`, message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을 더한다. 그 App 버전은
     git 출처가 없으므로 다음 수리 릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.37 ~ 9.0.27 항목의
     checkpoint App으로 손으로 되돌리면 이 열차와 위 9.0.39, 9.0.40 항목도 함께 빠진다.
@@ -8201,7 +8274,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   YouTube 큰 버튼의 '검색', 42개 언어의 칸 아래 문구, 디자인 시스템 Input fields 카드, [화면 바뀜])이다. 와이어, 서버, IndexedDB·localStorage
   모양, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 신호와 중계 프레임 모양, 서비스 워커 원본, 글꼴 파일, 시스템
   오디오 코드, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.833 / v833 이상이다(오너의 UI 정리 열차가 9.0.38 / v811로 2026-11-05 06:14 KST에, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로 같은 날 21:22 KST에, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로 2026-11-06 14:53 KST에, 7C 열차가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고(위 항목), 그 전에 다른 앱
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고 그 릴리스는 9.0.834 / v834 이상이다(오너의 UI 정리 열차가 9.0.38 / v811로 2026-11-05 06:14 KST에, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로 같은 날 21:22 KST에, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로 2026-11-06 14:53 KST에, 7C 열차가 9.0.41 / v814로 2026-11-11 01:14 KST에 먼저 나갔고(위 항목), 그 전에 다른 앱
     업데이트가 나가면 그다음 번호).
     가장 최근 main 위에서 이 열차의 변경을 되돌리거나(squash `d1665230` 하나로 혼자 되돌리는 창은 위 항목의 머지(2026-11-05 05:59 KST)로 닫힘), 증분 하나만 그 증분 커밋들의 패치를 거꾸로 적용한다(버전 올리기 머리에서 7A의 문서 밖 패치, 7A-1의 네
     커밋, 아이폰 고침 전체, 입력칸 전체가 깨끗하게 거꾸로 적용됨, 보고서 §10과 라운드 2. 9.0.38 위에서는 입력칸의 `css/style.css` 패치를 다시 맞춰야 함, 이 기록의 `git apply -R --check`). 7A만 혼자 되돌리는 길은 위 9.0.39 항목의 7B 머지(2026-11-05 21:08 KST)로 닫혔다(7B가
@@ -8210,8 +8283,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13295929236, 9.0.36 / v809 `6f9cf6f8`의 App
     `385d84fe`, 빌드 809)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v810 이상을 받은 클라이언트에 낮은 epoch v809를 돌려주고 이 열차 전체와 위 9.0.38 항목의 오너의 UI 정리 열차, 9.0.39 항목의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40 항목의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41 항목의 7C 열차를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의
-    열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 /
-    v833 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고
+    열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 /
+    v834 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고
     (`--config cloudflare/wrangler.app.toml`, message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을 더한다. 그 App 버전은
     git 출처가 없으므로 다음 수리 릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.36 ~ 9.0.27 항목의
     checkpoint App으로 손으로 되돌리면 이 열차와 위 9.0.38 ~ 9.0.41 항목도 함께 빠진다.
@@ -8245,7 +8318,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   모양, 저장 키, 신호와 중계 프레임 모양, 서비스 워커 원본과 `APP_SHELL`, 앱 화면의 글꼴과 CSS, 시스템 오디오 코드, npm 의존성은
   바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목)
-    나갔으므로 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호).
+    나갔으므로 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호).
     squash `6f9cf6f8`을 되돌리면 지운 Pretendard 사본과 시트, Noto Cyrillic·Greek 파일, 번호 없는 면, 공개 글꼴 로더 둘과 옛 링크가
     git에서 돌아와 내려받기가 필요 없다. 페이지 묶음 하나만 되돌리는 길은 없다(I9의 은퇴 가드와 지운 파일이 묶임, 보고서 §10). T1(#569, 2026-11-04 13:22 KST,
     시험·가드·문서만)의 머지로 되돌리기는 가장 최근 main 위에서 하게 됐고, 이 열차를 혼자 되돌리는 창은 9.0.37 열차(#570)의 머지(13:36 KST, 위 항목)로 닫혀
@@ -8255,8 +8328,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13233084692, 9.0.35 / v808 `cfa81bdc`의 App
     `6bba4c8e`, 빌드 808)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v809 이상을 받은 클라이언트에 낮은 epoch v808을 돌려주고 이 열차 전체와 위 9.0.37 항목의 7A·아이폰 복귀·입력칸 열차, 9.0.38 항목의 오너의 UI 정리 열차, 9.0.39 항목의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40 항목의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41 항목의 7C 열차를 한꺼번에 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의
-    열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 /
-    v833 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고
+    열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 /
+    v834 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고
     (`--config cloudflare/wrangler.app.toml`, message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을 더한다. 그 App 버전은
     git 출처가 없으므로 다음 수리 릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.35 ~ 9.0.27 항목의
     checkpoint App으로 손으로 되돌리면 이 열차와 위 9.0.37 ~ 9.0.41 항목도 함께 빠진다.
@@ -8288,7 +8361,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   CORS, 저장 데이터 모양, 저장 키, 신호와 중계 프레임 모양, 타이머 이름, 로그 줄, 시스템 오디오 코드, 글꼴, CSS, npm 의존성은 바꾸지 않았다. 이
   항목은 위 현재 경계 줄을 따른다.
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, 공개 페이지 글꼴 열차가 9.0.36 / v809로(2026-11-03 22:22 KST,
-    위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목), 소리 복구 고침 열차가 9.0.42 / v815로(2026-11-11 11:55 KST, 위 항목) 나갔으므로 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 6D는 Phase 6의 마지막
+    위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목), 소리 복구 고침 열차가 9.0.42 / v815로(2026-11-11 11:55 KST, 위 항목) 나갔으므로 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 6D는 Phase 6의 마지막
     열차라 다음 App 업데이트(공개 페이지 글꼴 열차, 9.0.36 / v809)가 머지되기 전까지 혼자
     되돌릴 수 있었고(squash `cfa81bdc`를 되돌리거나, 증분을 골라 그
     커밋 패치를 거꾸로 적용: 대비 길만은 `8a0edafb`, `45919599`, `f808c3bc`을 이 차례로, 6D-6만은 그 셋과 `ba957b2b`, `1d2fcdcb`,
@@ -8302,7 +8375,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     `b5278b0b`, 빌드 807)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v808 이상을 받은 클라이언트에 낮은 epoch v807을 돌려주고 이 열차 전체(6D-1 ~ 6D-5, 6D-6과 그 대비 길, 6C-3)와 위 9.0.36 항목의 공개 페이지 글꼴 열차, 9.0.37 항목의 7A·아이폰 복귀·입력칸 열차, 9.0.38 항목의 오너의 UI 정리 열차, 9.0.39 항목의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40 항목의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41 항목의 7C 열차를 한꺼번에 빼므로 위
     현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI
-    되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을
+    되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을
     100% 되돌리고(`--config cloudflare/wrangler.app.toml`, message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을
     더한다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.34 ~
     9.0.27 항목의 checkpoint App으로 손으로 되돌리면 이 열차와 위 9.0.36 ~ 9.0.41 항목도 함께 빠진다.
@@ -8336,7 +8409,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   시스템의 거울과 견본)다. 와이어, 서버, 저장 모양, 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 저장
   데이터 모양, 저장 키, 신호와 중계 프레임 모양, 타이머 이름, 로그 줄, 시스템 오디오 코드, 글꼴, npm 의존성은 바꾸지 않았다. 이 항목은
   위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱
     업데이트가 나가면 그다음 번호). 6C, 라이트 테두리(`c3281b45`, CSS 두
     파일), 라이트 구분선(`9fb6f1f8`, 일곱 파일)은 서로 얽히지 않아 각각 혼자 되돌릴 수 있고(squash `cd8eaf47` 안의 그 커밋의 패치를
     거꾸로 적용), 아래 9.0.33 항목과 같은 규칙으로 그 창은 다음 App 업데이트(6D, 9.0.35 / v808. 9.0.34의 기록 때는 공개 페이지 글꼴
@@ -8355,7 +8428,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     `047e6f68`, 빌드 806)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v807 이상을 받은 클라이언트에 낮은 epoch v806을 돌려주고 이 열차 전체(6C, 라이트 테두리, 라이트 구분선)와 위 9.0.35 항목의 6D, 9.0.36 항목의 공개 페이지 글꼴 열차, 9.0.37 항목의 7A·아이폰 복귀·입력칸 열차, 9.0.38 항목의 오너의 UI 정리 열차, 9.0.39 항목의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40 항목의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41 항목의 7C 열차를 한꺼번에 빼므로 위
     현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목('낮은 epoch로 가는 App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI
-    되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을
+    되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드 되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을
     100% 되돌리고(`--config cloudflare/wrangler.app.toml`, message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을
     더한다. 그 App 버전은 git 출처가 없으므로 다음 수리 릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.33 ~
     9.0.27 항목의 checkpoint App으로 손으로 되돌리면 이 열차도 함께 빠진다.
@@ -8387,7 +8460,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   원본은 저장소에 그대로이고, 공개 페이지와 OG 그림은 Pretendard 그대로다. 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩,
   Wrangler 설정, CORS, 저장 데이터 모양, 저장 키, 신호와 중계 프레임 모양, YouTube 시작과 시스템 오디오 코드, npm 의존성은 바꾸지
   않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, 6C와 라이트 두 증분이 9.0.34 / v807로(2026-11-02 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, 6C와 라이트 두 증분이 9.0.34 / v807로(2026-11-02 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱
     업데이트가 나가면 그다음 번호). 이 열차만 혼자 되돌릴 수 있는 것(squash `4faf38d9` 하나를 되돌림)은 다음 App 업데이트(6C를 실은 9.0.34)가
     머지되기 전까지였고 그 창은 9.0.34의 머지(2026-11-02 21:06 KST)로 닫혔다. 이제는 가장 최근 main 위에서 새 `agent/` 갈래로 이 열차의 변경을 되돌리는 앞으로 고치기다(다음
     SemVer·epoch, 전체 관문, App 릴리스, 기록). 내려받기가 필요 없다: 되돌리는 커밋이 KR 시트 120면과 구운 KR 사본 67개를
@@ -8397,7 +8470,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13115751050, 9.0.32 / v805 `3ea689b9`의 App
     `e19b7085`, 빌드 805)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v806 이상을 받은 클라이언트에 낮은 epoch v805를 돌려주고 위 9.0.34, 9.0.35, 9.0.36, 9.0.37, 9.0.38, 9.0.39, 9.0.40과 9.0.41 항목도 함께 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목('낮은 epoch로 가는
-    App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.833 / v833 이상의 코드
+    App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 9.0.834 / v834 이상의 코드
     되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고(`--config cloudflare/wrangler.app.toml`,
     message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을 더한다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.32 ~ 9.0.27 항목의 checkpoint App으로 손으로 되돌리면 이
@@ -8427,7 +8500,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   화면, 소리, 와이어, 타이머 이름, 로그 줄, 준비 이벤트는 그대로이고(T0a 골든과 T0b 참값표가 바이트 그대로 통과), 계약 표지, forward
   floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 저장 데이터 모양, 저장 키, 신호와 중계 프레임 모양, 시스템 오디오 코드, 글꼴과
   CSS, 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, 앱 한글 Pretendard가 9.0.33 / v806으로(2026-11-02 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, 앱 한글 Pretendard가 9.0.33 / v806으로(2026-11-02 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱
     업데이트가 나가면 그다음 번호). 6B만 혼자 되돌릴 수 있는 것(squash `3ea689b9` 하나를 되돌림)은 다음 App 업데이트가 머지되기 전까지였다(6B 보고서는 6C-1 라우터가 6B-1 장부
     claim으로 갈리는 6C를 적음, 계획). 그보다 먼저 9.0.33이 2026-11-02 12:59 KST에 머지돼(`4faf38d9`) 그 창은 닫혔다. 이제는 가장 최근 main 위에서 새 `agent/` 갈래로 6B의 변경을 거꾸로 되돌리고 다음 SemVer·epoch, 전체 게이트,
     App 릴리스, 기록으로 앞으로 되돌린다(9.0.33은 YouTube 시작 코드를 건드리지 않았고, 9.0.34의 6C와 9.0.35의 6D는 6B의 장부와 그 독자가 있는 파일을 다시 바꿨으므로 그 위에서 다시 맞춤[추론]). 와이어와 프레임 시각이 같아 되돌린 빌드와 9.0.32 이상은 같은 방에서 그대로 함께 쓴다. 6B
@@ -8436,7 +8509,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13099442949, 9.0.31 / v804 `ba28943e`의 App
     `dff554a2`, 빌드 804)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v805 이상을 받은 클라이언트에 낮은 epoch v804를 돌려주고 위 9.0.33 항목의 한글 면, 9.0.34 항목의 6C·라이트 두 증분, 9.0.35 항목의 6D, 9.0.36 항목의 공개 페이지 글꼴 열차, 9.0.37 항목의 7A·아이폰 복귀·입력칸 열차, 9.0.38 항목의 오너의 UI 정리 열차, 9.0.39 항목의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40 항목의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41 항목의 7C 열차도 함께 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목('낮은 epoch로 가는
-    App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 가장 최근 main 위에서 6B의 변경을 되돌리는 9.0.833 / v833 이상의 앞으로
+    App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 가장 최근 main 위에서 6B의 변경을 되돌리는 9.0.834 / v834 이상의 앞으로
     고치기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고(`--config cloudflare/wrangler.app.toml`,
     message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을 더한다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.31 ~ 9.0.27 항목의 checkpoint App으로 손으로 되돌리면 6B, 9.0.33, 9.0.34, 9.0.35, 9.0.36, 9.0.37도
@@ -8463,7 +8536,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   앉는다. 입력 글꼴(`fonts/inter`, `fonts/noto/`)은 저장소에 그대로이고 소개와 사이트맵은 JP·SC·TC 원본을 계속 쓴다. 계약 표지,
   forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 저장 데이터 모양, 저장 키, 신호와 중계 프레임 모양, YouTube 시작과
   시스템 오디오 코드, npm 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱
     업데이트가 나가면 그다음 번호). 이 열차만 혼자 되돌릴 수 있는 것(squash `ba28943e` 하나를 되돌림)은 다음 App 업데이트(6B)가
     머지되기 전까지였고, 6B가 2026-11-02 05:21 KST에 머지돼(`3ea689b9`) 그 창은 닫혔다. 이제는 가장 최근 main 위에서 새 `agent/` 갈래로 앞으로 고친다(다음 SemVer·epoch, 전체 관문, App
     릴리스, 기록). 위 9.0.33 항목이 같은 KR 시트, 구운 KR 사본, `font-metrics.ts`를 바꿨으므로 굽기를 되돌리는 변경은 9.0.33 위에서 다시 맞춘다(9.0.34와 9.0.35는 글꼴과 줄 상자를 건드리지 않음). 입력 글꼴이 저장소에 그대로라 내려받기가 필요 없고, 되돌린 시트는 다시 입력을 가리키며(9.0.30과 같은 바이트라
@@ -8473,7 +8546,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13086827457, 9.0.30 / v803 `3c098e9d`의 App
     `50e0527d`, 빌드 803)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v804 이상을 받은 클라이언트에 낮은 epoch v803을 돌려주고 위 9.0.32 항목의 6B, 9.0.33 항목의 한글 면, 9.0.34 항목의 6C와 라이트 두 증분, 9.0.35 항목의 6D, 9.0.36 항목의 공개 페이지 글꼴 열차, 9.0.37 항목의 7A·아이폰 복귀·입력칸 열차, 9.0.38 항목의 오너의 UI 정리 열차, 9.0.39 항목의 7B·숫자 고정폭·데모 단계 버튼 열차, 9.0.40 항목의 공개 페이지 한국어 자간·데모 단계 라벨 열차, 9.0.41 항목의 7C 열차도 함께 빼므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목('낮은 epoch로 가는
-    App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 가장 최근 main 위에서 이 열차의 변경을 되돌리는 9.0.833 / v833 이상의
+    App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 가장 최근 main 위에서 이 열차의 변경을 되돌리는 9.0.834 / v834 이상의
     앞으로 고치기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고(`--config cloudflare/wrangler.app.toml`,
     message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을 더한다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.30 ~ 9.0.27 항목의 checkpoint App으로 손으로 되돌리면 이
@@ -8503,7 +8576,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   `src/youtube/iframe-audio.ts`)과 R4-Q3 주석(`src/pro-room/snapshot.ts`)이다. 화면, 소리, 와이어, 타이머 이름, 로그 줄은 그대로이고
   (T0a 골든과 고정 행이 그대로 통과), 계약 표지, forward floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 저장 데이터 모양, 저장
   키, 신호와 중계 프레임 모양, 시스템 오디오 코드, 의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
-  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, 굽기와 탭 제목이 9.0.31 / v804로(2026-11-01 23:17 KST, 위 항목), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱
+  - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기이고, 굽기와 탭 제목이 9.0.31 / v804로(2026-11-01 23:17 KST, 위 항목), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱
     업데이트가 나가면 그다음 번호). 6A만 혼자 되돌릴 수 있는 것은 6B가 머지되기 전까지였고, 6B가 2026-11-02 05:21 KST에 머지돼 그 창은 닫혔다(6B 장부가 6A-1의 소유자 질의와 6A-3의
     상수를, 6C-2가 6A-4의 `iframe-audio.ts`를, 6D-1이 6A-3의 1,800 ms와 120 ms × 8을 씀, 계획). 이제는 6A부터 가장 최근 열차까지
     새 `agent/` 갈래에서 거꾸로 되돌리고 다음 SemVer·epoch, 전체 게이트, App 릴리스, 기록으로 앞으로 되돌린다. 와이어와 프레임
@@ -8512,7 +8585,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 급할 때의 Cloudflare App 되돌리기: 대상은 이 릴리스의 checkpoint App(artifact 13055689762, 9.0.29 / v802 `c4667abc`의 App
     `f9c684cb`, 빌드 802)이고, 저장 최소 빌드 795 이상이라 `lower`가 필요 없으며 PRO는 그대로 둔다(그 App도 schemaVersion 2만
     읽음). v803을 받은 클라이언트에 낮은 epoch v802를 돌려주므로 위 현재 경계 줄 (5)와 §2 9.0.29 절의 열린 항목('낮은 epoch로 가는
-    App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 6A부터 가장 최근 열차까지 거꾸로 되돌리는 9.0.833 / v833 이상의 앞으로
+    App 손 되돌리기의 규칙', 결정 전)대로 명시적으로 검토한 CLI 되돌리기로만 하고, 급하지 않으면 6A부터 가장 최근 열차까지 거꾸로 되돌리는 9.0.834 / v834 이상의 앞으로
     되돌리기가 기본이다. 수동 CLI 되돌리기는 `versions deploy`로 그 버전을 100% 되돌리고(`--config cloudflare/wrangler.app.toml`,
     message는 `Rollback: <이유>`), 뒤에 §1을 덮어쓰고 이력에 CLI rollback 한 줄을 더한다. 그 App 버전은 git 출처가 없으므로 다음 수리
     릴리스는 `all`이다([운영](hotfix-procedure.md#normal-hotfix)). 아래 9.0.29 ~ 9.0.27 항목의 checkpoint App으로 손으로 되돌리면 6A도
@@ -8540,7 +8613,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   floor, 새 바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 저장 데이터 모양, 저장 키, 신호와 중계 프레임 모양, 시스템 오디오 코드,
   npm 의존성은 바꾸지 않았다(새 제3자 자산은 글꼴 파일, §1 의존성·호환). 이 항목은 위 현재 경계 줄을 따른다.
   - 기본은 hotfix 절차대로 앞으로 되돌리기(되돌리는 커밋, 새 패치, 더 높은 epoch)이고, Phase 6 6A가 9.0.30 / v803으로(2026-11-01
-    05:17 KST, 위 항목), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST, 위 항목), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). Pretendard 파일이 배포된 채이고 데이터, 바닥, Durable Object, D1 상태가 바뀌지
+    05:17 KST, 위 항목), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST, 위 항목), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목) 이미 나갔으므로 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). Pretendard 파일이 배포된 채이고 데이터, 바닥, Durable Object, D1 상태가 바뀌지
     않아 쉽다. 옛 선택 글꼴 캐시는 9.0.29가 지웠으므로 되돌린 앱은 Pretendard를 한 번 다시 받는다. 되돌리면 앱 글자가 9.0.28의
     글꼴 동작(Pretendard, 언어별 제목 자간, 파일 이름은 받은 그대로 보이기)으로 돌아온다. 저장·전송되는 이름과 통신 모양이 그대로라
     9.0.29와 되돌린 빌드는 같은 방에서 그대로 함께 쓴다.
@@ -8555,7 +8628,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     되돌리기 조건이나 9.0.27의 공유 다섯 번 확인이 실패할 때, 그 checkpoint App 9.0.27 `e3457d38`이나 9.0.26 `b8dc4281`)는
     9.0.29의 글꼴 전환도 함께 빼고(9.0.30 ~ 9.0.41이 나간 뒤로는 6A, 굽기·탭 제목, 6B, 한글 면, 6C와 라이트 두 증분, 6D, 공개 페이지 글꼴 열차, 7A·아이폰 복귀·입력칸 열차, 오너의 UI 정리 열차, 7B·숫자 고정폭·데모 단계 버튼 열차, 공개 페이지 한국어 자간·데모 단계 라벨 열차, 7C 열차도 함께 뺌) 낮은 epoch(v801, v800이나 v799)로 돌아간다. 보고서의 한계(처음 몇 분, 낮은 epoch 복원
     금지)와 hotfix-procedure의 명시적으로 검토한 CLI 되돌리기가 이 경우를 다르게 답하므로 결정 전이다(§2 9.0.29 절의
-    열린 항목). 오너나 릴리스 담당이 정할 때까지 hotfix-procedure를 따른다: 급하지 않으면 그 증분만 빼는 9.0.833 / v833 이상의
+    열린 항목). 오너나 릴리스 담당이 정할 때까지 hotfix-procedure를 따른다: 급하지 않으면 그 증분만 빼는 9.0.834 / v834 이상의
     코드 되돌리기가 기본이고, 급하면 명시적으로 검토한 CLI 되돌리기로만 하며, 그 검토는 글꼴 전환이 함께 빠지고 v802를 이미
     받은 클라이언트에 낮은 epoch가 돌아가는 것을 함께 본다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계(App smoke, 소유권 확인)가 실패하면 'Restore release-owned Workers after a
@@ -8587,7 +8660,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   바닥, D1, 비밀, 바인딩, Wrangler 설정, CORS, 저장 데이터 모양, 저장 키, 신호와 중계 프레임 모양, 청취자 코드, 업로드 큐,
   의존성은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기다. 글꼴 전환이 9.0.29 / v802로(2026-10-31 23:39 KST),
-    Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST) 이미 나갔으므로(위 항목) 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면
+    Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST) 이미 나갔으므로(위 항목) 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면
     공유자는 다시
     LAN-direct가 실패한 뒤에야 SFU 발행을 시작하고(LAN-direct가 성공한 공유는 Realtime 세션을 열지 않음), 재생목록 현재 행
     아이콘은 예전 크기(재생 18px, 일시정지 16px), 업로드 행은 번호 없이 번호 칸에 고리를 둔 예전 모양으로 돌아온다. 재생목록을
@@ -8634,7 +8707,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   D1, 비밀, 바인딩, Wrangler 설정, CORS, 저장 데이터 모양, 저장 키, 신호와 중계 프레임 모양, 의존성은 바꾸지 않았다. 이
   항목은 위 현재 경계 줄을 따른다.
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기다. App 9.0.28 열차가 9.0.28 / v801로(2026-10-31
-    11:29 KST), 글꼴 전환이 9.0.29 / v802로(같은 날 23:39 KST), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST) 이미 나갔으므로(위 항목) 그 릴리스는 9.0.833 / v833 이상이다(그
+    11:29 KST), 글꼴 전환이 9.0.29 / v802로(같은 날 23:39 KST), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST) 이미 나갔으므로(위 항목) 그 릴리스는 9.0.834 / v834 이상이다(그
     전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 iPhone Safari
     청취자는 다시 정제되지 않은 host→prflx 쌍을 첫 판독에서 거절해 SFU로 가고, LAN 후보 없이 수집을 끝낸 경로는 다시 공유자의
     증명 창까지 기다리며, 새 진단 줄이 없어지고, 채팅 포커스는 9.0.26 동작으로 돌아온다. 9.0.27과 되돌린 빌드 사이의
@@ -8711,7 +8784,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   모양은 바꾸지 않았다. 이 항목은 위 현재 경계 줄을 따른다.
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기다. App 9.0.27 열차가 9.0.27 / v800으로(2026-10-31
     04:31 KST), App 9.0.28 열차가 9.0.28 / v801로(같은 날 11:29 KST), 글꼴 전환이 9.0.29 / v802로(같은 날 23:39 KST), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST) 이미 나갔으므로(위
-    항목) 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 LAN-direct는 9.0.25의 두 왕복(탐색 뒤 미디어 재제안, 시도 전체 2초 마감)으로, 채팅 시트에는 X가
+    항목) 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 LAN-direct는 9.0.25의 두 왕복(탐색 뒤 미디어 재제안, 시도 전체 2초 마감)으로, 채팅 시트에는 X가
     돌아온다. 그 사이 9.0.26과
     되돌린 빌드 사이의 LAN-direct는 경로 없이 SFU로 간다.
   - 급할 때의 Cloudflare App 되돌리기는 이 릴리스의 checkpoint App(artifact 12953960262, 9.0.25 / v798 `b8ae59e7`의 App
@@ -8753,7 +8826,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   바꾸지 않는다(App Worker는 주석 하나).
   - 기본은 더 높은 SemVer와 캐시 epoch의 코드 되돌리기다. App 9.0.26 열차가 9.0.26 / v799로(같은 날 13:08 KST), App
     9.0.27 열차가 9.0.27 / v800으로(2026-10-31 04:31 KST), App 9.0.28 열차가 9.0.28 / v801로(같은 날 11:29 KST), 글꼴 전환이 9.0.29 / v802로(같은 날
-    23:39 KST), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST) 이미 나갔으므로(위 항목) 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호).
+    23:39 KST), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST) 이미 나갔으므로(위 항목) 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호).
   - 급할 때의 Cloudflare 되돌리기는 이 릴리스의 checkpoint App(artifact 12938145012, 9.0.24 / v797 `78ec56f5`의 App
     `dd820d37`. 9.0.22 이상이라 두 스키마를 모두 읽음)으로 할 수 있다. 바닥 795 이상이라 `lower`가 필요 없다. 이미 열린 9.0.25 탭은 새로 고칠 때까지 남는다.
   - 실패한 `app` 실행의 자동 복구: App을 checkpoint로 되돌린다. 위와 같은 이유로 안전하다. Worker 호환 바닥 평가가 실패하면
@@ -8787,7 +8860,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(forward revert)다. Phase 5.5 R3가 9.0.25 /
     v798로, App 9.0.26 열차가 9.0.26 / v799로, App 9.0.27 열차가 9.0.27 / v800으로, App 9.0.28 열차가 9.0.28 / v801로, 글꼴 전환이
     9.0.29 / v802로, Phase 6 6A가 9.0.30 / v803으로, 굽기와 탭 제목이 9.0.31 / v804로, Phase 6 6B가 9.0.32 / v805로, 앱 한글 Pretendard가 9.0.33 / v806으로, 6C와 라이트 두 증분이 9.0.34 / v807로, Phase 6 6D가 9.0.35 / v808로, 공개 페이지 글꼴 열차가 9.0.36 / v809로, 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로, 오너의 UI 정리 열차가 9.0.38 / v811로, 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로, 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로, 7C 열차가 9.0.41 / v814로 이미 나갔으므로(2026-10-30 07:18 KST와 13:08 KST, 2026-10-31 04:31 KST, 11:29 KST와 23:39 KST, 2026-11-01 05:17 KST와 23:17 KST, 2026-11-02 05:34 KST, 13:12 KST와 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST, 위 항목) 그
-    릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 번역 페이지가 포르투갈어(브라질) 고정, 로더 없음,
+    릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 번역 페이지가 포르투갈어(브라질) 고정, 로더 없음,
     로그인 결과에 말이 없음으로 돌아가고 App 링크는 다시 늘 `/translate`다. 9.0.23과 9.0.24는 같은 방에서 그대로 함께 쓴다.
   - 급할 때의 Cloudflare App 되돌리기는 이 릴리스의 checkpoint(artifact 12921334051, 9.0.23 / v796 `5a5afb0e`의 App
     `dddfabe3`)로 할 수 있고, 9.0.23 / v796(빌드 796)은 저장 최소 빌드(F2 뒤 795) 이상이라 `lower`와 PRO 단계 없이
@@ -8864,7 +8937,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   위 현재 경계 줄을 따른다.
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(forward revert)다. 9.0.24 / v797, 9.0.25 /
     v798, 9.0.26 / v799, 9.0.27 / v800, 9.0.28 / v801, 9.0.29 / v802, 9.0.30 / v803, 9.0.31 / v804, 9.0.32 / v805, 9.0.33 / v806, 9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813, 9.0.41 / v814가 이미 나갔으므로(2026-10-30 03:20, 07:18, 13:08 KST와
-    2026-10-31 04:31, 11:29, 23:39 KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST와 11:55 KST, 위 항목) 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면
+    2026-10-31 04:31, 11:29, 23:39 KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST와 11:55 KST, 위 항목) 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면
     세션 나가기 확인과
     위험 색조, 게스트 연결 끊김 본문,
     PRO 새로고침 필요 뒤의 뒤로, ja·zh 제목 줄바꿈과 제목 넘침 규칙, 데모 4단계와 머리글, 수동 싱크 배치, 바꾼 글자가
@@ -8893,7 +8966,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   LAN-direct 마감을 읽을 뿐 쓰지 않음). 이 항목은 위 현재 경계 줄을 따른다.
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(forward revert)다. 9.0.23 / v796, 9.0.24 / v797,
     9.0.25 / v798, 9.0.26 / v799, 9.0.27 / v800, 9.0.28 / v801, 9.0.29 / v802, 9.0.30 / v803, 9.0.31 / v804, 9.0.32 / v805, 9.0.33 / v806, 9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813, 9.0.41 / v814가 이미 나갔으므로(2026-10-29 21:22 KST, 2026-10-30
-    03:20, 07:18, 13:08 KST와 2026-10-31 04:31, 11:29, 23:39 KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST와 11:55 KST, 위 항목) 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가
+    03:20, 07:18, 13:08 KST와 2026-10-31 04:31, 11:29, 23:39 KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST와 11:55 KST, 위 항목) 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가
     나가면 그다음 번호). 되돌리면 지운 보내기(SESSION_FULL `message`, OPERATOR_TOAST
     `text`, 게스트의 SFU 능력 표지와 그 종류, 첫 SDP `iceRestartVersion`, peer-open 표지 넷, presence/close 세 필드)가
     돌아오고 v2 받기와 공유 시간 집이 빠진다. 바닥 789 이상의 받는 쪽은 두 모양을 받는다. PRO 스냅샷 schemaVersion 2를
@@ -8939,8 +9012,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   (Node 고정값과 개발 의존성은 런타임 밖).
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기(forward revert)다. 9.0.22 / v795, 9.0.23 /
     v796, 9.0.24 / v797, 9.0.25 / v798, 9.0.26 / v799, 9.0.27 / v800, 9.0.28 / v801, 9.0.29 / v802, 9.0.30 / v803, 9.0.31 / v804, 9.0.32 / v805, 9.0.33 / v806, 9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813, 9.0.41 / v814가 이미 나갔으므로(2026-10-29
-    18:35 KST와 21:22 KST, 2026-10-30 03:20, 07:18, 13:08 KST, 2026-10-31 04:31, 11:29, 23:39 KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST, 위 항목) 그 릴리스는 9.0.833 /
-    v833 이상이다(그
+    18:35 KST와 21:22 KST, 2026-10-30 03:20, 07:18, 13:08 KST, 2026-10-31 04:31, 11:29, 23:39 KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST, 위 항목) 그 릴리스는 9.0.834 /
+    v834 이상이다(그
     전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 굵기, 칩 문구, 역할 칩, 도움말 역할
     이름, 데모 역할 아이콘 문턱, 미디어
     고르기 창의 포커스 조건이 9.0.20으로 돌아온다. 9.0.20과 9.0.21은 같은 방에서 그대로 함께 쓴다.
@@ -8972,8 +9045,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   하나다.
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch의 코드 되돌리기다. 9.0.21 / v794, 9.0.22 / v795, 9.0.23 / v796,
     9.0.24 / v797, 9.0.25 / v798, 9.0.26 / v799, 9.0.27 / v800, 9.0.28 / v801, 9.0.29 / v802, 9.0.30 / v803, 9.0.31 / v804, 9.0.32 / v805, 9.0.33 / v806, 9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813, 9.0.41 / v814가 이미 나갔으므로(2026-10-29
-    15:23, 18:35, 21:22 KST, 2026-10-30 03:20, 07:18, 13:08 KST, 2026-10-31 04:31, 11:29, 23:39 KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST, 위 항목) 그 릴리스는 9.0.833 /
-    v833 이상이다(그
+    15:23, 18:35, 21:22 KST, 2026-10-30 03:20, 07:18, 13:08 KST, 2026-10-31 04:31, 11:29, 23:39 KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST, 위 항목) 그 릴리스는 9.0.834 /
+    v834 이상이다(그
     전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 B1
     안내, V1 ~ V5, 등록 라벨, 대화상자 나가기, 굵기 역할과 제목 자간, 머리글 로딩 줄이 9.0.19로 돌아온다(머리글 로딩
     줄은 9.0.19도 600). 9.0.19와 9.0.20은 같은 방에서 그대로 함께 쓴다.
@@ -9043,7 +9116,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   - 기본은 hotfix 절차대로 더 높은 SemVer와 캐시 epoch로 9.0.18 코드를 다시 내는 것이고, 9.0.20 / v793, 9.0.21 /
     v794, 9.0.22 / v795, 9.0.23 / v796, 9.0.24 / v797, 9.0.25 / v798, 9.0.26 / v799, 9.0.27 / v800, 9.0.28 / v801, 9.0.29 / v802, 9.0.30 / v803, 9.0.31 / v804, 9.0.32 / v805, 9.0.33 / v806, 9.0.34 / v807, 9.0.35 / v808, 9.0.36 / v809, 9.0.37 / v810, 9.0.38 / v811, 9.0.39 / v812, 9.0.40 / v813, 9.0.41 / v814가
     이미 나갔으므로(2026-10-29 05:52, 15:23, 18:35, 21:22 KST, 2026-10-30 03:20, 07:18, 13:08 KST, 2026-10-31 04:31, 11:29, 23:39
-    KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST와 11:55 KST, 위 항목) 그 릴리스는 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호).
+    KST, 2026-11-01 05:17, 23:17 KST, 2026-11-02 05:34, 13:12, 21:20 KST, 2026-11-03 16:40 KST와 22:22 KST, 2026-11-04 13:51 KST, 2026-11-05 06:14 KST와 21:22 KST, 2026-11-06 14:53 KST, 2026-11-11 01:14 KST와 11:55 KST, 위 항목) 그 릴리스는 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호).
     되돌리면 버튼 글자 양식과 간격, 호버 규칙(9.0.18의
     `@media (hover: hover)`), 빨강, − 아이콘, 이름·힌트 문구가 9.0.18로 돌아올 뿐이다. 9.0.18과 9.0.19는 같은 방에서
     그대로 함께 쓴다.
@@ -9072,7 +9145,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     번역 페이지 입구 열차가 9.0.24 / v797로(2026-10-30 03:20 KST, 위 항목), Phase 5.5 R3가 9.0.25 / v798로(같은 날 07:18
     KST, 위 항목), App 9.0.26 열차가 9.0.26 / v799로(같은 날 13:08 KST, 위 항목), App 9.0.27 열차가 9.0.27 / v800으로
     (2026-10-31 04:31 KST, 위 항목), App 9.0.28 열차가 9.0.28 / v801로(같은 날 11:29 KST, 위 항목), 글꼴 전환이 9.0.29 / v802로(같은
-    날 23:39 KST, 위 항목), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST, 위 항목), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST, 위 항목), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목), 소리 복구 고침 열차가 9.0.42 / v815로(2026-11-11 11:55 KST, 위 항목) 나갔으므로 그 릴리스는 hotfix 절차대로 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면
+    날 23:39 KST, 위 항목), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST, 위 항목), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST, 위 항목), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목), 소리 복구 고침 열차가 9.0.42 / v815로(2026-11-11 11:55 KST, 위 항목) 나갔으므로 그 릴리스는 hotfix 절차대로 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면
     브라우저 영수증이 다시
     24시간(재생 명령 10분, 예약 15분) 남아 바쁜 방의 원장이 하루 안에 찰 수 있고, 원장이 찬 재생목록 작업에는 옛 토스트가 돌아온다.
   - 실패한 `all` 실행의 자동 복구: 릴리스는 PRO Worker를 가장 먼저 배포하므로, 그 뒤
@@ -9111,7 +9184,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     21:22 KST, 위 항목), 번역 페이지 입구 열차가 9.0.24 / v797로(2026-10-30 03:20 KST, 위 항목), Phase 5.5 R3가 9.0.25 /
     v798로(같은 날 07:18 KST, 위 항목), App 9.0.26 열차가 9.0.26 / v799로(같은 날 13:08 KST, 위 항목), App 9.0.27 열차가
     9.0.27 / v800으로(2026-10-31 04:31 KST, 위 항목), App 9.0.28 열차가 9.0.28 / v801로(같은 날 11:29 KST, 위 항목),
-    글꼴 전환이 9.0.29 / v802로(같은 날 23:39 KST, 위 항목), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST, 위 항목), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST, 위 항목), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목), 소리 복구 고침 열차가 9.0.42 / v815로(2026-11-11 11:55 KST, 위 항목) 나갔으므로 9.0.833 / v833 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 R2 내부 복사, 완료 재시도, 실패 안내와 권한 확인 중 안내가 9.0.16 동작으로 돌아오고, 이미 쓴 선택 필드는 옛 코드가 읽되 쓰지 않는다.
+    글꼴 전환이 9.0.29 / v802로(같은 날 23:39 KST, 위 항목), Phase 6 6A가 9.0.30 / v803으로(2026-11-01 05:17 KST, 위 항목), 굽기와 탭 제목이 9.0.31 / v804로(같은 날 23:17 KST, 위 항목), Phase 6 6B가 9.0.32 / v805로(2026-11-02 05:34 KST, 위 항목), 앱 한글 Pretendard가 9.0.33 / v806으로(같은 날 13:12 KST, 위 항목), 6C와 라이트 두 증분이 9.0.34 / v807로(같은 날 21:20 KST, 위 항목), Phase 6 6D가 9.0.35 / v808로(2026-11-03 16:40 KST, 위 항목), 공개 페이지 글꼴 열차가 9.0.36 / v809로(같은 날 22:22 KST, 위 항목), 7A·아이폰 복귀·입력칸 열차가 9.0.37 / v810으로(2026-11-04 13:51 KST, 위 항목), 오너의 UI 정리 열차가 9.0.38 / v811로(2026-11-05 06:14 KST, 위 항목), 7B·숫자 고정폭·데모 단계 버튼 열차가 9.0.39 / v812로(2026-11-05 21:22 KST, 위 항목), 공개 페이지 한국어 자간·데모 단계 라벨 열차가 9.0.40 / v813으로(2026-11-06 14:53 KST, 위 항목), 7C 열차가 9.0.41 / v814로(2026-11-11 01:14 KST, 위 항목), 소리 복구 고침 열차가 9.0.42 / v815로(2026-11-11 11:55 KST, 위 항목) 나갔으므로 9.0.834 / v834 이상이다(그 전에 다른 앱 업데이트가 나가면 그다음 번호). 되돌리면 R2 내부 복사, 완료 재시도, 실패 안내와 권한 확인 중 안내가 9.0.16 동작으로 돌아오고, 이미 쓴 선택 필드는 옛 코드가 읽되 쓰지 않는다.
   - 실패한 `all` 실행의 자동 복구: 릴리스는 PRO Worker를 가장 먼저 배포하므로, 그 뒤
     단계(remote-share·signaling·Developer API smoke, App 배포, App smoke)가 실패하면 'Restore release-owned Workers
     after a failed release'가 이 릴리스의 checkpoint(artifact 12709897585)에 든 9.0.16 PRO Worker(`319f6e8f`, 릴리스 W

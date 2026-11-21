@@ -102,6 +102,29 @@ describe('a PRO runtime import that failed offline', () => {
     expect(reportedRuntimeFailures().at(-1)).toBe(failure);
   });
 
+  it('marks a plain PRO entry whose runtime import failed offline as a network failure', async () => {
+    // A plain open or join holds no claim link, so it loads the runtime
+    // without the claim guard that the other rows go through.
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      activationClaimPresent: false,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    const page = await loadDocument();
+    setOnline(false);
+
+    await expect(page.enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
+
+    expect(mocks.evaluations).toBe(1);
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    const [failure] = reportedRuntimeFailures();
+    expect(page.isLazyFeatureLoadError(failure)).toBe(true);
+    expect(failure).toMatchObject({ whileOffline: true });
+  });
+
   it('keeps a runtime import that failed online as an update when the entry is retried offline', async () => {
     const page = await loadDocument();
 

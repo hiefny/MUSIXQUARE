@@ -29,8 +29,9 @@ const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
 /**
  * Marks a scroller that its bar holds still while a press on the bar lasts.
  * The safety layer of css/style.css turns it into overflow: hidden !important,
- * so the user cannot scroll the list while script still can. The bar's own
- * observer does not watch this attribute, so toggling it lays nothing out.
+ * so the user cannot scroll the list while script still can. Toggling it wakes
+ * none of the bar's observers, and letting go lays the bar out once
+ * (setScrollHeld).
  */
 export const CUSTOM_SCROLL_HELD_ATTRIBUTE = 'data-custom-scroll-held';
 
@@ -287,6 +288,10 @@ function setScrollHeld(state: ScrollbarState, held: boolean): void {
   if (state.scrollHeld === held) return;
   state.scrollHeld = held;
   state.container.toggleAttribute(CUSTOM_SCROLL_HELD_ATTRIBUTE, held);
+  // The layout counted the held scroller as scrollable. Once it is let go,
+  // measure it again: another holder, or a layout change during the press,
+  // may have left it unscrollable.
+  if (!held) scheduleLayout(state);
 }
 
 function hasVisibleOverflow(container: HTMLElement, held: boolean): boolean {
@@ -945,14 +950,19 @@ export function initCustomScrollbar(container: HTMLElement): void {
   // arrives as wheel events the page cannot cancel), and the list would
   // follow the thumb only once the glide had run down. So the press holds the
   // scroller still, from the press until that press ends (syncScrollHeld),
-  // and the thumb's drag and the jump along the bar move it by script.
+  // and the thumb's drag and the jump along the bar move it by script. The
+  // touchpad momentum of a flick that began over the bar keeps arriving at the
+  // bar while it is pressed, so the bar hands no wheel to a scroller it holds:
+  // the hold does not stop script, and the list would glide on.
   const onTrackWheel = (e: WheelEvent): void => {
     // Ctrl with the wheel, or a pinch, zooms the page.
     if (e.ctrlKey || e.deltaY === 0 || !state.hasOverflow) return;
+    e.preventDefault();
+    // A pressed bar holds its scroller still, so it hands no wheel over either.
+    if (state.scrollHeld) return;
     let unit = 1;
     if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) unit = WHEEL_LINE_HEIGHT_PX;
     else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) unit = container.clientHeight;
-    e.preventDefault();
     container.scrollTop += e.deltaY * unit;
   };
 
@@ -980,12 +990,18 @@ export function initCustomScrollbar(container: HTMLElement): void {
   // A finger whose touchend never came (a window capture blocker, such as
   // the session reset's, swallows it) would hold the scroller until a blur.
   // Every touchstart lists the fingers still down, so a held finger it does
-  // not list has lifted. A contact elsewhere while that finger stays down
-  // changes nothing, and an event without touch lists names no finger.
+  // not list has lifted. A contact the touchstart adds is new, even when the
+  // platform reuses a lifted finger's identifier (Chromium on Android and
+  // Windows can number touches from 0 again). A contact elsewhere while that
+  // finger stays down changes nothing, and an event without touch lists names
+  // no finger.
   const onWindowTouchStart = (e: TouchEvent): void => {
     const { touches } = e;
     if (!touches || (dragTouchId === null && barTouchIds.size === 0)) return;
-    const down = new Set(Array.from(touches, (touch) => touch.identifier));
+    const added = new Set(Array.from(e.changedTouches ?? [], (touch) => touch.identifier));
+    const down = new Set(
+      Array.from(touches, (touch) => touch.identifier).filter((id) => !added.has(id)),
+    );
     for (const id of barTouchIds) {
       if (!down.has(id)) barTouchIds.delete(id);
     }

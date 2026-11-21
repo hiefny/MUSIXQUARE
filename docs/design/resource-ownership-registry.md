@@ -3815,14 +3815,14 @@ RO-56 accepted-exception
   `src/ui/playlist-selection-morph.ts`: selection, exit layer, glide); the selection-gesture
   auto-scroll (`src/ui/playlist-selection-gestures.ts`); follow and current-jump; the custom
   scrollbar drag and the jump from a press on the bar's empty part, which hold the scroller still
-  from the press until it ends (RO-56), and the wheel its shown bar hands to the scroller
-  (`src/ui/custom-scrollbar.ts`); the render's scroll restore. The three lazy controllers share
-  `src/ui/playlist-motion.ts` (lazy; listed with the build's deferred modules) for the edge
-  auto-scroll, the row easing and the reduced-motion check. `src/ui/playlist-view.ts` holds the
-  interaction gate: `playlistInteraction()` derives one state from both controllers (the reorder
-  is idle, in a gesture or settling a drop, and separately the selection is on or off, because an
-  edit-mode long press drags while the selection stays), `interactionPolicy()` answers render
-  deferral, follow blocking, handle use and what a long press does, and
+  from the press until it ends (RO-56), and the wheel its shown bar hands to the scroller while no
+  press holds it (`src/ui/custom-scrollbar.ts`); the render's scroll restore. The three lazy
+  controllers share `src/ui/playlist-motion.ts` (lazy; listed with the build's deferred modules)
+  for the edge auto-scroll, the row easing and the reduced-motion check. `src/ui/playlist-view.ts`
+  holds the interaction gate: `playlistInteraction()` derives one state from both controllers (the
+  reorder is idle, in a gesture or settling a drop, and separately the selection is on or off,
+  because an edit-mode long press drags while the selection stays), `interactionPolicy()` answers
+  render deferral, follow blocking, handle use and what a long press does, and
   `cancelQueueInteractions()` ends both.
 - **Target single owner:** one interaction gate in `playlist-view.ts` with the shared lazy motion
   module `src/ui/playlist-motion.ts`; controllers keep their gesture-private state.
@@ -4959,12 +4959,14 @@ entry needs the owner's acceptance and is not implied by this registry.
     outside its scroller, so a press on it cannot stop a glide the browser is still running on the
     list. From a press on the bar until that press ends, the container carries
     `data-custom-scroll-held` (`CUSTOM_SCROLL_HELD_ATTRIBUTE`), which the `@layer safety` rule in
-    `css/style.css` turns into `overflow: hidden !important`; script still scrolls it. The thumb's
-    drag (mouse or finger), a mouse press on the empty part of the bar (which still jumps the list)
-    and each finger on that part keep their own claims. Each ends on its mouseup, its finger's
-    touchend or touchcancel, a touchcancel without touches, window blur, a later touchstart that no
-    longer lists its finger, or destroy, with no timer. The bar's layout counts its own held
-    container as scrollable, so a relayout during a press keeps the bar and the drag.
+    `css/style.css` turns into `overflow: hidden !important`; script still scrolls it, and the bar
+    hands no wheel to a scroller it holds. The thumb's drag (mouse or finger), a mouse press on the
+    empty part of the bar (which still jumps the list) and each finger on that part keep their own
+    claims. Each ends on its mouseup, its finger's touchend or touchcancel, a touchcancel without
+    touches, window blur, a later touchstart that no longer lists its finger or adds a contact
+    under its identifier, or destroy, with no timer. The bar's layout counts its own held
+    container as scrollable, so a relayout during a press keeps the bar and the drag, and letting
+    go lays the bar out once more.
   - They write different channels, the inline value and the attribute, so a pane is not
     user-scrollable while either holds and neither release can undo the other.
 - **Target single owner:** unchanged. If a third holder appears: one claim ledger with owner keys,
@@ -4986,17 +4988,23 @@ entry needs the owner's acceptance and is not implied by this registry.
     the bar until that touch ends by %s").
   - Teardown: the destroy cases of those three rows.
   - Visibility: their blur cases, and for a touchend a blocker swallowed, "lets a held touch drag
-    go when a later touch no longer lists its finger, and keeps it while it does" and "keeps a
-    finger hold on the bar through another finger, and lets go when its own finger lifts or is
-    lost".
+    go when a later touch no longer lists its finger or adds a contact under its identifier, and
+    keeps it while it does" and "keeps a finger hold on the bar through another finger, and lets
+    go when its own finger lifts or is lost, even under a reused identifier".
   - The bar's layout: "keeps a held bar and its drag through every relayout while its scroller
-    computes to overflow hidden".
+    computes to overflow hidden", "keeps the bar through a relayout while a mouse press or a finger
+    on its empty part holds its scroller" and "lays the bar out once its hold ends, so a scroller
+    another holder keeps unscrollable loses its bar".
+  - The wheel: "hands no wheel to a scroller its pressed bar holds, and hands the wheel over again
+    once the press ends".
   - The rule: "turns the hold into overflow hidden in the safety layer, which no inline overflow
     outranks" and "exports the hold attribute that these rows and the stylesheet rule name".
   - With the real stylesheet: `e2e/custom-scrollbar-timeline.test.ts` "custom scrollbar hold while
     the bar is pressed" and the three hold rows of "custom scrollbar under a finger". In Chromium a
-    wheel stream the engine keeps delivering stands in for touchpad momentum; both lanes read the
-    computed overflow while a mouse or a finger holds the thumb or the bar.
+    wheel stream the engine keeps delivering stands in for touchpad momentum, to the list or, for a
+    flick that began over the bar, to the bar. Both lanes read the computed overflow while a mouse
+    or a finger holds the thumb or the bar, and keep the bar through the layout that a press on its
+    empty part starts after the list has rested under the pointer.
 - **Status:** `accepted-exception`, by design: a primary record like RO-11, RO-54 and RO-55, with
   no parent. Added with the hold, when it became a second machine beside the Android range lock on
   the `.tab-content` panes that carry `data-custom-scroll` (the scroller in compact landscape and

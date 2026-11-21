@@ -950,8 +950,8 @@ describe('forced update: refusals below the App build floor (train 9.0.14)', () 
 
 // Offline room guidance: while a guest joins, a failure that no server
 // answered names the network when the browser reports no network at that
-// moment. Server answers, the forced update, the PIN prompt and everything in
-// a room keep their own handling.
+// moment. Server answers that carry a frame type or an HTTP status, the forced
+// update, the PIN prompt and everything in a room keep their own handling.
 describe('a guest with no network', () => {
   beforeEach(() => setOnline(false));
 

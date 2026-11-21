@@ -1801,8 +1801,8 @@ describe('PRO join failure copy', () => {
   );
 
   // Offline room guidance: a PRO entry that no server answered names the
-  // network when the browser reports no network at that moment. Every server
-  // answer keeps its own copy.
+  // network when the browser reports no network at that moment. Every answer
+  // that reaches the page with its code or HTTP status keeps its own copy.
   describe('with no network', () => {
     beforeEach(() => setOnline(false));
     afterEach(() => {

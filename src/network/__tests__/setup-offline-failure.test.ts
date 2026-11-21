@@ -10,8 +10,9 @@ import {
 import { isOfflineSignalingSetupFailure } from '../setup-offline-failure.ts';
 
 // Offline room guidance: a Standard room setup failure names the network only
-// when the browser reports no network AND no server answered it. The rows run
-// the real transport, so each verdict is about the object setup receives.
+// when the browser reports no network AND no server answered it. The transport
+// rows run the real transport, so their verdicts are about the object setup
+// receives.
 
 const PRIMARY_SIGNALING_URL = 'wss://signal.example.test/api/rooms';
 const FALLBACK_SIGNALING_URL = 'wss://signal-alt.example.test/api/rooms';
@@ -234,7 +235,7 @@ describe('a Standard room setup failure that no server answered', () => {
   });
 });
 
-describe('a failure the server answered, or a local one, never names the network', () => {
+describe('a failure the server answered with a type or a status, or a local teardown, never names the network', () => {
   it('keeps an HTTPS bridge answer with an HTTP status', async () => {
     vi.stubGlobal(
       'fetch',

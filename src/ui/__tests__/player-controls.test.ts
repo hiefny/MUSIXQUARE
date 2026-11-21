@@ -39,6 +39,7 @@ import { showToast } from '../toast.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { initSettings } from '../settings.ts';
 import { __resetModalStackForTests } from '../dom.ts';
+import { destroyCustomScrollbar, initCustomScrollbar } from '../custom-scrollbar.ts';
 import {
   configureSystemAudioCaptureActivityProbe,
   configureSystemAudioCapturedStartProbe,
@@ -615,7 +616,7 @@ describe('Android range scroll ownership', () => {
     return { first, second, parent };
   }
 
-  function touch(identifier: number, target: HTMLInputElement): Touch {
+  function touch(identifier: number, target: HTMLElement): Touch {
     // jsdom has TouchEvent but no Touch constructor. Keep native list/target semantics.
     return {
       identifier,
@@ -634,7 +635,7 @@ describe('Android range scroll ownership', () => {
   }
 
   function dispatchTouch(
-    target: HTMLInputElement,
+    target: HTMLElement,
     type: 'touchstart' | 'touchend' | 'touchcancel',
     touches: Touch[],
     changedTouches: Touch[],
@@ -726,6 +727,96 @@ describe('Android range scroll ownership', () => {
     expect(parent.style.overflowY).toBe('hidden');
     dispatchTouch(first, 'touchend', [], [c]);
     expect(parent.style.overflowY).toBe('auto');
+  });
+
+  // The custom scrollbar holds a pane it scrolls (compact landscape, or the
+  // desktop Play pane) from a thumb press until that drag ends, under this
+  // attribute. custom-scrollbar.ts keeps it as CUSTOM_SCROLL_HELD_ATTRIBUTE,
+  // and that module's own tests read it by the same name.
+  const HELD_ATTRIBUTE = 'data-custom-scroll-held';
+  let releasePaneScrollbar: (() => void) | null = null;
+
+  afterEach(() => {
+    releasePaneScrollbar?.();
+    releasePaneScrollbar = null;
+  });
+
+  /** Gives an overflowing pane its own custom scrollbar and returns the bar's thumb. */
+  function adoptPaneScrollbar(pane: HTMLElement): HTMLElement {
+    Object.defineProperty(pane, 'scrollHeight', { configurable: true, get: () => 1000 });
+    Object.defineProperty(pane, 'clientHeight', { configurable: true, get: () => 200 });
+    const host = pane.parentElement!;
+    const hostPosition = host.style.position;
+    initCustomScrollbar(pane);
+    releasePaneScrollbar = () => {
+      destroyCustomScrollbar(pane);
+      host.style.position = hostPosition;
+    };
+    const tracks = [...host.children].filter((child) => child.classList.contains('cscroll-track'));
+    expect(tracks).toHaveLength(1);
+    const thumb = tracks[0].querySelector<HTMLElement>(':scope > .cscroll-thumb');
+    expect(thumb).not.toBeNull();
+    return thumb!;
+  }
+
+  it('keeps a pane unscrollable while either the range lock or the thumb holds it, in both orders', () => {
+    const { first, parent } = openActualEqualizer();
+    const thumb = adoptPaneScrollbar(parent);
+    const steps: Array<[string, string, boolean]> = [];
+    const note = (step: string): void => {
+      steps.push([step, parent.style.overflowY, parent.hasAttribute(HELD_ATTRIBUTE)]);
+    };
+    const range = touch(1, first);
+    const finger = touch(2, thumb);
+
+    // The range first, then the thumb; the range lets go first.
+    dispatchTouch(first, 'touchstart', [range], [range]);
+    note('range down');
+    dispatchTouch(thumb, 'touchstart', [range, finger], [finger]);
+    note('thumb down');
+    dispatchTouch(first, 'touchend', [finger], [range]);
+    note('range up');
+    dispatchTouch(thumb, 'touchend', [], [finger]);
+    note('thumb up');
+
+    // The thumb first, then the range; the thumb lets go first.
+    dispatchTouch(thumb, 'touchstart', [finger], [finger]);
+    note('thumb down');
+    dispatchTouch(first, 'touchstart', [finger, range], [range]);
+    note('range down');
+    dispatchTouch(thumb, 'touchend', [range], [finger]);
+    note('thumb up');
+    dispatchTouch(first, 'touchend', [], [range]);
+    note('range up');
+
+    // The controls initialize again while both hold: the range lock's old
+    // scope restores the pane, and the thumb holds on until its finger lifts.
+    dispatchTouch(thumb, 'touchstart', [finger], [finger]);
+    dispatchTouch(first, 'touchstart', [finger, range], [range]);
+    note('both down');
+    initPlayerControls();
+    note('controls initialized again');
+    dispatchTouch(first, 'touchend', [finger], [range]);
+    note('retired range up');
+    dispatchTouch(thumb, 'touchend', [], [finger]);
+    note('thumb up');
+
+    // Each holder has its own channel, the range lock the inline value and the
+    // thumb the attribute, so neither release can undo the other's hold.
+    expect(steps).toEqual([
+      ['range down', 'hidden', false],
+      ['thumb down', 'hidden', true],
+      ['range up', 'auto', true],
+      ['thumb up', 'auto', false],
+      ['thumb down', 'auto', true],
+      ['range down', 'hidden', true],
+      ['thumb up', 'hidden', false],
+      ['range up', 'auto', false],
+      ['both down', 'hidden', true],
+      ['controls initialized again', 'auto', true],
+      ['retired range up', 'auto', true],
+      ['thumb up', 'auto', false],
+    ]);
   });
 });
 

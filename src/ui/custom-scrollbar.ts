@@ -26,6 +26,14 @@ const SCROLL_PUMP_IDLE_FRAMES = 3;
 // enough to observe that handoff without making normal scrolling script-owned.
 const SCROLL_PUMP_ENDPOINT_TAIL_MS = 150;
 const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
+/**
+ * Marks a scroller that its bar holds still while a press on the bar lasts.
+ * The safety layer of css/style.css turns it into overflow: hidden !important,
+ * so the user cannot scroll the list while script still can. Toggling it wakes
+ * none of the bar's observers, and letting go lays the bar out once
+ * (setScrollHeld).
+ */
+const CUSTOM_SCROLL_HELD_ATTRIBUTE = 'data-custom-scroll-held';
 
 type ScrollDriver = 'script' | 'timeline';
 
@@ -39,6 +47,8 @@ interface ScrollbarState {
   thumb: HTMLElement;
   thumbVisual: HTMLElement;
   isDragging: boolean;
+  /** Whether the container carries CUSTOM_SCROLL_HELD_ATTRIBUTE (setScrollHeld). */
+  scrollHeld: boolean;
   lastPointerX: number;
   lastPointerY: number;
   /** When the current scroll session ends unless another scroll extends it. */
@@ -270,17 +280,32 @@ function setThumbTop(state: ScrollbarState, top: number): boolean {
   return true;
 }
 
-function hasVisibleOverflow(container: HTMLElement): boolean {
+/**
+ * Holds the scroller still, or lets it go. Script still scrolls a held
+ * scroller, so the thumb's drag and a jump along the bar move it as before.
+ */
+function setScrollHeld(state: ScrollbarState, held: boolean): void {
+  if (state.scrollHeld === held) return;
+  state.scrollHeld = held;
+  state.container.toggleAttribute(CUSTOM_SCROLL_HELD_ATTRIBUTE, held);
+  // The layout counted the held scroller as scrollable. Once it is let go,
+  // measure it again: another holder, or a layout change during the press,
+  // may have left it unscrollable.
+  if (!held) scheduleLayout(state);
+}
+
+function hasVisibleOverflow(container: HTMLElement, held: boolean): boolean {
   const { scrollHeight, clientHeight } = container;
   const style = getComputedStyle(container);
   // A parked tab/dialog can retain its content scrollHeight while its layout
   // box collapses to zero. Visibility-hidden overlays retain full geometry,
   // so exclude those too; otherwise their faded track remains an invisible
-  // pointer target above the active screen.
+  // pointer target above the active screen. A scroller this bar holds
+  // computes to overflow hidden, yet it is still the bar's to scroll.
   return (
     style.display !== 'none' &&
     style.visibility !== 'hidden' &&
-    SCROLLABLE_OVERFLOW_VALUES.has(style.overflowY) &&
+    (held || SCROLLABLE_OVERFLOW_VALUES.has(style.overflowY)) &&
     clientHeight > 1 &&
     scrollHeight > clientHeight + OVERFLOW_ROUNDING_TOLERANCE_PX
   );
@@ -464,7 +489,7 @@ function findFixedContainingBlock(el: HTMLElement): HTMLElement | null {
 
 function updateLayout(state: ScrollbarState): void {
   const { container, track, thumb } = state;
-  const hasOverflow = hasVisibleOverflow(container);
+  const hasOverflow = hasVisibleOverflow(container, state.scrollHeld);
   if (
     state.managesOverflowGutter &&
     container.classList.contains('has-scroll-overflow') !== hasOverflow
@@ -688,6 +713,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     thumb,
     thumbVisual,
     isDragging: false,
+    scrollHeld: false,
     lastPointerX: Number.NaN,
     lastPointerY: Number.NaN,
     scrollSessionUntil: 0,
@@ -791,12 +817,23 @@ export function initCustomScrollbar(container: HTMLElement): void {
     if (state.hasOverflow) showTrack(state);
   });
 
+  // A press on the bar holds its scroller still until that press ends (see
+  // the bar's wheel below for why). The thumb's drag, a mouse press on the
+  // empty part of the bar and each finger on that part keep their own claims,
+  // so the end of one press leaves the others holding.
   let dragTouchId: number | null = null;
+  let barPressedByMouse = false;
+  const barTouchIds = new Set<number>();
+  const syncScrollHeld = (): void => {
+    setScrollHeld(state, state.isDragging || barPressedByMouse || barTouchIds.size > 0);
+  };
+
   thumb.addEventListener('mousedown', (e) => {
     if (e.button !== 0 || state.isDragging) return;
     e.preventDefault();
     e.stopPropagation();
     state.isDragging = true;
+    syncScrollHeld();
     cancelScrollTimeline(state);
     state.renderedThumbTop = Number.NaN;
     updateScroll(state);
@@ -820,6 +857,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     if (!touch || state.isDragging) return;
     dragTouchId = touch.identifier;
     state.isDragging = true;
+    syncScrollHeld();
     cancelScrollTimeline(state);
     state.renderedThumbTop = Number.NaN;
     updateScroll(state);
@@ -860,6 +898,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     if (!state.isDragging || (e.type === 'mouseup' && dragTouchId !== null)) return;
     state.isDragging = false;
     dragTouchId = null;
+    syncScrollHeld();
     thumb.classList.remove('dragging');
     document.body.style.userSelect = '';
     updateScroll(state);
@@ -906,29 +945,95 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   // The visible bar lies over the scroller's edge but outside the scroller,
   // so a wheel turned over it would reach no scroll container. Hand it over.
+  // For the same reason a press on the bar cannot stop a glide the browser
+  // is still running on the list (a finger fling, or touchpad momentum that
+  // arrives as wheel events the page cannot cancel), and the list would
+  // follow the thumb only once the glide had run down. So the press holds the
+  // scroller still, from the press until that press ends (syncScrollHeld),
+  // and the thumb's drag and the jump along the bar move it by script. The
+  // touchpad momentum of a flick that began over the bar keeps arriving at the
+  // bar while it is pressed, so the bar hands no wheel to a scroller it holds:
+  // the hold does not stop script, and the list would glide on.
   const onTrackWheel = (e: WheelEvent): void => {
     // Ctrl with the wheel, or a pinch, zooms the page.
     if (e.ctrlKey || e.deltaY === 0 || !state.hasOverflow) return;
+    e.preventDefault();
+    // A pressed bar holds its scroller still, so it hands no wheel over either.
+    if (state.scrollHeld) return;
     let unit = 1;
     if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) unit = WHEEL_LINE_HEIGHT_PX;
     else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) unit = container.clientHeight;
-    e.preventDefault();
     container.scrollTop += e.deltaY * unit;
   };
 
+  // A finger on the empty part of the bar holds the scroller until it lifts.
+  // Its touchstart is neither cancelled nor a jump: the mousedown the browser
+  // sends after a tap still jumps the list (the track's mousedown below). The
+  // thumb's touches bubble here too; they belong to its drag, not the bar.
+  const onTrackTouchStart = (e: TouchEvent): void => {
+    if (e.target !== track) return;
+    for (const touch of Array.from(e.changedTouches ?? [])) barTouchIds.add(touch.identifier);
+    syncScrollHeld();
+  };
+
+  const onTrackTouchEnd = (e: TouchEvent): void => {
+    if (e.target !== track) return;
+    const changed = e.changedTouches;
+    if (changed?.length) {
+      for (const touch of Array.from(changed)) barTouchIds.delete(touch.identifier);
+    } else if (e.type === 'touchcancel') {
+      barTouchIds.clear();
+    }
+    syncScrollHeld();
+  };
+
+  // A finger whose touchend never came (a window capture blocker, such as
+  // the session reset's, swallows it) would hold the scroller until a blur.
+  // Every touchstart lists the fingers still down, so a held finger it does
+  // not list has lifted. A contact the touchstart adds is new, even when the
+  // platform reuses a lifted finger's identifier (Chromium on Android and
+  // Windows can number touches from 0 again). A contact elsewhere while that
+  // finger stays down changes nothing, and an event without touch lists names
+  // no finger.
+  const onWindowTouchStart = (e: TouchEvent): void => {
+    const { touches } = e;
+    if (!touches || (dragTouchId === null && barTouchIds.size === 0)) return;
+    const added = new Set(Array.from(e.changedTouches ?? [], (touch) => touch.identifier));
+    const down = new Set(
+      Array.from(touches, (touch) => touch.identifier).filter((id) => !added.has(id)),
+    );
+    for (const id of barTouchIds) {
+      if (!down.has(id)) barTouchIds.delete(id);
+    }
+    if (dragTouchId !== null && !down.has(dragTouchId)) onDragEnd(e);
+    syncScrollHeld();
+  };
+
+  const onWindowMouseUp = (e: MouseEvent): void => {
+    barPressedByMouse = false;
+    syncScrollHeld();
+    onDragEnd(e);
+  };
+
   // Blur fallback: if the user alt-tabs or switches windows mid-drag,
-  // mouseup never fires on our window. A bar held by a resting pointer lets
-  // go by itself (isTrackHeld).
+  // mouseup never fires on our window, and a press on the bar lets go the
+  // same way. A bar held by a resting pointer lets go by itself (isTrackHeld).
   const onWindowBlur = (e: Event): void => {
     state.lastPointerX = Number.NaN;
     state.lastPointerY = Number.NaN;
+    barPressedByMouse = false;
+    barTouchIds.clear();
     onDragEnd(e);
+    syncScrollHeld();
   };
 
   container.addEventListener('pointerover', onContainerPointerOver, { passive: true });
   container.addEventListener('pointermove', onContainerPointerMove, { passive: true });
   track.addEventListener('pointerleave', onTrackPointerLeave, { passive: true });
   track.addEventListener('wheel', onTrackWheel, { passive: false });
+  track.addEventListener('touchstart', onTrackTouchStart, { passive: true });
+  track.addEventListener('touchend', onTrackTouchEnd);
+  track.addEventListener('touchcancel', onTrackTouchEnd);
 
   thumb.addEventListener('touchstart', onThumbTouchStart, { passive: false });
   thumb.addEventListener('touchmove', onThumbTouchMove, { passive: false });
@@ -936,8 +1041,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
   thumb.addEventListener('touchcancel', onThumbTouchEnd);
 
   window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('mouseup', onDragEnd);
+  window.addEventListener('mouseup', onWindowMouseUp);
   window.addEventListener('blur', onWindowBlur);
+  window.addEventListener('touchstart', onWindowTouchStart, { capture: true, passive: true });
 
   state.cleanup = [
     () => container.removeEventListener('scroll', onScroll),
@@ -945,13 +1051,17 @@ export function initCustomScrollbar(container: HTMLElement): void {
     () => container.removeEventListener('pointermove', onContainerPointerMove),
     () => track.removeEventListener('pointerleave', onTrackPointerLeave),
     () => track.removeEventListener('wheel', onTrackWheel),
+    () => track.removeEventListener('touchstart', onTrackTouchStart),
+    () => track.removeEventListener('touchend', onTrackTouchEnd),
+    () => track.removeEventListener('touchcancel', onTrackTouchEnd),
     () => thumb.removeEventListener('touchstart', onThumbTouchStart),
     () => thumb.removeEventListener('touchmove', onThumbTouchMove),
     () => thumb.removeEventListener('touchend', onThumbTouchEnd),
     () => thumb.removeEventListener('touchcancel', onThumbTouchEnd),
     () => window.removeEventListener('mousemove', onMouseMove),
-    () => window.removeEventListener('mouseup', onDragEnd),
+    () => window.removeEventListener('mouseup', onWindowMouseUp),
     () => window.removeEventListener('blur', onWindowBlur),
+    () => window.removeEventListener('touchstart', onWindowTouchStart, { capture: true }),
     cleanupRelayoutBus,
     cleanupRevealBus,
   ];
@@ -959,6 +1069,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
   track.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     if (e.target === thumb) return;
+    barPressedByMouse = true;
+    syncScrollHeld();
     const rect = track.getBoundingClientRect();
     const clickRatio = (e.clientY - rect.top) / rect.height;
     container.scrollTop = clickRatio * (container.scrollHeight - container.clientHeight);
@@ -990,6 +1102,8 @@ export function destroyCustomScrollbar(container: HTMLElement): void {
   state.layoutFrame = null;
   state.scrollFrame = null;
   if (state.isDragging) document.body.style.userSelect = '';
+  // A reused container (a reading dialog's message) must not stay held.
+  setScrollHeld(state, false);
   state.observer.disconnect();
   state.resizeObserver.disconnect();
   state.cleanup.forEach((fn) => fn());

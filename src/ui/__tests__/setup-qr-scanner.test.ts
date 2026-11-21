@@ -778,8 +778,13 @@ describe('a QR decoder that could not load', () => {
 
   afterEach(() => {
     Reflect.deleteProperty(navigator, 'onLine');
-    // Every other row decodes with this file's decoder mock.
+    // Every other row decodes with this file's decoder mock and draws on this
+    // file's canvas.
     vi.doMock('jsqr', () => ({ default: mocks.decodeQr }));
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: () => ({ drawImage, getImageData }),
+    });
   });
 
   it('reports a decoder that could not load offline as a network failure', async () => {
@@ -824,6 +829,26 @@ describe('a QR decoder that could not load', () => {
     runNextFrame(100);
 
     expect(onError).toHaveBeenCalledExactlyOnceWith('camera-unavailable');
+  });
+
+  it('keeps the camera message offline when the frame scan cannot start after the decoder loaded', async () => {
+    // Only a decoder that could not load names the network. A canvas with no
+    // 2D context throws before the first frame, after the decoder loaded, so
+    // the scanner start handles that failure rather than the scan loop.
+    const camera = fakeCamera();
+    const onError = vi.fn();
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: () => null,
+    });
+    initGuestQrScanner({ isCurrent: () => true, onCode: vi.fn(), onError });
+    setOnline(false);
+
+    await openScannerWithReadyCamera(camera);
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError).toHaveBeenCalledWith('camera-unavailable');
+    expect(camera.stop).toHaveBeenCalledOnce();
   });
 
   it('keeps the permission message offline for a camera the user refused', async () => {

@@ -117,5 +117,8 @@ describe('PRO runtime terminal import failure', () => {
         message: 'PRO_ROOM_RUNTIME_LOAD_FAILED_RELOAD_REQUIRED',
       }),
     );
+    // Offline room guidance: a failure while the browser reports a network is
+    // not marked as a network failure, so the dialog keeps the update copy.
+    expect(mocks.emit.mock.calls[0]?.[2]).not.toMatchObject({ whileOffline: true });
   });
 });

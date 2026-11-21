@@ -363,6 +363,34 @@ describe('StandardHttpSignalingSocket', () => {
     },
   );
 
+  // Offline room guidance reads this shape: an open that got no HTTP answer
+  // reports status null, and only then may setup name the network.
+  it('reports an open with no HTTP answer as an error event with status null and the fetch error as cause', async () => {
+    const fetchError = new TypeError('Failed to fetch');
+    fetchWithCapabilityMock.mockRejectedValueOnce(fetchError);
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>());
+    const socket = new StandardHttpSignalingSocket({
+      roomId: '482913',
+      role: 'guest',
+      peerId: 'guest-one',
+    });
+    const order: string[] = [];
+    const errors: Event[] = [];
+    socket.addEventListener('error', (event) => {
+      order.push('error');
+      errors.push(event);
+    });
+    socket.addEventListener('close', (event) => {
+      order.push(`close:${(event as CloseEvent).code}`);
+    });
+
+    await vi.waitFor(() => expect(socket.readyState).toBe(WebSocket.CLOSED));
+    expect(order).toEqual(['error', 'close:1006']);
+    expect(errors[0]).toMatchObject({ phase: 'open', status: null });
+    expect((errors[0] as Event & { cause?: unknown }).cause).toBe(fetchError);
+    expect(socket.diagnostic).toEqual({ phase: 'open', status: null });
+  });
+
   it('rejects non-canonical bridge responses', async () => {
     fetchWithCapabilityMock.mockResolvedValueOnce(
       jsonResponse({ sessionToken: SESSION_TOKEN, expiresAt: Date.now() + 60_000 }),

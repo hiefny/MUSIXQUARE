@@ -8,6 +8,7 @@ import { capturePendingClaimReloadGuard } from '../core/document-reload.ts';
 import { requestForcedAppUpdate } from '../core/app-build.ts';
 import { APP_UPDATE_REQUIRED_CODE } from '../../cloudflare/app-build-floor-contract.ts';
 import { navigateHome } from '../core/navigation.ts';
+import { isBrowserReportedOffline } from '../core/browser-offline.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { ProRoomApiError } from './api-error.ts';
@@ -163,13 +164,42 @@ function isDefinitiveSessionAdmissionError(error: unknown): boolean {
 }
 
 /**
+ * A PRO entry failure that no server answered: a request with no response
+ * (api.ts raises NETWORK_ERROR with status 0 for a failed fetch and for its
+ * own request deadline), this entry's own deadline, and a signaling socket
+ * that could not start or did not open in time. Every HTTP answer keeps its
+ * code or status. The signaling Worker's refusal of the socket upgrade also
+ * ends as PRO_SIGNALING_START_FAILED, because a refused WebSocket handshake
+ * reaches the page without its HTTP status, so with a stale offline report
+ * that refusal reads as no network too.
+ */
+function isProRoomTransportFailure(error: unknown): boolean {
+  if (error instanceof ProRoomApiError) {
+    return (
+      (error.code === 'NETWORK_ERROR' && error.status === 0) ||
+      error.code === 'PRO_ROOM_ENTRY_TIMEOUT'
+    );
+  }
+  return (
+    error instanceof Error &&
+    (error.message === 'PRO_SIGNALING_START_FAILED' || error.message === 'PRO_ROOM_CONNECT_TIMEOUT')
+  );
+}
+
+/**
  * Describe a failed PRO join or cookie resume for the setup screen. A full
  * room (the owner always keeps one of the 100 places) and the server's join
  * throttle each have their own guidance; every other failure keeps the generic
  * connection message. The wait is shown in whole minutes, rounded up, so the
- * user never retries before the server's Retry-After has passed.
+ * user never retries before the server's Retry-After has passed. Offline room
+ * guidance: a failure that no server answered names the network when the
+ * browser reports none as the failure is described, which is when the entry
+ * failed. Nothing is checked before the entry.
  */
 export function describeProRoomJoinFailure(error: unknown): string {
+  if (isBrowserReportedOffline() && isProRoomTransportFailure(error)) {
+    return t('error.network_issue');
+  }
   if (error instanceof ProRoomApiError) {
     if (error.code === 'ROOM_FULL') {
       return `${t('pro.room_full')}\n${t('pro.room_full_detail')}`;

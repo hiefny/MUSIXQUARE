@@ -6184,6 +6184,79 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     peer.destroy();
   });
 
+  // Offline room guidance reads this shape: when no setup route got an answer,
+  // as on a device with no network, setup receives the HTTPS bridge's own
+  // error event, with status null and the fetch error as its cause.
+  describe('every setup route failing without an answer', () => {
+    const options = {
+      provider: 'cloudflare' as const,
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry: async () => null,
+    };
+
+    /** A socket that never connects: CLOSED, then error, then close 1006. */
+    function failWithoutAnswer(socket: FakeWebSocket): void {
+      socket.readyState = FakeWebSocket.CLOSED;
+      socket.dispatch('error');
+      socket.dispatch('close');
+    }
+
+    function rejectEveryFetch() {
+      const fetchError = new TypeError('Failed to fetch');
+      const fetchMock = vi.fn<typeof fetch>(() => Promise.reject(fetchError));
+      vi.stubGlobal('fetch', fetchMock);
+      return { fetchError, fetchMock };
+    }
+
+    it("surfaces the HTTPS bridge's own error event for a guest", async () => {
+      installFakeWebSocket();
+      vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+      const { fetchError, fetchMock } = rejectEveryFetch();
+      const peer = new CloudflareSignalingPeer(null, options);
+      const conn = peer.connect('482913');
+      const errors: unknown[] = [];
+      conn.on('error', (error: unknown) => errors.push(error));
+
+      failWithoutAnswer(FakeWebSocket.instances[0]);
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+      failWithoutAnswer(FakeWebSocket.instances[1]);
+      await vi.waitFor(() => expect(errors).toHaveLength(1));
+
+      expect(errors[0]).toBeInstanceOf(Event);
+      expect(errors[0]).toMatchObject({ type: 'error', phase: 'open', status: null });
+      expect((errors[0] as { cause?: unknown }).cause).toBe(fetchError);
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(
+        '/api/standard-signaling/v1/bridge/open',
+      );
+      peer.destroy();
+    });
+
+    it("surfaces the HTTPS bridge's own error event for a host", async () => {
+      installFakeWebSocket();
+      vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+      const { fetchError, fetchMock } = rejectEveryFetch();
+      const peer = new CloudflareSignalingPeer('482913', options);
+      const errors: unknown[] = [];
+      peer.on('error', (error: unknown) => errors.push(error));
+      await flushAsync();
+
+      failWithoutAnswer(FakeWebSocket.instances[0]);
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+      failWithoutAnswer(FakeWebSocket.instances[1]);
+      await vi.waitFor(() => expect(errors).toHaveLength(1));
+
+      expect(errors[0]).toBeInstanceOf(Event);
+      expect(errors[0]).toMatchObject({ type: 'error', phase: 'open', status: null });
+      expect((errors[0] as { cause?: unknown }).cause).toBe(fetchError);
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(
+        '/api/standard-signaling/v1/bridge/open',
+      );
+      peer.destroy();
+    });
+  });
+
   it('does not open a route-retry successor after provisional setup is destroyed', async () => {
     installFakeWebSocket();
     const routeReady = deferred<RTCConfiguration | null>();

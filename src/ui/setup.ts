@@ -11,7 +11,11 @@
  */
 
 import { log } from '../core/log.ts';
-import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
+import {
+  isLazyFeatureLoadError,
+  wasOfflineLazyFeatureFailure,
+} from '../core/lazy-feature-failure.ts';
+import { isOfflineSignalingSetupFailure } from '../network/setup-offline-failure.ts';
 import { isHandledByForcedAppUpdate } from '../core/app-build.ts';
 import { synchronizeCurrentLocalizedAppHead, t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
@@ -116,6 +120,17 @@ function startSetupJoinWithRole(mode: number): void {
       userMessage: t('error.network_generic'),
     });
   });
+}
+
+/**
+ * The join line for a room chunk that could not load, shown with Refresh.
+ * Offline room guidance: a chunk that failed while the browser reported no
+ * network was not removed by an update, so the line names the network. The
+ * record is the one of the moment the chunk failed, so it holds for a
+ * latched failure met again after the network returns.
+ */
+function roomChunkFailureMessage(error: unknown): string {
+  return t(wasOfflineLazyFeatureFailure(error) ? 'error.network_issue' : 'dialog.sw_update_msg');
 }
 
 // ─── Host / Guest Choice ─────────────────────────────────────────
@@ -468,7 +483,7 @@ export function initSetup(): void {
       setState('network.isConnecting', false);
       updateRoleBadge();
       showLoader(false);
-      restoreGuestJoinControlsAfterFailure(t('dialog.sw_update_msg'), true);
+      restoreGuestJoinControlsAfterFailure(roomChunkFailureMessage(failure.error), true);
       return;
     }
     restoreGuestJoinInputUI(failure.userMessage, failure.invalidCode === true);
@@ -494,7 +509,7 @@ export function initSetup(): void {
       setState('network.isConnecting', false);
       updateRoleBadge();
       showLoader(false);
-      restoreGuestJoinControlsAfterFailure(t('dialog.sw_update_msg'), true);
+      restoreGuestJoinControlsAfterFailure(roomChunkFailureMessage(error), true);
       return;
     }
     if (
@@ -608,11 +623,15 @@ export function initSetup(): void {
     // A refusal below the App build floor that the forced update took over,
     // or any failure while its dialog is up: no join-field text and no toast.
     const forcedUpdate = isHandledByForcedAppUpdate(error);
+    // Offline room guidance: on the setup screen, a join failure that no
+    // server answered names the network when the browser reports none as it
+    // is handled. The host loss dialog and the toast in a room keep userMsg.
+    const setupMsg = isOfflineSignalingSetupFailure(error) ? t('error.network_issue') : userMsg;
     const isConnecting = getState('network.isConnecting');
     if (isConnecting) {
       // Still trying to join — emit failure for UI reset
       if (forcedUpdate) bus.emit('setup:guest-join-cancelled');
-      else bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg, invalidCode });
+      else bus.emit('setup:guest-join-failure', { error: err, userMessage: setupMsg, invalidCode });
     } else if (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') {
       // This is terminal connection loss, after recoverable PRO interruptions
       // have returned above. Silence every source before showing the dialog,
@@ -667,7 +686,7 @@ export function initSetup(): void {
       if (appRole === 'guest' && !getState('setup.sessionStarted')) {
         if (forcedUpdate) bus.emit('setup:guest-join-cancelled');
         else
-          bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg, invalidCode });
+          bus.emit('setup:guest-join-failure', { error: err, userMessage: setupMsg, invalidCode });
       } else if (!forcedUpdate) {
         showToast(userMsg);
       }

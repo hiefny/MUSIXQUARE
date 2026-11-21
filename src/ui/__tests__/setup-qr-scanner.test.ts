@@ -760,3 +760,106 @@ describe('guest setup QR scanner', () => {
     expect(frameCallbacks).toHaveLength(0);
   });
 });
+
+// Offline room guidance: the QR decoder is not in the install precache, so
+// offline its import can fail although the camera works. That failure names
+// the network; a camera failure, or a decoder failure while the browser
+// reports a network, keeps the camera message.
+describe('a QR decoder that could not load', () => {
+  function setOnline(online: boolean): void {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: online });
+  }
+
+  function failDecoderImport(): void {
+    vi.doMock('jsqr', () => {
+      throw new TypeError('Failed to fetch dynamically imported module');
+    });
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'onLine');
+    // Every other row decodes with this file's decoder mock and draws on this
+    // file's canvas.
+    vi.doMock('jsqr', () => ({ default: mocks.decodeQr }));
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: () => ({ drawImage, getImageData }),
+    });
+  });
+
+  it('reports a decoder that could not load offline as a network failure', async () => {
+    const camera = fakeCamera();
+    const onError = vi.fn();
+    initGuestQrScanner({ isCurrent: () => true, onCode: vi.fn(), onError });
+    setOnline(false);
+    failDecoderImport();
+
+    await openScannerWithReadyCamera(camera);
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError).toHaveBeenCalledWith('network-unavailable');
+    expect(camera.stop).toHaveBeenCalledOnce();
+    expect(document.getElementById('setup-qr-camera')?.hidden).toBe(true);
+  });
+
+  it('keeps the camera message for a decoder that could not load while the browser reports a network', async () => {
+    const camera = fakeCamera();
+    const onError = vi.fn();
+    initGuestQrScanner({ isCurrent: () => true, onCode: vi.fn(), onError });
+    failDecoderImport();
+
+    await openScannerWithReadyCamera(camera);
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError).toHaveBeenCalledWith('camera-unavailable');
+    expect(camera.stop).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the camera message offline for a decoder that fails on a frame', async () => {
+    const camera = fakeCamera();
+    mocks.decodeQr.mockImplementationOnce(() => {
+      throw new Error('decoder failed');
+    });
+    const onError = vi.fn();
+    initGuestQrScanner({ isCurrent: () => true, onCode: vi.fn(), onError });
+    setOnline(false);
+
+    await openScannerWithReadyCamera(camera);
+    await waitForScannerFrame();
+    runNextFrame(100);
+
+    expect(onError).toHaveBeenCalledExactlyOnceWith('camera-unavailable');
+  });
+
+  it('keeps the camera message offline when the frame scan cannot start after the decoder loaded', async () => {
+    // Only a decoder that could not load names the network. A canvas with no
+    // 2D context throws before the first frame, after the decoder loaded, so
+    // the scanner start handles that failure rather than the scan loop.
+    const camera = fakeCamera();
+    const onError = vi.fn();
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: () => null,
+    });
+    initGuestQrScanner({ isCurrent: () => true, onCode: vi.fn(), onError });
+    setOnline(false);
+
+    await openScannerWithReadyCamera(camera);
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError).toHaveBeenCalledWith('camera-unavailable');
+    expect(camera.stop).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the permission message offline for a camera the user refused', async () => {
+    getUserMedia.mockRejectedValue(cameraError('NotAllowedError'));
+    const onError = vi.fn();
+    initGuestQrScanner({ isCurrent: () => true, onCode: vi.fn(), onError });
+    setOnline(false);
+
+    document.getElementById('btn-setup-qr-scan')?.click();
+    await flushScannerStart();
+
+    expect(onError).toHaveBeenCalledExactlyOnceWith('permission-denied');
+  });
+});

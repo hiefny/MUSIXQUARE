@@ -289,6 +289,28 @@ function deferredSpectrum() {
   return { release, reject, load, finished };
 }
 
+/** Every failure of the spectrum renderer the visualizer reported, in order. */
+function spectrumFailures(bus: { emit: unknown }): unknown[] {
+  return vi
+    .mocked(bus.emit as (...args: unknown[]) => void)
+    .mock.calls.filter(
+      ([event, feature]) =>
+        event === 'app:lazy-feature-load-failed' && feature === 'visualizer-spectrum',
+    )
+    .map(([, , error]) => error);
+}
+
+/** An error and each cause below it, the error first. */
+function causeChain(error: unknown): unknown[] {
+  const chain: unknown[] = [];
+  let current = error;
+  while (current instanceof Error && !chain.includes(current)) {
+    chain.push(current);
+    current = current.cause;
+  }
+  return chain;
+}
+
 describe('Visualizer', () => {
   describe('runtime behavior', () => {
     it('rasterizes for the rendered desktop scale and clamps circular radii to the canvas', async () => {
@@ -1213,20 +1235,73 @@ describe('Visualizer', () => {
     it('reports terminal import failure and never retries the same module in this document', async () => {
       const deferred = deferredSpectrum();
       const h = await visibilityHarness('spectrum', { deferLoad: true });
+      vi.mocked(h.bus.emit).mockClear();
       const failure = new Error('Spectrum chunk unavailable');
       deferred.reject(failure);
       await deferred.finished;
       await vi.dynamicImportSettled();
-      expect(h.bus.emit).toHaveBeenCalledWith(
-        'app:lazy-feature-load-failed',
-        'visualizer-spectrum',
-        expect.objectContaining({ cause: failure }),
-      );
+      const reported = spectrumFailures(h.bus);
+      expect(reported).toHaveLength(1);
+      // The import's own error stays the root of the report, whatever wraps it.
+      expect(causeChain(reported[0])).toContain(failure);
       expect(h.pending.size).toBe(0);
       h.mod.startVisualizer();
       await vi.dynamicImportSettled();
       expect(deferred.load).toHaveBeenCalledTimes(1);
       expect(h.pending.size).toBe(0);
+    });
+
+    // Offline room guidance: the latched failure keeps the network state of the
+    // moment the import failed, so the recovery dialog keeps one body for it
+    // in this document whatever the network does later.
+    describe('the network state of a failed renderer', () => {
+      afterEach(() => {
+        Reflect.deleteProperty(navigator, 'onLine');
+      });
+
+      function setOnline(online: boolean): void {
+        Object.defineProperty(navigator, 'onLine', { configurable: true, value: online });
+      }
+
+      it('keeps no network for a renderer that failed offline, after the network returns', async () => {
+        const deferred = deferredSpectrum();
+        const h = await visibilityHarness('spectrum', { deferLoad: true });
+        vi.mocked(h.bus.emit).mockClear();
+        setOnline(false);
+        deferred.reject(new TypeError('Failed to fetch dynamically imported module'));
+        await deferred.finished;
+        await vi.dynamicImportSettled();
+        setOnline(true);
+
+        // Spectrum again, now online: the latched failure is reported again.
+        h.canvas.click();
+        h.canvas.click();
+
+        const reported = spectrumFailures(h.bus);
+        expect(reported).toHaveLength(2);
+        expect(reported[1]).toBe(reported[0]);
+        expect(reported[1]).toMatchObject({ whileOffline: true });
+        expect(deferred.load).toHaveBeenCalledTimes(1);
+      });
+
+      it('keeps a renderer that failed online as an update when it is asked for again offline', async () => {
+        const deferred = deferredSpectrum();
+        const h = await visibilityHarness('spectrum', { deferLoad: true });
+        vi.mocked(h.bus.emit).mockClear();
+        deferred.reject(new TypeError('Failed to fetch dynamically imported module'));
+        await deferred.finished;
+        await vi.dynamicImportSettled();
+        setOnline(false);
+
+        h.canvas.click();
+        h.canvas.click();
+
+        const reported = spectrumFailures(h.bus);
+        expect(reported).toHaveLength(2);
+        expect(reported[1]).toBe(reported[0]);
+        expect(reported[1]).not.toMatchObject({ whileOffline: true });
+        expect(deferred.load).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

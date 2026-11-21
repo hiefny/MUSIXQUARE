@@ -793,6 +793,11 @@ describe('app UX markup contract', () => {
     const recoveryStart = appRuntimeSource.indexOf('const runLazyFeatureRecovery');
     const recoveryEnd = appRuntimeSource.indexOf('\n// bootstrap.js', recoveryStart);
     const recoverySource = appRuntimeSource.slice(recoveryStart, recoveryEnd);
+    const presentStart = recoverySource.indexOf('async present(');
+    const presentSource = recoverySource.slice(
+      presentStart,
+      recoverySource.indexOf('\n  reload(', presentStart),
+    );
     const connectBoundaryStart = appRuntimeSource.indexOf("safeInit('Connect'");
     const connectBoundaryEnd = appRuntimeSource.indexOf(
       "safeInit('CustomScrollbars'",
@@ -815,7 +820,14 @@ describe('app UX markup contract', () => {
     // and uses its own copy instead of the waiting-worker update dialog's
     // title and message.
     expect(recoverySource).toContain("title: t('dialog.feature_refresh_title')");
-    expect(recoverySource).toContain("message: t('dialog.feature_refresh_msg')");
+    // Offline room guidance: a feature that failed while the browser reported
+    // no network was not removed by an update, so the same dialog, with the
+    // same title and actions, names the network instead. The record is the
+    // one of the moment the feature failed (core/lazy-feature-failure.ts).
+    expect(presentSource).toMatch(
+      /wasOfflineLazyFeatureFailure\([\w.]+\)\s*\?\s*'error\.network_issue'\s*:\s*'dialog\.feature_refresh_msg'/u,
+    );
+    expect(presentSource).not.toContain("message: t('dialog.feature_refresh_msg')");
     expect(recoverySource).toContain("buttonText: t('common.refresh')");
     expect(recoverySource).not.toContain('dialog.sw_update_');
     // Owner decision 2026-10-28, reversing 2026-10-11 decision 7: Close sits
@@ -830,7 +842,7 @@ describe('app UX markup contract', () => {
     expect(appRuntimeSource).toContain("scheduleDocumentReload(t('dialog.refreshing_session')");
     expect(recoverySource).toContain("showToast(t('error.network_generic'))");
     expect(recoverySource.match(/reportLazyFeatureLoadFailure\(/gu)).toHaveLength(1);
-    expect(connectBoundary).toContain("bus.emit('app:lazy-feature-load-failed', 'connect', error)");
+    expect(connectBoundary).toContain("bus.emit('app:lazy-feature-load-failed', 'connect', ");
     expect(connectBoundary).not.toContain('loading = null');
     expect(appRuntimeSource).not.toContain(
       "import { initAnnouncementPolling } from './ui/announcement.ts'",
@@ -839,10 +851,39 @@ describe('app UX markup contract', () => {
     expect(announcementBoundary).toContain('subscribeRoomAuthorityLifecycle(loadIfActive)');
     expect(announcementBoundary).toContain("getRoomContext().role !== 'idle'");
     expect(announcementBoundary).toContain(
-      "bus.emit('app:lazy-feature-load-failed', 'announcement', error)",
+      "bus.emit('app:lazy-feature-load-failed', 'announcement', ",
     );
     expect(announcementBoundary).not.toContain('loading = null');
   });
+
+  // Offline room guidance: the Connect runtime and the announcement poller
+  // latch a failed import for the document and report it again on every later
+  // trigger. Wrapped when it fails, the latched error keeps the network state
+  // of that moment: a chunk that failed offline still names the network after
+  // the network returns, and one that failed online keeps the update copy when
+  // it is triggered again offline. app.ts has no seam for these boundaries, so
+  // this is a source contract.
+  it.each([
+    ['connect', "safeInit('Connect'", "safeInit('CustomScrollbars'"],
+    ['announcement', "safeInit('AnnouncementPolling'", "safeInit('ProRoomBranding'"],
+  ])(
+    'keeps the network state of the moment the latched %s feature failed',
+    (feature, start, end) => {
+      const boundaryStart = appRuntimeSource.indexOf(start);
+      const boundary = appRuntimeSource.slice(
+        boundaryStart,
+        appRuntimeSource.indexOf(end, boundaryStart),
+      );
+      const reportLatched = `bus.emit('app:lazy-feature-load-failed', '${feature}', loadFailure)`;
+
+      expect(boundary).toContain(`loadFailure = createLazyFeatureLoadError('${feature}', error)`);
+      // The first report and every later one carry that same latched error.
+      expect(boundary.split(reportLatched)).toHaveLength(3);
+      expect(boundary).not.toContain(
+        `bus.emit('app:lazy-feature-load-failed', '${feature}', error)`,
+      );
+    },
+  );
 
   it('places settings sync last in General and keeps one lock around every Audio section', () => {
     const generalPanel = appDocument.querySelector<HTMLElement>(

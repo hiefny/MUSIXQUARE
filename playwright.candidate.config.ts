@@ -10,6 +10,8 @@ export default defineConfig({
     'locale-recovery.test.ts',
     'translation-retry.test.ts',
     'forced-update-resume.test.ts',
+    // Only its installed-app row runs here; the other rows read the e2e build.
+    'offline-room-entry.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

@@ -31,6 +31,7 @@ export default defineConfig({
     'account-complete-fonts.test.ts',
     'safe-area-layout.test.ts',
     'keyboard-focus-ring-key-turn.test.ts',
+    'offline-room-entry.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

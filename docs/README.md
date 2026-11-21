@@ -96,6 +96,43 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.834 / v834 train: a press on the custom scrollbar's thumb or on the empty part of the bar holds its list still until the press ends, so a list still gliding after a fling or a trackpad flick follows the grabbed thumb at once (2026-11-21)](design/app-9-0-834-train-2026-11-21.md):
+  built on its train branch, not merged or released. The App update after 9.0.833 / v833, on main `1f7a2681` (#622, the
+  9.0.833 record, docs only), for the owner's report of 2026-11-21: while a list glided on after a finger fling or a
+  trackpad flick, grabbing the scrollbar's thumb did not make the list follow until the glide had run down. The bar
+  lies outside its scroller, so a press on it cannot stop a glide the browser is still running on the list: touchpad
+  momentum arrives as wheel events a page cannot cancel (0 of about 60 during a drag were cancelable), and iOS is
+  expected to keep decelerating its native scroller (inferred, not reproduced here). From a press on the thumb or on the
+  empty part of the bar until that press ends, the scroller now carries `data-custom-scroll-held`, which one
+  `@layer safety` rule turns into `overflow: hidden !important`. Script still scrolls a held scroller, so the drag and
+  the bar's jump work as before; the bar's layout counts its own held scroller as scrollable, the bar hands no wheel to
+  a scroller it holds, and letting go lays the bar out once. The thumb's drag, a mouse press on the bar and each finger
+  on the bar keep their own claims, each released by its mouseup, its finger's touchend or touchcancel, a touchcancel
+  without touches, a blur, destroy, or a later touch that no longer lists that finger or adds a contact under its
+  identifier. There is no timer and no new timing or visual value. The empty part of the bar was included as
+  recommended: the owner, asked, did not answer and had been told the recommended option would be used. The owner
+  chose no hold after release, so momentum still arriving can move the list again after a short grab (about 200 to
+  240 px in the 500 ms after release in the Chromium proxy), a recorded limit the owner will judge on a laptop first.
+  Headless Chromium makes no real momentum, so a wheel stream the engine keeps delivering (CDP, 900 px at 500 px/s)
+  stands in for touchpad momentum: on main a thumb held still for 250 ms let the list move 134 px, and a drag left it
+  up to 150 px off the thumb. Tests came first: 27 unit rows, six Chromium e2e rows (14 moved frames and 117 px under
+  the thumb) and three WebKit rows failed on main. A review, with a separate pass that tried to refute each finding,
+  found that a touchpad stream begun over the bar still moved a held list through the bar's wheel hand-over (109 and
+  117 px in its probe), that a lost finger whose identifier the next touch reuses kept the hold (reuse inferred from how
+  Chromium numbers touches, not measured), that letting go left the bar shown over a scroller another holder kept
+  unscrollable, that no row pinned the layout during a press on the empty bar, and that exporting the attribute constant
+  raised the dead-export count needlessly. The first three are fixed after rows that failed first, the new layout rows
+  catch a mutant that ignores bar presses, and the constant is module-private again (self-only 74). Resource ownership:
+  a new record, RO-56 (custom-scroll container user scrolling, an accepted exception that keeps the Android range lock
+  and this hold as two machines on separate channels), and RO-27's flow wording; the ownership report differs from
+  main's only in the record count. Final gate on the bump `d2eff45c`: unit 794 files, 19,436 passed, 1 skipped;
+  typecheck, lint, format:check, resource ownership (51 records), build:checked (PASS v834 at `d2eff45c`), the eight
+  production build guards and the CI static guards with check:workers and check:worker-bundles exit 0; Chromium e2e,
+  one file at a time, 291 passed, 0 failed in 18 files (`custom-scrollbar-timeline` 21); the WebKit lane 218 passed,
+  17 skipped; the WebKit Service Worker smoke 1, the production candidate 19 and the critical paths 101 passed. Against
+  production 9.0.833 the App changes six runtime paths (the stylesheet, `custom-scrollbar.ts` and the four version
+  mirrors) and the other five Workers none; the release tool's partial release check, run on git alone, passes target
+  `app`. Not verified on a physical device or a real touchpad. Target `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.833 / v833 train: the custom scrollbar shows for a mouse or pen over its scroll area and stays while the pointer rests on it, and a faded bar lets a finger through to the list (2026-11-20)](design/app-9-0-833-train-2026-11-20.md):
   released on 2026-11-21 02:13 KST in Release 44780691557 (PR #621, squash `884015a0`) as App 9.0.833 / v833 (App build
   833, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

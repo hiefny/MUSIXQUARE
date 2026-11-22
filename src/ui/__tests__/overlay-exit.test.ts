@@ -272,6 +272,127 @@ describe('dialog overlay exit', () => {
     expect(language.style.zIndex).toBe('6000');
   });
 
+  // The windows below are mounted in index.html's order. Each is a sibling
+  // under body with the same CSS z-index, so at an equal inline z-index the
+  // later one in the markup paints on top.
+  describe('a closing window under or beside one that stays open', () => {
+    it('keeps a lower window closing under the window that stays open above it', () => {
+      mount('dialog-overlay', 'signaling-recovery-overlay');
+      const recovery = show('signaling-recovery-overlay');
+      const dialog = show('dialog-overlay');
+      expect(recovery.style.zIndex).toBe('6000');
+      expect(dialog.style.zIndex).toBe('6010');
+
+      close(recovery);
+
+      // The recovery dialog comes later in the markup: level with the common
+      // dialog, its exit would paint over the dialog that stays open.
+      expect(recovery.classList.contains('is-closing')).toBe(true);
+      expect(recovery.style.zIndex).toBe('6000');
+      expect(dialog.style.zIndex).toBe('6010');
+      expect(dialog.getAttribute('aria-hidden')).toBe('false');
+      expect(dialog.hasAttribute('inert')).toBe(false);
+
+      animationEnd(recovery, 'dialogBackdropOut');
+      expect(dialog.style.zIndex).toBe('6000');
+      expect(recovery.style.zIndex).toBe('');
+    });
+
+    it('keeps the move dialog closing under a dialog open above it', () => {
+      mount('dialog-overlay', 'playlist-transfer-overlay');
+      const transfer = show('playlist-transfer-overlay');
+      const dialog = show('dialog-overlay');
+
+      close(transfer);
+
+      expect(transfer.style.zIndex).toBe('6000');
+      expect(dialog.style.zIndex).toBe('6010');
+      animationEnd(transfer, 'dialogBackdropOut');
+      expect(dialog.style.zIndex).toBe('6000');
+      expect(transfer.style.zIndex).toBe('');
+    });
+
+    it('paints a window shown during an exit above that exit', () => {
+      mount('dialog-overlay', 'language-dialog-overlay');
+      const language = show('language-dialog-overlay');
+      close(language);
+      const dialog = show('dialog-overlay');
+
+      expect(language.classList.contains('is-closing')).toBe(true);
+      expect(language.style.zIndex).toBe('6000');
+      expect(dialog.style.zIndex).toBe('6010');
+
+      animationEnd(language, 'dialogBackdropOut');
+      expect(dialog.style.zIndex).toBe('6000');
+      expect(language.style.zIndex).toBe('');
+    });
+
+    it('paints the playlist switcher, shown during the move dialog exit, above it', () => {
+      mount('playlist-slots-overlay', 'playlist-transfer-overlay');
+      const transfer = show('playlist-transfer-overlay');
+      close(transfer);
+      const slots = show('playlist-slots-overlay');
+
+      expect(transfer.style.zIndex).toBe('6000');
+      expect(slots.style.zIndex).toBe('6010');
+    });
+
+    it('keeps a middle window closing between the windows around it', () => {
+      mount('dialog-overlay', 'signaling-recovery-overlay', 'language-dialog-overlay');
+      const recovery = show('signaling-recovery-overlay');
+      const language = show('language-dialog-overlay');
+      const dialog = show('dialog-overlay');
+
+      close(language);
+
+      expect(recovery.style.zIndex).toBe('6000');
+      expect(language.style.zIndex).toBe('6010');
+      expect(dialog.style.zIndex).toBe('6020');
+
+      animationEnd(language, 'dialogBackdropOut');
+      expect(recovery.style.zIndex).toBe('6000');
+      expect(dialog.style.zIndex).toBe('6010');
+      expect(language.style.zIndex).toBe('');
+    });
+
+    it('keeps two exits in the order they were painted', () => {
+      mount('dialog-overlay', 'language-dialog-overlay');
+      const language = show('language-dialog-overlay');
+      const dialog = show('dialog-overlay');
+
+      close(dialog);
+      close(language);
+
+      expect(language.style.zIndex).toBe('6000');
+      expect(dialog.style.zIndex).toBe('6010');
+      // Alone on screen, the remaining exit takes the bottom layer.
+      animationEnd(language, 'dialogBackdropOut');
+      expect(language.style.zIndex).toBe('');
+      expect(dialog.style.zIndex).toBe('6000');
+      animationEnd(dialog, 'dialogBackdropOut');
+      expect(dialog.style.zIndex).toBe('');
+    });
+
+    it('paints a window raised to the top during an exit above it', () => {
+      mount('dialog-overlay', 'signaling-recovery-overlay', 'language-dialog-overlay');
+      const recovery = show('signaling-recovery-overlay');
+      const language = show('language-dialog-overlay');
+      const dialog = show('dialog-overlay');
+      close(language);
+
+      // The recovery dialog's open path syncs it to the top while it shows.
+      syncOverlayState('signaling-recovery-overlay');
+
+      // The common dialog stayed open above the closing list, and the raised
+      // recovery dialog goes above both.
+      expect(language.style.zIndex).toBe('6000');
+      expect(dialog.style.zIndex).toBe('6010');
+      expect(recovery.style.zIndex).toBe('6020');
+      expect(recovery.hasAttribute('inert')).toBe(false);
+      expect(dialog.hasAttribute('inert')).toBe(true);
+    });
+  });
+
   describe('inside a fullscreen surface', () => {
     let fullscreen: Element | null = null;
 

@@ -442,9 +442,9 @@ function isShown(o: OverlayDef): boolean {
 /**
  * A centred window whose closed state is `display: none` (`.dialog-overlay`
  * in css/style.css) carries this class while its exit plays; see
- * startOverlayExit(). It is closed from the first frame: only its layer, a
- * fullscreen portal and the tab transition header read this class. Every
- * other reader keys on the shown class alone.
+ * startOverlayExit(). It is closed from the first frame: only its place in
+ * the paint order, a fullscreen portal and the tab transition header read
+ * this class. Every other reader keys on the shown class alone.
  */
 const CLOSING_OVERLAY_CLASS = 'is-closing';
 
@@ -491,6 +491,9 @@ export function updateOverlayOpenClass(): void {
 // Module-scoped so successive open/close events preserve stack order
 // without re-deriving it from the DOM.
 const _modalStack: OverlayId[] = [];
+// The centred windows' paint order, bottom to top: the modal stack, with each
+// window still playing its exit kept where it was painted. See nextPaintOrder().
+let _paintOrder: OverlayId[] = [];
 const _overlayStackListeners = new Set<() => void>();
 
 function notifyOverlayStackChange(): void {
@@ -658,6 +661,7 @@ export function __resetModalStackForTests(): void {
   for (const finish of [..._overlayExits.values()]) finish();
   for (const finish of _backSurfaceTransitions.values()) finish();
   _modalStack.length = 0;
+  _paintOrder = [];
   _topModalId = null;
   for (const element of _fullscreenModalPortals.keys()) restoreFullscreenModal(element);
   for (const event of FULLSCREEN_CHANGE_EVENTS)
@@ -678,23 +682,46 @@ function promoteOverlayToTop(id: OverlayId | undefined): void {
   _modalStack.push(id);
 }
 
+/**
+ * The paint order after a stack change, bottom to top. Open windows keep the
+ * stack's order. A window still playing its exit keeps the place it was
+ * painted in until the exit settles: above the window it was shown over, so
+ * its exit is not painted under a window that stays open, and below a window
+ * that stays open above it. A window shown since the last change, or raised
+ * past another open window, goes on top, above every exit. The windows share
+ * the CSS z-index, and at an equal z-index the later one in the markup paints
+ * on top, so each takes its layer from this order. With nothing closing this
+ * is the modal stack itself.
+ */
+function nextPaintOrder(): OverlayId[] {
+  const order: OverlayId[] = [];
+  let kept = 0;
+  for (const id of _paintOrder) {
+    if (_modalStack[kept] === id) {
+      order.push(id);
+      kept += 1;
+    } else if (!_modalStack.includes(id)) {
+      const element = getUiElement(id);
+      if (element && isClosingOverlay(element)) order.push(id);
+    }
+  }
+  return [...order, ..._modalStack.slice(kept)];
+}
+
 function applyCenteredOverlayZIndexes(): void {
+  _paintOrder = nextPaintOrder();
   for (const o of OVERLAYS) {
     if (o.fullscreen) continue;
     const el = getUiElement(o.id);
     if (!el) continue;
 
-    const stackIndex = _modalStack.indexOf(o.id);
-    if (stackIndex === -1 || !isShown(o)) {
-      // A closing window keeps the layer it was shown in until its exit
-      // settles, so the exit is not painted under a window that stays open.
-      if (!isClosingOverlay(el)) el.style.removeProperty('z-index');
+    const layer = _paintOrder.indexOf(o.id);
+    if (layer === -1) {
+      el.style.removeProperty('z-index');
       continue;
     }
 
-    el.style.zIndex = String(
-      CENTERED_OVERLAY_Z_INDEX_BASE + stackIndex * CENTERED_OVERLAY_Z_INDEX_STEP,
-    );
+    el.style.zIndex = String(CENTERED_OVERLAY_Z_INDEX_BASE + layer * CENTERED_OVERLAY_Z_INDEX_STEP);
   }
 }
 

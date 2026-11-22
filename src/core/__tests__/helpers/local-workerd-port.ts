@@ -5,6 +5,9 @@ import { createServer } from 'node:net';
  * Some Windows hosts allocate ephemeral ports from 1024–15000, which includes
  * ports rejected by Node fetch (for example 6000/6667/10080). Miniflare's
  * synchronous binding bridge uses fetch, so probe a free high port explicitly.
+ * A port that is already bound (EADDRINUSE) or that the system holds for
+ * itself (EACCES: on Windows a service such as wininit binds a few ports of
+ * this range exclusively) is skipped for the next random one.
  * This only retries listener allocation; application requests are never retried.
  */
 export async function localWorkerdPort(): Promise<number> {
@@ -20,7 +23,8 @@ export async function localWorkerdPort(): Promise<number> {
         });
       });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') continue;
+      const { code } = error as NodeJS.ErrnoException;
+      if (code === 'EADDRINUSE' || code === 'EACCES') continue;
       throw error;
     }
     await new Promise<void>((resolve, reject) => {

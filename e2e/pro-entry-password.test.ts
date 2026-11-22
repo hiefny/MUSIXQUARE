@@ -267,6 +267,9 @@ for (const width of [390, 1280]) {
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     expect(state.changes).toHaveLength(1);
     await toggle.click();
+    // The cancelled dialog plays its exit, its boxes still on screen, and the
+    // new one opens in its place after it: type into the new one.
+    await expect(page.locator('#dialog-overlay')).toHaveClass(/\bshow\b/);
     await page.locator('.dialog-input-segment').first().fill('0000');
     await page.locator('.dialog-input-segment').last().fill('0034');
     await page.locator('#btn-dialog-ok').click();

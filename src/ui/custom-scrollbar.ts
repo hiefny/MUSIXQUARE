@@ -682,6 +682,39 @@ function mutationsNeedLayout(records: MutationRecord[]): boolean {
   });
 }
 
+/**
+ * Watches one direct child of the container for size changes. Content can
+ * grow or shrink inside a container whose own box stays put (a collapsible
+ * area's grid-rows transition, a hidden toggle, a late font or image), and no
+ * mutation marks the frames in between. The border box counts a child's own
+ * padding change too. An inner scroller's bar parented here is not content:
+ * watching it would wake this bar on every layout of the inner one.
+ */
+function observeContentChild(state: ScrollbarState, node: Node): void {
+  if (!(node instanceof Element) || node.parentNode !== state.container) return;
+  if (nodeIsCustomScrollbarUi(node)) return;
+  state.resizeObserver.observe(node, { box: 'border-box' });
+}
+
+/**
+ * Keeps the watched children equal to the container's element children. Each
+ * node is decided by where the batch left it, not by the order of its records,
+ * so a move, a replacement, or an add and a remove in one batch all end right.
+ * A child that left is let go at once: the observer would otherwise keep a
+ * pruned chat group or a replaced result alive for the life of the bar.
+ */
+function syncObservedChildren(state: ScrollbarState, records: MutationRecord[]): void {
+  for (const record of records) {
+    if (record.type !== 'childList' || record.target !== state.container) continue;
+    record.removedNodes.forEach((node) => {
+      if (node instanceof Element && node.parentNode !== state.container) {
+        state.resizeObserver.unobserve(node);
+      }
+    });
+    record.addedNodes.forEach((node) => observeContentChild(state, node));
+  }
+}
+
 export function initCustomScrollbar(container: HTMLElement): void {
   if (_instances.has(container)) return;
 
@@ -766,8 +799,10 @@ export function initCustomScrollbar(container: HTMLElement): void {
     const startsNewSession = now >= state.scrollSessionUntil;
     state.scrollSessionUntil = now + FADE_DELAY;
     if (!state.hasOverflow || startsNewSession) {
-      // Refresh once at session start for intrinsic/font/image size changes
-      // that alter scrollHeight without changing the container's border box.
+      // Refresh once at session start for size changes that neither observer
+      // sees: text directly in the container (a reading dialog's message)
+      // rewrapped by a late font, a margin transition, or positioned content
+      // deeper inside.
       state.revealAfterLayout = !state.hasOverflow;
       scheduleLayout(state);
     }
@@ -784,6 +819,10 @@ export function initCustomScrollbar(container: HTMLElement): void {
   container.addEventListener('scroll', onScroll, { passive: true });
 
   state.observer = new MutationObserver((records) => {
+    // Disconnecting drops pending records, but a destroyed bar must never
+    // observe a child again: that would bring its resize observer back.
+    if (state.destroyed) return;
+    syncObservedChildren(state, records);
     if (mutationsNeedLayout(records)) scheduleLayout(state);
   });
   state.observer.observe(container, {
@@ -794,8 +833,20 @@ export function initCustomScrollbar(container: HTMLElement): void {
     attributeFilter: ['class', 'style'],
   });
 
+  // The container keeps the default content box, so a change of its own
+  // padding (the gutter) wakes it, as a window resize or the chat drawer's
+  // height does. Its content can change size inside that box with no
+  // mutation in the frames between (a collapsible area's transition), so the
+  // same observer also watches the direct element children: those here now
+  // (the language list is created with its options in place) and every later
+  // one, through the mutation records above. A frame in which content changes
+  // size lays the bar out on the next frame, so the thumb's length and travel
+  // follow the content's own motion with no timing of their own. The callback
+  // only asks for that coalesced frame and never lays out during the
+  // observer's delivery, which keeps the browser's resize loop error away.
   state.resizeObserver = new ResizeObserver(() => scheduleLayout(state));
   state.resizeObserver.observe(container);
+  for (const child of container.children) observeContentChild(state, child);
 
   // Orientation/breakpoint change → delayed re-layout, handled module-wide:
   // one global event, one debounce, relayout-all (see relayoutAll above).

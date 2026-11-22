@@ -34,6 +34,7 @@ export default defineConfig({
     'offline-room-entry.test.ts',
     'theme-switch-motion.test.ts',
     'dialog-exit-motion.test.ts',
+    'custom-scrollbar-content-size.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

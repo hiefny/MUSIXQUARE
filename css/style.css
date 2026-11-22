@@ -745,6 +745,16 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     animation: none !important;
   }
 
+  /* setTheme() holds this class on <html> for the one style change that swaps
+     the palette, so no surface eases from the previous theme's colours.
+     Transitions only: running animations are left alone. */
+  html.theme-switching,
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition: none !important;
+  }
+
   /* The setup decision runs after async locale bootstrap. Keep the authored app
      surface out of both paint and the accessibility tree from the first HTML
      parse until the setup overlay is active. This prevents the mobile nav from

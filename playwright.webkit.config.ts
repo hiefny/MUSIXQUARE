@@ -32,6 +32,7 @@ export default defineConfig({
     'safe-area-layout.test.ts',
     'keyboard-focus-ring-key-turn.test.ts',
     'offline-room-entry.test.ts',
+    'theme-switch-motion.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

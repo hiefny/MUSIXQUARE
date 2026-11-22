@@ -24,7 +24,14 @@ import { useAnonymousAccountSession } from './helpers/context-factory.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
 
-test.use({ serviceWorkers: 'block' });
+// The probe needs frames while the exit plays. In the headless WebKit lane a
+// frame with a dialog's full-screen backdrop over the 3x iPhone surface took
+// about a quarter of a second to render, so a 0.22 s exit got one sampled
+// frame at most, and a computed style read between frames returns the last
+// frame's value. At 1x it renders every 16 to 30 ms. The exit's timing and
+// values do not depend on the pixel ratio, and the iPhone viewport, touch and
+// user agent stay as they are.
+test.use({ serviceWorkers: 'block', deviceScaleFactor: 1 });
 
 /** One animation frame as the probe read it. Times are ms after the probe started. */
 interface ExitFrame {

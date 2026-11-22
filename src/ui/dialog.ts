@@ -9,7 +9,14 @@ import { bus } from '../core/events.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
-import { syncOverlayState, normalizeEmptyContentEditable, onWindowBack } from './dom.ts';
+import {
+  finishOverlayExit,
+  normalizeEmptyContentEditable,
+  onWindowBack,
+  startOverlayExit,
+  syncOverlayState,
+  trackOverlayExit,
+} from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { destroyCustomScrollbar, initCustomScrollbar } from './custom-scrollbar.ts';
 import { createSelectionCheckSvg } from './selection-mark.ts';
@@ -126,7 +133,13 @@ interface DialogChoiceState {
 interface DialogActiveState {
   resolve: (result: DialogResult) => void;
   prevFocus: Element | null;
+  /** Behaviour, undone at close: listeners, subscriptions, the Back handler. */
   cleanup: (() => void)[];
+  /**
+   * The panel's look (tone, reading layout, link row, stepped page), undone
+   * once the exit has settled so the closing dialog looks as the user saw it.
+   */
+  afterExit: (() => void)[];
 }
 
 // ─── State ───────────────────────────────────────────────────────
@@ -140,6 +153,8 @@ let _dialogValidator: ((value: string) => string | null) | null = null;
 let _dialogHintDefault = '';
 let _dialogPreserveWhitespace = false;
 let _dialogChoice: DialogChoiceState | null = null;
+/** A closed dialog's exit still plays in the overlay; the queue waits for it. */
+let _dialogExitPending = false;
 const _dialogQueue: Array<{
   opts: DialogOptions | string;
   resolve: (result: DialogResult) => void;
@@ -152,10 +167,23 @@ function dialogText(text?: DialogText): string {
 }
 
 function drainDialogQueue(): void {
-  if (_dialogActive) return;
+  // The next dialog opens in the same overlay once the previous one's exit
+  // has settled (closeDialog drains again then), with its whole entrance.
+  if (_dialogActive || _dialogExitPending) return;
   const next = _dialogQueue.shift();
   if (!next) return;
   _openDialog(next.opts, next.resolve);
+}
+
+/** Runs each step, so one failing step leaves the rest to run. */
+function runDialogSteps(steps: readonly (() => void)[] | undefined): void {
+  steps?.forEach((step) => {
+    try {
+      step();
+    } catch {
+      /* ignore */
+    }
+  });
 }
 
 function setDialogInputInvalid(invalid: boolean): void {
@@ -172,8 +200,13 @@ export function closeDialog(action = 'close'): void {
   const choiceValue = _dialogChoice?.value();
   _dialogChoice = null;
   const overlay = document.getElementById('dialog-overlay');
+  // The dialog is closed from here: the page takes input, focus and Back at
+  // once. Only its panel stays on screen while its exit plays.
+  let exiting = false;
   if (overlay) {
-    overlay.classList.remove('show');
+    exiting = startOverlayExit(overlay);
+    // A dialog shown from here on waits for the exit in the queue.
+    if (exiting) _dialogExitPending = true;
     overlay.setAttribute('aria-hidden', 'true');
     syncOverlayState();
   }
@@ -181,19 +214,7 @@ export function closeDialog(action = 'close'): void {
   const active = _dialogActive;
   _dialogActive = null;
 
-  try {
-    if (active && Array.isArray(active.cleanup)) {
-      active.cleanup.forEach((fn) => {
-        try {
-          fn();
-        } catch {
-          /* ignore */
-        }
-      });
-    }
-  } catch {
-    /* ignore */
-  }
+  runDialogSteps(active?.cleanup);
 
   if (active?.prevFocus && typeof (active.prevFocus as HTMLElement).focus === 'function') {
     try {
@@ -227,6 +248,18 @@ export function closeDialog(action = 'close'): void {
     }
   }
 
+  // The exit starts last. Without one (reduced motion, no animation) it
+  // settles before trackOverlayExit returns, after the result above.
+  const afterExit = active?.afterExit;
+  if (overlay && exiting) {
+    trackOverlayExit(overlay, () => {
+      _dialogExitPending = false;
+      runDialogSteps(afterExit);
+      setManagedTimer('dialog-drain', drainDialogQueue, 0);
+    });
+    return;
+  }
+  runDialogSteps(afterExit);
   setManagedTimer('dialog-drain', drainDialogQueue, 0);
 }
 
@@ -376,6 +409,11 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     setManagedTimer('dialog-drain', drainDialogQueue, 0);
     return;
   }
+
+  // The queue waits for an exit, so none should still play here. If one does,
+  // it ends now and takes the previous dialog's look with it before the new
+  // copy is written.
+  finishOverlayExit(overlay);
 
   const o = typeof opts === 'object' && opts ? opts : { message: String(opts ?? '') };
   const title = dialogText(o.title) || t('common.info');
@@ -615,9 +653,11 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   syncOverlayState('dialog-overlay');
 
   const cleanup: (() => void)[] = [];
+  const afterExit: (() => void)[] = [];
   if (o.tone === 'danger') {
-    // Runs after closeDialog has hidden the overlay, so it runs no transition.
-    cleanup.push(() => okBtn.classList.remove('dialog-danger'));
+    // Runs once the exit has settled and the overlay is hidden, so the
+    // closing dialog keeps its tone and the removal runs no transition.
+    afterExit.push(() => okBtn.classList.remove('dialog-danger'));
   }
   const reading = o.contentLayout === 'reading' && !inputCfg && !choice;
   if (reading) {
@@ -628,17 +668,18 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (dialogPanel) dialogPanel.scrollTop = 0;
     initCustomScrollbar(msgEl);
     bus.emit('ui:scrollbar-reveal', msgEl);
-    cleanup.push(() => {
+    // A closed dialog takes no Tab stop, though its copy is still on screen.
+    cleanup.push(() => msgEl.removeAttribute('tabindex'));
+    afterExit.push(() => {
       destroyCustomScrollbar(msgEl);
       overlay.classList.remove('dialog-reading');
       msgEl.removeAttribute('dir');
-      msgEl.removeAttribute('tabindex');
     });
   }
   if (hasLink && linkBtn) {
     // The link takes the dialog's bottom inset from the action row.
     overlay.classList.add('dialog-with-link');
-    cleanup.push(() => {
+    afterExit.push(() => {
       overlay.classList.remove('dialog-with-link');
       linkBtn.hidden = true;
     });
@@ -655,7 +696,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     });
   };
 
-  _dialogActive = { resolve, prevFocus, cleanup };
+  _dialogActive = { resolve, prevFocus, cleanup, afterExit };
 
   // The centred panel would re-centre when the taller choice page replaces
   // the first page, moving the title up. Keep its top edge where the first
@@ -688,9 +729,10 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   if (choice) {
     // Both pages share the short-viewport spacing, so the title keeps its
-    // offset inside the panel.
+    // offset inside the panel. A dialog closed from the choice page leaves
+    // on that page, at its offset.
     overlay.classList.add('dialog-stepped');
-    cleanup.push(() => {
+    afterExit.push(() => {
       overlay.classList.remove('dialog-stepped');
       resetStepOffset();
       choice.destroy();

@@ -40,7 +40,14 @@ import {
 import { setControlUnavailable } from './control-hint.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
-import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
+import {
+  finishOverlayExit,
+  getUiElement,
+  onWindowBack,
+  startOverlayExit,
+  syncOverlayState,
+  trackOverlayExit,
+} from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { createSelectionCheckSvg } from './selection-mark.ts';
@@ -869,6 +876,8 @@ export function openLanguageDialog(): void {
 
   const overlay = getUiElement('language-dialog-overlay');
   if (!overlay) return;
+  // A close still playing its exit ends first; the entrance starts over.
+  finishOverlayExit(overlay);
   _languageDialogPreviousFocus =
     document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -895,11 +904,12 @@ export function openLanguageDialog(): void {
 function closeLanguageDialog(): void {
   const overlay = getUiElement('language-dialog-overlay');
   if (!overlay) return;
-  const wasShown = overlay.classList.contains('show');
   clearManagedTimer('language-dialog-focus');
-  overlay.classList.remove('show');
+  // A shown list plays its exit; nothing in it changes meanwhile.
+  const wasShown = startOverlayExit(overlay);
   overlay.setAttribute('aria-hidden', 'true');
   syncOverlayState();
+  if (wasShown) trackOverlayExit(overlay);
 
   const previousFocus = _languageDialogPreviousFocus;
   _languageDialogPreviousFocus = null;

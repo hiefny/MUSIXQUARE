@@ -685,6 +685,19 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     }
   }
 
+  /* A closing dialog plays dialogBackdropIn and modalSlideUp in reverse, with
+     the manual sync window's exit timing (0.22s ease-in, .manual-sync-overlay),
+     an exit that already mirrors this same entrance. */
+  @keyframes dialogBackdropOut {
+    from {
+      opacity: 1;
+    }
+
+    to {
+      opacity: 0;
+    }
+  }
+
   /* Pages of a stepped dialog swap in place; fade the incoming page only. */
   @keyframes dialogPageIn {
     from {
@@ -707,6 +720,19 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  /* modalSlideUp in reverse, translation only as well. */
+  @keyframes modalSlideDown {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    to {
+      opacity: 0;
+      transform: translateY(20px);
     }
   }
 
@@ -5241,6 +5267,24 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     display: flex;
   }
 
+  /* src/ui/dom.ts swaps show for is-closing when a dialog closes and keeps the
+     overlay displayed until this exit ends. The page under it takes input
+     again at once, so nothing in a closing dialog takes a pointer, the
+     custom scrollbar track (which sets its own pointer-events) included. */
+  .dialog-overlay.is-closing {
+    display: flex;
+    pointer-events: none;
+    animation: dialogBackdropOut 0.22s ease-in both;
+  }
+
+  .dialog-overlay.is-closing .dialog {
+    animation: modalSlideDown 0.22s ease-in both;
+  }
+
+  .dialog-overlay.is-closing .cscroll-track {
+    pointer-events: none;
+  }
+
   /* Optional-account dialog keeps the established squircle panel while using
      explicit enter/exit transitions so the backdrop never grows as a shape. */
   .account-dialog-overlay {
@@ -5818,6 +5862,12 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     .administrator-permissions-overlay,
     .dialog.administrator-permissions-dialog {
       transition: none;
+    }
+
+    /* A closing dialog hides at once, as it did before it had an exit. */
+    .dialog-overlay.is-closing,
+    .dialog-overlay.is-closing .dialog {
+      animation: none;
     }
   }
 

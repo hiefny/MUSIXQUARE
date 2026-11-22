@@ -2051,3 +2051,278 @@ describe('link action under the pair', () => {
     await expect(next).resolves.toEqual({ action: 'secondary' });
   });
 });
+
+describe('exit', () => {
+  // As in css/style.css, only the closing class starts the exit. jsdom
+  // computes animation longhands from a stylesheet and runs no animation, so
+  // each test ends the exit with its animationend or the fallback timer.
+  let exitStyle: HTMLStyleElement;
+  const overlay = () => document.getElementById('dialog-overlay')!;
+  const panel = () => overlay().querySelector<HTMLElement>('[role="dialog"]')!;
+  const message = () => document.getElementById('dialog-message')!;
+  const ok = () => document.getElementById('btn-dialog-ok') as HTMLButtonElement;
+  const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;
+  const link = () => document.getElementById('btn-dialog-link') as HTMLButtonElement;
+  const title = () => document.getElementById('dialog-title')!.textContent;
+  const closing = () => overlay().classList.contains('is-closing');
+  const endExit = () => {
+    const event = new Event('animationend');
+    Object.defineProperty(event, 'animationName', { value: 'dialogBackdropOut' });
+    overlay().dispatchEvent(event);
+  };
+  const flushMicrotasks = async () => {
+    for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+  };
+
+  beforeEach(() => {
+    exitStyle = document.createElement('style');
+    exitStyle.textContent =
+      '#dialog-overlay.is-closing { animation-name: dialogBackdropOut; animation-duration: 0.22s; }';
+    document.head.appendChild(exitStyle);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    }));
+    // The markup's panel, which the stepped page and the reading layout use.
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('role', 'dialog');
+    wrapper.setAttribute('aria-describedby', 'dialog-message');
+    wrapper.append(...overlay().childNodes);
+    overlay().appendChild(wrapper);
+  });
+
+  // An exit or a dialog a failed assertion left behind must not hold the
+  // queue for the next test.
+  afterEach(async () => {
+    const { __resetModalStackForTests } = await import('../dom.ts');
+    const { closeDialog } = await import('../dialog.ts');
+    for (let index = 0; index < 3; index += 1) {
+      __resetModalStackForTests();
+      closeDialog('superseded');
+      __resetModalStackForTests();
+      vi.advanceTimersByTime(10);
+    }
+    exitStyle.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it('ends the behaviour at close and keeps the look the user saw until the exit settles', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    const launcher = document.createElement('button');
+    document.body.appendChild(launcher);
+    launcher.focus();
+    const promise = showDialog({
+      message: 'Long notice',
+      contentLayout: 'reading',
+      tone: 'danger',
+      buttonText: 'Leave',
+      secondaryText: 'Stay',
+      linkText: 'Details',
+    });
+    vi.advanceTimersByTime(10);
+    expect(message().getAttribute('tabindex')).toBe('0');
+
+    ok().click();
+    await expect(promise).resolves.toEqual({ action: 'ok' });
+
+    // Closed for the page at once: focus, Tab, the stack and assistive
+    // technology no longer see it.
+    expect(overlay().classList.contains('show')).toBe(false);
+    expect(closing()).toBe(true);
+    expect(overlay().getAttribute('aria-hidden')).toBe('true');
+    expect(document.activeElement).toBe(launcher);
+    expect(message().hasAttribute('tabindex')).toBe(false);
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    window.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(launcher);
+
+    // Still the dialog the user closed while it leaves.
+    expect(ok().classList.contains('dialog-danger')).toBe(true);
+    expect(overlay().classList.contains('dialog-reading')).toBe(true);
+    expect(overlay().classList.contains('dialog-with-link')).toBe(true);
+    expect(link().hidden).toBe(false);
+    expect(message().getAttribute('dir')).toBe('auto');
+    expect(panel().querySelectorAll('.cscroll-track')).toHaveLength(1);
+
+    endExit();
+    expect(closing()).toBe(false);
+    expect(ok().classList.contains('dialog-danger')).toBe(false);
+    expect(overlay().classList.contains('dialog-reading')).toBe(false);
+    expect(overlay().classList.contains('dialog-with-link')).toBe(false);
+    expect(link().hidden).toBe(true);
+    expect(message().hasAttribute('dir')).toBe(false);
+    expect(panel().querySelector('.cscroll-track')).toBeNull();
+  });
+
+  it('leaves a stepped dialog on its choice page and returns the choice', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    const promise = showDialog({
+      title: 'Set room password',
+      inputField: { maxLength: 8, splitEvery: 4, inputMode: 'numeric' },
+      buttonText: 'Next',
+      secondaryText: 'Cancel',
+      choiceStep: {
+        title: 'What should happen to current participants?',
+        name: 'exit-membership',
+        defaultValue: 'keep',
+        options: [
+          { value: 'keep', label: 'Keep everyone' },
+          { value: 'reenter', label: 'Everyone rejoins' },
+        ],
+        buttonText: 'OK',
+        backText: 'Back',
+      },
+    });
+    vi.advanceTimersByTime(10);
+    const segments = [...document.querySelectorAll<HTMLInputElement>('.dialog-input-segment')];
+    segments[0]!.value = '4829';
+    segments[1]!.value = '1300';
+    ok().click();
+    vi.advanceTimersByTime(500);
+    const frame = document.querySelector<HTMLElement>('.dialog-choice-frame')!;
+    expect(frame.hidden).toBe(false);
+    document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')[1]!.click();
+
+    ok().click();
+    await expect(promise).resolves.toEqual({
+      action: 'ok',
+      inputValue: '48291300',
+      choiceValue: 'reenter',
+    });
+
+    // The exit shows the choice page the person answered, not page 1.
+    expect(closing()).toBe(true);
+    expect(frame.isConnected).toBe(true);
+    expect(frame.hidden).toBe(false);
+    expect(message().hidden).toBe(true);
+    expect(overlay().classList.contains('dialog-stepped')).toBe(true);
+    expect(title()).toBe('What should happen to current participants?');
+    expect(panel().hasAttribute('aria-describedby')).toBe(false);
+
+    endExit();
+    expect(frame.isConnected).toBe(false);
+    expect(message().hidden).toBe(false);
+    expect(overlay().classList.contains('dialog-stepped')).toBe(false);
+    expect(panel().getAttribute('aria-describedby')).toBe('dialog-message');
+  });
+
+  it('opens a queued dialog only after the exit, so it enters in full', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    const first = showDialog({ title: 'First', secondaryText: 'Cancel' });
+    const second = showDialog({ title: 'Second', secondaryText: 'Cancel' });
+    vi.advanceTimersByTime(10);
+
+    secondary().click();
+    await expect(first).resolves.toEqual({ action: 'secondary' });
+    vi.advanceTimersByTime(100);
+    expect(closing()).toBe(true);
+    expect(overlay().classList.contains('show')).toBe(false);
+    expect(title()).toBe('First');
+
+    endExit();
+    // The overlay is hidden before the next dialog shows in it.
+    expect(closing()).toBe(false);
+    expect(overlay().classList.contains('show')).toBe(false);
+    vi.advanceTimersByTime(10);
+    expect(overlay().classList.contains('show')).toBe(true);
+    expect(title()).toBe('Second');
+
+    secondary().click();
+    await expect(second).resolves.toEqual({ action: 'secondary' });
+    endExit();
+  });
+
+  it('opens a dialog chained on the result after the exit, at its deadline at the latest', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    const chained = showDialog({ title: 'Nickname', secondaryText: 'Cancel' }).then(() =>
+      showDialog({ title: 'Nickname taken', secondaryText: 'Cancel' }),
+    );
+    vi.advanceTimersByTime(10);
+
+    secondary().click();
+    await flushMicrotasks();
+    // The second dialog waits in the queue while the first one leaves.
+    expect(title()).toBe('Nickname');
+    expect(closing()).toBe(true);
+    await vi.advanceTimersByTimeAsync(319);
+    expect(overlay().classList.contains('show')).toBe(false);
+
+    // No animationend came: the exit settles at 220 + 100 ms.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(closing()).toBe(false);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(overlay().classList.contains('show')).toBe(true);
+    expect(title()).toBe('Nickname taken');
+
+    secondary().click();
+    await expect(chained).resolves.toEqual({ action: 'secondary' });
+    endExit();
+  });
+
+  it('holds the closing surfaces Back waits for until a Back close has left', async () => {
+    const { __resetModalStackForTests, offerBackToTopWindow } = await import('../dom.ts');
+    const { showDialog } = await import('../dialog.ts');
+    __resetModalStackForTests();
+    const promise = showDialog({ title: 'Leave?', buttonText: 'Leave', secondaryText: 'Stay' });
+    vi.advanceTimersByTime(10);
+
+    const result = offerBackToTopWindow();
+    expect(result.handled).toBe(true);
+    await expect(promise).resolves.toEqual({ action: 'back' });
+    const settled = vi.fn();
+    const observed = result.settled.then(settled);
+    await flushMicrotasks();
+    expect(settled).not.toHaveBeenCalled();
+    expect(closing()).toBe(true);
+
+    endExit();
+    await observed;
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it('closes at once, as before, when reduced motion leaves no exit to play', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    exitStyle.textContent =
+      '#dialog-overlay.is-closing { animation-name: none; animation-duration: 0.01ms; }';
+    const first = showDialog({ title: 'Leave?', buttonText: 'Leave', tone: 'danger' });
+    const second = showDialog({ title: 'Next' });
+    vi.advanceTimersByTime(10);
+
+    ok().click();
+    await expect(first).resolves.toEqual({ action: 'ok' });
+    expect(closing()).toBe(false);
+    expect(overlay().classList.contains('show')).toBe(false);
+    expect(ok().classList.contains('dialog-danger')).toBe(false);
+    vi.advanceTimersByTime(10);
+    expect(title()).toBe('Next');
+    ok().click();
+    await expect(second).resolves.toEqual({ action: 'ok' });
+  });
+
+  it('opens with no closing state left on the overlay', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    // A closing class no exit tracks, as a close interrupted before its exit.
+    overlay().classList.add('is-closing');
+    const promise = showDialog({ title: 'Fresh' });
+    expect(overlay().classList.contains('show')).toBe(true);
+    expect(closing()).toBe(false);
+    ok().click();
+    await expect(promise).resolves.toEqual({ action: 'ok' });
+    endExit();
+  });
+});

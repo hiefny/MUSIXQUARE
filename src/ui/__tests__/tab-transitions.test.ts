@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import { animateTransition, runWithoutViewTransitions } from '../dom.ts';
+import {
+  animateTransition,
+  finishOverlayExit,
+  runWithoutViewTransitions,
+  startOverlayExit,
+} from '../dom.ts';
 import { switchTab } from '../tabs.ts';
 import { showLoader } from '../toast.ts';
 
@@ -134,6 +139,28 @@ describe('tab transitions during header loading', () => {
     transitions[0].update();
     expect(preservesHeader()).toBe(false);
     expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
+  });
+
+  it('retains root crossfade while a closed dialog still plays its exit', async () => {
+    const dialog = document.getElementById('dialog-overlay')!;
+    dialog.classList.add('show');
+    // Closed, so not shown, but its backdrop still covers the header.
+    expect(startOverlayExit(dialog)).toBe(true);
+
+    switchTab('settings');
+    await flushTransitionTasks();
+
+    expect(transitions[0].headerPreservedAtCapture).toBe(false);
+    transitions[0].update();
+    expect(preservesHeader()).toBe(false);
+    transitions[0].finish();
+    await flushTransitionTasks();
+
+    // Once the exit is over the header is lifted again.
+    finishOverlayExit(dialog);
+    switchTab('play');
+    await flushTransitionTasks();
+    expect(transitions[1].headerPreservedAtCapture).toBe(true);
   });
 
   it('returns a newly opened modal and the header to normal root compositing', async () => {

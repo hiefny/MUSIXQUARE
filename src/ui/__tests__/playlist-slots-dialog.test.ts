@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
+import { __resetModalStackForTests, whenBackSurfaceSettled } from '../dom.ts';
 
 const { switchPlaylist } = vi.hoisted(() => ({ switchPlaylist: vi.fn(() => true) }));
 
@@ -100,5 +101,80 @@ describe('playlist switcher exit', () => {
 
     expect(overlay().classList.contains('show')).toBe(false);
     expect(switchPlaylist).toHaveBeenCalledExactlyOnceWith(2);
+  });
+});
+
+describe('playlist dialog exit', () => {
+  // As in css/style.css, only the closing class starts the exit. jsdom
+  // computes animation longhands from a stylesheet and runs no animation.
+  let exitStyle: HTMLStyleElement;
+  const transfer = () => document.getElementById('playlist-transfer-overlay')!;
+  const endExit = (element: HTMLElement) => {
+    const event = new Event('animationend');
+    Object.defineProperty(event, 'animationName', { value: 'dialogBackdropOut' });
+    element.dispatchEvent(event);
+  };
+
+  beforeEach(() => {
+    __resetModalStackForTests();
+    exitStyle = document.createElement('style');
+    exitStyle.textContent =
+      '.dialog-overlay.is-closing { animation-name: dialogBackdropOut; animation-duration: 0.22s; }';
+    document.head.appendChild(exitStyle);
+  });
+
+  afterEach(() => {
+    __resetModalStackForTests();
+    exitStyle.remove();
+    transfer().classList.remove('show');
+  });
+
+  it('plays the switcher exit after Cancel and ends it when the switcher opens again', async () => {
+    const { openPlaylistSlotsDialog } = await import('../playlist-slots-dialog.ts');
+    const cancel = document.getElementById('btn-playlist-slots-cancel')!;
+    openPlaylistSlotsDialog();
+    cancel.click();
+    expect(overlay().classList.contains('show')).toBe(false);
+    expect(overlay().classList.contains('is-closing')).toBe(true);
+    expect(overlay().getAttribute('aria-hidden')).toBe('true');
+
+    openPlaylistSlotsDialog();
+    expect(overlay().classList.contains('is-closing')).toBe(false);
+    expect(overlay().classList.contains('show')).toBe(true);
+    await whenBackSurfaceSettled();
+
+    cancel.click();
+    expect(overlay().classList.contains('is-closing')).toBe(true);
+    endExit(overlay());
+    expect(overlay().classList.contains('is-closing')).toBe(false);
+  });
+
+  it('plays the move dialog exit, and only for a shown dialog', async () => {
+    const { openPlaylistTransferDialog } = await import('../playlist-slots-dialog.ts');
+    const close = document.getElementById('btn-playlist-transfer-close')!;
+    close.click();
+    expect(transfer().classList.contains('is-closing')).toBe(false);
+
+    openPlaylistTransferDialog(['track-a'], vi.fn());
+    close.click();
+    expect(transfer().classList.contains('show')).toBe(false);
+    expect(transfer().classList.contains('is-closing')).toBe(true);
+    endExit(transfer());
+    expect(transfer().classList.contains('is-closing')).toBe(false);
+  });
+
+  it('leaves focus where the close put it when the dialog closes before its first focus', async () => {
+    const { openPlaylistSlotsDialog } = await import('../playlist-slots-dialog.ts');
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    expect(document.activeElement).toBe(opener);
+    openPlaylistSlotsDialog();
+    document.getElementById('btn-playlist-slots-cancel')!.click();
+    expect(document.activeElement).toBe(opener);
+
+    vi.advanceTimersByTime(10);
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
   });
 });

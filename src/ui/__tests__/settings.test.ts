@@ -25,6 +25,7 @@ import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
 import { installRangeDragGuard } from '../range-drag.ts';
+import { __resetModalStackForTests, whenBackSurfaceSettled } from '../dom.ts';
 
 const preloadNativeNameGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
@@ -1356,6 +1357,80 @@ describe('initSettings language controls', () => {
     expect(escape.defaultPrevented).toBe(true);
     expect(overlay.classList.contains('show')).toBe(false);
     expect(document.activeElement).toBe(trigger);
+  });
+
+  describe('exit', () => {
+    // As in css/style.css, only the closing class starts the exit. jsdom
+    // computes animation longhands from a stylesheet and runs no animation.
+    let exitStyle: HTMLStyleElement;
+    const endExit = (overlay: HTMLElement) => {
+      const event = new Event('animationend');
+      Object.defineProperty(event, 'animationName', { value: 'dialogBackdropOut' });
+      overlay.dispatchEvent(event);
+    };
+
+    beforeEach(() => {
+      __resetModalStackForTests();
+      exitStyle = document.createElement('style');
+      exitStyle.textContent =
+        '.dialog-overlay.is-closing { animation-name: dialogBackdropOut; animation-duration: 0.22s; }';
+      document.head.appendChild(exitStyle);
+    });
+
+    afterEach(() => {
+      __resetModalStackForTests();
+      exitStyle.remove();
+    });
+
+    it('plays the exit of a shown list only, with focus back on its button at once', async () => {
+      installLanguageSettingsDom();
+      initSettings();
+      const trigger = document.getElementById('btn-language-select') as HTMLButtonElement;
+      const done = document.getElementById('btn-language-dialog-done')!;
+      const overlay = document.getElementById('language-dialog-overlay')!;
+
+      // Closing a list that is not shown plays nothing.
+      done.click();
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+
+      trigger.focus();
+      trigger.click();
+      done.click();
+      expect(overlay.classList.contains('show')).toBe(false);
+      expect(overlay.classList.contains('is-closing')).toBe(true);
+      expect(overlay.getAttribute('aria-hidden')).toBe('true');
+      expect(document.activeElement).toBe(trigger);
+      const settled = vi.fn();
+      const observed = whenBackSurfaceSettled().then(settled);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).not.toHaveBeenCalled();
+
+      // A second close of the closed list changes nothing.
+      done.click();
+      expect(overlay.classList.contains('is-closing')).toBe(true);
+      expect(document.activeElement).toBe(trigger);
+      endExit(overlay);
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+      await observed;
+      expect(settled).toHaveBeenCalledOnce();
+    });
+
+    it('ends a running exit when the list opens again, so its entrance starts over', async () => {
+      installLanguageSettingsDom();
+      initSettings();
+      const trigger = document.getElementById('btn-language-select') as HTMLButtonElement;
+      const overlay = document.getElementById('language-dialog-overlay')!;
+
+      trigger.click();
+      document.getElementById('btn-language-dialog-done')!.click();
+      expect(overlay.classList.contains('is-closing')).toBe(true);
+
+      trigger.click();
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+      expect(overlay.classList.contains('show')).toBe(true);
+      await whenBackSurfaceSettled();
+    });
   });
 });
 

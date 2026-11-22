@@ -442,9 +442,10 @@ function isShown(o: OverlayDef): boolean {
 /**
  * A centred window whose closed state is `display: none` (`.dialog-overlay`
  * in css/style.css) carries this class while its exit plays; see
- * startOverlayExit(). It is closed from the first frame: only its place in
- * the paint order, a fullscreen portal and the tab transition header read
- * this class. Every other reader keys on the shown class alone.
+ * startOverlayExit(). A window closed while its entrance still plays never
+ * gets it and hides at once. It is closed from the first frame: only its
+ * place in the paint order, a fullscreen portal and the tab transition header
+ * read this class. Every other reader keys on the shown class alone.
  */
 const CLOSING_OVERLAY_CLASS = 'is-closing';
 
@@ -833,16 +834,29 @@ const _overlayExits = new Map<HTMLElement, () => void>();
 
 /**
  * Drop a dialog overlay's shown class (`show`) and, if it was shown, mark it
- * closing so it stays displayed for its exit. Returns whether it was shown.
- * The close path then writes aria-hidden, syncs the stack and calls
- * trackOverlayExit().
+ * closing so it stays displayed for its exit. A window whose entrance still
+ * plays is not marked and hides at once, as before it had an exit: the exit
+ * starts from the fully shown window, not from where the entrance got to, so
+ * it would jump in before it faded. Returns whether it was shown. The close
+ * path then writes aria-hidden, syncs the stack and calls trackOverlayExit(),
+ * which settles at once for a window that was not marked.
  */
 export function startOverlayExit(overlay: HTMLElement): boolean {
   if (!overlay.classList.contains('show')) return false;
   // An exit left over from an earlier close ends before this one starts.
   finishOverlayExit(overlay);
+  // The overlay's own entrance (dialogBackdropIn) is the longer one. Reading
+  // the animations commits a shown class added in this task, so a window
+  // never painted shown counts as entering too.
+  const entering =
+    overlay
+      .getAnimations?.()
+      .some(
+        (animation) =>
+          'animationName' in animation && (animation.playState === 'running' || animation.pending),
+      ) ?? false;
   overlay.classList.remove('show');
-  overlay.classList.add(CLOSING_OVERLAY_CLASS);
+  if (!entering) overlay.classList.add(CLOSING_OVERLAY_CLASS);
   return true;
 }
 

@@ -2314,6 +2314,45 @@ describe('exit', () => {
     await expect(second).resolves.toEqual({ action: 'ok' });
   });
 
+  it('closes at once while its entrance still plays, and the queue goes on', async () => {
+    const { showDialog } = await import('../dialog.ts');
+    const first = showDialog({
+      title: 'Leave?',
+      buttonText: 'Leave',
+      secondaryText: 'Stay',
+      tone: 'danger',
+      linkText: 'Details',
+    });
+    const second = showDialog({ title: 'Next', secondaryText: 'Cancel' });
+    vi.advanceTimersByTime(10);
+    // The overlay's entrance as a browser lists it a moment after the open.
+    Object.defineProperty(overlay(), 'getAnimations', {
+      configurable: true,
+      value: () => [{ animationName: 'dialogBackdropIn', playState: 'running', pending: false }],
+    });
+
+    ok().click();
+    await expect(first).resolves.toEqual({ action: 'ok' });
+    Reflect.deleteProperty(overlay(), 'getAnimations');
+
+    // No exit: it is hidden and its look is undone at once, as before.
+    expect(closing()).toBe(false);
+    expect(overlay().classList.contains('show')).toBe(false);
+    expect(ok().classList.contains('dialog-danger')).toBe(false);
+    expect(overlay().classList.contains('dialog-with-link')).toBe(false);
+    expect(link().hidden).toBe(true);
+    vi.advanceTimersByTime(10);
+    expect(overlay().classList.contains('show')).toBe(true);
+    expect(title()).toBe('Next');
+
+    // A dialog whose entrance has ended plays its exit as before.
+    secondary().click();
+    await expect(second).resolves.toEqual({ action: 'secondary' });
+    expect(closing()).toBe(true);
+    endExit();
+    expect(closing()).toBe(false);
+  });
+
   it('opens with no closing state left on the overlay', async () => {
     const { showDialog } = await import('../dialog.ts');
     // A closing class no exit tracks, as a close interrupted before its exit.

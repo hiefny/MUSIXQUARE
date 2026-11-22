@@ -476,3 +476,63 @@ describe('dialog overlay exit', () => {
     });
   });
 });
+
+describe('a dialog closed during its entrance', () => {
+  /** The overlay's own animations as a browser would list them. */
+  function animate(element: HTMLElement, animations: object[]): void {
+    Object.defineProperty(element, 'getAnimations', {
+      configurable: true,
+      value: () => animations,
+    });
+  }
+
+  it('hides at once rather than jump back to fully shown before it fades', async () => {
+    mount('language-dialog-overlay', 'dialog-overlay');
+    const language = show('language-dialog-overlay');
+    const dialog = show('dialog-overlay');
+    animate(dialog, [{ animationName: 'dialogBackdropIn', playState: 'running', pending: false }]);
+    const settled = vi.fn(() => {
+      expect(dialog.classList.contains('is-closing')).toBe(false);
+    });
+
+    expect(close(dialog, settled)).toBe(true);
+
+    expect(dialog.classList.contains('show')).toBe(false);
+    expect(dialog.classList.contains('is-closing')).toBe(false);
+    expect(dialog.getAttribute('aria-hidden')).toBe('true');
+    expect(settled).toHaveBeenCalledOnce();
+    expect(dialog.style.zIndex).toBe('');
+    expect(language.style.zIndex).toBe('6000');
+    expect(await ledgerSettled()).toBe(true);
+  });
+
+  it('hides at once when it was shown in the same task and never painted', () => {
+    mount('dialog-overlay');
+    const dialog = show();
+    // Reading the animations commits the shown class: its entrance is pending.
+    animate(dialog, [{ animationName: 'dialogBackdropIn', playState: 'running', pending: true }]);
+    const settled = vi.fn();
+
+    close(dialog, settled);
+
+    expect(dialog.classList.contains('is-closing')).toBe(false);
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it('plays the exit once the entrance has ended, whatever transition runs on it', () => {
+    mount('dialog-overlay');
+    const dialog = show();
+    animate(dialog, [
+      { animationName: 'dialogBackdropIn', playState: 'finished', pending: false },
+      { transitionProperty: 'opacity', playState: 'running', pending: false },
+    ]);
+    const settled = vi.fn();
+
+    close(dialog, settled);
+
+    expect(dialog.classList.contains('is-closing')).toBe(true);
+    expect(settled).not.toHaveBeenCalled();
+    animationEnd(dialog, 'dialogBackdropOut');
+    expect(settled).toHaveBeenCalledOnce();
+  });
+});

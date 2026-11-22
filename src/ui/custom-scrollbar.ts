@@ -688,7 +688,7 @@ function mutationsNeedLayout(records: MutationRecord[]): boolean {
  * area's grid-rows transition, a hidden toggle, a late font or image), and no
  * mutation marks the frames in between. The border box counts a child's own
  * padding change too. An inner scroller's bar parented here is not content:
- * watching it would wake this bar on every layout of the inner one.
+ * watching it would wake this bar whenever the inner one resizes its bar.
  */
 function observeContentChild(state: ScrollbarState, node: Node): void {
   if (!(node instanceof Element) || node.parentNode !== state.container) return;

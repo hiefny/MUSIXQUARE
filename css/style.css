@@ -5270,8 +5270,10 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
   /* src/ui/dom.ts swaps show for is-closing when a dialog closes and keeps the
      overlay displayed until this exit ends; a dialog closed while its
      entrance still plays hides at once instead. The page under it takes input
-     again at once, so nothing in a closing dialog takes a pointer, the
-     custom scrollbar track (which sets its own pointer-events) included. */
+     again at once, so nothing in a closing dialog takes a pointer. The custom
+     scrollbar track writes its own inline pointer-events (auto while it
+     shows, setTrackVisible in src/ui/custom-scrollbar.ts), which only an
+     important declaration outranks; its thumb inherits the value. */
   .dialog-overlay.is-closing {
     display: flex;
     pointer-events: none;
@@ -5283,7 +5285,7 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
   }
 
   .dialog-overlay.is-closing .cscroll-track {
-    pointer-events: none;
+    pointer-events: none !important;
   }
 
   /* Optional-account dialog keeps the established squircle panel while using

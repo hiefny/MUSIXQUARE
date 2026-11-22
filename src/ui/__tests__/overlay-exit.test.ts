@@ -1,6 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFileSync } from 'node:fs';
+import { parse as parseCss, type AtRule } from 'postcss';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetModalStackForTests,
@@ -534,5 +536,33 @@ describe('a dialog closed during its entrance', () => {
     expect(settled).not.toHaveBeenCalled();
     animationEnd(dialog, 'dialogBackdropOut');
     expect(settled).toHaveBeenCalledOnce();
+  });
+});
+
+describe('the closing dialog stylesheet', () => {
+  it('lets every pointer through a closing dialog, its scrollbar track included', () => {
+    // A closing dialog stays displayed above the page, which takes input again
+    // at once. The custom scrollbar writes pointer-events on its track inline
+    // (auto while the bar shows), and only an important declaration outranks
+    // an inline one.
+    const selectors = ['.dialog-overlay.is-closing', '.dialog-overlay.is-closing .cscroll-track'];
+    const declared = new Map<string, string[]>(selectors.map((selector) => [selector, []]));
+    parseCss(readFileSync('css/style.css', 'utf8')).walkRules((rule) => {
+      for (const selector of selectors) {
+        if (!rule.selectors.includes(selector)) continue;
+        const parent = rule.parent as AtRule | undefined;
+        const place = parent?.type === 'atrule' ? `@${parent.name} ${parent.params}` : 'top';
+        rule.walkDecls('pointer-events', (declaration) => {
+          declared
+            .get(selector)!
+            .push(`${place}: ${declaration.value}${declaration.important ? ' !important' : ''}`);
+        });
+      }
+    });
+
+    expect(Object.fromEntries(declared)).toEqual({
+      '.dialog-overlay.is-closing': ['@layer base: none'],
+      '.dialog-overlay.is-closing .cscroll-track': ['@layer base: none !important'],
+    });
   });
 });

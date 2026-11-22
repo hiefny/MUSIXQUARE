@@ -557,6 +557,14 @@ export function onFullscreenSurfaceHostChange(listener: () => void): () => void 
 
 function syncFullscreenModalPortal(top: OverlayId | null): void {
   const container = fullscreenSurfaceHost();
+  // A move restarts an element's CSS animations, so a closing window whose
+  // fullscreen surface ended or changed ends its exit before it goes back, as
+  // the session reset surface hides before it leaves one. The settle syncs
+  // again, which restores it hidden.
+  for (const portaled of [..._fullscreenModalPortals.keys()]) {
+    if (portaled.parentElement !== container && isClosingOverlay(portaled))
+      finishOverlayExit(portaled);
+  }
   const definition = OVERLAYS.find((overlay) => overlay.id === top);
   const element = definition && !definition.fullscreen ? getUiElement(definition.id) : null;
   for (const portaled of _fullscreenModalPortals.keys()) {

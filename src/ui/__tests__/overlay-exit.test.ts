@@ -434,20 +434,45 @@ describe('dialog overlay exit', () => {
       expect(dialog.nextSibling).toBe(marker);
     });
 
-    it('goes back at once when the fullscreen surface ends during the exit', () => {
+    it('ends the exit and goes back hidden when the fullscreen surface ends during it', async () => {
       mount('dialog-overlay');
       const host = enterFullscreen();
       const dialog = show();
       expect(dialog.parentElement).toBe(host);
-      close(dialog);
+      const settled = vi.fn();
+      close(dialog, settled);
+      expect(dialog.parentElement).toBe(host);
 
       fullscreen = null;
       document.dispatchEvent(new Event('fullscreenchange'));
 
-      expect(dialog.parentElement).toBe(document.body);
-      animationEnd(dialog, 'dialogBackdropOut');
+      // Moved while closing, the exit's keyframes would start again from the
+      // fully shown dialog on the page that just left fullscreen.
       expect(dialog.parentElement).toBe(document.body);
       expect(dialog.classList.contains('is-closing')).toBe(false);
+      expect(dialog.style.zIndex).toBe('');
+      expect(settled).toHaveBeenCalledOnce();
+      expect(await ledgerSettled()).toBe(true);
+
+      animationEnd(dialog, 'dialogBackdropOut');
+      expect(dialog.parentElement).toBe(document.body);
+      expect(settled).toHaveBeenCalledOnce();
+    });
+
+    it('ends the exit first when any sync finds the fullscreen surface gone', () => {
+      mount('dialog-overlay');
+      enterFullscreen();
+      const dialog = show();
+      const settled = vi.fn();
+      close(dialog, settled);
+
+      // Fullscreen has ended but its change event has not arrived yet.
+      fullscreen = null;
+      syncOverlayState();
+
+      expect(dialog.parentElement).toBe(document.body);
+      expect(dialog.classList.contains('is-closing')).toBe(false);
+      expect(settled).toHaveBeenCalledOnce();
     });
   });
 });

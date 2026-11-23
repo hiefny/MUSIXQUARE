@@ -418,8 +418,9 @@ function describeViewTransitionHold(hold: ViewTransitionHold): string {
 /**
  * Wait until no view transition is running.
  *
- * The app swaps tabs and its media popups inside document.startViewTransition
- * (src/ui/dom.ts animateTransition). The new state is in the DOM from the
+ * The app swaps tabs, its media popups and a chosen theme inside
+ * document.startViewTransition (src/ui/dom.ts animateTransition; the theme
+ * in src/ui/settings.ts chooseTheme). The new state is in the DOM from the
  * update callback on, about 300 ms before the cross-fade ends. While the
  * transition runs, pointer input is hit-tested to <html>. Chromium 153 does
  * that from the startViewTransition() call until the transition finishes.

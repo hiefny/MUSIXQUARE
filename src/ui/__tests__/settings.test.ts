@@ -25,7 +25,7 @@ import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
 import { installRangeDragGuard } from '../range-drag.ts';
-import { __resetModalStackForTests, whenBackSurfaceSettled } from '../dom.ts';
+import { __resetModalStackForTests, animateTransition, whenBackSurfaceSettled } from '../dom.ts';
 
 const preloadNativeNameGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
@@ -556,6 +556,241 @@ describe('setTheme transition hold', () => {
       [true, 'light', true],
     ]);
     expect(localStorage.getItem('musixquare-theme')).toBe('light');
+  });
+
+  // Owner report after 9.0.836: the switch felt abrupt. A chip press that
+  // changes the palette now runs setTheme() inside the update of the app's
+  // view transition (animateTransition in dom.ts), so the browser cross-fades
+  // the whole old screen into the new one, and the hold keeps every CSS
+  // transition out of the new image. jsdom has no View Transition API, so the
+  // rows above pin the immediate path (older browsers, the TV build); these
+  // rows stub the API.
+  describe('a theme chip press with view transitions', () => {
+    const SWAP = ['hold', 'pressed', 'data-theme', 'color-scheme', 'read', 'release'];
+
+    interface PendingTransition {
+      headerPreservedAtCapture: boolean;
+      update: () => void;
+      finish: () => void;
+    }
+
+    let originalTransition: PropertyDescriptor | undefined;
+    let transitions: PendingTransition[];
+    let nativeTransition: ReturnType<typeof vi.fn>;
+    let reducedMotion: boolean;
+
+    async function flushTransitionTasks(): Promise<void> {
+      // The owner starts its batch one microtask after the press, and the
+      // stub's completion handlers are promise jobs too.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    function pressedChips(): (string | null)[] {
+      return Array.from(document.querySelectorAll('#grid-theme .ch-opt[data-theme]'), (chip) =>
+        chip.getAttribute('aria-pressed'),
+      );
+    }
+
+    function themeColor(): string | null {
+      return document.querySelector('meta[name="theme-color"]')!.getAttribute('content');
+    }
+
+    /** Binds the chips as the app does, with `theme` stored and already on the page. */
+    function openSettingsWith(theme: 'dark' | 'light'): void {
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.style.colorScheme = theme;
+      localStorage.setItem('musixquare-theme', theme);
+      initSettings();
+    }
+
+    beforeEach(() => {
+      reducedMotion = false;
+      transitions = [];
+      // Only the reduced motion query can answer true; the device stays light.
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn().mockImplementation((query: string) => ({
+          matches: reducedMotion && query === '(prefers-reduced-motion: reduce)',
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        })),
+      });
+      originalTransition = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+      nativeTransition = vi.fn((update: () => void) => {
+        let finish!: () => void;
+        const finished = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        transitions.push({
+          headerPreservedAtCapture:
+            document.documentElement.classList.contains('tab-header-transition'),
+          update,
+          finish,
+        });
+        return {
+          ready: Promise.resolve(),
+          updateCallbackDone: Promise.resolve(),
+          finished,
+          skipTransition: vi.fn(() => finish()),
+        };
+      });
+      Object.defineProperty(document, 'startViewTransition', {
+        configurable: true,
+        value: nativeTransition,
+      });
+    });
+
+    afterEach(async () => {
+      // Start any batch still pending, then settle every transition, so no
+      // batch or header group of the shared owner leaks into the next row.
+      await flushTransitionTasks();
+      transitions.forEach((transition) => transition.finish());
+      await flushTransitionTasks();
+      if (originalTransition) {
+        Object.defineProperty(document, 'startViewTransition', originalTransition);
+      } else {
+        Reflect.deleteProperty(document, 'startViewTransition');
+      }
+      document.documentElement.classList.remove('tab-header-transition');
+    });
+
+    it.each([
+      ['light', 'dark'],
+      ['dark', 'light'],
+    ] as const)(
+      'a press that changes the palette waits for the old image, then swaps inside one view transition with the hold inside the update (%s)',
+      async (theme, previous) => {
+        openSettingsWith(previous);
+        const previousChips = pressedChips();
+        const previousColor = themeColor();
+
+        const press = recordThemeWrites(() => document.getElementById(`theme-${theme}`)!.click());
+
+        // The press's own task writes nothing: the browser has yet to
+        // capture the old screen.
+        expect(press.log).toEqual([]);
+        expect(press.reads).toEqual([]);
+        expect(nativeTransition).not.toHaveBeenCalled();
+        expect(document.documentElement.getAttribute('data-theme')).toBe(previous);
+        expect(pressedChips()).toEqual(previousChips);
+        expect(localStorage.getItem('musixquare-theme')).toBe(previous);
+        expect(themeColor()).toBe(previousColor);
+
+        await flushTransitionTasks();
+
+        expect(nativeTransition).toHaveBeenCalledOnce();
+        // No live header over the cross-fade: it fades with the page.
+        expect(transitions[0]!.headerPreservedAtCapture).toBe(false);
+        expect(document.documentElement.getAttribute('data-theme')).toBe(previous);
+
+        const update = recordThemeWrites(() => transitions[0]!.update());
+
+        expect(update.log).toEqual(SWAP);
+        expect(update.reads).toEqual([
+          {
+            onRoot: true,
+            theme,
+            held: true,
+            colorScheme: theme,
+            pressed: theme === 'light' ? ['true', 'false'] : ['false', 'true'],
+          },
+        ]);
+        expect(document.documentElement.classList.contains(HOLD)).toBe(false);
+        expect(localStorage.getItem('musixquare-theme')).toBe(theme);
+        expect(themeColor()).toBe(theme === 'light' ? '#ffffff' : '#1a1a1a');
+      },
+    );
+
+    it('a press batched with a tab change in one task gives up the preserved header, so the header fades with the page', async () => {
+      openSettingsWith('dark');
+      const themeSeenByTab: (string | null)[] = [];
+      const tabUpdate = vi.fn(() => {
+        themeSeenByTab.push(document.documentElement.getAttribute('data-theme'));
+      });
+
+      animateTransition(tabUpdate, { preserveHeader: true });
+      document.getElementById('theme-light')!.click();
+      await flushTransitionTasks();
+
+      // One native transition carries both updates, and the theme's part
+      // turns the batch's live header off.
+      expect(nativeTransition).toHaveBeenCalledOnce();
+      expect(transitions[0]!.headerPreservedAtCapture).toBe(false);
+
+      const update = recordThemeWrites(() => transitions[0]!.update());
+
+      expect(tabUpdate).toHaveBeenCalledOnce();
+      expect(themeSeenByTab).toEqual(['dark']);
+      expect(update.log).toEqual(SWAP);
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    });
+
+    it('a press on the active chip changes nothing and starts no view transition', async () => {
+      openSettingsWith('dark');
+
+      const again = recordThemeWrites(() => document.getElementById('theme-dark')!.click());
+      await flushTransitionTasks();
+
+      expect(nativeTransition).not.toHaveBeenCalled();
+      expect(again.log).not.toContain('hold');
+      expect(again.log).not.toContain('release');
+      expect(again.reads).toEqual([]);
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+      expect(localStorage.getItem('musixquare-theme')).toBe('dark');
+      expect(pressedChips()).toEqual(['false', 'true']);
+    });
+
+    it('under reduced motion a press swaps at once, as in 9.0.836, and starts no view transition', async () => {
+      reducedMotion = true;
+      openSettingsWith('dark');
+
+      const swap = recordThemeWrites(() => document.getElementById('theme-light')!.click());
+
+      expect(swap.log).toEqual(SWAP);
+      expect(swap.reads.map((read) => [read.onRoot, read.theme, read.held])).toEqual([
+        [true, 'light', true],
+      ]);
+      expect(localStorage.getItem('musixquare-theme')).toBe('light');
+      await flushTransitionTasks();
+      expect(nativeTransition).not.toHaveBeenCalled();
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    });
+
+    it('the start-up call swaps synchronously and never starts a view transition, even with the API present', async () => {
+      // As if the device scheme had changed between the head preflight and init.
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('musixquare-theme', 'dark');
+
+      const { log, reads } = recordThemeWrites(() => initSettings());
+
+      expect(log.filter((entry) => entry === 'hold' || entry === 'release')).toEqual([
+        'hold',
+        'release',
+      ]);
+      expect(reads.filter((read) => read.onRoot).map((read) => [read.theme, read.held])).toEqual([
+        ['dark', true],
+      ]);
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+      expect(document.documentElement.classList.contains(HOLD)).toBe(false);
+      await flushTransitionTasks();
+      expect(nativeTransition).not.toHaveBeenCalled();
+    });
+
+    it('setTheme itself stays synchronous with the API present', async () => {
+      const swap = recordThemeWrites(() => setTheme('light'));
+
+      expect(swap.log).toEqual(SWAP);
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+      await flushTransitionTasks();
+      expect(nativeTransition).not.toHaveBeenCalled();
+    });
   });
 
   it('turns off only transitions under the class, in the base layer of style.css', () => {

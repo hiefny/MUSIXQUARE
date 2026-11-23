@@ -13,11 +13,13 @@ import { navigateToSubtab, navigateToTab, waitForAppFonts } from './helpers/wait
  *
  * A page ResizeObserver on the area records one sample in every frame in which
  * the area changes size. Its callback runs after that frame's layout and
- * after the bar's own animation frame callback, so each sample is what the
- * frame paints. Every sample after the first must show the length the content
- * calls for, max(30, visible * visible / scrollHeight), where visible is the
- * track's height (the scroller above the phone's bottom nav). The first may
- * trail by one frame: the bar measures on the frame after a size change.
+ * after the bar's own observer, which was created first and lays the bar out
+ * in the same delivery, so each sample is what the frame paints. Every
+ * sample, the first frame's included, must show the length the content calls
+ * for, max(30, visible * visible / scrollHeight), where visible is the track's
+ * height (the scroller above the phone's bottom nav). Where the engine has
+ * ScrollTimeline, script places the thumb while the content changes size, and
+ * a scroll timeline drives it again once the content rests.
  *
  * Nothing scrolls or moves the pointer while a phase runs: the chips are
  * clicked by a dispatched event, so no scroll session or hover re-measures the
@@ -314,7 +316,21 @@ async function scrollToMiddle(page: Page, scroller: string): Promise<void> {
   });
 }
 
-async function runPhase(page: Page, phase: string, chip: string): Promise<void> {
+/** Whether the engine can hand the thumb to a scroll timeline. */
+async function hasScrollTimeline(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () =>
+      typeof (globalThis as typeof globalThis & { ScrollTimeline?: unknown }).ScrollTimeline ===
+      'function',
+  );
+}
+
+async function runPhase(
+  page: Page,
+  phase: string,
+  chip: string,
+  timelineEngine: boolean,
+): Promise<void> {
   await page.evaluate((name) => (window as ProbeWindow).__thumbProbe!.begin(name), phase);
   await page.locator(chip).dispatchEvent('click');
   await page.waitForFunction(
@@ -322,6 +338,15 @@ async function runPhase(page: Page, phase: string, chip: string): Promise<void> 
     phase,
     { timeout: 5_000 },
   );
+  if (!timelineEngine) return;
+  // Once the content rests, one scroll timeline is built for the settled
+  // geometry and drives the thumb again.
+  await expect
+    .poll(() => page.evaluate(() => (window as ProbeWindow).__thumbProbe!.sample().driver), {
+      message: `the scroll timeline drives the thumb again after the ${phase}`,
+      timeout: 5_000,
+    })
+    .toBe('timeline');
 }
 
 /** Everything a phase got wrong, in words; empty when the thumb followed the content. */
@@ -364,8 +389,9 @@ function checkPhase(
       problems.push(`${label}: thumb at ${round(sample.top)} px, scroll calls for ${round(top)}`);
     }
   };
-  // The first frame may trail: the bar measures on the frame after a change.
-  frames.slice(1).forEach((sample, index) => compare(sample, `frame ${index + 2}`));
+  // The bar lays out in the report of the frame that changed, so the first
+  // frame shows the new length and offset too.
+  frames.forEach((sample, index) => compare(sample, `frame ${index + 1}`));
   compare(settled, 'settled');
 
   // The thumb shortens while the list grows and lengthens while it shrinks,
@@ -431,7 +457,8 @@ async function expectThumbFollowsArea(
     ['open again', 'open', chips.open],
     ['close again', 'close', chips.close],
   ];
-  for (const [name, , chip] of phases) await runPhase(page, name, chip);
+  const timelineEngine = await hasScrollTimeline(page);
+  for (const [name, , chip] of phases) await runPhase(page, name, chip, timelineEngine);
   const records = await page.evaluate(() => (window as ProbeWindow).__thumbProbe!.phases);
 
   const drivers = new Set(

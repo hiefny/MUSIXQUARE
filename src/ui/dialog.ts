@@ -1057,10 +1057,19 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
   });
 
+  // The default focus below runs in a later task. A keyboard user can have
+  // moved inside the dialog before it runs (a busy main thread delays it
+  // past a first Tab); that place is kept. A focus still where it was when
+  // the dialog opened, or one that left the dialog, takes the default.
+  const focusedAtOpen = document.activeElement;
   setManagedTimer(
     'dialog-focus',
     () => {
       if (_dialogActive?.resolve !== resolve) return;
+      const active = document.activeElement;
+      if (active !== focusedAtOpen && active instanceof HTMLElement && overlay.contains(active)) {
+        return;
+      }
       try {
         if (_dialogInput) {
           const focusTarget = _dialogInputFocusTarget || _dialogInput;

@@ -1342,7 +1342,7 @@ describe('custom-scrollbar compositor hot path', () => {
     }
   });
 
-  it('keeps timeline thumb height normal when relayout happens during rubber-band offsets', async () => {
+  it('keeps timeline thumb height normal when relayout happens during rubber-band offsets, and compresses it by script only while the size changes', async () => {
     const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
     const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
     const animate = vi.fn(
@@ -1413,27 +1413,48 @@ describe('custom-scrollbar compositor hot path', () => {
       expect(outerMutations).toHaveLength(0);
       observer.disconnect();
 
+      // A relayout that moves the endpoint is a size change: script places
+      // the thumb, with the script driver's outer compression, until a whole
+      // frame passes with no report. Then one timeline is built, its inline
+      // state clamped like its 0%/100% endpoints, and only the nested visual
+      // compresses again.
       box.container.scrollTop = -20;
       box.setClientHeight(220);
       notifyResize(box.container);
-      flushAnimationFrame();
+      expect(box.track().dataset.scrollDriver).toBe('script');
+      expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(44, 5);
+      expect(thumb.style.transform).toBe('translateY(0px)');
+      expect(readVisualTransform(visual)).toEqual({ translateY: 0, scaleY: 1 });
+      flushAnimationFrame(); // the frame that reported the change
+      expect(box.track().dataset.scrollDriver).toBe('script');
+      expect(animate).toHaveBeenCalledTimes(1);
+      flushAnimationFrame(); // a whole frame with no report
       expect(box.track().dataset.scrollDriver).toBe('timeline');
       expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(48.4, 5);
       expect(thumb.style.transform).toBe('translateY(0px)');
       expect(visual.style.height).toBe('');
       expect(readVisualTransform(visual).translateY).toBe(0);
       expect(readVisualTransform(visual).scaleY).toBeCloseTo(44 / 48.4, 5);
+      expect(animate).toHaveBeenCalledTimes(2);
 
       box.container.scrollTop = 900;
       box.setClientHeight(240);
       notifyResize(box.container);
+      expect(box.track().dataset.scrollDriver).toBe('script');
+      expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(24, 5);
+      const scriptTop = /^translateY\(([-+\d.eE]+)px\)$/u.exec(thumb.style.transform)?.[1];
+      expect(Number(scriptTop)).toBeCloseTo(216, 5);
+      expect(readVisualTransform(visual)).toEqual({ translateY: 0, scaleY: 1 });
       flushAnimationFrame();
+      flushAnimationFrame();
+      expect(box.track().dataset.scrollDriver).toBe('timeline');
       expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(57.6, 5);
       expect(thumb.style.transform).toBe('translateY(182.4px)');
       expect(visual.style.height).toBe('');
       expect(readVisualTransform(visual).translateY).toBeCloseTo(33.6, 5);
       expect(readVisualTransform(visual).scaleY).toBeCloseTo(24 / 57.6, 5);
-      expect(animate).toHaveBeenCalledTimes(3); // only the two changed endpoints rebuild
+      // One timeline for each settled geometry, none for the frames between.
+      expect(animate).toHaveBeenCalledTimes(3);
     } finally {
       if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
       else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
@@ -1755,14 +1776,20 @@ describe('custom-scrollbar relayout isolation', () => {
 
     seek.classList.add('layout-affecting-state');
     box.container.append(document.createElement('div'), document.createElement('div'));
-    notifyResize(box.container);
     bus.emit('ui:scrollbar-relayout');
     await flushMutationObservers();
 
-    // MutationObserver, ResizeObserver and the bus all converge on one frame.
+    // The mutation records and the bus converge on one frame.
     expect(box.rectSpy).not.toHaveBeenCalled();
+    expect(_rafCallbacks.size).toBe(1);
     flushAnimationFrame();
     expect(box.rectSpy).toHaveBeenCalledTimes(1);
+
+    // A resize report comes after the frame's layout, so the bar lays out in
+    // it, from that clean layout, and asks for no frame.
+    notifyResize(box.container);
+    expect(box.rectSpy).toHaveBeenCalledTimes(2);
+    expect(_rafCallbacks.size).toBe(0);
   });
 
   it('cancels queued layout, scroll and fade work on destroy', async () => {
@@ -1790,11 +1817,12 @@ describe('custom-scrollbar content that changes size inside its container', () =
   // it: a Settings collapsible area's grid-rows transition, a hidden toggle, a
   // late font or image. No mutation marks the frames in between, so the bar's
   // one resize observer also watches the container's direct element children,
-  // and each frame in which one changes size lays the bar out on the next.
-  // The browser reports a child's new box after a frame's layout; these rows
-  // stand in for that with notifyResize. Their containers are 400 px tall, so
-  // a thumb is 160000 / scrollHeight px long: 160 at 1000, 128 at 1250, 100
-  // at 1600 and 80 at 2000.
+  // and the bar lays itself out in the report of each frame in which one
+  // changes size. The browser reports a child's new box after a frame's
+  // animation frame callbacks and layout, before its paint; these rows stand
+  // in for that with notifyResize after flushAnimationFrame. Their containers
+  // are 400 px tall, so a thumb is 160000 / scrollHeight px long: 160 at 1000,
+  // 128 at 1250, 100 at 1600 and 80 at 2000.
 
   /** An element child, named so a row can list what is watched. */
   function named(name: string): HTMLElement {
@@ -1821,6 +1849,25 @@ describe('custom-scrollbar content that changes size inside its container', () =
     const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
     const top = /^translateY\(([-+\d.eE]+)px\)$/u.exec(thumb.style.transform)?.[1];
     return { length: Number.parseFloat(thumb.style.height), top: Number(top) };
+  }
+
+  /**
+   * Counts each container's layouts by its bar's one style read of it.
+   * Rect reads cannot tell nested bars apart: an inner bar's layout also
+   * reads its parent's rect, which is the outer container.
+   */
+  function countLayouts(...containers: HTMLElement[]): {
+    read(): number[];
+    restore(): void;
+  } {
+    const styleSpy = vi.spyOn(globalThis, 'getComputedStyle');
+    return {
+      read: (): number[] =>
+        containers.map(
+          (container) => styleSpy.mock.calls.filter(([element]) => element === container).length,
+        ),
+      restore: (): void => styleSpy.mockRestore(),
+    };
   }
 
   /** The names of the named elements any observer watches, sorted. */
@@ -2006,15 +2053,14 @@ describe('custom-scrollbar content that changes size inside its container', () =
       await flushMutationObservers();
       const innerTrack = inner.track();
       const framesBefore = _rafCallbacks.size;
+      const layouts = countLayouts(outer.container, inner.container);
 
       notifyResize(innerTrack);
-      const framesFromBar = _rafCallbacks.size;
-      // Each bar asks for its own frame. (The inner layout also reads the
-      // outer container's rect, as its parent's, so rect counts cannot tell
-      // the two layouts apart here.)
+      const fromBar = { layouts: layouts.read(), frames: _rafCallbacks.size };
+      // Each bar lays itself out in its own report, and neither asks for a frame.
       notifyResize(inner.container);
-      const framesFromContainer = _rafCallbacks.size;
-      flushAnimationFrame();
+      const fromContainer = { layouts: layouts.read(), frames: _rafCallbacks.size };
+      layouts.restore();
 
       expect({
         trackInOuter: innerTrack.parentElement === outer.container,
@@ -2023,9 +2069,8 @@ describe('custom-scrollbar content that changes size inside its container', () =
           innerTrack: watchedBoxes(innerTrack),
         },
         framesBefore,
-        framesFromBar,
-        framesFromContainer,
-        framesLeft: _rafCallbacks.size,
+        fromBar,
+        fromContainer,
       }).toEqual({
         // The inner bar sits beside its container, directly in the outer one.
         trackInOuter: true,
@@ -2033,9 +2078,9 @@ describe('custom-scrollbar content that changes size inside its container', () =
         // its own bar its content box; neither watches the inner bar.
         watched: { innerContainer: ['border-box', 'content-box'], innerTrack: [] },
         framesBefore: 0,
-        framesFromBar: 0,
-        framesFromContainer: 2,
-        framesLeft: 0,
+        // Layouts of [outer, inner].
+        fromBar: { layouts: [0, 0], frames: 0 },
+        fromContainer: { layouts: [1, 1], frames: 0 },
       });
     },
   );
@@ -2172,54 +2217,460 @@ describe('custom-scrollbar content that changes size inside its container', () =
     }
   });
 
-  it('moves the scroll timeline endpoint with each frame of a child resize and keeps the timeline driver', () => {
+  /** The bar's driver, the thumb as the bar last wrote it, and how many animations it built. */
+  function readBar(
+    box: Scrollbox,
+    timeline: { animations: unknown[] },
+  ): { driver: string | undefined; length: string; position: string; animations: number } {
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    return {
+      driver: box.track().dataset.scrollDriver,
+      length: thumb.style.height,
+      position: thumb.style.transform,
+      animations: timeline.animations.length,
+    };
+  }
+
+  /** One frame of a child resize: its animation frame callbacks, then the report. */
+  function resizeFrame(box: Scrollbox, child: HTMLElement, scrollHeight: number): void {
+    flushAnimationFrame();
+    box.setScrollHeight(scrollHeight);
+    notifyResize(child);
+  }
+
+  it('places the thumb by script while a child resizes, frame by frame, and builds one timeline for the settled geometry', () => {
     const timeline = installScrollTimeline();
     try {
       const { box, panel } = createPanelScrollbox('timeline-child-frames');
       box.container.scrollTop = 300;
       initCustomScrollbar(box.container);
-      const track = box.track();
-      const thumb = track.querySelector<HTMLElement>('.cscroll-thumb')!;
+      const atInit = readBar(box, timeline);
       const frames = [1250, 1600, 2000].map((scrollHeight) => {
-        box.setScrollHeight(scrollHeight);
-        notifyResize(panel);
-        flushAnimationFrame();
-        return {
-          driver: track.dataset.scrollDriver,
-          length: thumb.style.height,
-          // A new scroll-linked animation starts pending, so the inline
-          // position under it is seeded to the same offset first.
-          seeded: thumb.style.transform,
-          end: timeline.animations.at(-1)?.end,
-        };
+        resizeFrame(box, panel, scrollHeight);
+        return readBar(box, timeline);
       });
+      // The next frame's check finds the last report; the one after finds none.
+      flushAnimationFrame();
+      const quietFrame = readBar(box, timeline);
+      flushAnimationFrame();
+      const settled = readBar(box, timeline);
 
       expect({
+        atInit,
         frames,
+        quietFrame,
+        settled,
+        ends: timeline.animations.map(({ end }) => end),
         cancels: timeline.animations.map(({ cancel }) => cancel.mock.calls.length),
+        framesLeft: _rafCallbacks.size,
       }).toEqual({
+        atInit: {
+          driver: 'timeline',
+          length: '160px',
+          position: 'translateY(120px)',
+          animations: 1,
+        },
+        // Every frame of the change shows the length and the offset its own
+        // layout calls for, with no animation built, pending or restarted.
         frames: [
-          {
-            driver: 'timeline',
-            length: '128px',
-            seeded: 'translateY(96px)',
-            end: 'translateY(272px)',
-          },
-          {
-            driver: 'timeline',
-            length: '100px',
-            seeded: 'translateY(75px)',
-            end: 'translateY(300px)',
-          },
-          {
-            driver: 'timeline',
-            length: '80px',
-            seeded: 'translateY(60px)',
-            end: 'translateY(320px)',
-          },
+          { driver: 'script', length: '128px', position: 'translateY(96px)', animations: 1 },
+          { driver: 'script', length: '100px', position: 'translateY(75px)', animations: 1 },
+          { driver: 'script', length: '80px', position: 'translateY(60px)', animations: 1 },
         ],
-        // Each rebuild cancels the animation it replaces; the last one runs.
-        cancels: [1, 1, 1, 0],
+        quietFrame: {
+          driver: 'script',
+          length: '80px',
+          position: 'translateY(60px)',
+          animations: 1,
+        },
+        // The new animation starts pending over the same seeded offset.
+        settled: {
+          driver: 'timeline',
+          length: '80px',
+          position: 'translateY(60px)',
+          animations: 2,
+        },
+        ends: ['translateY(240px)', 'translateY(320px)'],
+        // The running animation is cancelled once, at the change's first frame.
+        cancels: [1, 0],
+        framesLeft: 0,
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it('places the thumb by script when a child resize moves only the scroll range, under a thumb at its minimum length', () => {
+    const timeline = installScrollTimeline();
+    try {
+      // A long chat or playlist keeps the thumb at its 30 px minimum, so a
+      // child resize moves the scroll range and leaves the thumb's length and
+      // its 370 px of travel where they were. A running animation would draw
+      // the new range a frame late in WebKit, so script places the thumb here
+      // too.
+      const { box, panel } = createPanelScrollbox('timeline-child-range-only');
+      box.setScrollHeight(6000);
+      box.container.scrollTop = 2800;
+      initCustomScrollbar(box.container);
+      const atInit = readBar(box, timeline);
+      const frames = [7400, 8400].map((scrollHeight) => {
+        resizeFrame(box, panel, scrollHeight);
+        return readBar(box, timeline);
+      });
+      flushAnimationFrame();
+      const quietFrame = readBar(box, timeline);
+      flushAnimationFrame();
+
+      expect({
+        atInit,
+        frames,
+        quietFrame,
+        settled: readBar(box, timeline),
+        ends: timeline.animations.map(({ end }) => end),
+        framesLeft: _rafCallbacks.size,
+      }).toEqual({
+        atInit: {
+          driver: 'timeline',
+          length: '30px',
+          position: 'translateY(185px)',
+          animations: 1,
+        },
+        // The same scroll offset sits higher in each longer range.
+        frames: [
+          { driver: 'script', length: '30px', position: 'translateY(148px)', animations: 1 },
+          { driver: 'script', length: '30px', position: 'translateY(129.5px)', animations: 1 },
+        ],
+        quietFrame: {
+          driver: 'script',
+          length: '30px',
+          position: 'translateY(129.5px)',
+          animations: 1,
+        },
+        settled: {
+          driver: 'timeline',
+          length: '30px',
+          position: 'translateY(129.5px)',
+          animations: 2,
+        },
+        // Only the range moved, so the new animation ends where the old one did.
+        ends: ['translateY(370px)', 'translateY(370px)'],
+        framesLeft: 0,
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it("places the thumb by script when the box and its content resize together, which changes only the thumb's length and travel", () => {
+    const timeline = installScrollTimeline();
+    try {
+      // The box and its content shrink by the same amount, so the scroll range
+      // stays 600 px while the thumb's length and travel shrink with the box.
+      // The bottom nav covering more of a phone list does the same. A timeline
+      // for each new travel would be built again in every frame, so script
+      // places the thumb here too.
+      const { box } = createPanelScrollbox('timeline-box-travel-only');
+      box.container.scrollTop = 300;
+      initCustomScrollbar(box.container);
+      const atInit = readBar(box, timeline);
+      const boxFrame = (clientHeight: number, scrollHeight: number): ReturnType<typeof readBar> => {
+        flushAnimationFrame();
+        box.setClientHeight(clientHeight);
+        box.setScrollHeight(scrollHeight);
+        notifyResize(box.container);
+        return readBar(box, timeline);
+      };
+      const frames = [boxFrame(300, 900), boxFrame(200, 800)];
+      flushAnimationFrame();
+      const quietFrame = readBar(box, timeline);
+      flushAnimationFrame();
+
+      expect({
+        atInit,
+        frames,
+        quietFrame,
+        settled: readBar(box, timeline),
+        ends: timeline.animations.map(({ end }) => end),
+        framesLeft: _rafCallbacks.size,
+      }).toEqual({
+        atInit: {
+          driver: 'timeline',
+          length: '160px',
+          position: 'translateY(120px)',
+          animations: 1,
+        },
+        // Half the range down, so half of each new travel.
+        frames: [
+          { driver: 'script', length: '100px', position: 'translateY(100px)', animations: 1 },
+          { driver: 'script', length: '50px', position: 'translateY(75px)', animations: 1 },
+        ],
+        quietFrame: {
+          driver: 'script',
+          length: '50px',
+          position: 'translateY(75px)',
+          animations: 1,
+        },
+        settled: {
+          driver: 'timeline',
+          length: '50px',
+          position: 'translateY(75px)',
+          animations: 2,
+        },
+        ends: ['translateY(240px)', 'translateY(150px)'],
+        framesLeft: 0,
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it('keeps the script driver while a child still reports size changes that leave the range where it was', () => {
+    const timeline = installScrollTimeline();
+    try {
+      const { box, panel } = createPanelScrollbox('timeline-child-rests');
+      initCustomScrollbar(box.container);
+      resizeFrame(box, panel, 1250);
+      // The scroll range moves in whole pixels, so it can rest for a frame or
+      // two while the content still grows by fractions of one.
+      const resting = [1250, 1250, 1250].map((scrollHeight) => {
+        resizeFrame(box, panel, scrollHeight);
+        return readBar(box, timeline);
+      });
+      flushAnimationFrame();
+      const quietFrame = readBar(box, timeline);
+      flushAnimationFrame();
+
+      expect({ resting, quietFrame, settled: readBar(box, timeline) }).toEqual({
+        resting: Array.from({ length: 3 }, () => ({
+          driver: 'script',
+          length: '128px',
+          position: 'translateY(0px)',
+          animations: 1,
+        })),
+        quietFrame: {
+          driver: 'script',
+          length: '128px',
+          position: 'translateY(0px)',
+          animations: 1,
+        },
+        settled: {
+          driver: 'timeline',
+          length: '128px',
+          position: 'translateY(0px)',
+          animations: 2,
+        },
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it('lays the bar out inside a resize report and asks for no frame, while a bar that manages its gutter keeps the next frame', async () => {
+    const { box, panel } = createPanelScrollbox('report-layout');
+    const gutter = createPanelScrollbox('report-layout-gutter');
+    gutter.box.container.setAttribute('data-custom-scroll-gutter', '');
+    initCustomScrollbar(box.container);
+    initCustomScrollbar(gutter.box.container);
+    // The gutter class written at init has a record of its own.
+    await flushMutationObservers();
+    flushAnimationFrame();
+    await flushMutationObservers();
+    box.rectSpy.mockClear();
+    gutter.box.rectSpy.mockClear();
+
+    box.setScrollHeight(1250);
+    notifyResize(panel);
+    const plain = {
+      layouts: box.rectSpy.mock.calls.length,
+      frames: _rafCallbacks.size,
+      thumb: readThumb(box),
+    };
+    gutter.box.setScrollHeight(1250);
+    notifyResize(gutter.panel);
+    const gutterReport = {
+      layouts: gutter.box.rectSpy.mock.calls.length,
+      frames: _rafCallbacks.size,
+    };
+    flushAnimationFrame();
+
+    expect({
+      plain,
+      gutterReport,
+      gutterFrame: { layouts: gutter.box.rectSpy.mock.calls.length, thumb: readThumb(gutter.box) },
+    }).toEqual({
+      plain: { layouts: 1, frames: 0, thumb: { length: 128, top: 0 } },
+      gutterReport: { layouts: 0, frames: 1 },
+      gutterFrame: { layouts: 1, thumb: { length: 128, top: 0 } },
+    });
+  });
+
+  it('requests no frame for a child resize where the engine has no ScrollTimeline', () => {
+    const { box, panel } = createPanelScrollbox('no-timeline-child-frames');
+    box.container.scrollTop = 300;
+    initCustomScrollbar(box.container);
+    const frames = [1250, 1600, 2000].map((scrollHeight) => {
+      resizeFrame(box, panel, scrollHeight);
+      return {
+        driver: box.track().dataset.scrollDriver,
+        thumb: readThumb(box),
+        frames: _rafCallbacks.size,
+      };
+    });
+
+    expect(frames).toEqual([
+      { driver: 'script', thumb: { length: 128, top: 96 }, frames: 0 },
+      { driver: 'script', thumb: { length: 100, top: 75 }, frames: 0 },
+      { driver: 'script', thumb: { length: 80, top: 60 }, frames: 0 },
+    ]);
+  });
+
+  it('reads the scroll offset once per layout, before it writes the thumb', () => {
+    const timeline = installScrollTimeline();
+    try {
+      const { box, panel } = createPanelScrollbox('one-offset-read');
+      box.container.scrollTop = 300;
+      initCustomScrollbar(box.container);
+      const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+      // In a browser a read after a write lays the thumb out again first, so
+      // each read records the length the thumb had then.
+      const lengthsAtRead: string[] = [];
+      Object.defineProperty(box.container, 'scrollTop', {
+        configurable: true,
+        get: (): number => {
+          lengthsAtRead.push(thumb.style.height);
+          return 300;
+        },
+      });
+
+      // A layout that changes the length under the running timeline.
+      box.setScrollHeight(1250);
+      notifyResize(panel);
+      flushAnimationFrame();
+      const resizeLayout = [...lengthsAtRead];
+      // The layout that builds the timeline for the settled geometry.
+      flushAnimationFrame();
+
+      expect({
+        resizeLayout,
+        buildLayout: lengthsAtRead.slice(resizeLayout.length),
+        settled: readBar(box, timeline),
+      }).toEqual({
+        resizeLayout: ['160px'],
+        buildLayout: ['128px'],
+        settled: {
+          driver: 'timeline',
+          length: '128px',
+          position: 'translateY(96px)',
+          animations: 2,
+        },
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it('builds no timeline when a thumb drag ends while a child resizes, and builds one once the size settles', () => {
+    const timeline = installScrollTimeline();
+    try {
+      const { box, panel } = createPanelScrollbox('drag-ends-in-resize');
+      initCustomScrollbar(box.container);
+      const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+      resizeFrame(box, panel, 1250);
+      thumb.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientY: 0 }),
+      );
+      resizeFrame(box, panel, 1600);
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+      const released = readBar(box, timeline);
+      flushAnimationFrame();
+      const quietFrame = readBar(box, timeline);
+      flushAnimationFrame();
+
+      expect({
+        released,
+        quietFrame,
+        settled: readBar(box, timeline),
+        ends: timeline.animations.map(({ end }) => end),
+      }).toEqual({
+        released: { driver: 'script', length: '100px', position: 'translateY(0px)', animations: 1 },
+        quietFrame: {
+          driver: 'script',
+          length: '100px',
+          position: 'translateY(0px)',
+          animations: 1,
+        },
+        settled: {
+          driver: 'timeline',
+          length: '100px',
+          position: 'translateY(0px)',
+          animations: 2,
+        },
+        ends: ['translateY(240px)', 'translateY(300px)'],
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it('cancels the resize-end check when the bar is destroyed while a child resizes', () => {
+    const timeline = installScrollTimeline();
+    try {
+      const { box, panel } = createPanelScrollbox('destroy-in-resize');
+      initCustomScrollbar(box.container);
+      resizeFrame(box, panel, 1250);
+      const during = { ...readBar(box, timeline), frames: _rafCallbacks.size };
+      destroyCustomScrollbar(box.container);
+      const framesAfterDestroy = _rafCallbacks.size;
+      flushAnimationFrame();
+      flushAnimationFrame();
+
+      expect({ during, framesAfterDestroy, animations: timeline.animations.length }).toEqual({
+        during: {
+          driver: 'script',
+          length: '128px',
+          position: 'translateY(0px)',
+          animations: 1,
+          frames: 1,
+        },
+        framesAfterDestroy: 0,
+        animations: 1,
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it('drops a resize it follows once the content stops overflowing, and builds the timeline at once when it overflows again', () => {
+    const timeline = installScrollTimeline();
+    try {
+      const { box, panel } = createPanelScrollbox('resize-without-overflow');
+      initCustomScrollbar(box.container);
+      resizeFrame(box, panel, 1250);
+      resizeFrame(box, panel, 300);
+      const fitted = { ...readBar(box, timeline), frames: _rafCallbacks.size };
+      box.setScrollHeight(2000);
+      notifyResize(panel);
+
+      expect({
+        fitted,
+        overflowing: readBar(box, timeline),
+        ends: timeline.animations.map(({ end }) => end),
+      }).toEqual({
+        // The bar has nothing to show and no check left to run.
+        fitted: {
+          driver: 'script',
+          length: '128px',
+          position: 'translateY(0px)',
+          animations: 1,
+          frames: 0,
+        },
+        overflowing: {
+          driver: 'timeline',
+          length: '80px',
+          position: 'translateY(0px)',
+          animations: 2,
+        },
+        ends: ['translateY(240px)', 'translateY(320px)'],
       });
     } finally {
       timeline.restore();

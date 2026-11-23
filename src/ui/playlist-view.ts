@@ -121,6 +121,8 @@ function canEditQueueStructure(): boolean {
 interface PlaylistInteraction {
   readonly reorder: 'idle' | 'gesture' | 'settling';
   readonly selection: boolean;
+  /** The selection has ended, but its bar and the room it takes are still going. */
+  readonly selectionLeaving: boolean;
 }
 
 function playlistInteraction(): PlaylistInteraction {
@@ -128,6 +130,7 @@ function playlistInteraction(): PlaylistInteraction {
   return {
     reorder: !reorder?.isActive ? 'idle' : reorder.isSettling ? 'settling' : 'gesture',
     selection: !!_removalController?.isActive,
+    selectionLeaving: !!_removalController?.isLeaving,
   };
 }
 
@@ -135,7 +138,10 @@ function interactionPolicy(interaction: PlaylistInteraction = playlistInteractio
   return {
     /** A reorder owns the rendered rows until its drop settle ends. */
     renderDeferred: interaction.reorder !== 'idle',
-    followBlocked: interaction.reorder !== 'idle' || interaction.selection,
+    // The leaving bar's room still moves the scroll range; follow resumes
+    // once the removal has let go (its onSelectionEnd).
+    followBlocked:
+      interaction.reorder !== 'idle' || interaction.selection || interaction.selectionLeaving,
     /** In edit mode the number column picks rows instead of grabbing them. */
     handleUsable: !interaction.selection,
     /** Outside edit mode a long press starts it with the held row. */

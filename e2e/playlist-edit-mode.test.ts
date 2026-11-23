@@ -1052,6 +1052,91 @@ test.describe('Playlist edit mode (touch)', () => {
   });
 });
 
+// The selection bar sits in flow after the last track and adds its own room
+// to the scroll range: 16 px of margin and 68 px of bar.
+const LONG_LIST = Array.from(
+  { length: 14 },
+  (_, index) => (['test01', 'test02', 'test03'] as const)[index % 3]!,
+);
+
+async function openLongPlaylistAtItsEnd(page: Page, phone: boolean): Promise<void> {
+  await injectPeerServer(page);
+  await setupHostAndStart(page);
+  await uploadFixtures(page, LONG_LIST);
+  await waitForPlaylistCount(page, LONG_LIST.length);
+  await waitForViewTransitionEnd(page);
+  if (phone) await navigateToTab(page, 'playlist');
+  await page.waitForTimeout(800);
+  await scrollPlaylistToItsEnd(page);
+  await page.waitForTimeout(300);
+}
+
+async function scrollPlaylistToItsEnd(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
+    body.scrollTop = body.scrollHeight;
+  });
+}
+
+interface RoomFrame {
+  scrollTop: number;
+  max: number;
+  barHidden: boolean;
+}
+
+/** The body's scroll range each frame for `ms`, starting right after `act`. */
+async function roomFrames(page: Page, act: () => Promise<void>, ms: number) {
+  await page.evaluate((duration) => {
+    const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
+    const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+    const frames: RoomFrame[] = [];
+    (window as unknown as { __roomFrames: RoomFrame[] }).__roomFrames = frames;
+    const start = performance.now();
+    const step = () => {
+      frames.push({
+        scrollTop: body.scrollTop,
+        max: body.scrollHeight - body.clientHeight,
+        barHidden: Boolean(bar.hidden),
+      });
+      if (performance.now() - start < duration) requestAnimationFrame(step);
+    };
+    step();
+  }, ms);
+  await act();
+  await page.waitForTimeout(ms + 100);
+  return page.evaluate(() => (window as unknown as { __roomFrames: RoomFrame[] }).__roomFrames);
+}
+
+/** The last track's bottom and the resting bar's top, in viewport pixels. */
+async function lastTrackAndBar(page: Page) {
+  return page.evaluate(() => {
+    const entries = document.querySelectorAll<HTMLElement>('#playlist-ui > .playlist-entry');
+    const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+    return {
+      lastBottom: entries[entries.length - 1]!.getBoundingClientRect().bottom,
+      barTop: bar.hidden ? null : bar.getBoundingClientRect().top,
+    };
+  });
+}
+
+/** The frame where the room went, with the one before it. */
+function roomGoing(frames: RoomFrame[]) {
+  const index = frames.findIndex(
+    (frame, at) => at > 0 && frame.barHidden && !frames[at - 1]!.barHidden,
+  );
+  expect(index).toBeGreaterThan(0);
+  return { before: frames[index - 1]!, after: frames[index]! };
+}
+
+/** The list rose over several frames, into the room the bar takes. */
+function expectRiseIntoRoom(frames: RoomFrame[], atEnd: number): void {
+  const settled = frames.at(-1)!.scrollTop;
+  expect(settled).toBeGreaterThan(atEnd + 40);
+  expect(frames.some((frame) => frame.scrollTop > atEnd + 1 && frame.scrollTop < settled - 1)).toBe(
+    true,
+  );
+}
+
 test.describe('Selection bar room (phone)', () => {
   test.use({
     viewport: { width: 390, height: 844 },
@@ -1060,99 +1145,21 @@ test.describe('Selection bar room (phone)', () => {
     deviceScaleFactor: 1,
   });
 
-  const LONG_LIST = Array.from(
-    { length: 14 },
-    (_, index) => (['test01', 'test02', 'test03'] as const)[index % 3]!,
-  );
-
-  async function openLongPlaylistAtItsEnd(page: Page): Promise<void> {
-    await injectPeerServer(page);
-    await setupHostAndStart(page);
-    await uploadFixtures(page, LONG_LIST);
-    await waitForPlaylistCount(page, LONG_LIST.length);
-    await waitForViewTransitionEnd(page);
-    await navigateToTab(page, 'playlist');
-    await page.waitForTimeout(800);
-    await page.evaluate(() => {
-      const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
-      body.scrollTop = body.scrollHeight;
-    });
-    await page.waitForTimeout(300);
-  }
-
-  interface RoomFrame {
-    scrollTop: number;
-    max: number;
-    barHidden: boolean;
-  }
-
-  /** The body's scroll range each frame for `ms`, starting right after `act`. */
-  async function roomFrames(page: Page, act: () => Promise<void>, ms: number) {
-    await page.evaluate((duration) => {
-      const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
-      const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
-      const frames: RoomFrame[] = [];
-      (window as unknown as { __roomFrames: RoomFrame[] }).__roomFrames = frames;
-      const start = performance.now();
-      const step = () => {
-        frames.push({
-          scrollTop: body.scrollTop,
-          max: body.scrollHeight - body.clientHeight,
-          barHidden: Boolean(bar.hidden),
-        });
-        if (performance.now() - start < duration) requestAnimationFrame(step);
-      };
-      step();
-    }, ms);
-    await act();
-    await page.waitForTimeout(ms + 100);
-    return page.evaluate(() => (window as unknown as { __roomFrames: RoomFrame[] }).__roomFrames);
-  }
-
-  /** The last track's bottom and the resting bar's top, once both have settled. */
-  async function lastTrackAndBar(page: Page) {
-    return page.evaluate(() => {
-      const entries = document.querySelectorAll<HTMLElement>('#playlist-ui > .playlist-entry');
-      const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
-      return {
-        lastBottom: entries[entries.length - 1]!.getBoundingClientRect().bottom,
-        barTop: bar.hidden ? null : bar.getBoundingClientRect().top,
-      };
-    });
-  }
-
-  /** The frame where the room went, with the one before it. */
-  function roomGoing(frames: RoomFrame[]) {
-    const index = frames.findIndex(
-      (frame, at) => at > 0 && frame.barHidden && !frames[at - 1]!.barHidden,
-    );
-    expect(index).toBeGreaterThan(0);
-    return { before: frames[index - 1]!, after: frames[index]! };
-  }
-
   test('selecting the last track brings it up above the bar, and Cancel closes the room without a jump', async ({
     page,
   }) => {
     test.setTimeout(120_000);
-    await openLongPlaylistAtItsEnd(page);
+    await openLongPlaylistAtItsEnd(page, true);
     const atEnd = await page.locator('#tab-playlist .tab-body').evaluate((body) => body.scrollTop);
     const minus = await centerOf(page.locator('#playlist-ui .btn-playlist-select').last());
     const arrival = await roomFrames(page, () => page.touchscreen.tap(minus.x, minus.y), 500);
-    // The list rose over several frames, into the room the bar takes.
-    const settled = arrival.at(-1)!.scrollTop;
-    expect(settled).toBeGreaterThan(atEnd + 40);
-    expect(
-      arrival.some((frame) => frame.scrollTop > atEnd + 1 && frame.scrollTop < settled - 1),
-    ).toBe(true);
+    expectRiseIntoRoom(arrival, atEnd);
     const shown = await lastTrackAndBar(page);
     // The bar's own top margin apart, as at the end of the list.
     expect(shown.barTop! - shown.lastBottom).toBeGreaterThanOrEqual(15);
 
     // The user scrolls to the end of the room, then cancels.
-    await page.evaluate(() => {
-      const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
-      body.scrollTop = body.scrollHeight;
-    });
+    await scrollPlaylistToItsEnd(page);
     await page.waitForTimeout(200);
     const cancel = await centerOf(page.locator('[data-selection-action="cancel"]'));
     const leaving = await roomFrames(page, () => page.touchscreen.tap(cancel.x, cancel.y), 700);
@@ -1166,28 +1173,56 @@ test.describe('Selection bar room (phone)', () => {
     page,
   }) => {
     test.setTimeout(120_000);
-    await openLongPlaylistAtItsEnd(page);
+    await openLongPlaylistAtItsEnd(page, true);
     const checks = page.locator('#playlist-ui .btn-playlist-select');
     for (const index of [LONG_LIST.length - 2, LONG_LIST.length - 1]) {
       const point = await centerOf(checks.nth(index));
       await page.touchscreen.tap(point.x, point.y);
       await page.waitForTimeout(400);
     }
-    await page.evaluate(() => {
-      const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
-      body.scrollTop = body.scrollHeight;
-    });
+    await scrollPlaylistToItsEnd(page);
     await page.waitForTimeout(200);
     const remove = await centerOf(page.locator('[data-selection-action="delete"]'));
     const frames = await roomFrames(page, () => page.touchscreen.tap(remove.x, remove.y), 900);
     const { before, after } = roomGoing(frames);
     expect(before.scrollTop).toBeLessThanOrEqual(after.max + 1);
-    await waitForPlaylistCount(page, LONG_LIST.length - 2);
-    // The survivors end where the end of the list is.
+    // Both tracks are gone, and the survivors end where the list ends.
+    await expect(page.locator('#playlist-ui > .playlist-entry')).toHaveCount(LONG_LIST.length - 2);
     const end = await page.locator('#tab-playlist .tab-body').evaluate((body) => ({
       scrollTop: body.scrollTop,
       max: body.scrollHeight - body.clientHeight,
     }));
     expect(end.scrollTop).toBeCloseTo(end.max, 0);
+  });
+});
+
+test.describe('Selection bar room (wide desktop)', () => {
+  // At 2560 by 1280 or more the dashboard renders the body 1.2 times larger:
+  // rects grow with it, while scroll positions and sizes stay in its CSS pixels.
+  test.use({ viewport: { width: 2560, height: 1440 }, deviceScaleFactor: 1 });
+
+  test('on the scaled dashboard the last track rises above the bar and Cancel closes the room without a jump', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await openLongPlaylistAtItsEnd(page, false);
+    const scale = await page.evaluate(() =>
+      Number.parseFloat(getComputedStyle(document.body).getPropertyValue('--desktop-ui-scale')),
+    );
+    expect(scale).toBe(1.2);
+    const atEnd = await page.locator('#tab-playlist .tab-body').evaluate((body) => body.scrollTop);
+    const minus = await centerOf(page.locator('#playlist-ui .btn-playlist-select').last());
+    const arrival = await roomFrames(page, () => page.mouse.click(minus.x, minus.y), 500);
+    expectRiseIntoRoom(arrival, atEnd);
+    const shown = await lastTrackAndBar(page);
+    expect(shown.barTop! - shown.lastBottom).toBeGreaterThanOrEqual(15 * scale);
+
+    await scrollPlaylistToItsEnd(page);
+    await page.waitForTimeout(200);
+    const cancel = await centerOf(page.locator('[data-selection-action="cancel"]'));
+    const leaving = await roomFrames(page, () => page.mouse.click(cancel.x, cancel.y), 700);
+    const { before, after } = roomGoing(leaving);
+    expect(before.scrollTop).toBeLessThanOrEqual(after.max + 1);
+    expect(after.scrollTop).toBeCloseTo(atEnd, 0);
   });
 });

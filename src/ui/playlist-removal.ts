@@ -3,6 +3,7 @@ import { t } from '../i18n/index.ts';
 import { setControlHint } from './control-hint.ts';
 import type { PlaylistSelectionMorph } from './playlist-selection-morph.ts';
 import { PLAYLIST_ROW_EASING, prefersReducedMotion } from './playlist-motion.ts';
+import { getBodyRenderedScale } from '../core/platform.ts';
 import { scrollToWithPreferredMotion } from './scroll-motion.ts';
 
 const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
@@ -28,13 +29,15 @@ const BAR_EXIT_MS = 220;
 const BAR_EXIT_EASING = 'cubic-bezier(0.4, 0, 0.9, 0.6)';
 /**
  * The bar takes room under the last track, and that room goes with the bar.
- * A list scrolled into it scrolls back out first, with the browser's smooth
- * scroll: about 0.13 s in Chromium and 0.09 s in WebKit for the bar's 84 px
- * (measured 2026-11-24), inside the pills' fade. A slower one keeps the room
- * past the fade until it arrives, but never past this time from the mode's
- * end, so a scroll the user stopped cannot hold the room.
+ * The removal scrolls into it when the bar would cover a selected track and
+ * back out before it goes, with the browser's smooth scroll: about 0.13 s in
+ * Chromium and 0.09 s in WebKit for the bar's 84 px (measured 2026-11-24),
+ * inside the pills' fade. A render stops such a scroll, and the removal starts
+ * it again, and a slower exit scroll keeps the faded bar and its room until
+ * it arrives, but neither past this time from the scroll's start, so a
+ * scroll that never arrives cannot hold the list or the room.
  */
-const ROOM_EXIT_LIMIT_MS = 600;
+const ROOM_SCROLL_LIMIT_MS = 600;
 /** The tab header crossfades between its normal and selection controls. */
 const HEADER_FADE_OUT_MS = 180;
 const HEADER_FADE_IN_MS = 240;
@@ -84,6 +87,8 @@ interface PlaylistRemovalControllerOptions {
 
 export interface PlaylistRemovalController {
   readonly isActive: boolean;
+  /** The selection has ended, but its bar, and the room it takes, are still going. */
+  readonly isLeaving: boolean;
   isSelected(queueItemId: QueueItemId): boolean;
   /** Rows the list must not render while their remote removal is confirmed. */
   isHidden(queueItemId: QueueItemId): boolean;
@@ -213,13 +218,23 @@ export function createPlaylistRemovalController(
   let barExitTimer = 0;
   /** The list body the bar floats in; it scrolls to make and close the bar's room. */
   const scroller = list.closest<HTMLElement>('.tab-body');
-  /** Where the list scrolls out of the bar's room to as the mode ends. */
-  let roomExit: { top: number; until: number } | null = null;
+  /**
+   * The removal's own smooth scroll into the bar's room (a reveal) or out of
+   * it (an exit): its target, and until when a render that stops it starts it
+   * again. A press, wheel or key on the list body ends it.
+   */
+  let roomScroll: { kind: 'reveal' | 'exit'; top: number; until: number } | null = null;
+  /** A deletion closes its room once the pills have faded, as its survivors move. */
+  let closeRoomAfterFade = false;
   let roomExitFrame = 0;
-  /** A press on the list is down; room for a selection it made waits for it. */
-  let pressDown = false;
+  /** Primary presses down on the list; room for a selection one made waits for it. */
+  const pressedPointers = new Set<number>();
   let revealAfterPress = false;
   let revealFrame = 0;
+  /** The release of a press that started the mode has not sent its click yet. */
+  let releaseClickPending = false;
+  /** The mode ended while the bar leaves; its owner hears once the room is gone. */
+  let selectionEndPending = false;
   let exitLayer: HTMLElement | null = null;
   let headerFadeLayer: HTMLElement | null = null;
   let headerFadeTimer = 0;
@@ -312,18 +327,24 @@ export function createPlaylistRemovalController(
     barExitTimer = 0;
     if (roomExitFrame) window.cancelAnimationFrame(roomExitFrame);
     roomExitFrame = 0;
-    roomExit = null;
   }
 
-  /** The bar's top once its entrance slide has settled. */
-  function restingBarTop(): number {
+  /** The bar's top, in viewport pixels, once its entrance slide has settled. */
+  function restingBarTop(scale: number): number {
     const top = bar.getBoundingClientRect().top;
     if (typeof DOMMatrixReadOnly !== 'function') return top;
     try {
-      return top - new DOMMatrixReadOnly(getComputedStyle(bar).transform).m42;
+      // The slide's offset is in the bar's own CSS pixels.
+      return top - new DOMMatrixReadOnly(getComputedStyle(bar).transform).m42 * scale;
     } catch {
       return top;
     }
+  }
+
+  function scrollRoom(kind: 'reveal' | 'exit', top: number): void {
+    if (!scroller) return;
+    roomScroll = { kind, top, until: performance.now() + ROOM_SCROLL_LIMIT_MS };
+    scrollToWithPreferredMotion(scroller, top);
   }
 
   /**
@@ -335,8 +356,11 @@ export function createPlaylistRemovalController(
   function revealSelection(): void {
     revealAfterPress = false;
     if (!scroller || barState !== 'select' || !options.isPlaylistVisible()) return;
-    const barTop = restingBarTop();
-    const barBottom = barTop + bar.offsetHeight;
+    // Rects are in viewport pixels. The wide desktop scales the body, and the
+    // scroll position, sizes and margins stay in its CSS pixels.
+    const scale = getBodyRenderedScale();
+    const barTop = restingBarTop(scale);
+    const barBottom = barTop + bar.offsetHeight * scale;
     // A selected track wholly below the bar (under the navigation, or out of
     // sight after a range drag) was not in view, so it is not brought up.
     const rows = [...list.querySelectorAll<HTMLElement>(`${ENTRY_SELECTOR}.is-removal-selected`)]
@@ -347,9 +371,9 @@ export function createPlaylistRemovalController(
     const gap = parseFloat(getComputedStyle(bar).marginTop) || 0;
     const top = Math.min(
       scroller.scrollHeight - scroller.clientHeight,
-      scroller.scrollTop + lowest.bottom + gap - barTop,
+      scroller.scrollTop + (lowest.bottom - barTop) / scale + gap,
     );
-    if (top - scroller.scrollTop >= 1) scrollToWithPreferredMotion(scroller, top);
+    if (top - scroller.scrollTop >= 1) scrollRoom('reveal', top);
   }
 
   /**
@@ -359,24 +383,29 @@ export function createPlaylistRemovalController(
    */
   function closeRoom(): void {
     if (!scroller) return;
-    // The list's own box: rows gliding after a deletion move by transform.
+    // The end of the list's own box in the body's content, in its CSS pixels
+    // (rows gliding after a deletion move by transform, outside the box). The
+    // body is positioned, so it anchors the list's offsets.
     const listEnd =
-      list.getBoundingClientRect().bottom -
-      scroller.getBoundingClientRect().top -
-      scroller.clientTop +
-      scroller.scrollTop;
+      list.offsetParent === scroller
+        ? list.offsetTop + list.offsetHeight
+        : (list.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top) /
+            getBodyRenderedScale() -
+          scroller.clientTop +
+          scroller.scrollTop;
     const end = listEnd + (parseFloat(getComputedStyle(scroller).paddingBottom) || 0);
     const top = Math.max(0, end - scroller.clientHeight);
-    if (scroller.scrollTop - top < 1) return;
-    roomExit = { top, until: performance.now() + ROOM_EXIT_LIMIT_MS };
-    scrollToWithPreferredMotion(scroller, top);
+    if (scroller.scrollTop - top >= 1) scrollRoom('exit', top);
   }
 
   // A render writes the scroll position back, which stops a smooth scroll on
-  // its way out of the room (a deletion renders again a frame later).
-  function continueRoomExit(): void {
-    if (roomExit && scroller && scroller.scrollTop - roomExit.top >= 1) {
-      scrollToWithPreferredMotion(scroller, roomExit.top);
+  // its way (a deletion renders again a frame later, and another device can
+  // change the playlist at any time), so the removal starts it again.
+  function continueRoomScroll(): void {
+    const scroll = roomScroll;
+    if (!scroll || !scroller || performance.now() >= scroll.until) return;
+    if (Math.abs(scroller.scrollTop - scroll.top) >= 1) {
+      scrollToWithPreferredMotion(scroller, scroll.top);
     }
   }
 
@@ -385,14 +414,22 @@ export function createPlaylistRemovalController(
   function hideBarAfterRoom(): void {
     roomExitFrame = 0;
     if (barState !== 'leaving') return;
-    // A deletion's survivors begin to close up about now; its room goes with them.
-    if (!roomExit) closeRoom();
-    const exit = roomExit;
+    if (closeRoomAfterFade) {
+      // A deletion's survivors begin to close up about now; its room goes with them.
+      closeRoomAfterFade = false;
+      closeRoom();
+    }
+    const exit = roomScroll?.kind === 'exit' ? roomScroll : null;
     if (exit && scroller && scroller.scrollTop - exit.top >= 1 && performance.now() < exit.until) {
       roomExitFrame = window.requestAnimationFrame(hideBarAfterRoom);
       return;
     }
     setBarState('hidden');
+  }
+
+  /** The selection UI has let go of the playlist: follow may resume. */
+  function releaseSelection(): void {
+    if (!destroyed && options.isPlaylistVisible()) options.onSelectionEnd?.();
   }
 
   function renderBarLabels(): void {
@@ -406,19 +443,31 @@ export function createPlaylistRemovalController(
     if (state === barState && state !== 'select') return;
     stopBarAnimations();
     const reentering = barState === 'leaving' && state === 'select';
+    if (state !== barState) {
+      // The room's own scroll belongs to the state it started in.
+      roomScroll = null;
+      closeRoomAfterFade = false;
+    }
     barState = state;
     bar.dataset.state = state;
     if (reentering) {
       // Selecting again while the pills leave replays their entry instead of
-      // snapping the half-faded bar back.
-      bar.hidden = true;
+      // snapping the half-faded bar back. The bar stays in flow meanwhile, so
+      // its room, and a list scrolled into it, stay where they are.
+      bar.style.animation = 'none';
       void bar.offsetWidth;
+      bar.style.removeProperty('animation');
     }
     bar.hidden = state === 'hidden';
     // While the pills slide away the list keeps its selection-mode height,
     // so they leave from right under the last track.
     list.classList.toggle('has-removal-exit', state === 'leaving');
     renderBarLabels();
+    if (state === 'select') selectionEndPending = false;
+    else if (state === 'hidden' && selectionEndPending) {
+      selectionEndPending = false;
+      queueMicrotask(releaseSelection);
+    }
   }
 
   function canAnimateBarExit(): boolean {
@@ -652,17 +701,17 @@ export function createPlaylistRemovalController(
     if (entering) {
       // A long press or a range drag that started the mode is still down:
       // the rows stay under it until it lets go.
-      if (pressDown) revealAfterPress = true;
+      if (pressedPointers.size > 0) revealAfterPress = true;
       else revealSelection();
     }
 
     if (selectionEnded && options.isPlaylistVisible()) {
       // Playback may have advanced while follow-scrolling was intentionally
       // blocked by deletion mode. Resume it only after the selection UI has
-      // fully released ownership of the playlist.
-      queueMicrotask(() => {
-        if (!destroyed && options.isPlaylistVisible()) options.onSelectionEnd?.();
-      });
+      // fully released ownership of the playlist: once a leaving bar, and the
+      // room it takes, are gone.
+      if (barState === 'leaving') selectionEndPending = true;
+      else queueMicrotask(releaseSelection);
     }
   }
 
@@ -773,7 +822,11 @@ export function createPlaylistRemovalController(
     // hint) waits until the leaving rows have faded.
     const exitDelay = !destroyed && exitRows !== null ? slideOutRows(exitRows) : 0;
     glideRows(rowsBefore, exitDelay);
-    if (barTopBefore !== null) animateBarExit(barTopBefore);
+    if (barTopBefore !== null) {
+      // Not under the leaving rows: the room closes as the survivors move in.
+      closeRoomAfterFade = true;
+      animateBarExit(barTopBefore);
+    }
     if (focusWasOnBar) releaseControlFocus(survivorQueueItemId);
   }
 
@@ -962,6 +1015,33 @@ export function createPlaylistRemovalController(
     }
   }
 
+  // The release of a press that started the mode (a long press, a range drag)
+  // may still send a click, under the pointer, onto what slid in there: a pill
+  // of the bar, or the body beside it, which would act or end the mode. A
+  // click with no press or key of its own since that release is that click.
+  // On the rows, the reorder and the range drag already swallow it.
+  // Registered before the outside-tap listener below, so it runs first.
+  for (const type of ['pointerdown', 'keydown']) {
+    document.addEventListener(
+      type,
+      () => {
+        releaseClickPending = false;
+      },
+      { capture: true, signal: abortController.signal },
+    );
+  }
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!releaseClickPending) return;
+      releaseClickPending = false;
+      if (event.target instanceof Node && list.contains(event.target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    },
+    { capture: true, signal: abortController.signal },
+  );
+
   // Deletion mode belongs to the track list. Any tap or click elsewhere
   // (another tab, the player, empty space under the list) ends it, while the
   // mode's own header button and pills keep it.
@@ -1008,35 +1088,56 @@ export function createPlaylistRemovalController(
   // A tap selects on its click, after the press has ended. A long press or a
   // range drag selects while it is still down, and the room for that
   // selection waits until it lets go: scrolling under a press would move what
-  // it is over. It comes a frame after the release, past the release's own
-  // click. A press the browser takes for scrolling leaves the rows to it.
+  // it is over. It comes a frame after the release. A press the browser takes
+  // for scrolling leaves the rows to it.
+  const releasePress = (pointerId: number, cancelled: boolean) => {
+    if (!pressedPointers.delete(pointerId)) return;
+    if (cancelled) revealAfterPress = false;
+    if (pressedPointers.size > 0 || !revealAfterPress) return;
+    releaseClickPending = true;
+    if (revealFrame) return;
+    revealFrame = window.requestAnimationFrame(() => {
+      revealFrame = 0;
+      if (revealAfterPress) revealSelection();
+    });
+  };
+  // Leaving the window can swallow a release. (A context menu does not end a
+  // press: Android sends one in the middle of every long press.)
+  const forgetPresses = () => {
+    pressedPointers.clear();
+    revealAfterPress = false;
+  };
   list.addEventListener(
     'pointerdown',
-    () => {
-      pressDown = true;
+    (event) => {
+      // The primary button, a finger or a pen; the presses the row gestures take.
+      if (event.button === 0) pressedPointers.add(event.pointerId);
     },
     { capture: true, signal: abortController.signal },
   );
-  document.addEventListener(
-    'pointerup',
-    () => {
-      pressDown = false;
-      if (!revealAfterPress || revealFrame) return;
-      revealFrame = window.requestAnimationFrame(() => {
-        revealFrame = 0;
-        if (revealAfterPress) revealSelection();
-      });
-    },
-    { capture: true, signal: abortController.signal },
-  );
-  document.addEventListener(
-    'pointercancel',
-    () => {
-      pressDown = false;
-      revealAfterPress = false;
-    },
-    { capture: true, signal: abortController.signal },
-  );
+  document.addEventListener('pointerup', (event) => releasePress(event.pointerId, false), {
+    capture: true,
+    signal: abortController.signal,
+  });
+  document.addEventListener('pointercancel', (event) => releasePress(event.pointerId, true), {
+    capture: true,
+    signal: abortController.signal,
+  });
+  window.addEventListener('blur', forgetPresses, { signal: abortController.signal });
+
+  // The user taking the list body over (or its custom scrollbar, beside it)
+  // ends the removal's own scroll: a render no longer starts it again, and a
+  // leaving bar no longer waits for it.
+  const interactionRoot = scroller?.parentElement ?? scroller;
+  for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+    interactionRoot?.addEventListener(
+      type,
+      () => {
+        roomScroll = null;
+      },
+      { capture: true, passive: true, signal: abortController.signal },
+    );
+  }
 
   syncDom();
 
@@ -1060,13 +1161,16 @@ export function createPlaylistRemovalController(
     get isActive() {
       return selectedQueueItemIds.size > 0;
     },
+    get isLeaving() {
+      return barState === 'leaving';
+    },
     isSelected: (queueItemId) => selectedQueueItemIds.has(queueItemId),
     isHidden,
     toggle,
     afterRender: () => {
       syncDom();
       continueGlide();
-      continueRoomExit();
+      continueRoomScroll();
       morph?.afterRender();
     },
     cancel,
@@ -1078,6 +1182,8 @@ export function createPlaylistRemovalController(
       stopBarAnimations();
       if (revealFrame) window.cancelAnimationFrame(revealFrame);
       revealFrame = 0;
+      pressedPointers.clear();
+      roomScroll = null;
       removeExitLayer();
       removeHeaderFade();
       morph?.destroy();

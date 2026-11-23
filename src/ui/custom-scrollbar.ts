@@ -81,6 +81,15 @@ interface ScrollbarState {
   scrollTimeline: AnimationTimeline | null;
   timelineMaxThumbTop: number;
   timelineGeneration: number;
+  /**
+   * The content or the box is changing size under the thumb: script places
+   * it, and the scroll timeline is built again one frame after the last
+   * change (followResize).
+   */
+  resizing: boolean;
+  /** The bar reported or laid out a size change since the last resize-end check. */
+  resizedSinceCheck: boolean;
+  resizeEndFrame: number | null;
   revealAfterLayout: boolean;
   destroyed: boolean;
   /** Cached transform-containing-block ancestor (resolved lazily on first updateLayout). */
@@ -151,8 +160,8 @@ function fallBackToScriptDriver(
   scheduleScrollPump(state);
 }
 
-function seedTimelineInlinePosition(state: ScrollbarState): void {
-  const clampedScrollTop = Math.min(state.maxScroll, Math.max(0, state.container.scrollTop));
+function seedTimelineInlinePosition(state: ScrollbarState, scrollTop: number): void {
+  const clampedScrollTop = Math.min(state.maxScroll, Math.max(0, scrollTop));
   const top = state.maxScroll > 0 ? (clampedScrollTop / state.maxScroll) * state.maxThumbTop : 0;
   // Scroll timelines clamp rubber-band offsets to their 0%/100% endpoints.
   // Keep the underlying inline state equally clamped so a rebuilt timeline
@@ -166,17 +175,19 @@ function seedTimelineInlinePosition(state: ScrollbarState): void {
  * browser-owned position transform. The outer thumb remains a fixed-size
  * ScrollTimeline target; only its nested visual compresses. At the bottom the
  * child moves down by exactly the amount it lost, preserving the old fixed
- * bottom edge (`visibleHeight - elasticHeight`) geometry.
+ * bottom edge (`visibleHeight - elasticHeight`) geometry. A layout passes the
+ * offset it read before its writes; every other caller samples it here.
  */
 function updateTimelineElasticity(
   state: ScrollbarState,
   now = performance.now(),
   fromScrollEvent = false,
+  scrollTop?: number,
 ): boolean {
   const { container, thumbHeight, maxScroll, maxThumbTop } = state;
   if (state.scrollDriver !== 'timeline' || !state.hasOverflow || maxScroll <= 0) return false;
 
-  const rawScrollTop = container.scrollTop;
+  const rawScrollTop = scrollTop ?? container.scrollTop;
   const positionChanged = rawScrollTop !== state.lastTimelineScrollTop;
   state.lastTimelineScrollTop = rawScrollTop;
 
@@ -206,9 +217,12 @@ function updateTimelineElasticity(
  * Hand normal-range thumb movement to the browser's scroll timeline when the
  * complete imperative API works. Transform-only scroll-linked animations are
  * compositor eligible in modern Chromium and WebKit. Older/partial engines
- * stay on the exact requestAnimationFrame implementation below.
+ * stay on the exact requestAnimationFrame implementation below. While the
+ * content changes size none is built: the resize-end check builds one for the
+ * settled geometry (followResize).
  */
-function ensureScrollTimeline(state: ScrollbarState): boolean {
+function ensureScrollTimeline(state: ScrollbarState, scrollTop?: number): boolean {
+  if (state.resizing) return false;
   if (!state.hasOverflow || state.maxScroll <= 0 || state.maxThumbTop < 0) return false;
   if (
     state.scrollAnimation &&
@@ -224,7 +238,8 @@ function ensureScrollTimeline(state: ScrollbarState): boolean {
     return false;
   }
 
-  seedTimelineInlinePosition(state);
+  const seedScrollTop = scrollTop ?? state.container.scrollTop;
+  seedTimelineInlinePosition(state, seedScrollTop);
   cancelScrollTimeline(state);
   try {
     const timeline = new ScrollTimeline({ source: state.container, axis: 'block' });
@@ -249,7 +264,7 @@ function ensureScrollTimeline(state: ScrollbarState): boolean {
     state.scrollAnimation = animation;
     state.timelineMaxThumbTop = state.maxThumbTop;
     setScrollDriver(state, 'timeline');
-    updateTimelineElasticity(state);
+    updateTimelineElasticity(state, performance.now(), false, seedScrollTop);
 
     // Scroll-linked animations become ready asynchronously. A rejected ready
     // promise must not leave a visually frozen thumb on a partially working
@@ -487,6 +502,58 @@ function findFixedContainingBlock(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/**
+ * The content or the box changes size under a thumb the scroll timeline
+ * drives. Moving the timeline with each frame of the change built a new
+ * timeline and animation in every frame: each new one starts pending, each
+ * cancelled one's timeline lives on until garbage collection and invalidates
+ * the thumb's style again whenever the range moves, and in WebKit a running
+ * animation draws a new range or end a frame late. So the first layout that
+ * changes the scroll range or the thumb's travel cancels the animation once,
+ * and script places the thumb from each layout while the size changes. The
+ * resize-end check builds one timeline for the settled geometry.
+ */
+function followResize(state: ScrollbarState): void {
+  if (!state.resizing) {
+    cancelScrollTimeline(state);
+    state.resizing = true;
+    // The animation committed no inline position, so the script's first
+    // sample always writes one.
+    state.renderedThumbTop = Number.NaN;
+  }
+  state.resizedSinceCheck = true;
+  scheduleResizeEndCheck(state);
+}
+
+/**
+ * One frame callback per frame while the bar keeps reporting or laying out
+ * size changes. Once a whole frame has passed with neither, the bar lays out
+ * again, and that layout builds the timeline. It arms no timer and counts no
+ * frames, so the content's own motion decides when it ends.
+ */
+function scheduleResizeEndCheck(state: ScrollbarState): void {
+  if (state.destroyed || state.resizeEndFrame !== null) return;
+  state.resizeEndFrame = window.requestAnimationFrame(() => {
+    state.resizeEndFrame = null;
+    if (state.destroyed || !state.resizing) return;
+    if (state.resizedSinceCheck) {
+      state.resizedSinceCheck = false;
+      scheduleResizeEndCheck(state);
+      return;
+    }
+    state.resizing = false;
+    runLayoutNow(state);
+  });
+}
+
+/** Drops a resize the bar follows: its content stopped overflowing, or the bar is gone. */
+function stopFollowingResize(state: ScrollbarState): void {
+  state.resizing = false;
+  state.resizedSinceCheck = false;
+  if (state.resizeEndFrame !== null) window.cancelAnimationFrame(state.resizeEndFrame);
+  state.resizeEndFrame = null;
+}
+
 function updateLayout(state: ScrollbarState): void {
   const { container, track, thumb } = state;
   const hasOverflow = hasVisibleOverflow(container, state.scrollHeld);
@@ -499,9 +566,13 @@ function updateLayout(state: ScrollbarState): void {
   // An opted-in gutter can change wrapping and therefore scrollHeight. Read
   // thumb geometry after applying it; unchanged classes never wake layout.
   const { scrollHeight, clientHeight } = container;
+  // Read with the rest of the geometry, while the layout is still clean: after
+  // the writes below, every read of it would lay the thumb out again first.
+  const scrollTop = container.scrollTop;
   const isContained = container.hasAttribute('data-custom-scroll-contained');
 
   if (!hasOverflow) {
+    stopFollowingResize(state);
     cancelScrollTimeline(state);
     cancelFade(state);
     state.hasOverflow = false;
@@ -573,18 +644,26 @@ function updateLayout(state: ScrollbarState): void {
   }
 
   const ratio = visibleHeight / scrollHeight;
+  const previousMaxScroll = state.maxScroll;
+  const previousMaxThumbTop = state.maxThumbTop;
   state.thumbHeight = Math.max(THUMB_MIN_HEIGHT, ratio * visibleHeight);
   state.maxScroll = scrollHeight - clientHeight;
   state.maxThumbTop = visibleHeight - state.thumbHeight;
   setThumbHeight(state, state.thumbHeight);
+  if (
+    (state.scrollAnimation || state.resizing) &&
+    (state.maxScroll !== previousMaxScroll || state.maxThumbTop !== previousMaxThumbTop)
+  ) {
+    followResize(state);
+  }
 
   // Rebuild only when the endpoint changed; the once-per-scroll-session
   // intrinsic layout refresh therefore does not restart a healthy animation.
   // A drag can begin after that refresh is queued but before its rAF runs.
   // Keep script ownership until mouseup/touchend instead of resurrecting a
   // compositor animation underneath the active gesture.
-  if (state.isDragging || !ensureScrollTimeline(state)) updateScroll(state);
-  else updateTimelineElasticity(state);
+  if (state.isDragging || !ensureScrollTimeline(state, scrollTop)) updateScroll(state, scrollTop);
+  else updateTimelineElasticity(state, performance.now(), false, scrollTop);
 
   if (state.revealAfterLayout) {
     state.revealAfterLayout = false;
@@ -596,13 +675,13 @@ function updateLayout(state: ScrollbarState): void {
  * Sample only scrollTop against cached layout geometry. During ordinary
  * scrolling this performs one layout-value read and, when the thumb moved,
  * one compositor-only transform write. Full geometry is refreshed separately
- * by the coalesced layout path.
+ * by the layout, which passes the offset it already read.
  */
-function updateScroll(state: ScrollbarState): boolean {
+function updateScroll(state: ScrollbarState, knownScrollTop?: number): boolean {
   const { container, visibleHeight, thumbHeight, maxScroll, maxThumbTop } = state;
   if (!state.hasOverflow || maxScroll <= 0) return false;
 
-  const { scrollTop } = container;
+  const scrollTop = knownScrollTop ?? container.scrollTop;
   let thumbTop = (scrollTop / maxScroll) * maxThumbTop;
 
   let h = thumbHeight;
@@ -778,6 +857,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
     scrollTimeline: null,
     timelineMaxThumbTop: Number.NaN,
     timelineGeneration: 0,
+    resizing: false,
+    resizedSinceCheck: false,
+    resizeEndFrame: null,
     revealAfterLayout: false,
     destroyed: false,
     transformBlock: null,
@@ -839,12 +921,24 @@ export function initCustomScrollbar(container: HTMLElement): void {
   // mutation in the frames between (a collapsible area's transition), so the
   // same observer also watches the direct element children: those here now
   // (the language list is created with its options in place) and every later
-  // one, through the mutation records above. A frame in which content changes
-  // size lays the bar out on the next frame, so the thumb's length and travel
-  // follow the content's own motion with no timing of their own. The callback
-  // only asks for that coalesced frame and never lays out during the
-  // observer's delivery, which keeps the browser's resize loop error away.
-  state.resizeObserver = new ResizeObserver(() => scheduleLayout(state));
+  // one, through the mutation records above. The observer reports after a
+  // frame's layout and before its paint, so the bar lays out right there,
+  // from a clean layout, and that frame paints the thumb its content calls
+  // for, the first frame of a change included: the thumb's length and travel
+  // follow the content's own motion with no timing of their own. Its writes
+  // reach only its own track and thumb, which are out of flow and which no
+  // observer watches, so the delivery has nothing new to report and the
+  // browser's resize loop error stays away. A bar that manages the overflow
+  // gutter keeps the coalesced next frame, as its class change resizes the
+  // container itself.
+  state.resizeObserver = new ResizeObserver(() => {
+    // Every report is a box that changed size, so a resize the bar follows
+    // goes on while the scroll range rests: the range moves in whole pixels
+    // and can stay put for a frame or two while the content still changes.
+    if (state.resizing) state.resizedSinceCheck = true;
+    if (state.managesOverflowGutter) scheduleLayout(state);
+    else runLayoutNow(state);
+  });
   state.resizeObserver.observe(container);
   for (const child of container.children) observeContentChild(state, child);
 
@@ -1152,6 +1246,7 @@ export function destroyCustomScrollbar(container: HTMLElement): void {
   if (state.scrollFrame !== null) window.cancelAnimationFrame(state.scrollFrame);
   state.layoutFrame = null;
   state.scrollFrame = null;
+  stopFollowingResize(state);
   if (state.isDragging) document.body.style.userSelect = '';
   // A reused container (a reading dialog's message) must not stay held.
   setScrollHeld(state, false);

@@ -96,6 +96,45 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.837 / v837 train: switching between light and dark cross-fades the whole screen over 0.25 s, as a tab change does, so the switch is smooth again and no surface lags in the previous theme's colours (2026-11-23)](design/app-9-0-837-train-2026-11-23.md):
+  built on its train branch, not merged or released. The App update after 9.0.836 / v836, on main `c37b1fd7` (#629, the
+  9.0.836 record, docs only), for the owner's report of 2026-11-23, after 9.0.836 went live: switching between light and
+  dark used to feel smooth and now changes abruptly, all at once. To stop surfaces from briefly keeping the previous
+  theme's colour, 9.0.836 turned every CSS transition off for the one style change that swaps the palette, and those
+  transitions were the switch's only motion. The release operator proposed the whole-screen cross-fade that tab changes
+  already use, released as 9.0.837 right after the fix, and the owner chose to deploy right away without seeing
+  screenshots first. A theme chip press that changes the palette now runs `setTheme()` inside the update of the app's
+  existing view transition owner, `animateTransition()` in `src/ui/dom.ts`, so the browser's default root cross-fade
+  (0.25 s ease, the same as a tab change) fades the whole old screen into the new one. The 9.0.836 hold (its
+  `theme-switching` class) stays inside the update, so the new image is final from its first frame; the header fades
+  with the page, and the phone bottom bar keeps its own group on the same timing. The start-up call, a press on the
+  active chip, reduced motion and browsers without the View Transition API (older browsers, Safari before 18, the legacy
+  TV build) still switch at once, as in 9.0.836. Tab changes cross-fade even under reduced motion; whether every view
+  transition should follow reduced motion is an open question for the owner. The browser proof found that under reduced
+  motion WebKit started two content-less 0.01 ms colour transitions on `html::before` and `html::after` in an immediate
+  switch (9.0.836 does too), so the hold rule now also names the root's own pseudo-elements. No new key, translation,
+  bus event, timer or timing constant, and `dom.ts` is unchanged. Tests: 7 new unit rows (3 failed with the earlier
+  `settings.ts`) and the hold rule's selector pin widened from four selectors to six; `e2e/theme-switch-motion.test.ts`
+  rewritten (Chromium 4 rows, the WebKit lane 3), its cross-fade rows failing when the chip called `setTheme()`
+  directly; measured in Chromium, the fade has the Settings tab change's 250 ms and easing. The related e2e files passed
+  one at a time: Chromium 25 existing files, 400 passed, 3 skipped; the WebKit lane 8 files (7 existing and the
+  rewritten `theme-switch-motion`), 124 passed, 6 skipped. A review in three lenses found one low item (two presses on
+  different chips within about one frame: the first wins), which a separate refutation pass refuted; it stays a known
+  limit. Resource ownership: no record change; the check passes (51 records, 466 production files) with the base's
+  counts. Final gate on the bump `6bb6c80f`, second run (the first passed every step through the production build
+  guards, then stopped with exit 1 at the entry-asset step because the release operator had not put that step's checking
+  tool in place, a setup error, not the change, so the whole gate was rerun from the start at the same head), with the
+  Chromium step running 27 related files one at a time as the owner's 2026-11-17 decision sets: all 68 steps exit 0;
+  unit 799 files, 19,597 passed, 1 skipped; typecheck, lint, format:check, resource ownership (51 records, 466
+  production files; its output and `--report` byte-identical to the 9.0.836 gate's), build:checked (PASS v837 at
+  `6bb6c80f`), the eight production build guards and the CI static guards with check:workers and check:worker-bundles
+  exit 0; the 27 Chromium files, 409 rows, 406 passed, 0 failed, 3 skipped (the rewritten `theme-switch-motion` 4 of 4,
+  the other 26 files at the 9.0.836 gate's counts); the WebKit lane 237 passed, 24 skipped; the WebKit Service Worker
+  smoke 1, the production candidate 20 (11 skipped) and the critical paths 101 passed. Against production 9.0.836 the
+  App changes 6 runtime paths (`css/style.css`, `src/ui/settings.ts` and the four version mirrors) and the other five
+  Workers none; the release tool's partial release check, run on git alone after the gate, passes target `app` and
+  refuses `pro-room`, the counter-check. Not verified on a physical device or against the real servers. Target `app`,
+  one update dialog, floor 795 unchanged.
 - [App 9.0.836 / v836 train: switching between light and dark leaves no surface in the previous theme's colours, the five dialogs that vanished on close now leave the way they came in, and a custom scrollbar's thumb follows content that grows or shrinks (2026-11-23)](design/app-9-0-836-train-2026-11-23.md):
   released on 2026-11-23 09:44 KST in Release 45090296610 (PR #628, squash `973c628d`) as App 9.0.836 / v836 (App build
   836, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

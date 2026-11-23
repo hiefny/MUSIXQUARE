@@ -773,8 +773,12 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
 
   /* setTheme() holds this class on <html> for the one style change that swaps
      the palette, so no surface eases from the previous theme's colours.
-     Transitions only: running animations are left alone. */
+     Transitions only: running animations are left alone. The root's own
+     ::before and ::after are held too: the reduced motion rule gives every
+     ::before and ::after a transition, and WebKit runs it without content. */
   html.theme-switching,
+  html.theme-switching::before,
+  html.theme-switching::after,
   html.theme-switching *,
   html.theme-switching *::before,
   html.theme-switching *::after {

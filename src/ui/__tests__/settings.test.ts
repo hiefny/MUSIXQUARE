@@ -813,8 +813,12 @@ describe('setTheme transition hold', () => {
     const { rule } = rules[0]!;
     const layer = rule.parent as AtRule | undefined;
     expect([layer?.type, layer?.name, layer?.params]).toEqual(['atrule', 'layer', 'base']);
+    // The root's own ::before and ::after too: under reduced motion WebKit runs
+    // a colour transition on them, without content, unless they are held.
     expect(rule.selectors).toEqual([
       `html.${HOLD}`,
+      `html.${HOLD}::before`,
+      `html.${HOLD}::after`,
       `html.${HOLD} *`,
       `html.${HOLD} *::before`,
       `html.${HOLD} *::after`,

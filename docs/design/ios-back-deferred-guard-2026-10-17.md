@@ -30,9 +30,10 @@ application or every iOS version.
   means Stay. Explicit close buttons keep their existing semantics.
 - A closing owner reports completion: View Transition finished, screensaver
   removal, demo curtain reveal, chat drawer transition, CSS window/disclosure
-  closing transitions, and native fullscreen exit. Existing cancellation and bounded completion paths release the same
-  token. New closing work supersedes pending frames; listener exceptions do
-  not retain a token indefinitely.
+  closing transitions, and native fullscreen exit (since App 9.0.836 also the
+  dialog exit animations). Existing cancellation and bounded completion paths
+  release the same token. New closing work supersedes pending frames; listener
+  exceptions do not retain a token indefinitely.
 - History entries carry a document-specific owner and base/guard kind. Forward
   and foreign/duplicate events do not close another window. URL cleanup keeps
   history state. No saved room URL or activation fragment is replayed.

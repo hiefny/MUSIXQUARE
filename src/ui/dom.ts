@@ -71,52 +71,118 @@ export async function whenBackSurfaceSettled(): Promise<void> {
   }
 }
 
-/** Track one closing surface after its visible class has been removed. */
-export function trackClosingCssTransition(element: HTMLElement): () => void {
-  const style = getComputedStyle(element);
-  const properties = style.transitionProperty.split(',').map((value) => value.trim());
-  const times = (values: string) =>
-    values.split(',').map((value) => {
-      const milliseconds = Number.parseFloat(value) * (value.trim().endsWith('ms') ? 1 : 1000);
-      return Number.isFinite(milliseconds) ? milliseconds : 0;
-    });
-  const durations = times(style.transitionDuration);
-  const delays = times(style.transitionDelay);
-  const endTimes = properties.map((property, index) => ({
-    property,
-    time:
-      property && property !== 'none'
-        ? (durations[index % durations.length] ?? 0) + (delays[index % delays.length] ?? 0)
-        : 0,
-  }));
-  const duration = Math.max(0, ...endTimes.map(({ time }) => time));
-  // Reduced motion or a stylesheet without transitions settles immediately.
-  if (duration <= 0) return () => {};
+/** A computed CSS time list (`0.2s, 350ms`) in milliseconds. */
+function cssTimeList(values: string): number[] {
+  return values.split(',').map((value) => {
+    const milliseconds = Number.parseFloat(value) * (value.trim().endsWith('ms') ? 1 : 1000);
+    return Number.isFinite(milliseconds) ? milliseconds : 0;
+  });
+}
+
+/** One transition or animation of a closing element: its name and end time in ms. */
+interface ClosingCssEnd {
+  name: string;
+  time: number;
+}
+
+/**
+ * Hold the closing-surface ledger until `element`'s own longest transition or
+ * animation ends, then call `onSettled` once. With nothing to wait for it
+ * settles before it returns. Returns a finisher that settles at once.
+ */
+function trackClosingCss(
+  element: HTMLElement,
+  endEvent: 'transitionend' | 'animationend',
+  ends: readonly ClosingCssEnd[],
+  onSettled?: () => void,
+): () => void {
+  const duration = Math.max(0, ...ends.map(({ time }) => time));
+  // Reduced motion or a stylesheet without motion settles immediately.
+  if (duration <= 0) {
+    onSettled?.();
+    return () => {};
+  }
 
   const finish = beginBackSurfaceTransition();
   let timer: number | null = null;
+  let settled = false;
   const settle = () => {
-    element.removeEventListener('transitionend', onEnd);
+    if (settled) return;
+    settled = true;
+    element.removeEventListener(endEvent, onEnd);
     if (timer !== null) window.clearTimeout(timer);
     timer = null;
     finish();
+    onSettled?.();
   };
-  const onEnd = (event: TransitionEvent) => {
+  const onEnd = (event: Event) => {
+    if (event.target !== element) return;
+    const name =
+      endEvent === 'transitionend'
+        ? (event as TransitionEvent).propertyName
+        : (event as AnimationEvent).animationName;
     if (
-      event.target === element &&
-      endTimes.some(
-        ({ property, time }) =>
-          time === duration && (property === event.propertyName || property === 'all'),
+      ends.some(
+        (end) =>
+          end.time === duration &&
+          (end.name === name || (endEvent === 'transitionend' && end.name === 'all')),
       )
     )
       settle();
   };
-  element.addEventListener('transitionend', onEnd);
-  // Actual transition completion is primary; the CSS duration plus a small
-  // margin covers a dropped event without duplicating a stylesheet duration.
+  element.addEventListener(endEvent, onEnd);
+  // Actual completion is primary; the CSS duration plus a small margin covers
+  // a dropped event without duplicating a stylesheet duration.
   // Surface-owned: room-wide timer cleanup must not strand a visible dialog.
   timer = window.setTimeout(settle, duration + 100);
   return settle;
+}
+
+/** Track one closing surface after its visible class has been removed. */
+export function trackClosingCssTransition(element: HTMLElement): () => void {
+  const style = getComputedStyle(element);
+  const durations = cssTimeList(style.transitionDuration);
+  const delays = cssTimeList(style.transitionDelay);
+  const ends = style.transitionProperty.split(',').map((value, index) => {
+    const property = value.trim();
+    return {
+      name: property,
+      time:
+        property && property !== 'none'
+          ? (durations[index % durations.length] ?? 0) + (delays[index % delays.length] ?? 0)
+          : 0,
+    };
+  });
+  return trackClosingCss(element, 'transitionend', ends);
+}
+
+/**
+ * Track a closing surface whose exit is a CSS animation that a closing class
+ * starts: the element's own animations, leaving out one that never ends.
+ */
+function trackClosingCssAnimation(element: HTMLElement, onSettled?: () => void): () => void {
+  const style = getComputedStyle(element);
+  const durations = cssTimeList(style.animationDuration);
+  const delays = cssTimeList(style.animationDelay);
+  const iterations = style.animationIterationCount.split(',').map((value) => {
+    const count = value.trim();
+    if (count === 'infinite') return Number.POSITIVE_INFINITY;
+    const parsed = Number.parseFloat(count);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
+  });
+  const ends = style.animationName.split(',').map((value, index) => {
+    const name = value.trim();
+    const count = iterations[index % iterations.length] ?? 1;
+    return {
+      name,
+      time:
+        name && name !== 'none' && Number.isFinite(count)
+          ? (delays[index % delays.length] ?? 0) +
+            (durations[index % durations.length] ?? 0) * count
+          : 0,
+    };
+  });
+  return trackClosingCss(element, 'animationend', ends, onSettled);
 }
 
 interface ViewTransitionLike {
@@ -147,6 +213,8 @@ function canPreserveTransitionHeader(): boolean {
   const doc = document as DocumentWithViewTransition;
   if (
     OVERLAYS.some(isShown) ||
+    // A window playing its exit still covers the page under its backdrop.
+    OVERLAYS.some(isClosing) ||
     doc.fullscreenElement ||
     doc.webkitFullscreenElement ||
     doc.webkitCurrentFullScreenElement ||
@@ -372,6 +440,25 @@ function isShown(o: OverlayDef): boolean {
 }
 
 /**
+ * A centred window whose closed state is `display: none` (`.dialog-overlay`
+ * in css/style.css) carries this class while its exit plays; see
+ * startOverlayExit(). A window closed while its entrance still plays never
+ * gets it and hides at once. It is closed from the first frame: only its
+ * place in the paint order, a fullscreen portal and the tab transition header
+ * read this class. Every other reader keys on the shown class alone.
+ */
+const CLOSING_OVERLAY_CLASS = 'is-closing';
+
+function isClosingOverlay(element: HTMLElement): boolean {
+  return element.classList.contains(CLOSING_OVERLAY_CLASS);
+}
+
+function isClosing(o: OverlayDef): boolean {
+  const el = getUiElement(o.id);
+  return !!el && isClosingOverlay(el);
+}
+
+/**
  * Return whether a modal/fullscreen layer currently owns the product surface.
  *
  * Most overlays live in the shared registry above. A few feature-specific
@@ -405,6 +492,9 @@ export function updateOverlayOpenClass(): void {
 // Module-scoped so successive open/close events preserve stack order
 // without re-deriving it from the DOM.
 const _modalStack: OverlayId[] = [];
+// The centred windows' paint order, bottom to top: the modal stack, with each
+// window still playing its exit kept where it was painted. See nextPaintOrder().
+let _paintOrder: OverlayId[] = [];
 const _overlayStackListeners = new Set<() => void>();
 
 function notifyOverlayStackChange(): void {
@@ -468,11 +558,24 @@ export function onFullscreenSurfaceHostChange(listener: () => void): () => void 
 
 function syncFullscreenModalPortal(top: OverlayId | null): void {
   const container = fullscreenSurfaceHost();
+  // A move restarts an element's CSS animations, so a closing window whose
+  // fullscreen surface ended or changed ends its exit before it goes back, as
+  // the session reset surface hides before it leaves one. The settle syncs
+  // again, which restores it hidden.
+  for (const portaled of [..._fullscreenModalPortals.keys()]) {
+    if (portaled.parentElement !== container && isClosingOverlay(portaled))
+      finishOverlayExit(portaled);
+  }
   const definition = OVERLAYS.find((overlay) => overlay.id === top);
   const element = definition && !definition.fullscreen ? getUiElement(definition.id) : null;
   for (const portaled of _fullscreenModalPortals.keys()) {
-    if (portaled !== element || portaled.parentElement !== container)
-      restoreFullscreenModal(portaled);
+    const stays =
+      portaled.parentElement === container &&
+      (portaled === element ||
+        // A closing window plays its exit where it was shown, inside the
+        // fullscreen surface; the sync after its exit settles restores it.
+        (container !== null && isClosingOverlay(portaled)));
+    if (!stays) restoreFullscreenModal(portaled);
   }
   if (container && element && !container.contains(element) && !element.contains(container)) {
     if (element.parentNode)
@@ -564,8 +667,10 @@ function installLegacyInertInteractionGuard(): void {
 
 /** @internal Test-only helper to reset stack between cases. */
 export function __resetModalStackForTests(): void {
+  for (const finish of [..._overlayExits.values()]) finish();
   for (const finish of _backSurfaceTransitions.values()) finish();
   _modalStack.length = 0;
+  _paintOrder = [];
   _topModalId = null;
   for (const element of _fullscreenModalPortals.keys()) restoreFullscreenModal(element);
   for (const event of FULLSCREEN_CHANGE_EVENTS)
@@ -586,21 +691,46 @@ function promoteOverlayToTop(id: OverlayId | undefined): void {
   _modalStack.push(id);
 }
 
+/**
+ * The paint order after a stack change, bottom to top. Open windows keep the
+ * stack's order. A window still playing its exit keeps the place it was
+ * painted in until the exit settles: above the window it was shown over, so
+ * its exit is not painted under a window that stays open, and below a window
+ * that stays open above it. A window shown since the last change, or raised
+ * past another open window, goes on top, above every exit. The windows share
+ * the CSS z-index, and at an equal z-index the later one in the markup paints
+ * on top, so each takes its layer from this order. With nothing closing this
+ * is the modal stack itself.
+ */
+function nextPaintOrder(): OverlayId[] {
+  const order: OverlayId[] = [];
+  let kept = 0;
+  for (const id of _paintOrder) {
+    if (_modalStack[kept] === id) {
+      order.push(id);
+      kept += 1;
+    } else if (!_modalStack.includes(id)) {
+      const element = getUiElement(id);
+      if (element && isClosingOverlay(element)) order.push(id);
+    }
+  }
+  return [...order, ..._modalStack.slice(kept)];
+}
+
 function applyCenteredOverlayZIndexes(): void {
+  _paintOrder = nextPaintOrder();
   for (const o of OVERLAYS) {
     if (o.fullscreen) continue;
     const el = getUiElement(o.id);
     if (!el) continue;
 
-    const stackIndex = _modalStack.indexOf(o.id);
-    if (stackIndex === -1 || !isShown(o)) {
+    const layer = _paintOrder.indexOf(o.id);
+    if (layer === -1) {
       el.style.removeProperty('z-index');
       continue;
     }
 
-    el.style.zIndex = String(
-      CENTERED_OVERLAY_Z_INDEX_BASE + stackIndex * CENTERED_OVERLAY_Z_INDEX_STEP,
-    );
+    el.style.zIndex = String(CENTERED_OVERLAY_Z_INDEX_BASE + layer * CENTERED_OVERLAY_Z_INDEX_STEP);
   }
 }
 
@@ -689,6 +819,91 @@ export function onOverlayStackChange(listener: () => void): () => void {
   return () => {
     _overlayStackListeners.delete(listener);
   };
+}
+
+// ─── Closing windows ─────────────────────────────────────────────
+// A dialog overlay enters with CSS keyframes when its shown class goes on and
+// is display: none without it. Its exit plays that entrance in reverse under
+// CLOSING_OVERLAY_CLASS. A close swaps the classes with startOverlayExit(),
+// writes aria-hidden and syncs the stack as it always did, so the window is
+// closed for input, focus and Back at once, and then starts the exit with
+// trackOverlayExit(). The closing-surface ledger above owns the wait, so a
+// Back guard re-arms only after the exit.
+
+const _overlayExits = new Map<HTMLElement, () => void>();
+
+/**
+ * Drop a dialog overlay's shown class (`show`) and, if it was shown, mark it
+ * closing so it stays displayed for its exit. A window whose entrance still
+ * plays is not marked and hides at once, as before it had an exit: the exit
+ * starts from the fully shown window, not from where the entrance got to, so
+ * it would jump in before it faded. Returns whether it was shown. The close
+ * path then writes aria-hidden, syncs the stack and calls trackOverlayExit(),
+ * which settles at once for a window that was not marked.
+ */
+export function startOverlayExit(overlay: HTMLElement): boolean {
+  if (!overlay.classList.contains('show')) return false;
+  // An exit left over from an earlier close ends before this one starts.
+  finishOverlayExit(overlay);
+  // The overlay's own entrance (dialogBackdropIn) is the longer one. Reading
+  // the animations commits a shown class added in this task, so a window
+  // never painted shown counts as entering too.
+  const entering =
+    overlay
+      .getAnimations?.()
+      .some(
+        (animation) =>
+          'animationName' in animation && (animation.playState === 'running' || animation.pending),
+      ) ?? false;
+  overlay.classList.remove('show');
+  if (!entering) overlay.classList.add(CLOSING_OVERLAY_CLASS);
+  return true;
+}
+
+/**
+ * Play the exit of an overlay startOverlayExit() marked closing: wait for its
+ * own CSS animation, then drop the closing class, sync the stack (its layer
+ * and a fullscreen portal go back) and call `onSettled`, once. With no exit
+ * to play (reduced motion, a stylesheet without one) all of that happens
+ * before this returns.
+ */
+export function trackOverlayExit(overlay: HTMLElement, onSettled?: () => void): void {
+  // Not closing, or this exit is tracked already: nothing more to wait for.
+  if (!isClosingOverlay(overlay) || _overlayExits.has(overlay)) {
+    onSettled?.();
+    return;
+  }
+  let settled = false;
+  const finish = trackClosingCssAnimation(overlay, () => {
+    settled = true;
+    _overlayExits.delete(overlay);
+    overlay.classList.remove(CLOSING_OVERLAY_CLASS);
+    try {
+      syncOverlayState();
+    } finally {
+      onSettled?.();
+    }
+  });
+  if (!settled) _overlayExits.set(overlay, finish);
+}
+
+/**
+ * End an overlay's exit at once before it shows again. The hidden state is
+ * committed here, so the next shown class starts the entrance from its first
+ * frame and nothing inside eases from the exit's styles.
+ */
+export function finishOverlayExit(overlay: HTMLElement): void {
+  const finish = _overlayExits.get(overlay);
+  if (finish) {
+    finish();
+  } else if (isClosingOverlay(overlay)) {
+    // Marked closing by a close that has not started its exit yet.
+    overlay.classList.remove(CLOSING_OVERLAY_CLASS);
+    syncOverlayState();
+  } else {
+    return;
+  }
+  void overlay.offsetWidth;
 }
 
 // ─── History Back ────────────────────────────────────────────────

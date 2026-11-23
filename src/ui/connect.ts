@@ -14,10 +14,13 @@ import { confirmLeaveSession } from './leave-session-confirmation.ts';
 import { showToast } from './toast.ts';
 import {
   copyTextToClipboard,
+  finishOverlayExit,
   getUiElement,
   onWindowBack,
+  startOverlayExit,
   syncOverlayState,
   trackClosingCssTransition,
+  trackOverlayExit,
 } from './dom.ts';
 import { navigateHome, returnToRoomStart } from '../core/navigation.ts';
 import {
@@ -343,9 +346,11 @@ function syncSignalingInviteButtons(): void {
 function closeSignalingRecoveryDialog(focusRecoveryButton = false): void {
   const overlay = getUiElement(SIGNALING_RECOVERY_OVERLAY_ID);
   if (overlay) {
-    overlay.classList.remove('show');
+    // A shown dialog plays its exit; nothing in it changes meanwhile.
+    const exiting = startOverlayExit(overlay);
     overlay.setAttribute('aria-hidden', 'true');
     syncOverlayState();
+    if (exiting) trackOverlayExit(overlay);
   }
 
   _signalingRecoveryDialogState = 'closed';
@@ -433,6 +438,8 @@ function setSignalingRecoveryDialogState(
 
   const wasOpen = overlay.classList.contains('show');
   if (!wasOpen) {
+    // A close still playing its exit ends first; the entrance starts over.
+    finishOverlayExit(overlay);
     _signalingRecoveryDialogPreviousFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
   }

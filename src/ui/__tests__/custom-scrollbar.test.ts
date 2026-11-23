@@ -90,28 +90,51 @@ async function flushMutationObservers(): Promise<void> {
   await Promise.resolve();
 }
 
-const _resizeObservers = new Map<Element, ResizeObserverStub>();
+/**
+ * Every observer that watches a target, with the box it watches. A bar's one
+ * observer watches its container and the container's direct element children,
+ * so an inner scroll container is watched by its own bar and the outer one.
+ */
+const _resizeObservations = new Map<Element, Map<ResizeObserverStub, ResizeObserverBoxOptions>>();
 
 class ResizeObserverStub {
   constructor(private readonly callback: ResizeObserverCallback) {}
 
-  observe(target: Element): void {
-    _resizeObservers.set(target, this);
+  observe(target: Element, options?: ResizeObserverOptions): void {
+    let observers = _resizeObservations.get(target);
+    if (!observers) {
+      observers = new Map();
+      _resizeObservations.set(target, observers);
+    }
+    observers.set(this, options?.box ?? 'content-box');
   }
 
   unobserve(target: Element): void {
-    if (_resizeObservers.get(target) === this) _resizeObservers.delete(target);
+    const observers = _resizeObservations.get(target);
+    observers?.delete(this);
+    if (observers?.size === 0) _resizeObservations.delete(target);
   }
 
   disconnect(): void {
-    for (const [target, observer] of _resizeObservers) {
-      if (observer === this) _resizeObservers.delete(target);
+    for (const [target, observers] of _resizeObservations) {
+      observers.delete(this);
+      if (observers.size === 0) _resizeObservations.delete(target);
     }
   }
 
   notify(): void {
     this.callback([], this as unknown as ResizeObserver);
   }
+}
+
+/** Reports a size change of a target to every observer watching it, as the browser does. */
+function notifyResize(target: Element): void {
+  for (const observer of [...(_resizeObservations.get(target)?.keys() ?? [])]) observer.notify();
+}
+
+/** The box each observer watching a target watches, sorted; empty when none does. */
+function watchedBoxes(target: Element): ResizeObserverBoxOptions[] {
+  return [...(_resizeObservations.get(target)?.values() ?? [])].sort();
 }
 
 Object.defineProperty(window, 'ResizeObserver', {
@@ -167,16 +190,22 @@ const _boxes: Scrollbox[] = [];
  * Uses data-custom-scroll-contained so updateLayout takes the contained
  * branch: track height = clientHeight, no bottom-nav / transform-block walk.
  * rectSpy counts updateLayout runs (called exactly once per layout pass).
+ * The container gets a parent of its own unless `wrapped` is false; then it
+ * sits directly in `mount`, which also receives its track.
  */
-function createScrollbox(id: string, mount: HTMLElement = document.body): Scrollbox {
-  const parent = document.createElement('div');
+function createScrollbox(
+  id: string,
+  mount: HTMLElement = document.body,
+  wrapped = true,
+): Scrollbox {
+  const parent = wrapped ? document.createElement('div') : mount;
   const container = document.createElement('div');
   container.id = id;
   container.setAttribute('data-custom-scroll', '');
   container.setAttribute('data-custom-scroll-contained', '');
   container.style.overflowY = 'auto';
   parent.appendChild(container);
-  mount.appendChild(parent);
+  if (wrapped) mount.appendChild(parent);
 
   let clientHeight = 200;
   let scrollHeight = 1000;
@@ -309,7 +338,7 @@ afterEach(() => {
   for (const box of _boxes) destroyCustomScrollbar(box.container);
   _boxes.length = 0;
   _rafCallbacks.clear();
-  _resizeObservers.clear();
+  _resizeObservations.clear();
   _mqlMatches.clear();
   clearAllManagedTimers();
   vi.useRealTimers();
@@ -554,7 +583,7 @@ describe('custom-scrollbar hold on its scroller while the bar is pressed', () =>
       // content change, a new scroll session and a settled rotation.
       bus.emit('ui:scrollbar-relayout');
       flushAnimationFrame();
-      _resizeObservers.get(box.container)?.notify();
+      notifyResize(box.container);
       flushAnimationFrame();
       box.container.appendChild(document.createElement('div'));
       await flushMutationObservers();
@@ -1386,7 +1415,7 @@ describe('custom-scrollbar compositor hot path', () => {
 
       box.container.scrollTop = -20;
       box.setClientHeight(220);
-      _resizeObservers.get(box.container)?.notify();
+      notifyResize(box.container);
       flushAnimationFrame();
       expect(box.track().dataset.scrollDriver).toBe('timeline');
       expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(48.4, 5);
@@ -1397,7 +1426,7 @@ describe('custom-scrollbar compositor hot path', () => {
 
       box.container.scrollTop = 900;
       box.setClientHeight(240);
-      _resizeObservers.get(box.container)?.notify();
+      notifyResize(box.container);
       flushAnimationFrame();
       expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(57.6, 5);
       expect(thumb.style.transform).toBe('translateY(182.4px)');
@@ -1588,8 +1617,8 @@ describe('custom-scrollbar compositor hot path', () => {
     initCustomScrollbar(box.container);
     expect(box.track().style.opacity).toBe('0');
 
-    // Simulate an image/font changing intrinsic content size without changing
-    // the scrollport border box (therefore no container ResizeObserver entry).
+    // Simulate content that grows with no mutation record and no resize the
+    // bar watches: text directly in the container, rewrapped by a late font.
     box.setScrollHeight(1000);
     box.container.scrollTop = 400;
     box.container.dispatchEvent(new Event('scroll'));
@@ -1655,7 +1684,7 @@ describe('custom-scrollbar optional overflow gutter', () => {
 
     // The class and its ResizeObserver notification coalesce into one extra
     // measurement, then stop. Rewriting it every frame would never settle.
-    _resizeObservers.get(box.container)?.notify();
+    notifyResize(box.container);
     await flushMutationObservers();
     expect(_rafCallbacks.size).toBe(1);
     flushAnimationFrame();
@@ -1726,7 +1755,7 @@ describe('custom-scrollbar relayout isolation', () => {
 
     seek.classList.add('layout-affecting-state');
     box.container.append(document.createElement('div'), document.createElement('div'));
-    _resizeObservers.get(box.container)?.notify();
+    notifyResize(box.container);
     bus.emit('ui:scrollbar-relayout');
     await flushMutationObservers();
 
@@ -1753,6 +1782,476 @@ describe('custom-scrollbar relayout isolation', () => {
     expect(box.rectSpy).not.toHaveBeenCalled();
     expect(_rafCallbacks.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('custom-scrollbar content that changes size inside its container', () => {
+  // A container's own box stays put while its content grows or shrinks inside
+  // it: a Settings collapsible area's grid-rows transition, a hidden toggle, a
+  // late font or image. No mutation marks the frames in between, so the bar's
+  // one resize observer also watches the container's direct element children,
+  // and each frame in which one changes size lays the bar out on the next.
+  // The browser reports a child's new box after a frame's layout; these rows
+  // stand in for that with notifyResize. Their containers are 400 px tall, so
+  // a thumb is 160000 / scrollHeight px long: 160 at 1000, 128 at 1250, 100
+  // at 1600 and 80 at 2000.
+
+  /** An element child, named so a row can list what is watched. */
+  function named(name: string): HTMLElement {
+    const element = document.createElement('div');
+    element.dataset.name = name;
+    return element;
+  }
+
+  /** A 400 px tall scrollbox whose content is one panel holding `content`. */
+  function createPanelScrollbox(
+    id: string,
+    ...content: HTMLElement[]
+  ): { box: Scrollbox; panel: HTMLElement } {
+    const box = createScrollbox(id);
+    box.setClientHeight(400);
+    const panel = named('panel');
+    panel.append(...content);
+    box.container.appendChild(panel);
+    return { box, panel };
+  }
+
+  /** The thumb's length and offset as the bar last wrote them, in px. */
+  function readThumb(box: Scrollbox): { length: number; top: number } {
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    const top = /^translateY\(([-+\d.eE]+)px\)$/u.exec(thumb.style.transform)?.[1];
+    return { length: Number.parseFloat(thumb.style.height), top: Number(top) };
+  }
+
+  /** The names of the named elements any observer watches, sorted. */
+  function watchedNames(): string[] {
+    return [..._resizeObservations.keys()]
+      .flatMap((target) =>
+        target instanceof HTMLElement && target.dataset.name ? [target.dataset.name] : [],
+      )
+      .sort();
+  }
+
+  /**
+   * A working ScrollTimeline and animate, as in the compositor rows. Each
+   * animation keeps its end keyframe and its cancel.
+   */
+  function installScrollTimeline(): {
+    animations: Array<{ end: string; cancel: Mock }>;
+    restore(): void;
+  } {
+    const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
+    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
+    const animations: Array<{ end: string; cancel: Mock }> = [];
+    Object.defineProperty(globalThis, 'ScrollTimeline', {
+      configurable: true,
+      value: class ScrollTimelineStub {},
+    });
+    Object.defineProperty(HTMLElement.prototype, 'animate', {
+      configurable: true,
+      value: (keyframes: Keyframe[], options?: number | KeyframeAnimationOptions): Animation => {
+        const cancel = vi.fn();
+        animations.push({ end: String(keyframes.at(-1)?.transform), cancel });
+        return {
+          cancel,
+          ready: Promise.resolve(),
+          timeline: typeof options === 'object' ? options.timeline : null,
+        } as unknown as Animation;
+      },
+    });
+    return {
+      animations,
+      restore: (): void => {
+        if (originalTimeline) {
+          Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
+        } else {
+          Reflect.deleteProperty(globalThis, 'ScrollTimeline');
+        }
+        if (originalAnimate) {
+          Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate);
+        } else {
+          Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+        }
+      },
+    };
+  }
+
+  it('follows a child that grows or shrinks frame by frame with no mutation, and never moves against it', async () => {
+    const area = named('area');
+    area.className = 'collapsed';
+    const { box, panel } = createPanelScrollbox('child-follows', area);
+    box.container.scrollTop = 300;
+    initCustomScrollbar(box.container);
+    const frames = [readThumb(box)];
+    const frame = (scrollHeight: number): void => {
+      box.setScrollHeight(scrollHeight);
+      notifyResize(panel);
+      flushAnimationFrame();
+      frames.push(readThumb(box));
+    };
+
+    // The class change lays the bar out in the transition's first frame,
+    // which still has the closed height; the frames after it open the area.
+    area.classList.remove('collapsed');
+    await flushMutationObservers();
+    flushAnimationFrame();
+    frames.push(readThumb(box));
+    [1250, 1600, 2000].forEach(frame);
+    // Closing, the first frame still has the open height.
+    area.classList.add('collapsed');
+    await flushMutationObservers();
+    flushAnimationFrame();
+    frames.push(readThumb(box));
+    [1600, 1250, 1000].forEach(frame);
+
+    // The thumb shortens while the list gets longer and lengthens while it
+    // gets shorter, and its offset keeps showing the same scroll position as
+    // the range changes. Held at each change's first frame, it kept its
+    // closed length through the open and then shortened as the list closed.
+    expect(frames).toEqual([
+      { length: 160, top: 120 },
+      { length: 160, top: 120 },
+      { length: 128, top: 96 },
+      { length: 100, top: 75 },
+      { length: 80, top: 60 },
+      { length: 80, top: 60 },
+      { length: 100, top: 75 },
+      { length: 128, top: 96 },
+      { length: 160, top: 120 },
+    ]);
+  });
+
+  it('watches element children added later, lets removed or replaced ones go, and leaves text and grandchildren alone', async () => {
+    const box = createScrollbox('child-bookkeeping');
+    const [a, b, c, d, e, h, i] = ['a', 'b', 'c', 'd', 'e', 'h', 'i'].map(named);
+    box.container.appendChild(a);
+    initCustomScrollbar(box.container);
+    const steps: Record<string, string[]> = { init: watchedNames() };
+    const settle = async (step: string): Promise<void> => {
+      await flushMutationObservers();
+      steps[step] = watchedNames();
+    };
+
+    box.container.append(b, c);
+    await settle('append');
+    b.remove();
+    await settle('remove');
+    box.container.replaceChildren(d, e);
+    await settle('replaceChildren');
+    box.container.innerHTML = '<p data-name="f"></p><p data-name="g"></p>';
+    await settle('innerHTML');
+    const f = box.container.querySelector<HTMLElement>('[data-name="f"]')!;
+    const g = box.container.querySelector<HTMLElement>('[data-name="g"]')!;
+    box.container.appendChild(f);
+    await settle('move inside');
+    box.container.appendChild(h);
+    h.remove();
+    await settle('add and remove in one batch');
+    g.appendChild(i);
+    box.container.appendChild(document.createTextNode('text'));
+    await settle('grandchild and text');
+    g.appendChild(f);
+    await settle('child moved into a sibling');
+    const boxes = {
+      container: watchedBoxes(box.container),
+      g: watchedBoxes(g),
+    };
+
+    // A child that left reports nothing to the bar; one that stays lays it out.
+    flushAnimationFrame();
+    box.rectSpy.mockClear();
+    [b, d, f].forEach(notifyResize);
+    const framesFromGone = _rafCallbacks.size;
+    notifyResize(g);
+    flushAnimationFrame();
+
+    expect({ steps, boxes, framesFromGone, layouts: box.rectSpy.mock.calls.length }).toEqual({
+      steps: {
+        init: ['a'],
+        append: ['a', 'b', 'c'],
+        remove: ['a', 'c'],
+        replaceChildren: ['d', 'e'],
+        innerHTML: ['f', 'g'],
+        'move inside': ['f', 'g'],
+        'add and remove in one batch': ['f', 'g'],
+        'grandchild and text': ['f', 'g'],
+        'child moved into a sibling': ['g'],
+      },
+      // The container's content box, so the gutter's padding counts; a
+      // child's border box, so its own padding does.
+      boxes: { container: ['content-box'], g: ['border-box'] },
+      framesFromGone: 0,
+      layouts: 1,
+    });
+  });
+
+  it.each(['outer first', 'inner first'] as const)(
+    'watches an inner scroll container as content of the outer one, but never its bar (%s)',
+    async (order) => {
+      const outer = createScrollbox(`content-outer-${order.replace(' ', '-')}`);
+      const inner = createScrollbox(
+        `content-inner-${order.replace(' ', '-')}`,
+        outer.container,
+        false,
+      );
+      if (order === 'outer first') {
+        initCustomScrollbar(outer.container);
+        initCustomScrollbar(inner.container);
+      } else {
+        initCustomScrollbar(inner.container);
+        initCustomScrollbar(outer.container);
+      }
+      await flushMutationObservers();
+      flushAnimationFrame();
+      await flushMutationObservers();
+      const innerTrack = inner.track();
+      const framesBefore = _rafCallbacks.size;
+
+      notifyResize(innerTrack);
+      const framesFromBar = _rafCallbacks.size;
+      // Each bar asks for its own frame. (The inner layout also reads the
+      // outer container's rect, as its parent's, so rect counts cannot tell
+      // the two layouts apart here.)
+      notifyResize(inner.container);
+      const framesFromContainer = _rafCallbacks.size;
+      flushAnimationFrame();
+
+      expect({
+        trackInOuter: innerTrack.parentElement === outer.container,
+        watched: {
+          innerContainer: watchedBoxes(inner.container),
+          innerTrack: watchedBoxes(innerTrack),
+        },
+        framesBefore,
+        framesFromBar,
+        framesFromContainer,
+        framesLeft: _rafCallbacks.size,
+      }).toEqual({
+        // The inner bar sits beside its container, directly in the outer one.
+        trackInOuter: true,
+        // The outer bar watches the inner container's border box as content,
+        // its own bar its content box; neither watches the inner bar.
+        watched: { innerContainer: ['border-box', 'content-box'], innerTrack: [] },
+        framesBefore: 0,
+        framesFromBar: 0,
+        framesFromContainer: 2,
+        framesLeft: 0,
+      });
+    },
+  );
+
+  it('lets every child go on destroy, and a container given a bar again watches the children it has then', async () => {
+    const box = createScrollbox('children-reinit');
+    const [first, late, second] = ['first', 'late', 'second'].map(named);
+    box.container.appendChild(first);
+    initCustomScrollbar(box.container);
+    const atInit = watchedNames();
+    // A child added in the teardown's own task, before its records arrive.
+    box.container.appendChild(late);
+    destroyCustomScrollbar(box.container);
+    await flushMutationObservers();
+    const afterDestroy = { container: watchedBoxes(box.container), children: watchedNames() };
+
+    // The same container gets a bar again, as a reused reading dialog's
+    // message does, with new content.
+    box.container.replaceChildren(second);
+    initCustomScrollbar(box.container);
+    await flushMutationObservers();
+    flushAnimationFrame();
+    const afterInit = { container: watchedBoxes(box.container), children: watchedNames() };
+    box.rectSpy.mockClear();
+    notifyResize(second);
+    flushAnimationFrame();
+
+    expect({ atInit, afterDestroy, afterInit, layouts: box.rectSpy.mock.calls.length }).toEqual({
+      atInit: ['first'],
+      afterDestroy: { container: [], children: [] },
+      afterInit: { container: ['content-box'], children: ['second'] },
+      layouts: 1,
+    });
+  });
+
+  it('measures again when a hidden toggle inside a child resizes it, which no record it listens for marks', async () => {
+    const note = named('note');
+    note.hidden = true;
+    const { box, panel } = createPanelScrollbox('hidden-toggle', note);
+    initCustomScrollbar(box.container);
+
+    note.hidden = false;
+    await flushMutationObservers();
+    // The hidden attribute is not one of the attributes the bar listens for.
+    const framesFromToggle = _rafCallbacks.size;
+    box.setScrollHeight(1250);
+    notifyResize(panel);
+    flushAnimationFrame();
+
+    expect({ framesFromToggle, thumb: readThumb(box) }).toEqual({
+      framesFromToggle: 0,
+      thumb: { length: 128, top: 0 },
+    });
+  });
+
+  it('measures through the script driver while a thumb drag lasts, and hands back to the timeline once on release', () => {
+    const timeline = installScrollTimeline();
+    try {
+      const { box, panel } = createPanelScrollbox('drag-child-resize');
+      initCustomScrollbar(box.container);
+      const track = box.track();
+      const thumb = track.querySelector<HTMLElement>('.cscroll-thumb')!;
+      const atInit = { driver: track.dataset.scrollDriver, animations: timeline.animations.length };
+
+      thumb.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientY: 0 }),
+      );
+      box.setScrollHeight(2000);
+      notifyResize(panel);
+      flushAnimationFrame();
+      const duringDrag = {
+        driver: track.dataset.scrollDriver,
+        length: thumb.style.height,
+        animations: timeline.animations.length,
+      };
+      // The drag maps the pointer with the new length: 32 of the thumb's
+      // 320 px of travel is a tenth of the 1600 px scroll range.
+      window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientY: 32 }));
+      const scrollTop = box.container.scrollTop;
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+
+      expect({
+        atInit,
+        duringDrag,
+        scrollTop,
+        afterRelease: {
+          driver: track.dataset.scrollDriver,
+          ends: timeline.animations.map(({ end }) => end),
+        },
+      }).toEqual({
+        atInit: { driver: 'timeline', animations: 1 },
+        duringDrag: { driver: 'script', length: '80px', animations: 1 },
+        scrollTop: 160,
+        afterRelease: { driver: 'timeline', ends: ['translateY(240px)', 'translateY(320px)'] },
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it('lays a held scroller out from a child resize and keeps it held', () => {
+    const computedStyle = computeHeldScrollersHidden();
+    try {
+      const { box, panel } = createPanelScrollbox('held-child-resize');
+      initCustomScrollbar(box.container);
+      const track = box.track();
+      track.getBoundingClientRect = () => makeRect(400);
+      // The bar is shown, as it is whenever it can be pressed.
+      bus.emit('ui:scrollbar-reveal');
+      flushAnimationFrame();
+      track.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientY: 0 }),
+      );
+
+      box.setScrollHeight(2000);
+      notifyResize(panel);
+      flushAnimationFrame();
+      const duringPress = {
+        held: isHeld(box.container),
+        opacity: track.style.opacity,
+        thumbDisplay: track.querySelector<HTMLElement>('.cscroll-thumb')!.style.display,
+        thumb: readThumb(box),
+      };
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+
+      expect(duringPress).toEqual({
+        held: true,
+        opacity: '1',
+        thumbDisplay: '',
+        thumb: { length: 80, top: 0 },
+      });
+    } finally {
+      computedStyle.mockRestore();
+    }
+  });
+
+  it('moves the scroll timeline endpoint with each frame of a child resize and keeps the timeline driver', () => {
+    const timeline = installScrollTimeline();
+    try {
+      const { box, panel } = createPanelScrollbox('timeline-child-frames');
+      box.container.scrollTop = 300;
+      initCustomScrollbar(box.container);
+      const track = box.track();
+      const thumb = track.querySelector<HTMLElement>('.cscroll-thumb')!;
+      const frames = [1250, 1600, 2000].map((scrollHeight) => {
+        box.setScrollHeight(scrollHeight);
+        notifyResize(panel);
+        flushAnimationFrame();
+        return {
+          driver: track.dataset.scrollDriver,
+          length: thumb.style.height,
+          // A new scroll-linked animation starts pending, so the inline
+          // position under it is seeded to the same offset first.
+          seeded: thumb.style.transform,
+          end: timeline.animations.at(-1)?.end,
+        };
+      });
+
+      expect({
+        frames,
+        cancels: timeline.animations.map(({ cancel }) => cancel.mock.calls.length),
+      }).toEqual({
+        frames: [
+          {
+            driver: 'timeline',
+            length: '128px',
+            seeded: 'translateY(96px)',
+            end: 'translateY(272px)',
+          },
+          {
+            driver: 'timeline',
+            length: '100px',
+            seeded: 'translateY(75px)',
+            end: 'translateY(300px)',
+          },
+          {
+            driver: 'timeline',
+            length: '80px',
+            seeded: 'translateY(60px)',
+            end: 'translateY(320px)',
+          },
+        ],
+        // Each rebuild cancels the animation it replaces; the last one runs.
+        cancels: [1, 1, 1, 0],
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it('settles a gutter class change in one extra layout when a child reports the rewrap too', async () => {
+    const box = createScrollbox('gutter-child');
+    box.container.setAttribute('data-custom-scroll-gutter', '');
+    const child = named('child');
+    box.container.appendChild(child);
+    box.scrollHeightSpy.mockImplementation(() =>
+      box.container.classList.contains('has-scroll-overflow') ? 500 : 300,
+    );
+    initCustomScrollbar(box.container);
+
+    // The gutter's padding narrows the container and rewraps its child, so
+    // both report a resize. With the class's own record they make one more
+    // measurement, which writes nothing, and then the bar rests.
+    notifyResize(box.container);
+    notifyResize(child);
+    await flushMutationObservers();
+    const pending = _rafCallbacks.size;
+    flushAnimationFrame();
+    await flushMutationObservers();
+
+    expect({
+      pending,
+      layouts: box.rectSpy.mock.calls.length,
+      left: _rafCallbacks.size,
+      gutter: box.container.classList.contains('has-scroll-overflow'),
+    }).toEqual({ pending: 1, layouts: 2, left: 0, gutter: true });
   });
 });
 
@@ -2371,9 +2870,10 @@ describe('custom-scrollbar pointer hover reveal and drag visuals', () => {
     expect(thumb.style.height).toBe('40px');
     revealByHover(box);
 
-    // A late image or font, or a grid-rows transition ending, grows the content
-    // without a mutation record or a border-box change. A wheel inside the
-    // hover's fade delay still starts a scroll session, which re-measures once.
+    // Content can grow with no mutation record and no resize the bar watches
+    // (text directly in the container, rewrapped by a late font). A wheel
+    // inside the hover's fade delay still starts a scroll session, which
+    // re-measures once.
     box.setScrollHeight(1600);
     vi.advanceTimersByTime(600);
     box.container.scrollTop = 100;
@@ -2416,8 +2916,9 @@ describe('custom-scrollbar pointer hover reveal and drag visuals', () => {
     const box = createScrollbox('hover-measures-first');
     initCustomScrollbar(box.container);
 
-    // The content stopped overflowing without a mutation record or a resize (a
-    // font swap, a collapse transition ending), so the cache still says it does.
+    // The content stopped overflowing with no mutation record and no resize
+    // the bar watches (text directly in it, rewrapped by a font swap), so the
+    // cache still says it does.
     box.setScrollHeight(200);
     dispatchPointer(box.container, 'pointerover', {
       pointerType: 'mouse',

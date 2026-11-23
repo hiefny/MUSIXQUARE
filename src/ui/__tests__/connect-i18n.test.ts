@@ -20,7 +20,12 @@ import {
 } from '../../pro-room/runtime.ts';
 import { showToast } from '../toast.ts';
 import { showDialog, type DialogResult } from '../dialog.ts';
-import { copyTextToClipboard, offerBackToTopWindow, whenBackSurfaceSettled } from '../dom.ts';
+import {
+  __resetModalStackForTests,
+  copyTextToClipboard,
+  offerBackToTopWindow,
+  whenBackSurfaceSettled,
+} from '../dom.ts';
 import { initConnect } from '../connect.ts';
 import { MATERIAL_ELASTIC_SPINNER_PARTS } from '../material-elastic-spinner.ts';
 import { retryPeerSignalingConnection } from '../../network/peer.ts';
@@ -887,6 +892,51 @@ describe('connect signaling health status', () => {
     expect(button.dataset.mode).toBe('copy');
     expect(button.disabled).toBe(false);
     expect(button.textContent).toBe('초대 링크 복사하기');
+  });
+
+  it('plays the recovery dialog exit only when shown, and a reopen ends it first', async () => {
+    // As in css/style.css, only the closing class starts the exit. jsdom
+    // computes animation longhands from a stylesheet and runs no animation.
+    const exitStyle = document.createElement('style');
+    exitStyle.textContent =
+      '#signaling-recovery-overlay.is-closing { animation-name: dialogBackdropOut; animation-duration: 0.22s; }';
+    document.head.appendChild(exitStyle);
+    __resetModalStackForTests();
+    try {
+      const button = await startHostSessionWithQR();
+      setState('network.signalingHealth', { status: 'expired', attempt: 0, maxAttempts: 5 });
+      const overlay = document.getElementById('signaling-recovery-overlay')!;
+      const dialog = document.getElementById('signaling-recovery-dialog')!;
+      const confirm = document.getElementById('btn-signaling-recovery-confirm')!;
+
+      // A programmatic close of the dialog that is not shown plays nothing.
+      confirm.click();
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+
+      button.click();
+      confirm.click();
+      expect(overlay.classList.contains('show')).toBe(false);
+      expect(overlay.classList.contains('is-closing')).toBe(true);
+      expect(overlay.getAttribute('aria-hidden')).toBe('true');
+      // Nothing in the closing dialog changes while it leaves.
+      expect(dialog.dataset.state).toBe('expired');
+
+      button.click();
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+      expect(overlay.classList.contains('show')).toBe(true);
+      await whenBackSurfaceSettled();
+
+      confirm.click();
+      expect(overlay.classList.contains('is-closing')).toBe(true);
+      const end = new Event('animationend');
+      Object.defineProperty(end, 'animationName', { value: 'dialogBackdropOut' });
+      overlay.dispatchEvent(end);
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+      await whenBackSurfaceSettled();
+    } finally {
+      __resetModalStackForTests();
+      exitStyle.remove();
+    }
   });
 });
 

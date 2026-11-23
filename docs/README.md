@@ -96,6 +96,54 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.836 / v836 train: switching between light and dark leaves no surface in the previous theme's colours, the five dialogs that vanished on close now leave the way they came in, and a custom scrollbar's thumb follows content that grows or shrinks (2026-11-23)](design/app-9-0-836-train-2026-11-23.md):
+  built on its train branch, not merged or released. The App update after 9.0.835 / v835, on main `d1febd68` (#627, a
+  tests-only fix of the local workerd port helper, after #626, the 9.0.835 record), for three owner reports: on
+  2026-11-22, that right after a switch between light and dark some surfaces briefly showed the previous theme's colour,
+  and that dialogs slid up as they appeared but vanished with no motion; on 2026-11-23, that opening the reverb or EQ
+  Advanced area in Settings changed the scroll length while the custom scrollbar's thumb kept its length, changed at odd
+  moments and sometimes grew when it should shrink. The owner asked for all three to be fixed and released and, going to
+  sleep, left the decisions to the release operator's recommendation, to be confirmed afterwards: one train, no prior
+  screenshot approval (before and after frames were prepared for the owner's review), and the choices below. Theme:
+  surfaces coloured by the palette tokens with a CSS colour transition (the header, the settings chips, the Sync and
+  Media pills, the playlist's repeat, shuffle and add buttons and others) started from the old palette when `data-theme`
+  flipped and caught up 0.15 to 0.3 s later; on production 9.0.835 one switch started 62 transitions in a desktop room
+  and 93 on the iPhone Settings tab, and which ones showed depended on layout, state and hover. `setTheme()` now holds a
+  `theme-switching` class on `<html>` for the one forced style flush that swaps the palette, and one `@layer base` rule
+  turns every transition off under it; animations are left alone, a transition running at that moment jumps to its end,
+  and there is no frame, timer or listener. Dialogs: the five dialogs whose closed state is `display: none` (the common
+  dialog, the connection recovery dialog, the language list, the multiple playlists dialog and the move dialog) play
+  their entrance in reverse with the manual sync window's exit timing (0.22 s ease-in, 20 px down). A dialog is closed
+  for the page at once (focus, Back, keys, screen readers, and the page under it takes input) while its panel keeps its
+  look until the exit ends; a queued or chained dialog opens after the exit with its whole entrance; a dialog closed
+  during its own entrance, or under reduced motion, hides at once as before. The closing-surface ledger in
+  `src/ui/dom.ts`, extended in place, holds the exit, so the Back guard re-arms after it, and a paint order beside the
+  modal stack keeps an exit under a dialog that stays open above it or opens during it. Scrollbar: the bar measured its
+  length when its scroller's own box or its DOM changed, and an Advanced area grows or shrinks over 0.35 s inside a box
+  that stays put, so each toggle showed the length of the state before it until an unrelated scroll or hover. The bar's
+  one ResizeObserver now also watches the scroller's direct element children, so in every custom scroll area the thumb's
+  length and travel follow the content frame by frame, one frame behind at the start, with no timing of their own. No
+  new key, translation, bus event, retry or timing constant in code. Tests: 57 new unit rows in 7 files (one new); with
+  the earlier code 4 theme rows (the new rule in place), 13 review rows and 9 scrollbar rows failed, and 12 one-line
+  mutants of the dialog exit were all killed. Three new e2e files (11 rows in Chromium; the WebKit lane runs 7 and skips
+  4): the theme row failed on a build without the rule (62 transitions in Chromium, 94 in WebKit), the three dialog rows
+  on one with the exit animations off, and the seven scrollbar rows on the base, on stale thumb lengths in every frame.
+  A review in five lenses with a separate refutation pass found 9 items for the theme and dialog parts (2 medium, 7
+  low): 8 confirmed and fixed in six commits (paint order, a fullscreen that ends during an exit, a close during the
+  entrance, a closing dialog's scrollbar track, the exit read on its animations' clock, a qualifier in the dated 8.11.12
+  Back guard report) and 1 refuted; three lenses on the scrollbar part found one comment to correct. Resource ownership:
+  no record change; each part's last check passed (51 records, 466 production files) with the base's counts. Final gate
+  on the bump `e994ca23`, one run, all 42 steps exit 0: unit 799 files, 19,590 passed, 1 skipped; typecheck, lint,
+  format:check, resource ownership (51 records, 466 production files; its output and `--report` byte-identical to the
+  9.0.835 gate's), build:checked (PASS v836 at `e994ca23`), the eight production build guards and the CI static guards
+  with check:workers and check:worker-bundles exit 0; the whole Chromium project, 131 files, 1,202 passed, 0 failed, 3
+  skipped, the 11 new rows included (wider than the related files of the owner's 2026-11-17 gate decision, because the
+  exit reaches every dialog; every file passed on the first run, so the script's rule to rerun a failed spec file once
+  on its own was never used); the WebKit lane 235 passed, 23 skipped; the WebKit Service Worker smoke 1, the production
+  candidate 20 (11 skipped) and the critical paths 101 passed. Against production 9.0.835 the App changes 11 runtime
+  paths (7 sources and the four version mirrors) and the other five Workers none; the release tool's partial release
+  check, run on git alone, passes target `app`. Not verified on a physical device or against the real servers. Target
+  `app`, one update dialog, floor 795 unchanged.
 - [App 9.0.835 / v835 train: opening or joining a room while the browser reports no network says so on the setup screen, in the Refresh needed dialog and in the QR toast, instead of a failed session, a network error or an app update (2026-11-21)](design/app-9-0-835-train-2026-11-21.md):
   released on 2026-11-21 22:06 KST in Release 44906980656 (PR #625, squash `fbb96244`) as App 9.0.835 / v835 (App build
   835, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

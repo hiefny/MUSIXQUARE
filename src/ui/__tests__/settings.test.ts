@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
-import { parse as parseCss } from 'postcss';
+import { parse as parseCss, type AtRule, type Rule } from 'postcss';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
@@ -25,6 +25,7 @@ import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
 import { installRangeDragGuard } from '../range-drag.ts';
+import { __resetModalStackForTests, whenBackSurfaceSettled } from '../dom.ts';
 
 const preloadNativeNameGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
@@ -369,6 +370,228 @@ describe('setTheme', () => {
   it('persists system preference as-is in localStorage', () => {
     setTheme('system');
     expect(localStorage.getItem('musixquare-theme')).toBe('system');
+  });
+});
+
+// Owner report: right after a theme switch, a surface with a colour
+// transition (the pressed chip, the header) showed the previous theme's colour
+// for a moment. setTheme() holds a class on <html> that style.css turns every
+// transition off under, for exactly one forced style flush.
+describe('setTheme transition hold', () => {
+  const HOLD =
+    /const THEME_SWITCHING_CLASS = '([^']+)';/u.exec(
+      readFileSync('src/ui/settings.ts', 'utf8'),
+    )?.[1] ?? '';
+
+  interface ForcedRead {
+    onRoot: boolean;
+    theme: string | null;
+    held: boolean;
+    colorScheme: string;
+    pressed: (string | null)[];
+  }
+
+  /**
+   * Runs `run` and returns what it wrote to <html> and to the theme chips, in
+   * order (a run of one kind of write folded into one entry), with each
+   * offsetWidth read in its place, and what the page held at each read.
+   */
+  function recordThemeWrites(run: () => void): { log: string[]; reads: ForcedRead[] } {
+    const root = document.documentElement;
+    const log: string[] = [];
+    const reads: ForcedRead[] = [];
+    const observer = new MutationObserver(() => undefined);
+    observer.observe(root, {
+      attributes: true,
+      attributeOldValue: true,
+      attributeFilter: ['class', 'data-theme', 'style'],
+    });
+    observer.observe(document.getElementById('grid-theme')!, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ['class', 'aria-pressed'],
+    });
+    const drain = () => {
+      for (const record of observer.takeRecords()) {
+        let entry = 'pressed';
+        if (record.target === root && record.attributeName === 'class') {
+          // The class list before the write tells the hold from its release.
+          entry = (record.oldValue ?? '').split(/\s+/u).includes(HOLD) ? 'release' : 'hold';
+        } else if (record.target === root) {
+          entry = record.attributeName === 'data-theme' ? 'data-theme' : 'color-scheme';
+        }
+        if (log[log.length - 1] !== entry) log.push(entry);
+      }
+    };
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      drain();
+      log.push('read');
+      reads.push({
+        onRoot: this === root,
+        theme: root.getAttribute('data-theme'),
+        held: root.classList.contains(HOLD),
+        colorScheme: root.style.colorScheme,
+        pressed: Array.from(document.querySelectorAll('#grid-theme .ch-opt[data-theme]'), (chip) =>
+          chip.getAttribute('aria-pressed'),
+        ),
+      });
+      return 0;
+    });
+    try {
+      run();
+    } finally {
+      drain();
+      observer.disconnect();
+    }
+    return { log, reads };
+  }
+
+  beforeEach(() => {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.documentElement.style.colorScheme = 'dark';
+    document.body.classList.remove('mode-demo');
+  });
+
+  afterEach(() => {
+    document.body.classList.remove('mode-demo');
+  });
+
+  it.each([
+    ['the app', false],
+    ['demo mode', true],
+  ])(
+    'in %s, writes the palette inside the hold and forces one style read before the release',
+    (_surface, demo) => {
+      document.body.classList.toggle('mode-demo', demo);
+
+      const { log, reads } = recordThemeWrites(() => setTheme('light'));
+
+      expect(log).toEqual(['hold', 'pressed', 'data-theme', 'color-scheme', 'read', 'release']);
+      expect(reads).toEqual([
+        {
+          onRoot: true,
+          theme: 'light',
+          held: true,
+          colorScheme: 'light',
+          pressed: ['true', 'false'],
+        },
+      ]);
+      expect(document.documentElement.classList.contains(HOLD)).toBe(false);
+      expect(localStorage.getItem('musixquare-theme')).toBe('light');
+    },
+  );
+
+  it('releases the hold when the forced read throws', () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(() => {
+      throw new Error('forced read failed');
+    });
+
+    expect(() => setTheme('light')).toThrow('forced read failed');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.classList.contains(HOLD)).toBe(false);
+  });
+
+  it('releases the hold when a palette write throws', () => {
+    const root = document.documentElement;
+    const read = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get');
+    const write = vi.spyOn(root, 'setAttribute').mockImplementation(() => {
+      throw new Error('palette write failed');
+    });
+
+    try {
+      expect(() => setTheme('light')).toThrow('palette write failed');
+    } finally {
+      write.mockRestore();
+    }
+    expect(read).not.toHaveBeenCalled();
+    expect(root.getAttribute('data-theme')).toBe('dark');
+    expect(root.classList.contains(HOLD)).toBe(false);
+  });
+
+  it('neither holds nor reads when the theme stays, as on a press of the active chip', () => {
+    const repress = recordThemeWrites(() => setTheme('dark'));
+    // The matchMedia stub answers light, so 'system' keeps a light page light.
+    document.documentElement.setAttribute('data-theme', 'light');
+    const system = recordThemeWrites(() => setTheme('system'));
+
+    for (const { log, reads } of [repress, system]) {
+      expect(log).not.toContain('hold');
+      expect(log).not.toContain('release');
+      expect(reads).toEqual([]);
+    }
+    expect(document.documentElement.classList.contains(HOLD)).toBe(false);
+  });
+
+  it.each([
+    ['a saved theme', 'dark', 'dark'],
+    ['the system theme', null, 'light'],
+  ] as const)(
+    'neither holds nor reads on the initial call, which repeats the preflight theme (%s)',
+    (_source, saved, preflight) => {
+      if (saved) localStorage.setItem('musixquare-theme', saved);
+      document.documentElement.setAttribute('data-theme', preflight);
+
+      const { log, reads } = recordThemeWrites(() => initSettings());
+
+      expect(log).not.toContain('release');
+      expect(reads.filter((read) => read.onRoot)).toEqual([]);
+      expect(document.documentElement.classList.contains(HOLD)).toBe(false);
+      expect(document.documentElement.getAttribute('data-theme')).toBe(preflight);
+    },
+  );
+
+  it('holds a chip press that swaps the palette, and not a press on the active chip', () => {
+    localStorage.setItem('musixquare-theme', 'dark');
+    initSettings();
+
+    const again = recordThemeWrites(() => document.getElementById('theme-dark')!.click());
+    expect(again.log).not.toContain('hold');
+    expect(again.reads).toEqual([]);
+
+    const swap = recordThemeWrites(() => document.getElementById('theme-light')!.click());
+    expect(swap.log).toEqual(['hold', 'pressed', 'data-theme', 'color-scheme', 'read', 'release']);
+    expect(swap.reads.map((read) => [read.onRoot, read.theme, read.held])).toEqual([
+      [true, 'light', true],
+    ]);
+    expect(localStorage.getItem('musixquare-theme')).toBe('light');
+  });
+
+  it('turns off only transitions under the class, in the base layer of style.css', () => {
+    expect(HOLD).toMatch(/^[a-z]+(?:-[a-z]+)*$/u);
+    const named = new RegExp(`\\.${HOLD}(?![\\w-])`, 'u');
+    // css/app.css imports these four files; together they are the app stylesheet.
+    const rules: { path: string; rule: Rule }[] = [];
+    for (const path of [
+      'css/style.css',
+      'css/desktop.css',
+      'css/rtl.css',
+      'css/playback-actions.css',
+    ]) {
+      parseCss(readFileSync(path, 'utf8')).walkRules((rule) => {
+        if (named.test(rule.selector)) rules.push({ path, rule });
+      });
+    }
+
+    expect(rules.map(({ path }) => path)).toEqual(['css/style.css']);
+    const { rule } = rules[0]!;
+    const layer = rule.parent as AtRule | undefined;
+    expect([layer?.type, layer?.name, layer?.params]).toEqual(['atrule', 'layer', 'base']);
+    expect(rule.selectors).toEqual([
+      `html.${HOLD}`,
+      `html.${HOLD} *`,
+      `html.${HOLD} *::before`,
+      `html.${HOLD} *::after`,
+    ]);
+    // Never animation: removing it would restart every running animation.
+    const declarations: string[] = [];
+    rule.each((node) => {
+      if (node.type === 'decl') {
+        declarations.push(`${node.prop}: ${node.value}${node.important ? ' !important' : ''}`);
+      }
+    });
+    expect(declarations).toEqual(['transition: none !important']);
   });
 });
 
@@ -1134,6 +1357,80 @@ describe('initSettings language controls', () => {
     expect(escape.defaultPrevented).toBe(true);
     expect(overlay.classList.contains('show')).toBe(false);
     expect(document.activeElement).toBe(trigger);
+  });
+
+  describe('exit', () => {
+    // As in css/style.css, only the closing class starts the exit. jsdom
+    // computes animation longhands from a stylesheet and runs no animation.
+    let exitStyle: HTMLStyleElement;
+    const endExit = (overlay: HTMLElement) => {
+      const event = new Event('animationend');
+      Object.defineProperty(event, 'animationName', { value: 'dialogBackdropOut' });
+      overlay.dispatchEvent(event);
+    };
+
+    beforeEach(() => {
+      __resetModalStackForTests();
+      exitStyle = document.createElement('style');
+      exitStyle.textContent =
+        '.dialog-overlay.is-closing { animation-name: dialogBackdropOut; animation-duration: 0.22s; }';
+      document.head.appendChild(exitStyle);
+    });
+
+    afterEach(() => {
+      __resetModalStackForTests();
+      exitStyle.remove();
+    });
+
+    it('plays the exit of a shown list only, with focus back on its button at once', async () => {
+      installLanguageSettingsDom();
+      initSettings();
+      const trigger = document.getElementById('btn-language-select') as HTMLButtonElement;
+      const done = document.getElementById('btn-language-dialog-done')!;
+      const overlay = document.getElementById('language-dialog-overlay')!;
+
+      // Closing a list that is not shown plays nothing.
+      done.click();
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+
+      trigger.focus();
+      trigger.click();
+      done.click();
+      expect(overlay.classList.contains('show')).toBe(false);
+      expect(overlay.classList.contains('is-closing')).toBe(true);
+      expect(overlay.getAttribute('aria-hidden')).toBe('true');
+      expect(document.activeElement).toBe(trigger);
+      const settled = vi.fn();
+      const observed = whenBackSurfaceSettled().then(settled);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).not.toHaveBeenCalled();
+
+      // A second close of the closed list changes nothing.
+      done.click();
+      expect(overlay.classList.contains('is-closing')).toBe(true);
+      expect(document.activeElement).toBe(trigger);
+      endExit(overlay);
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+      await observed;
+      expect(settled).toHaveBeenCalledOnce();
+    });
+
+    it('ends a running exit when the list opens again, so its entrance starts over', async () => {
+      installLanguageSettingsDom();
+      initSettings();
+      const trigger = document.getElementById('btn-language-select') as HTMLButtonElement;
+      const overlay = document.getElementById('language-dialog-overlay')!;
+
+      trigger.click();
+      document.getElementById('btn-language-dialog-done')!.click();
+      expect(overlay.classList.contains('is-closing')).toBe(true);
+
+      trigger.click();
+      expect(overlay.classList.contains('is-closing')).toBe(false);
+      expect(overlay.classList.contains('show')).toBe(true);
+      await whenBackSurfaceSettled();
+    });
   });
 });
 

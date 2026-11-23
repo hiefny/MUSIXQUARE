@@ -16,7 +16,14 @@ import { getState } from '../core/state.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { switchPlaylist, transferTracks } from '../player/playlist.ts';
 import type { PlaylistSlotSummary, PlaylistTransferMode, QueueItemId } from '../types/index.ts';
-import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
+import {
+  finishOverlayExit,
+  getUiElement,
+  onWindowBack,
+  startOverlayExit,
+  syncOverlayState,
+  trackOverlayExit,
+} from './dom.ts';
 import { renderPlaylistSlotName } from './playlist-slot-names.ts';
 import { createSelectionCheckSvg, SELECTION_TOGGLE_PATHS } from './selection-mark.ts';
 
@@ -85,19 +92,25 @@ function createSlotRow(slot: number, trailing: 'check' | 'select'): HTMLButtonEl
 function openOverlay(id: string, focusTarget: HTMLElement | null): void {
   const overlay = getUiElement(id);
   if (!overlay) return;
+  // A close still playing its exit ends first; the entrance starts over.
+  finishOverlayExit(overlay);
   _previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState(id as Parameters<typeof syncOverlayState>[0]);
-  window.setTimeout(() => focusTarget?.focus(), 0);
+  // A dialog closed before this runs keeps focus where its close put it.
+  window.setTimeout(() => {
+    if (overlay.classList.contains('show')) focusTarget?.focus();
+  }, 0);
 }
 
 function closeOverlay(id: string): void {
   const overlay = getUiElement(id);
-  if (!overlay?.classList.contains('show')) return;
-  overlay.classList.remove('show');
+  // A shown dialog plays its exit; nothing in it changes meanwhile.
+  if (!overlay || !startOverlayExit(overlay)) return;
   overlay.setAttribute('aria-hidden', 'true');
   syncOverlayState();
+  trackOverlayExit(overlay);
   const previous = _previousFocus;
   _previousFocus = null;
   if (previous?.isConnected) previous.focus();

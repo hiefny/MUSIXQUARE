@@ -40,7 +40,14 @@ import {
 import { setControlUnavailable } from './control-hint.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
-import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
+import {
+  finishOverlayExit,
+  getUiElement,
+  onWindowBack,
+  startOverlayExit,
+  syncOverlayState,
+  trackOverlayExit,
+} from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { createSelectionCheckSvg } from './selection-mark.ts';
@@ -200,6 +207,14 @@ function syncUiSoundsControls(enabled = isUiSoundsEnabled()): void {
 
 // ─── Theme ───────────────────────────────────────────────────────
 
+/**
+ * Held on <html> while setTheme() swaps the palette. style.css turns every
+ * transition off under it, so a surface with a colour transition (the header,
+ * the settings chips, the play actions) cannot ease from the previous theme's
+ * colours after the rest of the page has switched.
+ */
+const THEME_SWITCHING_CLASS = 'theme-switching';
+
 export function setTheme(mode: string, save = true): void {
   const originalMode = mode;
   // Migrate legacy 'system' → resolve to actual value
@@ -207,26 +222,44 @@ export function setTheme(mode: string, save = true): void {
     mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
 
-  syncExclusivePressedState(
-    document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]'),
-    (element) => element.dataset.theme === mode,
-  );
+  const root = document.documentElement;
+  // Only a real palette swap is held. Pressing the active chip again, and the
+  // initial call that repeats the theme the head preflight already set, leave
+  // the class alone and force no style flush.
+  const holdTransitions =
+    root.getAttribute('data-theme') !== mode && !root.classList.contains(THEME_SWITCHING_CLASS);
+  if (holdTransitions) root.classList.add(THEME_SWITCHING_CLASS);
+  try {
+    syncExclusivePressedState(
+      document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]'),
+      (element) => element.dataset.theme === mode,
+    );
 
-  document.documentElement.setAttribute('data-theme', mode);
+    root.setAttribute('data-theme', mode);
 
-  if (save) {
-    try {
-      localStorage.setItem('musixquare-theme', originalMode);
-    } catch {
-      /* ignore */
+    if (save) {
+      try {
+        localStorage.setItem('musixquare-theme', originalMode);
+      } catch {
+        /* ignore */
+      }
     }
-  }
 
-  // Update meta tags for PWA/browser integration.
-  // Demo mode has a different visible bottom surface, so keep browser chrome
-  // matched to that panel while the overlay is active.
-  if (document.body.classList.contains('mode-demo')) syncDemoThemeChrome(mode);
-  else syncAppThemeChrome(mode);
+    // Update meta tags for PWA/browser integration.
+    // Demo mode has a different visible bottom surface, so keep browser chrome
+    // matched to that panel while the overlay is active.
+    if (document.body.classList.contains('mode-demo')) syncDemoThemeChrome(mode);
+    else syncAppThemeChrome(mode);
+
+    // One forced style flush takes every write above, the inline color-scheme
+    // included, while the class is on. That flush is the style change that
+    // swaps the palette, so no transition starts from the previous colours.
+    // The next style change, after the class goes, compares the new colours
+    // with themselves, so the class can go at once: no frame, no timer.
+    if (holdTransitions) void root.offsetWidth;
+  } finally {
+    if (holdTransitions) root.classList.remove(THEME_SWITCHING_CLASS);
+  }
 }
 
 // ─── Channel Mode (Standard) ─────────────────────────────────────
@@ -843,6 +876,8 @@ export function openLanguageDialog(): void {
 
   const overlay = getUiElement('language-dialog-overlay');
   if (!overlay) return;
+  // A close still playing its exit ends first; the entrance starts over.
+  finishOverlayExit(overlay);
   _languageDialogPreviousFocus =
     document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -869,11 +904,12 @@ export function openLanguageDialog(): void {
 function closeLanguageDialog(): void {
   const overlay = getUiElement('language-dialog-overlay');
   if (!overlay) return;
-  const wasShown = overlay.classList.contains('show');
   clearManagedTimer('language-dialog-focus');
-  overlay.classList.remove('show');
+  // A shown list plays its exit; nothing in it changes meanwhile.
+  const wasShown = startOverlayExit(overlay);
   overlay.setAttribute('aria-hidden', 'true');
   syncOverlayState();
+  if (wasShown) trackOverlayExit(overlay);
 
   const previousFocus = _languageDialogPreviousFocus;
   _languageDialogPreviousFocus = null;

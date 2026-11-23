@@ -3812,7 +3812,11 @@ RO-56 accepted-exception
 - **Resource:** the `#playlist-ui` row DOM and the `.tab-body` scroll position.
 - **Current owners/flows:** reorder (`src/ui/playlist-reorder.ts`: drag, keyboard, settling, FLIP,
   edge auto-scroll); removal (`src/ui/playlist-removal.ts` with
-  `src/ui/playlist-selection-morph.ts`: selection, exit layer, glide); the selection-gesture
+  `src/ui/playlist-selection-morph.ts`: selection, exit layer, glide, and the room the selection
+  bar takes under the last track: a smooth scroll that brings the lowest selected track in sight
+  out from under the arriving bar, held until a press that made the selection lets go, and one
+  out of the room as the bar goes, which the bar's hide waits for and which the removal picks up
+  again after a render); the selection-gesture
   auto-scroll (`src/ui/playlist-selection-gestures.ts`); follow and current-jump; the custom
   scrollbar drag and the jump from a press on the bar's empty part, which hold the scroller still
   from the press until it ends (RO-56), and the wheel its shown bar hands to the scroller while no
@@ -3840,16 +3844,24 @@ RO-56 accepted-exception
   after a drop or hold (`CLICK_SUPPRESSION_MS`, 500 ms, `playlist-reorder.ts`) and after a range
   drag (`RANGE_DRAG_CLICK_SUPPRESSION_MS`, 400 ms, `playlist-selection-gestures.ts`); the survivors'
   glide (`GLIDE_MS`, 300 ms, `playlist-removal.ts`) and the selection pills' morph (`MORPH_MS`,
-  320 ms, `playlist-selection-morph.ts`); the header crossfade's curve stays in
+  320 ms, `playlist-selection-morph.ts`); the longest the bar's room waits for the list to scroll
+  out of it (`ROOM_EXIT_LIMIT_MS`, 600 ms from the mode's end, `playlist-removal.ts`; the scroll
+  itself is the browser's smooth scroll); the header crossfade's curve stays in
   `playlist-removal.ts`.
 - **Anchor tests:**
   - Shared motion: `src/ui/__tests__/playlist-motion.test.ts` "takes the same steps toward each
     edge of the pane visible above the bottom nav" (reorder drag and check-column drag).
   - Supersession: `src/ui/__tests__/playlist-view.test.ts` "keeps an active PRO reorder mounted
     through revision-only context pulses" and "defers renders while an edit-mode drag runs
-    instead of dropping it".
+    instead of dropping it"; `src/ui/__tests__/playlist-removal.test.ts` "closes the room after a
+    deletion as its survivors close up, through a render".
   - User pause/stop: `src/ui/__tests__/playlist-reorder.test.ts` "cancels an active drag on Escape
-    without changing order".
+    without changing order"; `playlist-removal.test.ts` "makes room for a selection made under a
+    held press only after it lets go", "leaves the rows to a press the browser takes for
+    scrolling" and "lets the room go at its limit when the list never leaves it".
+  - The bar's room on a phone: `e2e/playlist-edit-mode.test.ts` "selecting the last track brings
+    it up above the bar, and Cancel closes the room without a jump" and "Delete at the end of the
+    room closes it as the survivors close up, without a jump".
   - Teardown: `playlist-view.test.ts` "cancels a PRO deletion task on authority loss or
     room-incarnation replacement" and "cancels the drag and the selection together on ...".
   - Visibility: `playlist-reorder.test.ts` "preserves focus after hidden retires keyboard

@@ -1051,3 +1051,143 @@ test.describe('Playlist edit mode (touch)', () => {
     await expect(page.locator('.playlist-selection-bar')).toBeHidden();
   });
 });
+
+test.describe('Selection bar room (phone)', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    deviceScaleFactor: 1,
+  });
+
+  const LONG_LIST = Array.from(
+    { length: 14 },
+    (_, index) => (['test01', 'test02', 'test03'] as const)[index % 3]!,
+  );
+
+  async function openLongPlaylistAtItsEnd(page: Page): Promise<void> {
+    await injectPeerServer(page);
+    await setupHostAndStart(page);
+    await uploadFixtures(page, LONG_LIST);
+    await waitForPlaylistCount(page, LONG_LIST.length);
+    await waitForViewTransitionEnd(page);
+    await navigateToTab(page, 'playlist');
+    await page.waitForTimeout(800);
+    await page.evaluate(() => {
+      const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
+      body.scrollTop = body.scrollHeight;
+    });
+    await page.waitForTimeout(300);
+  }
+
+  interface RoomFrame {
+    scrollTop: number;
+    max: number;
+    barHidden: boolean;
+  }
+
+  /** The body's scroll range each frame for `ms`, starting right after `act`. */
+  async function roomFrames(page: Page, act: () => Promise<void>, ms: number) {
+    await page.evaluate((duration) => {
+      const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
+      const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+      const frames: RoomFrame[] = [];
+      (window as unknown as { __roomFrames: RoomFrame[] }).__roomFrames = frames;
+      const start = performance.now();
+      const step = () => {
+        frames.push({
+          scrollTop: body.scrollTop,
+          max: body.scrollHeight - body.clientHeight,
+          barHidden: Boolean(bar.hidden),
+        });
+        if (performance.now() - start < duration) requestAnimationFrame(step);
+      };
+      step();
+    }, ms);
+    await act();
+    await page.waitForTimeout(ms + 100);
+    return page.evaluate(() => (window as unknown as { __roomFrames: RoomFrame[] }).__roomFrames);
+  }
+
+  /** The last track's bottom and the resting bar's top, once both have settled. */
+  async function lastTrackAndBar(page: Page) {
+    return page.evaluate(() => {
+      const entries = document.querySelectorAll<HTMLElement>('#playlist-ui > .playlist-entry');
+      const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+      return {
+        lastBottom: entries[entries.length - 1]!.getBoundingClientRect().bottom,
+        barTop: bar.hidden ? null : bar.getBoundingClientRect().top,
+      };
+    });
+  }
+
+  /** The frame where the room went, with the one before it. */
+  function roomGoing(frames: RoomFrame[]) {
+    const index = frames.findIndex(
+      (frame, at) => at > 0 && frame.barHidden && !frames[at - 1]!.barHidden,
+    );
+    expect(index).toBeGreaterThan(0);
+    return { before: frames[index - 1]!, after: frames[index]! };
+  }
+
+  test('selecting the last track brings it up above the bar, and Cancel closes the room without a jump', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await openLongPlaylistAtItsEnd(page);
+    const atEnd = await page.locator('#tab-playlist .tab-body').evaluate((body) => body.scrollTop);
+    const minus = await centerOf(page.locator('#playlist-ui .btn-playlist-select').last());
+    const arrival = await roomFrames(page, () => page.touchscreen.tap(minus.x, minus.y), 500);
+    // The list rose over several frames, into the room the bar takes.
+    const settled = arrival.at(-1)!.scrollTop;
+    expect(settled).toBeGreaterThan(atEnd + 40);
+    expect(
+      arrival.some((frame) => frame.scrollTop > atEnd + 1 && frame.scrollTop < settled - 1),
+    ).toBe(true);
+    const shown = await lastTrackAndBar(page);
+    // The bar's own top margin apart, as at the end of the list.
+    expect(shown.barTop! - shown.lastBottom).toBeGreaterThanOrEqual(15);
+
+    // The user scrolls to the end of the room, then cancels.
+    await page.evaluate(() => {
+      const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
+      body.scrollTop = body.scrollHeight;
+    });
+    await page.waitForTimeout(200);
+    const cancel = await centerOf(page.locator('[data-selection-action="cancel"]'));
+    const leaving = await roomFrames(page, () => page.touchscreen.tap(cancel.x, cancel.y), 700);
+    const { before, after } = roomGoing(leaving);
+    // The list was already out of the room when it went: nothing was clamped.
+    expect(before.scrollTop).toBeLessThanOrEqual(after.max + 1);
+    expect(after.scrollTop).toBeCloseTo(atEnd, 0);
+  });
+
+  test('Delete at the end of the room closes it as the survivors close up, without a jump', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await openLongPlaylistAtItsEnd(page);
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    for (const index of [LONG_LIST.length - 2, LONG_LIST.length - 1]) {
+      const point = await centerOf(checks.nth(index));
+      await page.touchscreen.tap(point.x, point.y);
+      await page.waitForTimeout(400);
+    }
+    await page.evaluate(() => {
+      const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
+      body.scrollTop = body.scrollHeight;
+    });
+    await page.waitForTimeout(200);
+    const remove = await centerOf(page.locator('[data-selection-action="delete"]'));
+    const frames = await roomFrames(page, () => page.touchscreen.tap(remove.x, remove.y), 900);
+    const { before, after } = roomGoing(frames);
+    expect(before.scrollTop).toBeLessThanOrEqual(after.max + 1);
+    await waitForPlaylistCount(page, LONG_LIST.length - 2);
+    // The survivors end where the end of the list is.
+    const end = await page.locator('#tab-playlist .tab-body').evaluate((body) => ({
+      scrollTop: body.scrollTop,
+      max: body.scrollHeight - body.clientHeight,
+    }));
+    expect(end.scrollTop).toBeCloseTo(end.max, 0);
+  });
+});

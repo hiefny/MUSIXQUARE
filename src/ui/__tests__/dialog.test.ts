@@ -1035,6 +1035,25 @@ describe('Dialog System', () => {
       expect(document.activeElement).toBe(launcher);
     });
 
+    it('keeps the place the keyboard reached inside the dialog when its default focus runs late', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'Leave',
+        secondaryText: 'Stay',
+        defaultFocus: 'secondary',
+      });
+      // A busy main thread can run the deferred default focus after the
+      // first Tab: the keyboard is already on the other action by then.
+      const ok = document.getElementById('btn-dialog-ok')!;
+      ok.focus();
+      expect(document.activeElement).toBe(ok);
+      vi.advanceTimersByTime(10);
+      expect(document.activeElement).toBe(ok);
+      closeDialog();
+      await promise;
+      vi.advanceTimersByTime(10);
+    });
+
     it('ignores an obsolete callback while the successor keeps its default focus', async () => {
       const timers = await import('../../core/timers.ts');
       const timerSpy = vi.spyOn(timers, 'setManagedTimer');

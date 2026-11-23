@@ -41,6 +41,7 @@ import { setControlUnavailable } from './control-hint.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
 import {
+  animateTransition,
   finishOverlayExit,
   getUiElement,
   onWindowBack,
@@ -211,16 +212,28 @@ function syncUiSoundsControls(enabled = isUiSoundsEnabled()): void {
  * Held on <html> while setTheme() swaps the palette. style.css turns every
  * transition off under it, so a surface with a colour transition (the header,
  * the settings chips, the play actions) cannot ease from the previous theme's
- * colours after the rest of the page has switched.
+ * colours after the rest of the page has switched. A chip press runs
+ * setTheme() inside the update of its cross-fade (chooseTheme), so the hold
+ * also keeps the new image final from its first frame.
  */
 const THEME_SWITCHING_CLASS = 'theme-switching';
 
+/** The theme a stored or pressed mode applies: 'system' follows the device. */
+function resolveThemeMode(mode: string): string {
+  // Migrate legacy 'system' to the device's current theme. Any other stored
+  // value passes through unchanged.
+  if (mode !== 'system') return mode;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+/**
+ * Applies a theme at once, with the hold. The start-up call uses it directly;
+ * a chip press that changes the palette runs it inside the update of the
+ * cross-fade (chooseTheme).
+ */
 export function setTheme(mode: string, save = true): void {
   const originalMode = mode;
-  // Migrate legacy 'system' → resolve to actual value
-  if (mode === 'system') {
-    mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
+  mode = resolveThemeMode(mode);
 
   const root = document.documentElement;
   // Only a real palette swap is held. Pressing the active chip again, and the
@@ -260,6 +273,25 @@ export function setTheme(mode: string, save = true): void {
   } finally {
     if (holdTransitions) root.classList.remove(THEME_SWITCHING_CLASS);
   }
+}
+
+/**
+ * A theme chip press. A press that changes the palette cross-fades the whole
+ * screen: the swap runs in the update of the app's view transition, with the
+ * tab change's timing, and the header fades with the page. A press that
+ * changes nothing, and any press under reduced motion, applies at once.
+ * animateTransition() itself applies at once without the API.
+ */
+function chooseTheme(mode: string): void {
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+  if (
+    reducedMotion ||
+    document.documentElement.getAttribute('data-theme') === resolveThemeMode(mode)
+  ) {
+    setTheme(mode);
+    return;
+  }
+  animateTransition(() => setTheme(mode));
 }
 
 // ─── Channel Mode (Standard) ─────────────────────────────────────
@@ -960,7 +992,7 @@ export function initSettings(): void {
 
   // Theme grid
   document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]').forEach((opt) => {
-    opt.addEventListener('click', () => setTheme(opt.dataset.theme!));
+    opt.addEventListener('click', () => chooseTheme(opt.dataset.theme!));
   });
 
   // Language controls
@@ -1199,7 +1231,8 @@ export function initSettings(): void {
     syncStandardRoleDescription();
   });
 
-  // Initial theme: restore from localStorage (defaults to system; 'system' auto-resolves)
+  // Initial theme: restore from localStorage (defaults to system; 'system'
+  // auto-resolves). It applies at once and never cross-fades.
   try {
     const savedTheme = localStorage.getItem('musixquare-theme');
     setTheme(savedTheme || 'system', false);

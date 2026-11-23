@@ -96,6 +96,25 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.838 / v838 train: a custom scrollbar's thumb follows content that grows or shrinks without stutter, and a dialog's late default focus no longer pulls a keyboard user's Tab back (2026-11-23)](design/app-9-0-838-train-2026-11-23.md):
+  built on its train branch, not merged or released. The App update after 9.0.837 / v837, on main `3964cabe` (#631, the
+  9.0.837 record, docs only), with two changes the owner asked to ship together right away, without screenshots first.
+  (1) For the owner's report of 2026-11-23 that the 9.0.836 thumb, which follows a scroll area that grows or shrinks,
+  stutters while it changes, on Windows too: measured against 9.0.835, the bar rebuilt its scroll-driven animation in
+  every frame of a 0.35 s Advanced area change (16 to 17 times per toggle, most of 9.0.836's added main-thread work) and
+  measured one frame late, so the first moved frame held the old thumb and the next jumped two frames' worth. The bar
+  now lays itself out in its ResizeObserver report (the same frame, on a clean layout), places the thumb by script while
+  the size changes and builds one scroll timeline after a frame with no resize, with no timer and no timing value.
+  First-frame error is 0 px, no frame is off by more than 1 px, and long frames at a 4x CPU slowdown are back at
+  9.0.835's level (0.96 per toggle, against 2.02 on 9.0.836 and 0.92 on 9.0.835). (2) The post-merge Full E2E of 9.0.837
+  failed twice on `e2e/keyboard-focus-ring.test.ts:422`, and the owner asked for the investigation first: a focus log
+  showed the common dialog's deferred default focus (the `dialog-focus` managed timer) running after a fast Tab on a busy
+  machine and pulling the focus back to the default action. It now keeps a place inside the dialog that differs from the
+  focus at open; a unit row failed first on the old code. Final gate at the bump `4c53dea5` before the rebase over #631
+  (runtime tree identical after it): unit 799 files, 19,607 passed, 1 skipped; 36 related Chromium files 414 passed, 3
+  skipped; WebKit lane 237 passed, 24 skipped; the WebKit Service Worker smoke, the candidate (20 passed, 11 skipped)
+  and the critical paths (101) passed. App runtime paths against production `dc14f512`: 6; the other five Workers 0.
+  Not measured on a real high refresh Windows display, a real iPhone or Firefox.
 - [App 9.0.837 / v837 train: switching between light and dark cross-fades the whole screen over 0.25 s, as a tab change does, so the switch is smooth again and no surface lags in the previous theme's colours (2026-11-23)](design/app-9-0-837-train-2026-11-23.md):
   released on 2026-11-23 16:40 KST in Release 45132548035 (PR #630, squash `dc14f512`) as App 9.0.837 / v837 (App build
   837, target `app`, one update dialog); `raise_app_build_floor` false, Developer API D1 false. Only the App Worker

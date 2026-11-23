@@ -2300,6 +2300,130 @@ describe('custom-scrollbar content that changes size inside its container', () =
     }
   });
 
+  it('places the thumb by script when a child resize moves only the scroll range, under a thumb at its minimum length', () => {
+    const timeline = installScrollTimeline();
+    try {
+      // A long chat or playlist keeps the thumb at its 30 px minimum, so a
+      // child resize moves the scroll range and leaves the thumb's length and
+      // its 370 px of travel where they were. A running animation would draw
+      // the new range a frame late in WebKit, so script places the thumb here
+      // too.
+      const { box, panel } = createPanelScrollbox('timeline-child-range-only');
+      box.setScrollHeight(6000);
+      box.container.scrollTop = 2800;
+      initCustomScrollbar(box.container);
+      const atInit = readBar(box, timeline);
+      const frames = [7400, 8400].map((scrollHeight) => {
+        resizeFrame(box, panel, scrollHeight);
+        return readBar(box, timeline);
+      });
+      flushAnimationFrame();
+      const quietFrame = readBar(box, timeline);
+      flushAnimationFrame();
+
+      expect({
+        atInit,
+        frames,
+        quietFrame,
+        settled: readBar(box, timeline),
+        ends: timeline.animations.map(({ end }) => end),
+        framesLeft: _rafCallbacks.size,
+      }).toEqual({
+        atInit: {
+          driver: 'timeline',
+          length: '30px',
+          position: 'translateY(185px)',
+          animations: 1,
+        },
+        // The same scroll offset sits higher in each longer range.
+        frames: [
+          { driver: 'script', length: '30px', position: 'translateY(148px)', animations: 1 },
+          { driver: 'script', length: '30px', position: 'translateY(129.5px)', animations: 1 },
+        ],
+        quietFrame: {
+          driver: 'script',
+          length: '30px',
+          position: 'translateY(129.5px)',
+          animations: 1,
+        },
+        settled: {
+          driver: 'timeline',
+          length: '30px',
+          position: 'translateY(129.5px)',
+          animations: 2,
+        },
+        // Only the range moved, so the new animation ends where the old one did.
+        ends: ['translateY(370px)', 'translateY(370px)'],
+        framesLeft: 0,
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
+  it("places the thumb by script when the box and its content resize together, which changes only the thumb's length and travel", () => {
+    const timeline = installScrollTimeline();
+    try {
+      // The box and its content shrink by the same amount, so the scroll range
+      // stays 600 px while the thumb's length and travel shrink with the box.
+      // The bottom nav covering more of a phone list does the same. A timeline
+      // for each new travel would be built again in every frame, so script
+      // places the thumb here too.
+      const { box } = createPanelScrollbox('timeline-box-travel-only');
+      box.container.scrollTop = 300;
+      initCustomScrollbar(box.container);
+      const atInit = readBar(box, timeline);
+      const boxFrame = (clientHeight: number, scrollHeight: number): ReturnType<typeof readBar> => {
+        flushAnimationFrame();
+        box.setClientHeight(clientHeight);
+        box.setScrollHeight(scrollHeight);
+        notifyResize(box.container);
+        return readBar(box, timeline);
+      };
+      const frames = [boxFrame(300, 900), boxFrame(200, 800)];
+      flushAnimationFrame();
+      const quietFrame = readBar(box, timeline);
+      flushAnimationFrame();
+
+      expect({
+        atInit,
+        frames,
+        quietFrame,
+        settled: readBar(box, timeline),
+        ends: timeline.animations.map(({ end }) => end),
+        framesLeft: _rafCallbacks.size,
+      }).toEqual({
+        atInit: {
+          driver: 'timeline',
+          length: '160px',
+          position: 'translateY(120px)',
+          animations: 1,
+        },
+        // Half the range down, so half of each new travel.
+        frames: [
+          { driver: 'script', length: '100px', position: 'translateY(100px)', animations: 1 },
+          { driver: 'script', length: '50px', position: 'translateY(75px)', animations: 1 },
+        ],
+        quietFrame: {
+          driver: 'script',
+          length: '50px',
+          position: 'translateY(75px)',
+          animations: 1,
+        },
+        settled: {
+          driver: 'timeline',
+          length: '50px',
+          position: 'translateY(75px)',
+          animations: 2,
+        },
+        ends: ['translateY(240px)', 'translateY(150px)'],
+        framesLeft: 0,
+      });
+    } finally {
+      timeline.restore();
+    }
+  });
+
   it('keeps the script driver while a child still reports size changes that leave the range where it was', () => {
     const timeline = installScrollTimeline();
     try {

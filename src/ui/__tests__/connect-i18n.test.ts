@@ -2871,14 +2871,22 @@ describe('member-level connection and administrator UI', () => {
     expect(chatHostCrownRules).toContain('color: #f5c842');
     expect(grantActionRules).toContain('color: var(--text-muted)');
     expect(administratorActionRules).toContain('color: var(--text-muted)');
-    expect(administratorActionHoverRules).toContain('background: transparent');
-    expect(administratorActionHoverRules).toContain('color: var(--primary)');
-    expect(administratorActionHoverRules).not.toContain('outline: none');
-    expect(administratorStateHoverRules).toContain('background: transparent');
-    expect(administratorStateHoverRules).toContain('color: var(--primary)');
-    // The grant crown is also an administrator action: neither rule may hide
-    // the shared keyboard ring again.
-    expect(administratorStateHoverRules).not.toContain('outline: none');
+    // Both rules only clear the circle and color the icon. Any outline
+    // declaration would hide the shared keyboard ring on the grant crown, the
+    // settings gear and the revoke X again.
+    const declarationsOf = (body: string): string[] =>
+      body
+        .split(';')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    expect(declarationsOf(administratorActionHoverRules)).toEqual([
+      'background: transparent',
+      'color: var(--primary)',
+    ]);
+    expect(declarationsOf(administratorStateHoverRules)).toEqual([
+      'background: transparent',
+      'color: var(--primary)',
+    ]);
     // The generic blue and the revoke red have the same specificity (0,3,0),
     // so the revoke X stays red only while its rule comes after the generic one.
     const genericHoverAt = stylesheet.indexOf(

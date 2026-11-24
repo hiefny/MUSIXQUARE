@@ -1169,6 +1169,37 @@ test.describe('Selection bar room (phone)', () => {
     expect(after.scrollTop).toBeCloseTo(atEnd, 0);
   });
 
+  test('a toast keeps 16 px above the floating bar', async ({ page }) => {
+    test.setTimeout(120_000);
+    await openLongPlaylistAtItsEnd(page, true);
+    // Back at the top, the bar floats at its sticky place above the nav.
+    await page.locator('#tab-playlist .tab-body').evaluate((body) => {
+      body.scrollTop = 0;
+    });
+    await page.waitForTimeout(200);
+    const minus = await centerOf(page.locator('#playlist-ui .btn-playlist-select').nth(1));
+    await page.touchscreen.tap(minus.x, minus.y);
+    await expect(page.locator('.playlist-selection-bar')).toBeVisible();
+    // The toast's resting bottom edge, from its own bottom offset, against the
+    // bar's top edge. The offset eases in, so poll until it settles.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const nav = document.querySelector<HTMLElement>('.bottom-nav')!.getBoundingClientRect();
+          const bar = document
+            .querySelector<HTMLElement>('.playlist-selection-bar')!
+            .getBoundingClientRect();
+          const toast = document.querySelector<HTMLElement>('.toast')!;
+          const toastEdge = window.innerHeight - Number.parseFloat(getComputedStyle(toast).bottom);
+          return {
+            barAboveNav: Math.round(nav.top - bar.bottom),
+            toastAboveBar: Math.round(bar.top - toastEdge),
+          };
+        }),
+      )
+      .toEqual({ barAboveNav: 14, toastAboveBar: 16 });
+  });
+
   test('Delete at the end of the room closes it as the survivors close up, without a jump', async ({
     page,
   }) => {

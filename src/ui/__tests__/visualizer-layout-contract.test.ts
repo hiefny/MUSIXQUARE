@@ -86,6 +86,39 @@ describe('visualizer layout contract', () => {
     expect(stylesheet).toMatch(/\.playback-stage\s*\{[\s\S]*?margin:\s*auto auto 0;/u);
   });
 
+  it('keeps a phone toast 16px above the floating selection bar', () => {
+    const rule = (selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      const body = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`, 'u').exec(
+        stylesheet,
+      )?.[1];
+      expect(body, selector).toBeDefined();
+      return body!;
+    };
+    const px = (declarations: string, pattern: RegExp): number => {
+      const value = pattern.exec(declarations)?.[1];
+      expect(value, String(pattern)).toBeDefined();
+      return Number.parseFloat(value!);
+    };
+    // The tab body clears the nav plus this much; the sticky bar floats inside it.
+    const clearance = px(
+      rule('.tab-body'),
+      /padding-bottom:\s*calc\(\s*var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\) \+ (\d+)px\s*\)/u,
+    );
+    const bar = rule('.playlist-selection-bar');
+    const barAboveNav = clearance + px(bar, /\bbottom:\s*(-?\d+)px;/u);
+    const barHeight =
+      px(rule('.playlist-selection-action'), /\bheight:\s*(\d+)px;/u) +
+      2 * px(bar, /\bpadding:\s*(\d+)px;/u) +
+      2 * px(bar, /\bborder:\s*(\d+)px solid/u);
+    const toastOffset = px(
+      stylesheet,
+      /\.playlist-selection-bar:not\(\[hidden\]\):not\(\[data-state='leaving'\]\)\)\s*\.toast\s*\{\s*bottom:\s*calc\(var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\) \+ (\d+)px\);/u,
+    );
+    expect({ barAboveNav, barHeight }).toEqual({ barAboveNav: 14, barHeight: 70 });
+    expect(toastOffset - barAboveNav - barHeight).toBe(16);
+  });
+
   it('centers both visualizer modes inside the shared stage without sizing the stage', () => {
     const circularRule = stylesheet.match(/\.vinyl-wrapper\s*\{([^}]*)\}/u)?.[1];
     const spectrumRule = stylesheet.match(/body\.viz-spectrum \.vinyl-wrapper\s*\{([^}]*)\}/u)?.[1];

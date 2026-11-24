@@ -5155,10 +5155,13 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
       bottom 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
+  /* A toast keeps 16px above the floating selection bar, which rests 14px
+     above the nav and is 70px tall (56px actions, 6px padding, 1px border):
+     14 + 70 + 16 = 100px. Change this with the bar's size. */
   @media (max-width: 719.98px) {
     body:has(#tab-playlist.active .playlist-selection-bar:not([hidden]):not([data-state='leaving']))
       .toast {
-      bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 98px);
+      bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 100px);
     }
   }
 

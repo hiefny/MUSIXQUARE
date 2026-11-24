@@ -46,6 +46,29 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### App 9.0.841 / v841 열차(휴대폰 토스트가 목록 길이와 상관없이 재생목록 선택 바를 피함, 9.0.841/v841) 배포 전: 증분 하나([화면 바뀜] 선택 바가 떠 있는 동안 토스트 자리를 바의 실제 위치로 정해 8.11.32부터의 짧은 목록 겹침을 고침), CI 대기
+
+- [ ] 범위와 상태(미병합·미배포): 운영 9.0.840 / v840 다음 App 업데이트인 9.0.841 / v841(App 빌드 841)로 target `app`, 업데이트 창 한 번, 바닥 795
+      그대로(`raise_app_build_floor` false, Developer API D1 false). main `c1fca511`(#637 뒤의 문서 커밋, 문서만) 위의 열차 갈래
+      `agent/toast-clears-selection-bar`: 구현·시험 `e38c9f7e`, 검토 고침 `c231e5fe`, 버전 올리기 `eeef9e21`(마지막 런타임 커밋), 그 뒤 문서 커밋. 운영
+      `09071135`와 견준 App 런타임 경로 6개(`css/style.css`, `src/ui/playlist-removal.ts`, 버전 거울 넷), 다른 다섯 Worker 0개.
+      [보고서](design/app-9-0-841-train-2026-11-25.md).
+- [ ] 기댄 오너 결정(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-25 오너가 9.0.840 보고서의 남긴 한계(목록이 짧을 때 토스트가 선택 바에
+      겹칠 수 있음)를 자세히 설명해 달라고 했고, 고친 모습 사진(A·B·C안)을 본 뒤 C안(평소 자리를 기준으로, 바가 그 자리의 `16px` 안으로 들어올 때만
+      바 위 `16px`)으로 고쳐서 배포하도록 정했다([보고서 §1](design/app-9-0-841-train-2026-11-25.md#1-오너-결정)). 배포 허가(2026-11-11, 자동 관문이
+      통과하면 배포는 모두 허가), 2026-11-17 결정(최종 관문에는 관련 e2e 파일, 전체 e2e는 배포 뒤 Full E2E).
+- [ ] 배포 조건(모두 채운 뒤에만 머지하고 dispatch한다): (1) 한 번에 한 열차이고 9.0.840 / v840 다음이다(9.0.840 배포 기록 #637과 Full E2E `45364679669`
+      통과 완료). (2) 버전 올리기 `eeef9e21`에서 로컬 정적 가드·`typecheck`·`check:workers`·`check:worker-bundles`·`format:check`·`lint`, 단위 799/799파일
+      19,629 통과·0 실패·0 건너뜀, `build:checked`(`guard:font-build` 포함), 프로덕션 `candidate` 레인 20 통과·11 건너뜀(`offline-room-entry`의 e2e 빌드용
+      행), 관련 Chromium E2E 9파일 89 통과 확인([보고서 §4.3](design/app-9-0-841-train-2026-11-25.md#43-검토-반영-뒤-라운드-버전-올리기-머리-eeef9e21)).
+      (3) PR CI와 exact-main CI 통과 뒤 main 머리와 다른 Release·App Build Floor 실행이 없음을 보고 Production Release(target `app`, D1 false, 바닥 false)를
+      dispatch한다. (4) 배포 뒤 공개 읽기·첫 방문·Drift·Full E2E를 확인한다.
+- [ ] 되돌리기([보고서 §6](design/app-9-0-841-train-2026-11-25.md#6-되돌리기와-남긴-한계)): 새 경계는 없다. 기본은 9.0.842 / v842 이상으로 앞으로 되돌리기다.
+      실패한 `app` 실행은 dispatch 때의 App(9.0.840, `09071135`)으로 복구된다.
+- [ ] 확인하지 않은 것과 남긴 한계(게이트 아님): 실제 iPhone·Android·Firefox 실기기는 확인하지 않았다. 방 안 흐름은 Chromium에서만 돌렸고, WebKit은
+      빌드한 CSS와 기능만 쟀다(로컬 WebKit 레인은 방을 만들지 못함). 폭 `720px` ~ `1279.98px`는 바뀌지 않았다(토스트 `110px`, 떠 있는 바와 `3px` ~ `4px`,
+      흐름 안 바가 토스트 자리에 올 수 있음). 블라인드 기기 후보: 휴대폰에서 트랙 6, 7, 8개와 긴 목록 맨 끝에서 선택 바를 띄운 채 토스트 보기.
+
 ### App 9.0.840 / v840 열차(목록 행 아이콘 호버·포커스 통일, `.pro-upload-cancel` 정리, 선택 바 액션 `56px` 정렬, 9.0.840/v840) 배포 뒤 확인: Release 45363941537이 attempt 1에 성공했고(App `f6fcc094` → `3cbb451e`), 공개 읽기와 첫 방문, Drift, 머지 뒤 Full E2E 45364679669(attempt 1 success, 새 토스트 행 포함)까지 통과, 증분 넷([화면 바뀜] 행 아이콘 호버 원 제거·색상 통일과 포커스 링 복구, `.pro-upload-cancel` 통합, 선택 바 액션 `56px`, PR 검토 고침: 휴대폰 토스트와 선택 바 사이 `16px` 유지와 디자인 페이지 `−` 포커스 색), 기기 판정은 아직
 
 - [ ] 범위와 상태(배포 뒤): 9.0.840 / v840(App 빌드 840, target `app`, 업데이트 창 한 번)이 2026-11-24 18:21 KST에 운영에 올랐다([Release 45363941537](https://github.com/hiefny/MUSIXQUARE/actions/runs/45363941537)

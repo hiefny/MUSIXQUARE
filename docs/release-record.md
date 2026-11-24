@@ -51,7 +51,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] 범위와 상태(미병합·미배포): 운영 9.0.839 / v839 다음 App 업데이트인 9.0.840 / v840(App 빌드 840)로 target `app`, 업데이트 창 한 번, 바닥 795
       그대로(`raise_app_build_floor` false, Developer API D1 false). main `8bc911d2`(#635, 9.0.839 배포 기록, 문서만) 위의 열차 갈래
       `agent/row-icon-hover-and-selection-action-56`: 구현·시험 `05d4d6fd`, 검토 고침 `a2784bfd`(토스트 `98px` → `100px`)·`e9d8a805`(디자인 페이지 `−`
-      포커스 색), 시험만 `2ef67b88`, 버전 올리기 `674008ea`(마지막 런타임 커밋, 처음 `cd3eb339`를 검토 고침 뒤에 다시 얹음), 그 뒤 문서 커밋. 운영
+      포커스 색), 시험만 `2ef67b88`, 버전 올리기 `674008ea`(마지막 런타임 커밋, 처음 `cd3eb339`를 검토 고침 뒤에 다시 얹음), 그 뒤 문서 커밋들과
+      두 번째 검토의 시험만 커밋 `cf979ee3`. 운영
       `97eb9857`과 견준 App 런타임 경로 7개(`css/style.css`, `public/editorial-design.css`, `src/ui/playlist-view.ts`, 버전 거울 넷), 다른 다섯 Worker 0개.
       [보고서](design/app-9-0-840-train-2026-11-24.md).
 - [ ] 기댄 오너 결정(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-24 오너가 서브기기 행 크기를 고려해 `28px` 삭제·강퇴 버튼 크기는 유지하되,

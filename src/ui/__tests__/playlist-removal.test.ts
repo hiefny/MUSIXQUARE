@@ -669,6 +669,8 @@ describe('playlist removal controller', () => {
     let rects: { mockRestore(): void };
     let scrollTop = 0;
     let scale = 1;
+    /** The bar's top while it is still 18 px into its entrance slide. */
+    let barTopAt = 716;
     let scrollTo: ReturnType<typeof vi.fn>;
 
     // A phone's playlist body, 696 px tall from 148 px down, at the end of its
@@ -706,6 +708,7 @@ describe('playlist removal controller', () => {
       const scroller = document.querySelector<HTMLElement>('.tab-body')!;
       scrollTop = 294;
       scale = 1;
+      barTopAt = 716;
       Object.defineProperties(scroller, {
         scrollTop: {
           configurable: true,
@@ -733,7 +736,7 @@ describe('playlist removal controller', () => {
         };
         if (this === scroller) return at(148, 844);
         if (this.id === 'playlist-ui') return atEnd(756, 700);
-        if (this.classList.contains('playlist-selection-bar')) return at(716, 784);
+        if (this.classList.contains('playlist-selection-bar')) return at(barTopAt, barTopAt + 68);
         const id = (this as HTMLElement).dataset.queueItemId;
         if (id === A) return atEnd(691, 57);
         if (id === B) return atEnd(756, 57);
@@ -970,6 +973,87 @@ describe('playlist removal controller', () => {
       expect(bar().hidden).toBe(true);
       removal.afterRender();
       expect(scrollTo).toHaveBeenCalledTimes(2);
+    });
+
+    describe('a toast keeps clear of the bar', () => {
+      // An 844 px tall phone: a one-line toast's usual place is 110 px above
+      // the bottom, 686 to 734 px down. The bar rests at 698 to 766 px.
+      let observed: Element[];
+      let notify: (() => void) | null;
+
+      beforeEach(() => {
+        vi.stubGlobal('innerHeight', 844);
+        observed = [];
+        notify = null;
+        vi.stubGlobal(
+          'ResizeObserver',
+          class {
+            constructor(callback: () => void) {
+              notify = callback;
+            }
+            observe(target: Element) {
+              observed.push(target);
+            }
+            disconnect() {
+              observed = [];
+            }
+          },
+        );
+        document.body.insertAdjacentHTML(
+          'beforeend',
+          '<div class="toast" id="toast" role="status"><span id="toast-msg"></span></div>',
+        );
+        toast().style.setProperty('--toast-rest-bottom', '110px');
+        Object.defineProperty(toast(), 'offsetHeight', { configurable: true, value: 48 });
+      });
+
+      function toast(): HTMLElement {
+        return document.getElementById('toast')!;
+      }
+
+      function place(): string {
+        return toast().style.getPropertyValue('--toast-clear-bottom');
+      }
+
+      it('sits 16 px above the bar when the bar reaches its usual place', () => {
+        create().removal.toggle(B);
+        expect(place()).toBe('calc(100% - 682px)');
+        expect(observed).toEqual([toast(), list(), document.querySelector('.tab-body')]);
+      });
+
+      it('stays at its usual place while the bar is clear of it, until a long message reaches the bar', () => {
+        // A short list: the bar rests at 546 to 614 px, 72 px above the toast.
+        barTopAt = 564;
+        create().removal.toggle(B);
+        expect(place()).toBe('var(--toast-rest-bottom)');
+        // A four-line message, 110 px tall, reaches up to 624 px: within 16 px of the bar.
+        Object.defineProperty(toast(), 'offsetHeight', { configurable: true, value: 110 });
+        notify?.();
+        expect(place()).toBe('calc(100% - 530px)');
+      });
+
+      it('follows the bar up the end of a long list and goes when the bar does', () => {
+        const { removal } = create();
+        removal.toggle(B);
+        // The bar leaves its floating place with the last track, 10 px up.
+        barTopAt = 706;
+        document.querySelector('.tab-body')!.dispatchEvent(new Event('scroll'));
+        expect(place()).toBe('calc(100% - 672px)');
+        cancelButton().click();
+        expect(place()).toBe('');
+        expect(observed).toEqual([]);
+        // Scrolling no longer moves it.
+        document.querySelector('.tab-body')!.dispatchEvent(new Event('scroll'));
+        expect(place()).toBe('');
+      });
+
+      it('leaves the toast to CSS once the controller goes', () => {
+        create().removal.toggle(B);
+        expect(place()).not.toBe('');
+        controller?.destroy();
+        controller = null;
+        expect(place()).toBe('');
+      });
     });
   });
 

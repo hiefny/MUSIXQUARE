@@ -1071,6 +1071,51 @@ async function openLongPlaylistAtItsEnd(page: Page, phone: boolean): Promise<voi
   await page.waitForTimeout(300);
 }
 
+/** A phone playlist of `count` tracks, at its top, with the second track selected. */
+async function selectInPlaylistOf(page: Page, count: number): Promise<void> {
+  await injectPeerServer(page);
+  await setupHostAndStart(page);
+  await uploadFixtures(page, LONG_LIST.slice(0, count));
+  await waitForPlaylistCount(page, count);
+  await waitForViewTransitionEnd(page);
+  await navigateToTab(page, 'playlist');
+  await page.waitForTimeout(800);
+  const minus = await centerOf(page.locator('#playlist-ui .btn-playlist-select').nth(1));
+  await page.touchscreen.tap(minus.x, minus.y);
+  await expect(page.locator('.playlist-selection-bar')).toBeVisible();
+}
+
+/**
+ * Shows a one-line toast and reads where it settles against the bar, from
+ * its own bottom offset, which eases in, so callers poll this.
+ */
+async function showToastBesideBar(page: Page) {
+  await page.evaluate(() => {
+    const runtime = window as unknown as {
+      __MUSIXQUARE_BUS__: { emit(type: string, ...args: unknown[]): void };
+    };
+    runtime.__MUSIXQUARE_BUS__.emit('ui:show-toast', 'Added 1 track');
+  });
+}
+
+async function toastBesideBar(page: Page) {
+  return page.evaluate(() => {
+    const nav = document.querySelector<HTMLElement>('.bottom-nav')!.getBoundingClientRect();
+    const bar = document
+      .querySelector<HTMLElement>('.playlist-selection-bar')!
+      .getBoundingClientRect();
+    const toast = document.querySelector<HTMLElement>('.toast')!;
+    const bottom = Number.parseFloat(getComputedStyle(toast).bottom);
+    const toastBottomEdge = window.innerHeight - bottom;
+    return {
+      bottom: Math.round(bottom),
+      barAboveNav: Math.round(nav.top - bar.bottom),
+      toastAboveBar: Math.round(bar.top - toastBottomEdge),
+      toastBelowBar: Math.round(toastBottomEdge - toast.offsetHeight - bar.bottom),
+    };
+  });
+}
+
 async function scrollPlaylistToItsEnd(page: Page): Promise<void> {
   await page.evaluate(() => {
     const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
@@ -1198,6 +1243,46 @@ test.describe('Selection bar room (phone)', () => {
         }),
       )
       .toEqual({ barAboveNav: 14, toastAboveBar: 16 });
+  });
+
+  test('on a short list a toast stays at its usual place while the bar is clear of it', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    // Six tracks: the bar ends 70 px above the toast's usual place.
+    await selectInPlaylistOf(page, 6);
+    await showToastBesideBar(page);
+    await expect.poll(() => toastBesideBar(page).then(({ bottom }) => bottom)).toBe(110);
+    expect((await toastBesideBar(page)).toastBelowBar).toBeGreaterThanOrEqual(16);
+  });
+
+  test('on a list just short of the screen a toast moves 16 px above the bar', async ({ page }) => {
+    test.setTimeout(120_000);
+    // Seven tracks: the bar sits where the toast usually shows.
+    await selectInPlaylistOf(page, 7);
+    await showToastBesideBar(page);
+    await expect
+      .poll(() => toastBesideBar(page).then(({ toastAboveBar }) => toastAboveBar))
+      .toBe(16);
+  });
+
+  test('at the end of a long list a toast follows the bar up, 16 px apart', async ({ page }) => {
+    test.setTimeout(120_000);
+    await openLongPlaylistAtItsEnd(page, true);
+    const minus = await centerOf(page.locator('#playlist-ui .btn-playlist-select').nth(1));
+    await page.touchscreen.tap(minus.x, minus.y);
+    await expect(page.locator('.playlist-selection-bar')).toBeVisible();
+    await scrollPlaylistToItsEnd(page);
+    await showToastBesideBar(page);
+    // At the end the bar rests on the list's own end, 24 px above the nav.
+    await expect
+      .poll(() =>
+        toastBesideBar(page).then(({ barAboveNav, toastAboveBar }) => ({
+          barAboveNav,
+          toastAboveBar,
+        })),
+      )
+      .toEqual({ barAboveNav: 24, toastAboveBar: 16 });
   });
 
   test('Delete at the end of the room closes it as the survivors close up, without a jump', async ({

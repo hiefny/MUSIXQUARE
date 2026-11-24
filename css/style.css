@@ -5116,8 +5116,11 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
   }
 
   .toast {
+    /* The toast's usual place. The playlist's selection bar reads it to keep
+       a phone toast clear of the bar (below). */
+    --toast-rest-bottom: 110px;
     position: fixed;
-    bottom: 110px;
+    bottom: var(--toast-rest-bottom);
     left: 0;
     right: 0;
     display: flex;
@@ -5155,13 +5158,21 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
       bottom 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
-  /* A toast keeps 16px above the floating selection bar, which rests 14px
-     above the nav and is 70px tall (56px actions, 6px padding, 1px border):
-     14 + 70 + 16 = 100px. Change this with the bar's size. */
+  /* On a phone a toast keeps clear of the playlist's selection bar. The bar
+     floats above the nav when the list is long, but follows the last track
+     when it is short, so while it is up its owner (src/ui/playlist-removal.ts)
+     writes --toast-clear-bottom on the toast: the usual place while the bar
+     is clear of it, or 16px above the bar's top while the bar reaches into
+     it. Until then a toast keeps 16px above the floating bar, which rests
+     14px above the nav and is 70px tall (56px actions, 6px padding, 1px
+     border): 14 + 70 + 16 = 100px. Change this with the bar's size. */
   @media (max-width: 719.98px) {
     body:has(#tab-playlist.active .playlist-selection-bar:not([hidden]):not([data-state='leaving']))
       .toast {
-      bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 100px);
+      bottom: var(
+        --toast-clear-bottom,
+        calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 100px)
+      );
     }
   }
 

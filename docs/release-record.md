@@ -46,26 +46,30 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### App 9.0.840 / v840 열차(목록 행 아이콘 호버·포커스 통일, `.pro-upload-cancel` 정리, 선택 바 액션 `56px` 정렬, 9.0.840/v840) 배포 전: 증분 셋([화면 바뀜] 행 아이콘 호버 원 제거·색상 통일과 포커스 링 복구, `.pro-upload-cancel` 통합, 선택 바 액션 `56px`), PR 검토·CI 대기
+### App 9.0.840 / v840 열차(목록 행 아이콘 호버·포커스 통일, `.pro-upload-cancel` 정리, 선택 바 액션 `56px` 정렬, 9.0.840/v840) 배포 전: 증분 넷([화면 바뀜] 행 아이콘 호버 원 제거·색상 통일과 포커스 링 복구, `.pro-upload-cancel` 통합, 선택 바 액션 `56px`, PR 검토 고침: 휴대폰 토스트와 선택 바 사이 `16px` 유지와 디자인 페이지 `−` 포커스 색), CI 대기
 
 - [ ] 범위와 상태(미병합·미배포): 운영 9.0.839 / v839 다음 App 업데이트인 9.0.840 / v840(App 빌드 840)로 target `app`, 업데이트 창 한 번, 바닥 795
       그대로(`raise_app_build_floor` false, Developer API D1 false). main `8bc911d2`(#635, 9.0.839 배포 기록, 문서만) 위의 열차 갈래
-      `agent/row-icon-hover-and-selection-action-56`: 구현·시험 `05d4d6fd`, 버전 올리기 `cd3eb339`(마지막 런타임 커밋), 그 뒤 문서 커밋. 운영
+      `agent/row-icon-hover-and-selection-action-56`: 구현·시험 `05d4d6fd`, 검토 고침 `a2784bfd`(토스트 `98px` → `100px`)·`e9d8a805`(디자인 페이지 `−`
+      포커스 색), 시험만 `2ef67b88`, 버전 올리기 `674008ea`(마지막 런타임 커밋, 처음 `cd3eb339`를 검토 고침 뒤에 다시 얹음), 그 뒤 문서 커밋. 운영
       `97eb9857`과 견준 App 런타임 경로 7개(`css/style.css`, `public/editorial-design.css`, `src/ui/playlist-view.ts`, 버전 거울 넷), 다른 다섯 Worker 0개.
       [보고서](design/app-9-0-840-train-2026-11-24.md).
 - [ ] 기댄 오너 결정(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-24 오너가 서브기기 행 크기를 고려해 `28px` 삭제·강퇴 버튼 크기는 유지하되,
       `.btn-playlist-remove`를 `.pro-upload-cancel`로 통합하고 모든 목록 행 아이콘의 호버 원 배경을 제거해 색상 변화(삭제 계열 빨강, 나머지 파랑)로
-      통일하며 `.playlist-selection-action`을 `56px`로 올려 PR을 열기로 정했다.
+      통일하며 `.playlist-selection-action`을 `56px`로 올려 PR을 열기로 정했다. 같은 날 오너가 이 PR을 검수하고, 괜찮으면 바로, 고칠 것이 있으면
+      고친 뒤 바로 배포하도록 맡겼다([보고서 §4.3](design/app-9-0-840-train-2026-11-24.md#43-pr-검토)).
 - [ ] 배포 조건(모두 채운 뒤에만 머지하고 dispatch한다): (1) 한 번에 한 열차이고 9.0.839 / v839 다음이다(9.0.839 배포 기록 #635와 Full E2E `45310282090` 통과 완료).
-      (2) 버전 올리기 `cd3eb339`에서 로컬 정적 가드·`typecheck`·`check:workers`·`check:worker-bundles`·`format:check`·`lint`, 단위 798/799파일(로컬 미추적
-      `.workshop/promo/`·`cloudflare/scratch/` 경로만 잡은 `font-retirement.test.ts`와 `guard:font-build` 379건은 깨끗한 체크아웃의 PR CI에서 검증),
-      관련 Chromium E2E 11파일 97 통과, WebKit 2파일 12 통과, 프로덕션 `candidate` 레인 20 통과·11 건너뜀 확인([보고서 §4](design/app-9-0-840-train-2026-11-24.md#4-qa-라운드-버전-올리기-머리-cd3eb339)).
+      (2) 검토 고침 뒤 버전 올리기 `674008ea`에서 로컬 정적 가드·`typecheck`·`check:workers`·`check:worker-bundles`·`format:check`·`lint`, 단위 799/799파일
+      19,623 통과·0 실패·0 건너뜀, `build:checked`(`guard:font-build` 포함), 프로덕션 `candidate` 레인 20 통과·11 건너뜀(`offline-room-entry`의 e2e 빌드용
+      행), 관련 Chromium E2E 11파일 98 통과, WebKit 2파일 12 통과 확인([보고서 §4.2](design/app-9-0-840-train-2026-11-24.md#42-검토-반영-뒤-라운드-버전-올리기-머리-674008ea)).
+      처음 머리 `cd3eb339`의 라운드는 [보고서 §4.1](design/app-9-0-840-train-2026-11-24.md#41-첫-라운드-버전-올리기-머리-cd3eb339).
       (3) PR CI(깨끗한 체크아웃의 `guard:font-build`, 전체 단위·커버리지, Critical browser gate)와 exact-main CI 통과 뒤 main 머리와 다른 Release·App Build
       Floor 실행이 없음을 보고 Production Release(target `app`, D1 false, 바닥 false)를 dispatch한다. (4) 배포 뒤 공개 읽기·첫 방문·Drift·Full E2E를 확인한다.
 - [ ] 되돌리기([보고서 §6](design/app-9-0-840-train-2026-11-24.md#6-되돌리기와-남긴-한계)): 새 경계는 없다. 기본은 9.0.841 / v841 이상으로 앞으로 되돌리기다.
       실패한 `app` 실행은 dispatch 때의 App(9.0.839, `97eb9857`)으로 복구된다.
 - [ ] 확인하지 않은 것과 남긴 한계(게이트 아님): 실제 iPhone·Android·Firefox 실기기는 확인하지 않았다. 블라인드 기기 후보: 데스크톱·모바일에서 재생목록
-      선택 바(`56px`), 연결된 기기 펼침·관리자 부여 왕관·관리자 설정 톱니·강퇴/해제 X의 호버와 키보드 Tab 포커스 링, PRO 업로드 취소 X 확인.
+      선택 바(`56px`), 연결된 기기 펼침·관리자 부여 왕관·관리자 설정 톱니·강퇴/해제 X의 호버와 키보드 Tab 포커스 링, PRO 업로드 취소 X 확인,
+      휴대폰에서 선택 바가 떠 있을 때 뜬 토스트와 바 사이 `16px`.
 
 ### App 9.0.839 / v839 열차(재생목록의 선택 바가 맨 아래 트랙을 가리지 않음, 바가 사라질 때 그 공간이 부드럽게 닫힘, 9.0.839/v839) 배포 뒤 확인: Release 45309563620이 attempt 1에 성공했고(App `4a7d219a` → `f6fcc094`), 공개 읽기와 첫 방문, Drift, 머지 뒤 Full E2E 45310282090(attempt 1 success, 공간 e2e 세 행 포함)까지 통과, 증분 하나([화면 바뀜] 선택 바의 공간), 기기 판정은 아직
 

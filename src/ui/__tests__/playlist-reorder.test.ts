@@ -659,7 +659,7 @@ describe('playlist reorder interaction controller', () => {
   it('arms a mouse hold only on row-body surfaces with the primary button', () => {
     const { list, rows } = create();
     const remove = document.createElement('button');
-    remove.className = 'btn-playlist-remove';
+    remove.className = 'pro-upload-cancel';
     rows[0].appendChild(remove);
 
     dispatchPointer(remove, 'pointerdown', 20, 6);

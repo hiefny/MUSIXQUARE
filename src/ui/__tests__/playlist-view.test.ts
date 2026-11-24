@@ -430,7 +430,8 @@ describe('PRO upload rows', () => {
     const cancel = entries[0]?.querySelector<HTMLButtonElement>(
       '[data-pro-upload-action="cancel"]',
     );
-    expect(cancel?.classList).toContain('btn-playlist-remove');
+    expect(cancel?.classList).toContain('pro-upload-cancel');
+    expect(cancel?.classList).not.toContain('btn-playlist-remove');
     expect(cancel?.textContent).toBe('');
     expect(cancel?.disabled).toBe(false);
     expect(cancel?.hasAttribute('aria-disabled')).toBe(false);
@@ -497,7 +498,7 @@ describe('PRO upload rows', () => {
     expect(rowSpinnerRules).toContain('color: var(--playlist-indicator-color, currentColor)');
     expect(uploadSpinnerRules).not.toContain('color: var(--primary)');
     expect(stylesheet).not.toMatch(/\.pro-upload-name\s*\{[^}]*opacity:/s);
-    expect(stylesheet).not.toContain('.pro-upload-cancel:not(:disabled)');
+    expect(stylesheet).not.toContain('.btn-playlist-remove');
     expect(stylesheet).toContain('.pro-upload-cancel:disabled');
     expect(stylesheet).toContain('opacity: 0.32');
     // Neither focus nor hover brightens a disabled cancel: in the four app
@@ -516,11 +517,13 @@ describe('PRO upload rows', () => {
       });
     }
     expect(cancelOpacity).toEqual([
+      'css/style.css .pro-upload-cancel { opacity: 1 }',
       'css/style.css .pro-upload-cancel:disabled { opacity: 0.32 }',
-      'css/style.css .btn-playlist-remove { opacity: 1 }',
     ]);
-    expect(stylesheet).toContain('.btn-playlist-remove:not(:disabled):hover');
-    expect(stylesheet).not.toMatch(/\.btn-playlist-remove:hover\s*\{/);
+    expect(stylesheet).toContain('.pro-upload-cancel:not(:disabled):hover');
+    expect(stylesheet).toContain('.pro-upload-cancel:not(:disabled):focus-visible');
+    expect(stylesheet).not.toMatch(/\.pro-upload-cancel:hover\s*\{/);
+    expect(stylesheet).not.toMatch(/\.pro-upload-cancel:focus-visible\s*\{/);
   });
 
   it('keeps the elastic head/tail phase continuous when an upload row is rebuilt', async () => {
@@ -1372,10 +1375,17 @@ describe('playlist queue identity rendering and actions', () => {
     expect(expanded.getAttribute('aria-expanded')).toBe('true');
 
     const stylesheet = await readFile('css/style.css', 'utf8');
-    const hoverRules = stylesheet.match(/\.expand-toggle:hover\s*\{([^}]*)\}/)?.[1] ?? '';
+    const hoverRules =
+      stylesheet.match(
+        /:where\(html\[data-hover-pointer\]\) \.expand-toggle:hover,\s*:where\(html\[data-hover-pointer\]\) \.device-expand-toggle:hover\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const focusRules =
+      stylesheet.match(
+        /:where\(html:not\(\[data-keyboard-navigation='off'\]\)\) \.expand-toggle:focus-visible,\s*:where\(html:not\(\[data-keyboard-navigation='off'\]\)\) \.device-expand-toggle:focus-visible\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
     expect(hoverRules).toContain('background: transparent');
     expect(hoverRules).toContain('color: var(--primary)');
-    expect(stylesheet).not.toMatch(/\.expand-toggle:hover\s*,\s*\.device-expand-toggle:hover/);
+    expect(focusRules).toContain('color: var(--primary)');
   });
 
   it('exposes each main track action as a native keyboard button', () => {
@@ -1866,6 +1876,7 @@ describe('playlist queue identity rendering and actions', () => {
     const row = document.querySelector<HTMLElement>(`.track-item[data-queue-item-id="${FILE_A}"]`)!;
     const check = row.querySelector<HTMLButtonElement>('.btn-playlist-select')!;
     expect(row.lastElementChild).toBe(check);
+    expect(row.querySelector('.pro-upload-cancel')).toBeNull();
     expect(row.querySelector('.btn-playlist-remove')).toBeNull();
     expect(check.previousElementSibling?.classList.contains('track-name')).toBe(true);
     expect(

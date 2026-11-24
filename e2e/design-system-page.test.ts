@@ -674,8 +674,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       actionCount: 2,
       labels: ['Delete', 'Cancel'],
       sizes: [
-        { width: 54, height: 54 },
-        { width: 54, height: 54 },
+        { width: 56, height: 56 },
+        { width: 56, height: 56 },
       ],
       selectedState: {
         selected: true,
@@ -716,6 +716,30 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       { height: 28, label: 'Kick iOS device (E5F6)', width: 28 },
       { height: 28, label: 'Kick Android device (G7H8)', width: 28 },
     ]);
+    const primaryColor = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--primary)';
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+    for (const selector of [
+      '.device-row-sample .device-expand-toggle',
+      '.device-row-sample .d-op-btn.administrator-state-button.grant',
+    ]) {
+      const button = page.locator(selector).first();
+      await button.hover();
+      await expect
+        .poll(() =>
+          button.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, color: style.color };
+          }),
+        )
+        .toEqual({ background: 'rgba(0, 0, 0, 0)', color: primaryColor });
+    }
+    await page.mouse.move(0, 0);
     expect(components.motionRecipes).toEqual({ borderless: true, noteMaxWidth: 'none' });
     expect(components.chatContained).toBe(true);
     expect(components.groupedOutgoingRows).toBe(2);

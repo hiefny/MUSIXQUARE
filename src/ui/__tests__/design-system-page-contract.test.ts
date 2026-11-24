@@ -886,6 +886,25 @@ describe('public design-system page contract', () => {
         title: '',
       })),
     );
+    // The app and this page share the 56px selection action.
+    for (const stylesheet of [readFileSync(resolve('css/style.css'), 'utf8'), designStylesheet]) {
+      expect(stylesheet).toMatch(
+        /\.playlist-selection-action\s*\{[^}]*width:\s*56px;[^}]*height:\s*56px;[^}]*flex:\s*0 0 56px;/su,
+      );
+    }
+    // As in the app, both playlist row icons turn blue for keyboard focus.
+    expect(designStylesheet).toMatch(
+      /\.expand-toggle:hover,\s*\.expand-toggle:focus-visible\s*\{\s*color:\s*var\(--primary\);/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.playlist-select:hover,\s*\.playlist-select:focus-visible\s*\{\s*color:\s*var\(--primary\);/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.device-expand-toggle:hover,\s*\.device-expand-toggle:focus-visible\s*\{\s*background:\s*transparent;\s*color:\s*var\(--primary\);/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.d-op-btn\.administrator-state-button:hover,\s*\.d-op-btn\.administrator-state-button:focus-visible\s*\{\s*background:\s*transparent;\s*color:\s*var\(--primary\);/u,
+    );
     expect(designStylesheet).toMatch(
       /\.d-op-btn\.administrator-state-button\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-muted\);/su,
     );

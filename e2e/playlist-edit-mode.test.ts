@@ -286,7 +286,7 @@ test.describe('Playlist edit mode (mouse)', () => {
     await openFiveTrackPlaylist(page, false);
     const checks = page.locator('#playlist-ui .btn-playlist-select');
     await expect(checks).toHaveCount(5);
-    await expect(page.locator('#playlist-ui .btn-playlist-remove')).toHaveCount(0);
+    await expect(page.locator('#playlist-ui .pro-upload-cancel')).toHaveCount(0);
 
     // The check sits after the title, where the X was.
     const order = await page
@@ -358,8 +358,8 @@ test.describe('Playlist edit mode (mouse)', () => {
         label: 'Move',
         title: null,
         text: '',
-        width: 54,
-        height: 54,
+        width: 56,
+        height: 56,
         radius: '999px',
         background: await cssColor(page, 'var(--primary-filled)'),
         color: 'rgb(255, 255, 255)',
@@ -369,8 +369,8 @@ test.describe('Playlist edit mode (mouse)', () => {
         label: 'Delete',
         title: null,
         text: '',
-        width: 54,
-        height: 54,
+        width: 56,
+        height: 56,
         radius: '999px',
         background: await cssColor(page, 'var(--danger-filled)'),
         color: 'rgb(255, 255, 255)',
@@ -380,8 +380,8 @@ test.describe('Playlist edit mode (mouse)', () => {
         label: 'Cancel',
         title: null,
         text: '',
-        width: 54,
-        height: 54,
+        width: 56,
+        height: 56,
         radius: '999px',
         background: await cssColor(page, 'var(--surface-2)'),
         color: await cssColor(page, 'var(--text-main)'),
@@ -1053,7 +1053,7 @@ test.describe('Playlist edit mode (touch)', () => {
 });
 
 // The selection bar sits in flow after the last track and adds its own room
-// to the scroll range: 16 px of margin and 68 px of bar.
+// to the scroll range: 16 px of margin and 70 px of bar.
 const LONG_LIST = Array.from(
   { length: 14 },
   (_, index) => (['test01', 'test02', 'test03'] as const)[index % 3]!,
@@ -1167,6 +1167,37 @@ test.describe('Selection bar room (phone)', () => {
     // The list was already out of the room when it went: nothing was clamped.
     expect(before.scrollTop).toBeLessThanOrEqual(after.max + 1);
     expect(after.scrollTop).toBeCloseTo(atEnd, 0);
+  });
+
+  test('a toast keeps 16 px above the floating bar', async ({ page }) => {
+    test.setTimeout(120_000);
+    await openLongPlaylistAtItsEnd(page, true);
+    // Back at the top, the bar floats at its sticky place above the nav.
+    await page.locator('#tab-playlist .tab-body').evaluate((body) => {
+      body.scrollTop = 0;
+    });
+    await page.waitForTimeout(200);
+    const minus = await centerOf(page.locator('#playlist-ui .btn-playlist-select').nth(1));
+    await page.touchscreen.tap(minus.x, minus.y);
+    await expect(page.locator('.playlist-selection-bar')).toBeVisible();
+    // The toast's resting bottom edge, from its own bottom offset, against the
+    // bar's top edge. The offset eases in, so poll until it settles.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const nav = document.querySelector<HTMLElement>('.bottom-nav')!.getBoundingClientRect();
+          const bar = document
+            .querySelector<HTMLElement>('.playlist-selection-bar')!
+            .getBoundingClientRect();
+          const toast = document.querySelector<HTMLElement>('.toast')!;
+          const toastEdge = window.innerHeight - Number.parseFloat(getComputedStyle(toast).bottom);
+          return {
+            barAboveNav: Math.round(nav.top - bar.bottom),
+            toastAboveBar: Math.round(bar.top - toastEdge),
+          };
+        }),
+      )
+      .toEqual({ barAboveNav: 14, toastAboveBar: 16 });
   });
 
   test('Delete at the end of the room closes it as the survivors close up, without a jump', async ({

@@ -156,7 +156,7 @@ const NOT_ROLE_BUTTONS: Readonly<Record<string, string>> = {
   'expand-toggle': 'Icon-only disclosure.',
   'device-expand-toggle': 'Icon-only disclosure.',
   'btn-playlist-select': 'Icon-only selection mark.',
-  'btn-playlist-remove': 'Icon-only upload cancel.',
+  'pro-upload-cancel': 'Icon-only upload cancel.',
   'playlist-selection-action': 'Icon-only selection bar circle.',
   'playlist-switch-button':
     "Playlist title switch: its visible label is the active slot's name in the tab title " +
@@ -3276,7 +3276,8 @@ describe('action button label contract', () => {
     const keyboard = ":where(html:not([data-keyboard-navigation='off']))";
     for (const icon of [
       ':where(html[data-hover-pointer]) .clearable-editor-button:hover',
-      ':where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover',
+      ':where(html[data-hover-pointer]) .pro-upload-cancel:not(:disabled):hover',
+      `${keyboard} .pro-upload-cancel:not(:disabled):focus-visible`,
       ':where(html[data-hover-pointer]) .administrator-action-button.revoke:hover',
       `${keyboard} .administrator-action-button.revoke:focus-visible`,
       ':where(html[data-hover-pointer]) .device-subrow:hover .btn-kick-physical-device:hover',

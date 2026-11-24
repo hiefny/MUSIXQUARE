@@ -3326,6 +3326,45 @@ describe('playlist interaction gate (RO-27)', () => {
 
     afterEach(() => restoreRects());
 
+    it('stays blocked while the selection bar and its room leave and resumes once they are gone', async () => {
+      /** Matches the removal's in-place exit of the pills. */
+      const BAR_EXIT_MS = 220;
+      // The pills fade out in place only where the browser animates; their
+      // room under the last track goes with them.
+      const animate = HTMLElement.prototype.animate;
+      HTMLElement.prototype.animate = vi.fn(
+        () => ({ cancel: vi.fn() }) as unknown as Animation,
+      ) as unknown as typeof HTMLElement.prototype.animate;
+      try {
+        await mount();
+        clickSelect(FILE_A);
+        setState('playlist.currentQueueItemId', FILE_C);
+        vi.advanceTimersByTime(FRAME_MS * 4);
+        expect(followScrolls()).toEqual([]);
+
+        document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+        await Promise.resolve();
+        vi.advanceTimersByTime(FRAME_MS * 4);
+        const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+        expect(bar.dataset.state).toBe('leaving');
+        expect(followScrolls()).toEqual([]);
+        // A render while the bar leaves asks follow again; the gate holds it.
+        updatePlaylistUI();
+        vi.advanceTimersByTime(FRAME_MS * 4);
+        expect(bar.dataset.state).toBe('leaving');
+        expect(followScrolls()).toEqual([]);
+
+        vi.advanceTimersByTime(BAR_EXIT_MS);
+        expect(bar.hidden).toBe(true);
+        await Promise.resolve();
+        vi.advanceTimersByTime(FRAME_MS * 4);
+        expect(followScrolls()).toEqual([[{ top: FILE_C_FOLLOW_TOP, behavior: 'smooth' }]]);
+      } finally {
+        if (animate) HTMLElement.prototype.animate = animate;
+        else delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+      }
+    });
+
     it('stays blocked while tracks are picked and resumes its pending request once after', async () => {
       await mount();
       clickSelect(FILE_A);

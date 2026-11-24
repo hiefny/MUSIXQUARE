@@ -661,6 +661,318 @@ describe('playlist removal controller', () => {
     });
   });
 
+  describe('room for the bar', () => {
+    /** Matches the controller's longest room scroll, from its start. */
+    const ROOM_SCROLL_LIMIT_MS = 600;
+    let animate: ReturnType<typeof vi.fn>;
+    let originalAnimate: typeof HTMLElement.prototype.animate | undefined;
+    let rects: { mockRestore(): void };
+    let scrollTop = 0;
+    let scale = 1;
+    let scrollTo: ReturnType<typeof vi.fn>;
+
+    // A phone's playlist body, 696 px tall from 148 px down, at the end of its
+    // tracks: B, the last, ends at 756 px. The arriving bar is 68 px tall and
+    // still 18 px into its entrance slide, so it will rest at 698 px. Its
+    // room makes the body scroll 84 px further, to 378. Rects come out
+    // multiplied by `scale`, as the scaled wide desktop renders them.
+    beforeEach(() => {
+      vi.useFakeTimers({
+        toFake: [
+          'setTimeout',
+          'clearTimeout',
+          'requestAnimationFrame',
+          'cancelAnimationFrame',
+          'performance',
+        ],
+      });
+      originalAnimate = HTMLElement.prototype.animate;
+      animate = vi.fn(() => ({ cancel: vi.fn() }) as unknown as Animation);
+      HTMLElement.prototype.animate = animate as unknown as typeof HTMLElement.prototype.animate;
+      vi.stubGlobal(
+        'DOMMatrixReadOnly',
+        class {
+          readonly m42: number;
+          constructor(transform: string) {
+            this.m42 = Number(/translateY\((-?[\d.]+)px\)/.exec(transform)?.[1] ?? 0);
+          }
+        },
+      );
+      document.body.innerHTML = `<section id="tab-playlist" class="tab-content active">
+          <div class="tab-body" style="padding-bottom: 88px">
+            <ul id="playlist-ui">${row(A)}${row(B)}</ul>
+          </div>
+        </section>`;
+      const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+      scrollTop = 294;
+      scale = 1;
+      Object.defineProperties(scroller, {
+        scrollTop: {
+          configurable: true,
+          get: () => scrollTop,
+          set: (value: number) => {
+            scrollTop = value;
+          },
+        },
+        scrollHeight: { configurable: true, value: 1074 },
+        clientHeight: { configurable: true, value: 696 },
+        clientTop: { configurable: true, value: 0 },
+      });
+      // A smooth scroll is on its way; each test says when it arrives.
+      scrollTo = vi.fn();
+      scroller.scrollTo = scrollTo as unknown as typeof scroller.scrollTo;
+      rects = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: Element,
+      ) {
+        const at = (top: number, bottom: number) =>
+          ({ top: top * scale, bottom: bottom * scale }) as DOMRect;
+        // Rows and the list end move with the scroll position.
+        const atEnd = (bottom: number, height: number) => {
+          const shifted = bottom + 294 - scrollTop;
+          return at(shifted - height, shifted);
+        };
+        if (this === scroller) return at(148, 844);
+        if (this.id === 'playlist-ui') return atEnd(756, 700);
+        if (this.classList.contains('playlist-selection-bar')) return at(716, 784);
+        const id = (this as HTMLElement).dataset.queueItemId;
+        if (id === A) return atEnd(691, 57);
+        if (id === B) return atEnd(756, 57);
+        return at(0, 0);
+      });
+    });
+
+    afterEach(() => {
+      rects.mockRestore();
+      document.body.style.removeProperty('--desktop-ui-scale');
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+      if (originalAnimate) HTMLElement.prototype.animate = originalAnimate;
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+    });
+
+    function bar(): HTMLElement {
+      return document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+    }
+
+    function create(extra: Partial<Parameters<typeof createPlaylistRemovalController>[0]> = {}) {
+      const items = [item(A, 'Alpha'), item(B, 'Beta')];
+      const onDelete = vi.fn();
+      controller = createPlaylistRemovalController({
+        list: document.getElementById('playlist-ui')!,
+        canRemove: () => true,
+        isPlaylistVisible: () => true,
+        getItems: () => items,
+        onDelete,
+        ...extra,
+      });
+      bar().style.marginTop = '16px';
+      bar().style.transform = 'translateY(18px)';
+      Object.defineProperty(bar(), 'offsetHeight', { configurable: true, value: 68 });
+      return { removal: controller, onDelete };
+    }
+
+    /** A primary press; jsdom has no PointerEvent. */
+    function press(
+      type: 'pointerdown' | 'pointerup' | 'pointercancel',
+      target: EventTarget,
+      pointerId = 1,
+    ): void {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 });
+      Object.defineProperty(event, 'pointerId', { value: pointerId });
+      target.dispatchEvent(event);
+    }
+
+    function list(): HTMLElement {
+      return document.getElementById('playlist-ui')!;
+    }
+
+    function cancelButton(): HTMLButtonElement {
+      return document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!;
+    }
+
+    /** Selects B at the end of the list, then scrolls to the end of the bar's room. */
+    function selectLastTrackAndScrollIntoRoom(
+      extra: Partial<Parameters<typeof createPlaylistRemovalController>[0]> = {},
+    ) {
+      const created = create(extra);
+      created.removal.toggle(B);
+      scrollTo.mockClear();
+      scrollTop = 378;
+      return created;
+    }
+
+    it('scrolls the last track up out from under the arriving bar, its top margin apart', () => {
+      create().removal.toggle(B);
+      // 756 + 16 - 698 = 74 px up, inside the 84 px of room.
+      expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 368, behavior: 'smooth' });
+    });
+
+    it('takes the same room on the wide desktop that renders the body 1.5 times larger', () => {
+      scale = 1.5;
+      document.body.style.setProperty('--desktop-ui-scale', '1.5');
+      create().removal.toggle(B);
+      expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 368, behavior: 'smooth' });
+      scrollTo.mockClear();
+      scrollTop = 378;
+      cancelButton().click();
+      expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 294, behavior: 'smooth' });
+    });
+
+    it('leaves a selected track the bar does not cover where it is', () => {
+      create().removal.toggle(A);
+      expect(bar().dataset.state).toBe('select');
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('makes room for a selection made under a held press only after it lets go', () => {
+      const { removal } = create();
+      press('pointerdown', list());
+      // A long press selects while the finger is still down.
+      removal.toggle(B);
+      vi.advanceTimersToNextFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+      press('pointerup', document);
+      // A frame later, past the click the release may send.
+      expect(scrollTo).not.toHaveBeenCalled();
+      vi.advanceTimersToNextFrame();
+      expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 368, behavior: 'smooth' });
+    });
+
+    it('keeps the rows still through the context menu event a long press sends on Android', () => {
+      const { removal } = create();
+      press('pointerdown', list());
+      // Android sends contextmenu partway through a long press, finger still down.
+      document.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      removal.toggle(B);
+      vi.advanceTimersToNextFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+      press('pointerup', document);
+      vi.advanceTimersToNextFrame();
+      expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 368, behavior: 'smooth' });
+    });
+
+    it('leaves the rows to a press the browser takes for scrolling', () => {
+      const { removal } = create();
+      press('pointerdown', list());
+      removal.toggle(B);
+      press('pointercancel', document);
+      vi.advanceTimersToNextFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+      // That press is over: a later tap's selection makes room at once.
+      removal.cancel();
+      vi.advanceTimersByTime(BAR_EXIT_MS);
+      expect(bar().hidden).toBe(true);
+      removal.toggle(B);
+      expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 368, behavior: 'smooth' });
+    });
+
+    it('never lets the release of the press that started the mode act on the bar', () => {
+      const { removal, onDelete } = create();
+      press('pointerdown', list());
+      removal.toggle(B);
+      press('pointerup', document);
+      // The release's click lands on the pill that slid in under the finger,
+      // or on the body beside the bar.
+      const remove = document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
+      remove.click();
+      expect(onDelete).not.toHaveBeenCalled();
+      expect(bar().dataset.state).toBe('select');
+      // A press of its own acts.
+      press('pointerdown', remove);
+      remove.click();
+      expect(onDelete).toHaveBeenCalledOnce();
+    });
+
+    it('picks its scroll up after a render, until the user takes the list over', () => {
+      const { removal } = create();
+      removal.toggle(B);
+      expect(scrollTo).toHaveBeenCalledOnce();
+      // A render writes the scroll position back, which stops the scroll.
+      removal.afterRender();
+      expect(scrollTo).toHaveBeenCalledTimes(2);
+      expect(scrollTo).toHaveBeenLastCalledWith({ top: 368, behavior: 'smooth' });
+      // A wheel on the playlist leaves the list to the user.
+      document.getElementById('tab-playlist')!.dispatchEvent(new Event('wheel'));
+      removal.afterRender();
+      expect(scrollTo).toHaveBeenCalledTimes(2);
+    });
+
+    it('scrolls out of the room as the pills fade and lets the room go once out of it', () => {
+      selectLastTrackAndScrollIntoRoom();
+      cancelButton().click();
+      // Where the list ends without the room: 990 px of content in 696.
+      expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 294, behavior: 'smooth' });
+      vi.advanceTimersByTime(BAR_EXIT_MS);
+      // The pills have faded, but the list is still on its way out.
+      expect(bar().hidden).toBe(false);
+      expect(bar().dataset.state).toBe('leaving');
+      scrollTop = 294;
+      vi.advanceTimersToNextFrame();
+      expect(bar().hidden).toBe(true);
+    });
+
+    it('tells its owner the selection ended only once the leaving bar and its room are gone', async () => {
+      const onSelectionEnd = vi.fn();
+      const { removal } = selectLastTrackAndScrollIntoRoom({ onSelectionEnd });
+      cancelButton().click();
+      expect(removal.isLeaving).toBe(true);
+      await Promise.resolve();
+      expect(onSelectionEnd).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(BAR_EXIT_MS);
+      await Promise.resolve();
+      expect(onSelectionEnd).not.toHaveBeenCalled();
+      scrollTop = 294;
+      vi.advanceTimersToNextFrame();
+      expect(removal.isLeaving).toBe(false);
+      await Promise.resolve();
+      expect(onSelectionEnd).toHaveBeenCalledOnce();
+    });
+
+    it('lets the room go at its limit when the list never leaves it', () => {
+      selectLastTrackAndScrollIntoRoom();
+      cancelButton().click();
+      vi.advanceTimersByTime(ROOM_SCROLL_LIMIT_MS - 20);
+      expect(bar().hidden).toBe(false);
+      vi.advanceTimersByTime(40);
+      expect(bar().hidden).toBe(true);
+    });
+
+    it('keeps the room through a selection made while the bar leaves', () => {
+      const { removal } = selectLastTrackAndScrollIntoRoom();
+      cancelButton().click();
+      expect(bar().dataset.state).toBe('leaving');
+      // Taking the bar out of flow to replay its entry would drop the room
+      // and the list scrolled into it.
+      const observer = new MutationObserver(() => {});
+      observer.observe(bar(), { attributes: true, attributeFilter: ['hidden'] });
+      removal.toggle(A);
+      const hiddenChanges = observer.takeRecords();
+      observer.disconnect();
+      expect(hiddenChanges).toEqual([]);
+      expect(bar().dataset.state).toBe('select');
+      vi.advanceTimersByTime(ROOM_SCROLL_LIMIT_MS);
+      expect(bar().hidden).toBe(false);
+    });
+
+    it('closes the room after a deletion as its survivors close up, through a render', () => {
+      const { removal } = selectLastTrackAndScrollIntoRoom();
+      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+      // Not under the leaving rows.
+      expect(scrollTo).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(BAR_EXIT_MS);
+      expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 294, behavior: 'smooth' });
+      // A render writes the scroll position back, which stops the scroll.
+      removal.afterRender();
+      expect(scrollTo).toHaveBeenCalledTimes(2);
+      expect(scrollTo).toHaveBeenLastCalledWith({ top: 294, behavior: 'smooth' });
+      scrollTop = 294;
+      vi.advanceTimersToNextFrame();
+      expect(bar().hidden).toBe(true);
+      removal.afterRender();
+      expect(scrollTo).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('builds and removes its header controls with the controller', () => {
     document
       .getElementById('tab-playlist')!

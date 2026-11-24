@@ -96,6 +96,26 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.839 / v839 train: the playlist's selection bar no longer covers the last track, and the room it takes closes without a jump when it goes (2026-11-24)](design/app-9-0-839-train-2026-11-24.md):
+  built on its train branch, not merged or released. The App update after 9.0.838 / v838, on main `1cdd927d` (#633, the
+  9.0.838 record, docs only). For the owner's report of 2026-11-24 that selecting the last track of the playlist leaves
+  the selection panel over it (room appeared only sometimes) and the question whether the room could appear and go
+  smoothly: the sticky selection bar sits in flow after the last track and adds 84 px of room, but nothing scrolled, so
+  at the end of a long list it covered the whole last track, and when the mode ended the room went in the frame the
+  pills' fade ended and clamped a list scrolled into it by up to 84 px in one frame (mid-glide after a Delete).
+  Entering the mode now smooth-scrolls the lowest selected track in sight up out from under the arriving bar (after a
+  held press lets go), and when the bar goes, a list in the room scrolls back out before the room goes: while the pills
+  fade, or as the survivors close up after a Delete, picked up after renders and given up on user input or after 600
+  ms. An independent four-lens review of the first fix found 18 issues; the train fixes all but one: the 1.2x and 1.5x
+  wide dashboard (the exit fell 77 px short on QHD), follow resuming into the closing room (the RO-27 gate now blocks
+  it while the bar leaves), the reveal stopped by a render, press tracking, the click a long press's release could send
+  onto the bar (pre-existing; on Android with a longer touch-and-hold delay it could hit Delete), and a new selection
+  during the exit dropping the room. Left as is: a title tap within about 0.14 s of the reveal can be swallowed by the
+  reorder's momentum guard, as after follow's own scroll. Before and after screenshots (phone light and dark, desktop)
+  were shown to the owner. Final gate at the bump `b0aaa6ea`: unit 799 files, 19,621 passed, 1 skipped; 43 related
+  Chromium files 505 passed, 3 skipped; WebKit lane 237 passed, 24 skipped; the WebKit Service Worker smoke, the
+  candidate (20 passed, 11 skipped) and the critical paths (101) passed. App runtime paths against production
+  `5f42e38e`: 6; the other five Workers 0. Not measured on a real iPhone, Android, Firefox or a real 4K dashboard.
 - [App 9.0.838 / v838 train: a custom scrollbar's thumb follows content that grows or shrinks without stutter, and a dialog's late default focus no longer pulls a keyboard user's Tab back (2026-11-23)](design/app-9-0-838-train-2026-11-23.md):
   released on 2026-11-24 00:48 KST in Release 45208875211 (PR #632, squash `5f42e38e`) as App 9.0.838 / v838 (App build
   838, target `app`, one update dialog; App `69ab8956` to `4a7d219a`); the public reads, the Drift Audit and the

@@ -43,7 +43,13 @@ const ROOM_SCROLL_LIMIT_MS = 600;
  * gap the fallback in css/style.css keeps above the floating bar (the layout
  * contract test pins the two together).
  */
-export const TOAST_CLEARANCE_PX = 16;
+const TOAST_CLEARANCE_PX = 16;
+/**
+ * Whether the toast moves is decided as if its message were at least this
+ * many lines tall. The first message of a session, or the next one, then
+ * cannot change the decision as it appears and send the toast across the bar.
+ */
+const TOAST_LINES_DECIDED_ALIKE = 3;
 /** The tab header crossfades between its normal and selection controls. */
 const HEADER_FADE_OUT_MS = 180;
 const HEADER_FADE_IN_MS = 240;
@@ -352,13 +358,29 @@ export function createPlaylistRemovalController(
   }
 
   /**
+   * The height the decision allows the toast: its message, but never less
+   * than TOAST_LINES_DECIDED_ALIKE lines of it with the pill's padding.
+   */
+  function toastHeightDecided(element: HTMLElement): number {
+    const message = element.firstElementChild;
+    if (!message) return element.offsetHeight;
+    const style = getComputedStyle(message);
+    const lines =
+      Number.parseFloat(style.paddingTop) +
+      Number.parseFloat(style.paddingBottom) +
+      TOAST_LINES_DECIDED_ALIKE * Number.parseFloat(style.lineHeight);
+    return Number.isFinite(lines) ? Math.max(element.offsetHeight, lines) : element.offsetHeight;
+  }
+
+  /**
    * A phone toast keeps clear of the bar. On a long list the bar floats above
    * the nav, but on a short one it follows the last track, so no single place
    * suits the toast: while the bar is up the toast stays at its usual place
    * unless the bar comes within TOAST_CLEARANCE_PX of it there, and then sits
-   * that far above the bar's top. The toast's own height counts, so a message
-   * long enough to reach the bar moves too. CSS applies the place on a phone
-   * only (css/style.css), and falls back to the floating bar's when unset.
+   * that far above the bar's top. A message longer than the lines the
+   * decision allows counts with its own height, so it moves too. CSS applies
+   * the place on a phone only (css/style.css), and falls back to the floating
+   * bar's when unset.
    */
   function keepToastClear(): void {
     if (!toast) return;
@@ -371,9 +393,10 @@ export function createPlaylistRemovalController(
       const scale = getBodyRenderedScale();
       const barTop = restingBarTop(scale);
       const barBottom = barTop + bar.offsetHeight * scale;
-      // The toast's usual place, in viewport pixels, for its current message.
+      // The toast's usual place in viewport pixels: a phone, where CSS uses
+      // the place, renders the body unscaled, so CSS pixels match them.
       const restBottom = window.innerHeight - rest;
-      const restTop = restBottom - toast.offsetHeight;
+      const restTop = restBottom - toastHeightDecided(toast);
       const clear =
         barBottom + TOAST_CLEARANCE_PX <= restTop + 0.5 ||
         barTop - TOAST_CLEARANCE_PX >= restBottom - 0.5;

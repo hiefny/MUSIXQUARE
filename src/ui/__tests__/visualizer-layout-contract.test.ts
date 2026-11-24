@@ -117,12 +117,12 @@ describe('visualizer layout contract', () => {
     // toast keeps above the floating bar.
     const toastOffset = px(
       stylesheet,
-      /\.playlist-selection-bar:not\(\[hidden\]\):not\(\[data-state='leaving'\]\)\)\s*\.toast\s*\{\s*bottom:\s*var\(\s*--toast-clear-bottom,\s*calc\(var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\) \+ (\d+)px\)\s*\);/u,
+      /@media \(max-width: 719\.98px\)\s*\{\s*body:has\(#tab-playlist\.active \.playlist-selection-bar:not\(\[hidden\]\):not\(\[data-state='leaving'\]\)\)\s*\.toast\s*\{\s*bottom:\s*var\(\s*--toast-clear-bottom,\s*calc\(var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\) \+ (\d+)px\)\s*\);/u,
     );
     // The gap the bar's owner keeps when it moves a toast above the bar.
     const toastClearance = px(
       readFileSync(resolve('src/ui/playlist-removal.ts'), 'utf8'),
-      /export const TOAST_CLEARANCE_PX = (\d+);/u,
+      /\bconst TOAST_CLEARANCE_PX = (\d+);/u,
     );
     expect({ barAboveNav, barHeight }).toEqual({ barAboveNav: 14, barHeight: 70 });
     expect(toastOffset - barAboveNav - barHeight).toBe(16);

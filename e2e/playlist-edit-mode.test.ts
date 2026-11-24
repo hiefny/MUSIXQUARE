@@ -1085,10 +1085,7 @@ async function selectInPlaylistOf(page: Page, count: number): Promise<void> {
   await expect(page.locator('.playlist-selection-bar')).toBeVisible();
 }
 
-/**
- * Shows a one-line toast and reads where it settles against the bar, from
- * its own bottom offset, which eases in, so callers poll this.
- */
+/** Shows a one-line toast. */
 async function showToastBesideBar(page: Page) {
   await page.evaluate(() => {
     const runtime = window as unknown as {
@@ -1098,7 +1095,16 @@ async function showToastBesideBar(page: Page) {
   });
 }
 
+/**
+ * Where the toast rests against the bar, read from its own bottom offset once
+ * neither moves: the toast eases its offset and the bar slides in.
+ */
 async function toastBesideBar(page: Page) {
+  await page.waitForFunction(() =>
+    ['.toast', '.playlist-selection-bar'].every(
+      (selector) => document.querySelector(selector)!.getAnimations().length === 0,
+    ),
+  );
   return page.evaluate(() => {
     const nav = document.querySelector<HTMLElement>('.bottom-nav')!.getBoundingClientRect();
     const bar = document
@@ -1258,7 +1264,7 @@ test.describe('Selection bar room (phone)', () => {
 
   test('on a list just short of the screen a toast moves 16 px above the bar', async ({ page }) => {
     test.setTimeout(120_000);
-    // Seven tracks: the bar sits where the toast usually shows.
+    // Seven tracks: the bar ends 5 px above the toast's usual place.
     await selectInPlaylistOf(page, 7);
     await showToastBesideBar(page);
     await expect

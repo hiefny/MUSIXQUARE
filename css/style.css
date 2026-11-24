@@ -5116,8 +5116,8 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
   }
 
   .toast {
-    /* The toast's usual place. The playlist's selection bar reads it to keep
-       a phone toast clear of the bar (below). */
+    /* The toast's usual place, in px. The playlist's selection bar reads it
+       to keep a phone toast clear of the bar (below). */
     --toast-rest-bottom: 110px;
     position: fixed;
     bottom: var(--toast-rest-bottom);
@@ -5162,8 +5162,8 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
      floats above the nav when the list is long, but follows the last track
      when it is short, so while it is up its owner (src/ui/playlist-removal.ts)
      writes --toast-clear-bottom on the toast: the usual place while the bar
-     is clear of it, or 16px above the bar's top while the bar reaches into
-     it. Until then a toast keeps 16px above the floating bar, which rests
+     stays 16px clear of it, or 16px above the bar's top when the bar comes
+     closer. Until then a toast keeps 16px above the floating bar, which rests
      14px above the nav and is 70px tall (56px actions, 6px padding, 1px
      border): 14 + 70 + 16 = 100px. Change this with the bar's size. */
   @media (max-width: 719.98px) {

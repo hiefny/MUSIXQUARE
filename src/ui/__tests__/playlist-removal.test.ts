@@ -999,9 +999,12 @@ describe('playlist removal controller', () => {
             }
           },
         );
+        // The pill's padding and line: three lines of it are 88.9 px tall.
         document.body.insertAdjacentHTML(
           'beforeend',
-          '<div class="toast" id="toast" role="status"><span id="toast-msg"></span></div>',
+          `<div class="toast" id="toast" role="status">
+            <span id="toast-msg" style="padding: 14px 28px; line-height: 20.3px"></span>
+          </div>`,
         );
         toast().style.setProperty('--toast-rest-bottom', '110px');
         Object.defineProperty(toast(), 'offsetHeight', { configurable: true, value: 48 });
@@ -1045,6 +1048,36 @@ describe('playlist removal controller', () => {
         // Scrolling no longer moves it.
         document.querySelector('.tab-body')!.dispatchEvent(new Event('scroll'));
         expect(place()).toBe('');
+      });
+
+      it('decides alike for an empty toast and a one-line message, so neither crosses the bar', () => {
+        // The bar rests at 572 to 640 px: a one-line toast at its usual place
+        // would clear it, but a three-line one would not.
+        barTopAt = 590;
+        Object.defineProperty(toast(), 'offsetHeight', { configurable: true, value: 28 });
+        create().removal.toggle(B);
+        expect(place()).toBe('calc(100% - 556px)');
+        // The first message lays out one line tall: the place stays.
+        Object.defineProperty(toast(), 'offsetHeight', { configurable: true, value: 48 });
+        notify?.();
+        expect(place()).toBe('calc(100% - 556px)');
+      });
+
+      it('places the toast again in a later selection, and after the view resizes', () => {
+        const { removal } = create();
+        removal.toggle(B);
+        cancelButton().click();
+        vi.advanceTimersByTime(BAR_EXIT_MS);
+        expect(bar().hidden).toBe(true);
+        expect(place()).toBe('');
+        // Selecting again watches the toast, the list and the body afresh.
+        removal.toggle(B);
+        expect(place()).toBe('calc(100% - 682px)');
+        expect(observed).toEqual([toast(), list(), document.querySelector('.tab-body')]);
+        // After a resize the bar rests 40 px lower, and the toast follows it.
+        barTopAt = 756;
+        window.dispatchEvent(new Event('resize'));
+        expect(place()).toBe('calc(100% - 722px)');
       });
 
       it('leaves the toast to CSS once the controller goes', () => {

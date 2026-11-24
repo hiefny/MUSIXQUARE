@@ -2876,6 +2876,20 @@ describe('member-level connection and administrator UI', () => {
     expect(administratorActionHoverRules).not.toContain('outline: none');
     expect(administratorStateHoverRules).toContain('background: transparent');
     expect(administratorStateHoverRules).toContain('color: var(--primary)');
+    // The grant crown is also an administrator action: neither rule may hide
+    // the shared keyboard ring again.
+    expect(administratorStateHoverRules).not.toContain('outline: none');
+    // The generic blue and the revoke red have the same specificity (0,3,0),
+    // so the revoke X stays red only while its rule comes after the generic one.
+    const genericHoverAt = stylesheet.indexOf(
+      ':where(html[data-hover-pointer]) .administrator-action-button:not(:disabled):hover,',
+    );
+    expect(genericHoverAt).toBeGreaterThan(-1);
+    expect(
+      stylesheet.indexOf(
+        ':where(html[data-hover-pointer]) .administrator-action-button.revoke:hover,',
+      ),
+    ).toBeGreaterThan(genericHoverAt);
     expect(revokeActionRules).toContain('width: 28px');
     expect(revokeActionRules).toContain('height: 28px');
     expect(revokeIconRules).toContain('width: 16px');

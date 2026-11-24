@@ -402,14 +402,17 @@ describe('playlist row icons on the hover gate', () => {
     expect(focus[0]!.declarations).toContain('color: var(--primary)');
   });
 
-  it('turns the expand chevron blue on hover and on keyboard focus, like the minus', () => {
-    const hover = rulesFor(`${GATE} .expand-toggle:hover`);
-    expect(hover).toHaveLength(1);
-    expect(hover[0]!.declarations).toContain('color: var(--primary)');
-    const focus = rulesFor(`${RING} .expand-toggle:focus-visible`);
-    expect(focus).toHaveLength(1);
-    expect(focus[0]!.conditions).toEqual([]);
-    expect(focus[0]!.declarations).toContain('color: var(--primary)');
+  it('turns both disclosure chevrons blue on hover and on keyboard focus, like the minus', () => {
+    for (const chevron of ['.expand-toggle', '.device-expand-toggle']) {
+      // One rule each, with no grey circle: a second rule would win on order.
+      expect(rulesFor(`${GATE} ${chevron}:hover`), chevron).toEqual([
+        { conditions: [], declarations: ['background: transparent', 'color: var(--primary)'] },
+      ]);
+      const focus = rulesFor(`${RING} ${chevron}:focus-visible`);
+      expect(focus, chevron).toHaveLength(1);
+      expect(focus[0]!.conditions).toEqual([]);
+      expect(focus[0]!.declarations).toContain('color: var(--primary)');
+    }
   });
 
   it('reveals the reorder grip on row hover only outside edit mode', () => {

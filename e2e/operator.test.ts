@@ -204,6 +204,12 @@ test.describe('Operator Mode', () => {
     await expect(grantButton.locator('svg > path')).toHaveAttribute('d', CROWN_PATH);
     await expectAdministratorActionFitsRow(grantButton);
     await expectRowIconHoverLook(pair.hostPage, grantButton, '--primary');
+    // The crown is an administrator action too: keyboard focus keeps its 2px ring.
+    await pair.hostPage.mouse.move(0, 0);
+    await grantButton.focus();
+    await pair.hostPage.keyboard.press('Tab');
+    await pair.hostPage.keyboard.press('Shift+Tab');
+    await expectRowIconFocusLook(pair.hostPage, grantButton, '--primary');
 
     await grantButton.click();
     await waitForState(pair.guestPage, 'network.isOperator', true);

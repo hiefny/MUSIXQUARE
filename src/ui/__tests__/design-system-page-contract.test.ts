@@ -887,6 +887,15 @@ describe('public design-system page contract', () => {
       })),
     );
     expect(designStylesheet).toMatch(
+      /\.playlist-selection-action\s*\{[^}]*width:\s*56px;[^}]*height:\s*56px;[^}]*flex:\s*0 0 56px;/su,
+    );
+    expect(designStylesheet).toMatch(
+      /\.device-expand-toggle:hover,\s*\.device-expand-toggle:focus-visible\s*\{\s*background:\s*transparent;\s*color:\s*var\(--primary\);/u,
+    );
+    expect(designStylesheet).toMatch(
+      /\.d-op-btn\.administrator-state-button:hover,\s*\.d-op-btn\.administrator-state-button:focus-visible\s*\{\s*background:\s*transparent;\s*color:\s*var\(--primary\);/u,
+    );
+    expect(designStylesheet).toMatch(
       /\.d-op-btn\.administrator-state-button\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-muted\);/su,
     );
     expect(devices[0]?.getAttribute('aria-current')).toBe('true');

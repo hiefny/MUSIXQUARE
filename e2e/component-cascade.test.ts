@@ -60,7 +60,7 @@ for (const mode of [
             <button class="btn-ob-primary" data-shape="pill">Continue</button>
             <button class="sync-nudge-btn" data-shape="pill">+</button>
             <button class="playlist-reorder-handle" data-shape="pill">Reorder</button>
-            <button class="btn-playlist-remove" data-shape="pill">Remove</button>
+            <button class="pro-upload-cancel" data-shape="pill">Cancel upload</button>
             <button class="btn-playlist-select" data-shape="pill">Select</button>
             <button class="playlist-selection-action" data-shape="pill">Delete</button>
             <button class="dialog-primary" data-shape="pill">Confirm</button>

@@ -286,7 +286,7 @@ test.describe('Playlist edit mode (mouse)', () => {
     await openFiveTrackPlaylist(page, false);
     const checks = page.locator('#playlist-ui .btn-playlist-select');
     await expect(checks).toHaveCount(5);
-    await expect(page.locator('#playlist-ui .btn-playlist-remove')).toHaveCount(0);
+    await expect(page.locator('#playlist-ui .pro-upload-cancel')).toHaveCount(0);
 
     // The check sits after the title, where the X was.
     const order = await page
@@ -358,8 +358,8 @@ test.describe('Playlist edit mode (mouse)', () => {
         label: 'Move',
         title: null,
         text: '',
-        width: 54,
-        height: 54,
+        width: 56,
+        height: 56,
         radius: '999px',
         background: await cssColor(page, 'var(--primary-filled)'),
         color: 'rgb(255, 255, 255)',
@@ -369,8 +369,8 @@ test.describe('Playlist edit mode (mouse)', () => {
         label: 'Delete',
         title: null,
         text: '',
-        width: 54,
-        height: 54,
+        width: 56,
+        height: 56,
         radius: '999px',
         background: await cssColor(page, 'var(--danger-filled)'),
         color: 'rgb(255, 255, 255)',
@@ -380,8 +380,8 @@ test.describe('Playlist edit mode (mouse)', () => {
         label: 'Cancel',
         title: null,
         text: '',
-        width: 54,
-        height: 54,
+        width: 56,
+        height: 56,
         radius: '999px',
         background: await cssColor(page, 'var(--surface-2)'),
         color: await cssColor(page, 'var(--text-main)'),
@@ -1053,7 +1053,7 @@ test.describe('Playlist edit mode (touch)', () => {
 });
 
 // The selection bar sits in flow after the last track and adds its own room
-// to the scroll range: 16 px of margin and 68 px of bar.
+// to the scroll range: 16 px of margin and 70 px of bar.
 const LONG_LIST = Array.from(
   { length: 14 },
   (_, index) => (['test01', 'test02', 'test03'] as const)[index % 3]!,

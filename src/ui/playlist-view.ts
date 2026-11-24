@@ -755,7 +755,7 @@ function createProRoomUploadCancel(row: ProRoomUploadRow): HTMLButtonElement {
   const button = document.createElement('button');
   const isConfirming = row.phase === 'confirming';
   button.type = 'button';
-  button.className = 'btn-playlist-remove pro-upload-cancel';
+  button.className = 'pro-upload-cancel';
   button.dataset.proUploadAction = 'cancel';
   button.dataset.proUploadId = row.id;
   button.disabled = isConfirming;

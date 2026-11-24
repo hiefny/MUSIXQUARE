@@ -2975,12 +2975,6 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     --material-elastic-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='18' fill='none' stroke='black' stroke-width='5.516'/%3E%3C/svg%3E");
   }
 
-  .pro-upload-cancel:disabled {
-    cursor: wait;
-    opacity: 0.32;
-    color: var(--text-muted);
-  }
-
   /* One fixed 16px cell, so every icon it holds centres on the same point. An
      auto track would grow to its largest icon (the current row's 20px play
      box) and push the current row's icons down and to the inline end; a fixed
@@ -3100,15 +3094,13 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     justify-content: center;
     border-radius: var(--radius-pill);
     cursor: pointer;
-    transition:
-      color 0.2s ease,
-      background-color 0.2s ease;
+    transition: color 0.2s ease;
     color: var(--text-muted);
     background: transparent;
     border: none;
   }
 
-  /* Match the playlist remove control's 44px touch target without allowing
+  /* Match the upload-cancel control's 44px touch target without allowing
      the disclosure button to make YouTube playlist rows 4px taller. The
      negative margins keep its flex footprint on the row's 28px content rail;
      the chevron itself retains the shared 22px visual size below. */
@@ -3119,19 +3111,16 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     flex: 0 0 44px;
   }
 
-  :where(html[data-hover-pointer]) .expand-toggle:hover {
+  :where(html[data-hover-pointer]) .expand-toggle:hover,
+  :where(html[data-hover-pointer]) .device-expand-toggle:hover {
     background: transparent;
     color: var(--primary);
   }
 
-  /* Like the minus beside it, the chevron turns blue for keyboard focus. */
-  :where(html:not([data-keyboard-navigation='off'])) .expand-toggle:focus-visible {
+  /* Like the minus beside it, both disclosure chevrons turn blue for keyboard focus. */
+  :where(html:not([data-keyboard-navigation='off'])) .expand-toggle:focus-visible,
+  :where(html:not([data-keyboard-navigation='off'])) .device-expand-toggle:focus-visible {
     color: var(--primary);
-  }
-
-  :where(html[data-hover-pointer]) .device-expand-toggle:hover {
-    background: var(--surface-3);
-    color: var(--text-main);
   }
 
   .expand-toggle svg,
@@ -3248,8 +3237,8 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     .playlist-selection-toggle,
     .playlist-ul,
     .playlist-entry::before,
-    .btn-playlist-remove,
-    .btn-playlist-remove svg,
+    .pro-upload-cancel,
+    .pro-upload-cancel svg,
     .btn-playlist-select,
     .btn-playlist-select svg *,
     .expand-toggle,
@@ -3274,7 +3263,7 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
   /* ── Playlist row X (PRO upload cancel) ────────────────────────── */
   /* Keep it visible because touch and hybrid devices cannot depend on hover
      discovery. */
-  .btn-playlist-remove {
+  .pro-upload-cancel {
     position: relative;
     display: flex;
     align-items: center;
@@ -3295,7 +3284,7 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     padding: 0;
   }
 
-  .btn-playlist-remove svg {
+  .pro-upload-cancel svg {
     width: 16px;
     height: 16px;
     fill: currentColor;
@@ -3304,8 +3293,18 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     stroke-linejoin: round;
   }
 
-  :where(html[data-hover-pointer]) .btn-playlist-remove:not(:disabled):hover {
+  :where(html[data-hover-pointer]) .pro-upload-cancel:not(:disabled):hover {
     color: var(--danger-foreground);
+  }
+
+  :where(html:not([data-keyboard-navigation='off'])) .pro-upload-cancel:not(:disabled):focus-visible {
+    color: var(--danger-foreground);
+  }
+
+  .pro-upload-cancel:disabled {
+    cursor: wait;
+    opacity: 0.32;
+    color: var(--text-muted);
   }
 
   /* ── Playlist row selection (queue editors only) ─────────────────── */
@@ -3620,13 +3619,13 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     margin: 0;
   }
 
-  /* Move, Delete (trash) and Cancel (close) are 54px circular icon buttons
-     inside one 68px container pill; they are icon circles, not dialog action
-     pills, so they keep their own size. It follows the last track; a list
-     taller than the view keeps it floating at the bottom (sticky), above the
-     bottom navigation. The container has no shadow and shares the dialog
-     grey button's --glass-border, which is transparent in light and dark and
-     a visible stroke only in the high-contrast palettes and forced colors. */
+  /* Move, Delete (trash) and Cancel (close) are 56px circular icon buttons
+     inside one 70px container pill, matching the 56px control pill height. It
+     follows the last track; a list taller than the view keeps it floating at
+     the bottom (sticky), above the bottom navigation. The container has no
+     shadow and shares the dialog grey button's --glass-border, which is
+     transparent in light and dark and a visible stroke only in the
+     high-contrast palettes and forced colors. */
   .playlist-selection-bar {
     position: sticky;
     z-index: 100;
@@ -3676,9 +3675,9 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     appearance: none;
     -webkit-appearance: none;
     position: relative;
-    width: 54px;
-    height: 54px;
-    flex: 0 0 54px;
+    width: 56px;
+    height: 56px;
+    flex: 0 0 56px;
     padding: 0;
     display: inline-grid;
     place-items: center;
@@ -4493,7 +4492,6 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     color: var(--text-muted);
     cursor: pointer;
     transition:
-      background 0.15s ease,
       color 0.15s ease,
       transform 0.15s ease;
     border-radius: var(--radius-pill);
@@ -4505,11 +4503,11 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     fill: currentColor;
   }
 
-  :where(html[data-hover-pointer]) .administrator-action-button:hover,
-  :where(html:not([data-keyboard-navigation='off'])) .administrator-action-button:focus-visible {
-    background: var(--surface-2);
-    color: var(--text-main);
-    outline: none;
+  :where(html[data-hover-pointer]) .administrator-action-button:not(:disabled):hover,
+  :where(html:not([data-keyboard-navigation='off']))
+    .administrator-action-button:not(:disabled):focus-visible {
+    background: transparent;
+    color: var(--primary);
   }
 
   :where(html[data-hover-pointer]) .administrator-action-button.revoke:hover,
@@ -4560,11 +4558,11 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     height: 18px;
   }
 
-  :where(html[data-hover-pointer]) .d-op-btn.administrator-state-button:hover,
+  :where(html[data-hover-pointer]) .d-op-btn.administrator-state-button:not(:disabled):hover,
   :where(html:not([data-keyboard-navigation='off']))
-    .d-op-btn.administrator-state-button:focus-visible {
-    background: var(--surface-2);
-    color: var(--text-sub);
+    .d-op-btn.administrator-state-button:not(:disabled):focus-visible {
+    background: transparent;
+    color: var(--primary);
   }
 
   .administrator-state-button:disabled {
@@ -4572,7 +4570,7 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     opacity: 0.45;
   }
 
-  /* ── Kick Device Button (playlist-remove style) ────────────────── */
+  /* ── Kick Device Button (row X style) ─────────────────────────── */
   .btn-kick-device,
   .btn-kick-physical-device {
     display: flex;

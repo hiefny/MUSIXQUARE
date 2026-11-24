@@ -7,7 +7,7 @@
  * - Host revokes operator
  * - Operator state changes on guest side
  */
-import { test, expect, type Locator } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   createHostGuestContexts,
   cleanupContexts,
@@ -89,6 +89,61 @@ async function expectAdministratorActionFitsRow(button: Locator): Promise<void> 
   expect(metrics.listScrollWidth).toBeLessThanOrEqual(metrics.listClientWidth + 1);
 }
 
+async function resolveCssColor(page: Page, token: string): Promise<string> {
+  return page.evaluate((value) => {
+    const probe = document.createElement('span');
+    probe.style.color = value;
+    document.body.appendChild(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    return resolved;
+  }, token);
+}
+
+async function expectRowIconHoverLook(
+  page: Page,
+  button: Locator,
+  expectedToken: '--primary' | '--danger-foreground',
+): Promise<void> {
+  const expectedColor = await resolveCssColor(page, `var(${expectedToken})`);
+  await button.hover();
+  await expect
+    .poll(() =>
+      button.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { background: style.backgroundColor, color: style.color };
+      }),
+    )
+    .toEqual({ background: 'rgba(0, 0, 0, 0)', color: expectedColor });
+}
+
+async function expectRowIconFocusLook(
+  page: Page,
+  button: Locator,
+  expectedToken: '--primary' | '--danger-foreground',
+): Promise<void> {
+  const expectedColor = await resolveCssColor(page, `var(${expectedToken})`);
+  await expect(button).toBeFocused();
+  await expect
+    .poll(() =>
+      button.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background: style.backgroundColor,
+          color: style.color,
+          outlineStyle: style.outlineStyle,
+          outlineWidth: style.outlineWidth,
+        };
+      }),
+    )
+    .toEqual({
+      background: 'rgba(0, 0, 0, 0)',
+      color: expectedColor,
+      outlineStyle: 'solid',
+      outlineWidth: '2px',
+    });
+}
+
 async function grantAdministrator(): Promise<string> {
   await navigateToTab(pair.hostPage, 'settings');
   await navigateToSubtab(pair.hostPage, 'connect');
@@ -148,6 +203,7 @@ test.describe('Operator Mode', () => {
     expect(inactiveIcon.geometryCount).toBe(1);
     await expect(grantButton.locator('svg > path')).toHaveAttribute('d', CROWN_PATH);
     await expectAdministratorActionFitsRow(grantButton);
+    await expectRowIconHoverLook(pair.hostPage, grantButton, '--primary');
 
     await grantButton.click();
     await waitForState(pair.guestPage, 'network.isOperator', true);
@@ -158,6 +214,9 @@ test.describe('Operator Mode', () => {
     );
     await expect(administratorRow).toBeVisible();
 
+    const settingsButton = administratorRow.locator('.administrator-action-button.settings');
+    await expectRowIconHoverLook(pair.hostPage, settingsButton, '--primary');
+
     const revokeButton = administratorRow.locator('.administrator-action-button.revoke');
     const revokeIcon = await expectIconOnlyAdministratorAction(revokeButton, 'revoke');
     expect(revokeIcon.geometryCount).toBe(1);
@@ -166,6 +225,16 @@ test.describe('Operator Mode', () => {
     expect(await revokeButton.getAttribute('data-administrator-state')).toBeNull();
     await expect(revokeButton.locator('svg > path')).toHaveAttribute('d', REVOKE_PATH);
     await expectAdministratorActionFitsRow(revokeButton);
+    await expectRowIconHoverLook(pair.hostPage, revokeButton, '--danger-foreground');
+
+    // Keyboard navigation colors both administrator actions without a hover
+    // circle and keeps the app's 2px focus ring intact.
+    await pair.hostPage.mouse.move(0, 0);
+    await settingsButton.focus();
+    await pair.hostPage.keyboard.press('Tab');
+    await expectRowIconFocusLook(pair.hostPage, revokeButton, '--danger-foreground');
+    await pair.hostPage.keyboard.press('Shift+Tab');
+    await expectRowIconFocusLook(pair.hostPage, settingsButton, '--primary');
 
     await revokeButton.click();
     await expect(pair.hostPage.locator('#dialog-overlay.show')).toBeVisible();

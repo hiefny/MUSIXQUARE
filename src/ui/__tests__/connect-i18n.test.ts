@@ -2787,9 +2787,9 @@ describe('member-level connection and administrator UI', () => {
       )?.[1] ?? '';
     const playlistExpandButtonRules = stylesheet.match(/\.expand-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
     const playlistRemoveIconRules =
-      stylesheet.match(/\.btn-playlist-remove svg\s*\{([^}]*)\}/)?.[1] ?? '';
+      stylesheet.match(/\.pro-upload-cancel svg\s*\{([^}]*)\}/)?.[1] ?? '';
     const playlistRemoveButtonRules =
-      stylesheet.match(/\.btn-playlist-remove\s*\{([^}]*)\}/)?.[1] ?? '';
+      stylesheet.match(/\.pro-upload-cancel\s*\{([^}]*)\}/)?.[1] ?? '';
     const memberKickIconRules = stylesheet.match(/\.btn-kick-device svg\s*\{([^}]*)\}/)?.[1] ?? '';
     // Selector by selector: an unanchored `.btn-kick-device {` pattern reads
     // whichever rule first ends in that compound, such as a row-hover rule.
@@ -2837,6 +2837,14 @@ describe('member-level connection and administrator UI', () => {
     const grantActionRules = stylesheet.match(/\.d-op-btn\s*\{([^}]*)\}/)?.[1] ?? '';
     const administratorActionRules =
       stylesheet.match(/\.administrator-action-button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const administratorActionHoverRules =
+      stylesheet.match(
+        /:where\(html\[data-hover-pointer\]\) \.administrator-action-button:not\(:disabled\):hover,\s*:where\(html:not\(\[data-keyboard-navigation='off'\]\)\)\s+\.administrator-action-button:not\(:disabled\):focus-visible\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const administratorStateHoverRules =
+      stylesheet.match(
+        /:where\(html\[data-hover-pointer\]\) \.d-op-btn\.administrator-state-button:not\(:disabled\):hover,\s*:where\(html:not\(\[data-keyboard-navigation='off'\]\)\)\s+\.d-op-btn\.administrator-state-button:not\(:disabled\):focus-visible\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
     const revokeActionRules =
       stylesheet.match(/\.administrator-action-button\.revoke\s*\{([^}]*)\}/)?.[1] ?? '';
     const revokeIconRules =
@@ -2863,10 +2871,16 @@ describe('member-level connection and administrator UI', () => {
     expect(chatHostCrownRules).toContain('color: #f5c842');
     expect(grantActionRules).toContain('color: var(--text-muted)');
     expect(administratorActionRules).toContain('color: var(--text-muted)');
+    expect(administratorActionHoverRules).toContain('background: transparent');
+    expect(administratorActionHoverRules).toContain('color: var(--primary)');
+    expect(administratorActionHoverRules).not.toContain('outline: none');
+    expect(administratorStateHoverRules).toContain('background: transparent');
+    expect(administratorStateHoverRules).toContain('color: var(--primary)');
     expect(revokeActionRules).toContain('width: 28px');
     expect(revokeActionRules).toContain('height: 28px');
     expect(revokeIconRules).toContain('width: 16px');
     expect(revokeIconRules).toContain('height: 16px');
+    expect(revokeHoverRules).toContain('background: transparent');
     expect(revokeHoverRules).toContain('color: var(--danger-foreground)');
     expect(stylesheet).not.toContain('administrator-crown-slash');
     expect(stylesheet).not.toContain(

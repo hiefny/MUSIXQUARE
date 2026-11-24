@@ -1039,7 +1039,8 @@
   cursor: pointer;
 }
 
-.expand-toggle:hover {
+.expand-toggle:hover,
+.expand-toggle:focus-visible {
   color: var(--primary);
 }
 
@@ -1215,9 +1216,9 @@
 }
 
 .playlist-selection-action {
-  width: 54px;
-  height: 54px;
-  flex: 0 0 54px;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
   box-sizing: border-box;
   padding: 0;
   display: inline-grid;
@@ -2941,15 +2942,16 @@
   outline-offset: -2px;
 }
 
-.device-expand-toggle:hover {
-  background: var(--surface-3);
-  color: var(--text-main);
+.device-expand-toggle:hover,
+.device-expand-toggle:focus-visible {
+  background: transparent;
+  color: var(--primary);
 }
 
 .d-op-btn.administrator-state-button:hover,
 .d-op-btn.administrator-state-button:focus-visible {
-  background: var(--surface-2);
-  color: var(--text-sub);
+  background: transparent;
+  color: var(--primary);
 }
 
 .btn-kick-device:hover,

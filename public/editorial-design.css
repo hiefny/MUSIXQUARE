@@ -1134,7 +1134,8 @@
   cursor: pointer;
 }
 
-.playlist-select:hover {
+.playlist-select:hover,
+.playlist-select:focus-visible {
   color: var(--primary);
 }
 

@@ -1,66 +1,11 @@
 import { readFile } from 'node:fs/promises';
-import NodeWorker from '@eshaz/web-worker';
 import { ALL_FORMATS, BlobSource, EncodedPacketSink, Input } from 'mediabunny';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { openLargeAudioTrack } from '../index.ts';
 import type { LargeAudioTrack } from '../../file-playback-resource.ts';
+import { useRealDecoderRuntime } from './__helpers__/real-decoder-runtime.ts';
 
-const workers: ObservedWorker[] = [];
-
-class ObservedWorker extends NodeWorker {
-  terminated = false;
-
-  constructor(url: string | URL, options?: WorkerOptions) {
-    super(url, options);
-    workers.push(this);
-  }
-
-  override terminate(): void {
-    this.terminated = true;
-    super.terminate();
-  }
-}
-
-// PCM storage is the only unavailable Web Audio primitive in this Node test.
-// Demuxing, codec initialization, WASM workers, and decoder ownership are real.
-class PcmBuffer {
-  readonly length: number;
-  readonly numberOfChannels: number;
-  readonly sampleRate: number;
-  readonly duration: number;
-  private readonly channels: Float32Array[];
-
-  constructor(options: AudioBufferOptions) {
-    this.length = options.length;
-    this.numberOfChannels = options.numberOfChannels ?? 1;
-    this.sampleRate = options.sampleRate;
-    this.duration = options.length / options.sampleRate;
-    this.channels = Array.from(
-      { length: this.numberOfChannels },
-      () => new Float32Array(this.length),
-    );
-  }
-
-  copyToChannel(source: Float32Array, channel: number, offset = 0): void {
-    this.channels[channel].set(source, offset);
-  }
-
-  getChannelData(channel: number): Float32Array {
-    return this.channels[channel];
-  }
-}
-
-beforeEach(() => {
-  workers.length = 0;
-  vi.stubGlobal('Worker', ObservedWorker);
-  vi.stubGlobal('AudioBuffer', PcmBuffer);
-});
-
-afterEach(() => {
-  // Failed baseline assertions must not leave native threads alive in Vitest.
-  for (const worker of workers) if (!worker.terminated) worker.terminate();
-  vi.unstubAllGlobals();
-});
+const workers = useRealDecoderRuntime();
 
 async function aacFixture(corrupt: boolean): Promise<Blob> {
   const bytes = await readFile('e2e/fixtures/large-audio-chirp-lc-stereo.m4a');

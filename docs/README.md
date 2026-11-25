@@ -97,7 +97,49 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [App 9.0.842 / v842 train: every dependency and toolchain update that could be taken (Node 24.22.3, npm 12.2.3, Vite 8.3.8, Playwright 1.65.1, Wrangler 4.168.0, Mediabunny 1.66.4), with the long-track engine kept at native decoding timing and the 16 OG cards redrawn (2026-11-25)](design/app-9-0-842-train-2026-11-25.md):
-  pre-merge PR candidate on `agent/deps-9-0-842` (base main `85ed5715`, bump `a4115666`, target `app`, App build 842, floor stays 795). On 2026-11-25 the only open pull request was the Dependabot group PR #297, open since 2026-10-12 and stuck because any `package.json` or lockfile change needs a cache bump; after a read-only review of the updates (Vite 8.3.3 carries the critical dev-server advisory GHSA-p4f5-76q4-ffq7, which raised no Dependabot alert), the owner chose to take every update that could be taken, satori included, so the train supersedes all four updates of #297 with newer versions. Runtime: Mediabunny 1.61.3 to 1.66.4 and `@wasm-audio-decoders/flac` 0.2.11 to 0.2.12. The long-track engine adapts to two Mediabunny changes, LAME/Lavf/Lavc-tagged MP3 packets that now start at minus (encoder delay + 529) samples and an `InputTrack.id` that is now the `getTracks()` index, so its MP3 and M4A timing stays equal to Chromium's native decoding: four real-file tests failed first on the unadapted 1.66.4, the Chromium codec parity, AAC parity and hybrid specs pass 34/34 after, and a review by three independent reviewers with a skeptic per finding led to the fixes in `43cba03a`. Toolchain: Node 24.22.3 (the 2026-11-10 security release), npm 12.2.3, Vite 8.3.8 with Rolldown 1.2.19, Playwright 1.65.1 (CI images `v1.65.1-noble`), Wrangler 4.168.0 (undici overrides 7.30.2 and 8.12.4, `allowScripts` for workerd 1.20261123.1, six regenerated Worker type files, dry-run bundles byte-identical), ESLint 10.15.0 and typescript-eslint 8.74.0 (minimatch 11.0.9 fixes Dependabot alert #35), Vitest 5.1.1 (two per-file branch floors met with new behaviour tests, not lowered), satori 0.63.2 (the 16 OG cards redrawn: 0.70 to 1.77% of pixels, all on glyph edges), Prettier 3.10.1 (13 files rewrapped, token-identical but for one trailing comma in a test) and patch updates. Not taken: TypeScript 6.1+ and `@types/node` 25+ (Dependabot ignore rules), jsdom 31 (11 unit failures; a later train). Verified locally in two rounds: at the first bump `35f1ef7c` (dropped before the push) `npm ci`, `typecheck`, `check:workers`, `format:check`, `lint`, 800/800 unit files (19,662 passed), the critical, tooling and workers coverage profiles, `build:checked`, a build comparison with the live v841 build (0 same-name assets with different bytes), `check:worker-bundles`, 101 critical Chromium E2E and 34 media parity and hybrid E2E passed, while the production `candidate` lane failed one row (19 passed, 1 failed, 11 skipped) because Chromium 159 fetches a failed locale module URL again, which the live v841 build fails too; after the test fix `bb4ffba5` and the re-applied bump, `a4115666` passed `typecheck`, `format:check`, `lint`, the `src/i18n` unit files (54 files, 1,034 passed), `build:checked` with a production build byte-identical to the first round (938 files), the `candidate` lane (20 passed, 11 skipped) and the locale recovery spec (2 passed). The branch Full E2E 45589921727 at `a4115666` (the first run of the whole Linux Chromium suite and the WebKit lane on Playwright 1.65.1, not a gate): `webkit-mobile` 237 passed and 24 skipped of 261 (the same counts as 9.0.841) plus the service-worker test, and the production large-room R2 smoke passed, and the Linux Chromium job passed 1212 and skipped 3 of 1215 (the same counts as 9.0.841), with no flaky rows. App runtime paths since production `d40e8c8a`: 36 plus the runtime dependency change (0 other Workers). Not verified on a real iPhone or Android, and the long-track engine has no spec on the WebKit lanes.
+  released on 2026-11-25 21:48 KST in Release 45616984444 (PR #640, squash `4de95529`) as App 9.0.842 / v842 (App build
+  842, target `app`, one update dialog; App `e1d00867` to `e9533066`), the first release to run Wrangler 4.168.0 against
+  the production account (`whoami`, `secret list`, `deployments status`, `d1 execute` and the deploy all passed, and
+  every parser accepted the output); the public reads and the Drift Audit passed, and the post-merge Full E2E
+  45617406923: FULL_E2E_PENDING. PR CI 45601134692 passed at the head `19054043` (all 11 jobs). At the last head
+  `9e3fce0b`, PR CI 45604599912 and then exact-main CI 45614833544 each failed at attempt 1 only in
+  `npm audit signatures`, when the npm registry answered the `workerd@1.20261123.1` attestation URL with the body "OK"
+  instead of JSON, and passed when the failed jobs were re-run (`npm audit --omit=dev` found 0 vulnerabilities; the
+  release used exact-main CI's attempt-1 candidate). Before the merge, both Wrangler builds ran the release's four
+  command families against a local mock Cloudflare API through the repository's own parsers: JSON output byte-identical,
+  exit codes and requests identical, no blocker. After the merge the Dependabot group PR #297 was closed with a pointer
+  to #640, and alert #35 is fixed (0 open alerts). The App update after 9.0.841 / v841, on main `85ed5715` (#639), from
+  `agent/deps-9-0-842` (bump `a4115666`, then the docs commits `19054043` and `9e3fce0b`; the App build floor stays
+  795). On 2026-11-25 the only open pull request was the Dependabot group PR #297, open since 2026-10-12 and stuck
+  because any `package.json` or lockfile change needs a cache bump; after a read-only review of the updates (Vite 8.3.3
+  carries the critical dev-server advisory GHSA-p4f5-76q4-ffq7, which raised no Dependabot alert), the owner chose to
+  take every update that could be taken, satori included, so the train supersedes all four updates of #297 with newer
+  versions. Runtime: Mediabunny 1.61.3 to 1.66.4 and `@wasm-audio-decoders/flac` 0.2.11 to 0.2.12. The long-track engine
+  adapts to two Mediabunny changes, LAME/Lavf/Lavc-tagged MP3 packets that now start at minus (encoder delay + 529)
+  samples and an `InputTrack.id` that is now the `getTracks()` index, so its MP3 and M4A timing stays equal to
+  Chromium's native decoding: four real-file tests failed first on the unadapted 1.66.4, the Chromium codec parity, AAC
+  parity and hybrid specs pass 34/34 after, and a review by three independent reviewers with a skeptic per finding led
+  to the fixes in `43cba03a`. Toolchain: Node 24.22.3 (the 2026-11-10 security release), npm 12.2.3, Vite 8.3.8 with
+  Rolldown 1.2.19, Playwright 1.65.1 (CI images `v1.65.1-noble`), Wrangler 4.168.0 (undici overrides 7.30.2 and 8.12.4,
+  `allowScripts` for workerd 1.20261123.1, six regenerated Worker type files, dry-run bundles byte-identical), ESLint
+  10.15.0 and typescript-eslint 8.74.0 (minimatch 11.0.9 fixes Dependabot alert #35), Vitest 5.1.1 (two per-file branch
+  floors met with new behaviour tests, not lowered), satori 0.63.2 (the 16 OG cards redrawn: 0.70 to 1.77% of pixels,
+  all on glyph edges), Prettier 3.10.1 (13 files rewrapped, token-identical but for one trailing comma in a test) and
+  patch updates. Not taken: TypeScript 6.1+ and `@types/node` 25+ (Dependabot ignore rules), jsdom 31 (11 unit failures;
+  a later train). Verified locally in two rounds: at the first bump `35f1ef7c` (dropped before the push) `npm ci`,
+  `typecheck`, `check:workers`, `format:check`, `lint`, 800/800 unit files (19,662 passed), the critical, tooling and
+  workers coverage profiles, `build:checked`, a build comparison with the live v841 build (0 same-name assets with
+  different bytes), `check:worker-bundles`, 101 critical Chromium E2E and 34 media parity and hybrid E2E passed, while
+  the production `candidate` lane failed one row (19 passed, 1 failed, 11 skipped) because Chromium 159 fetches a failed
+  locale module URL again, which the live v841 build fails too; after the test fix `bb4ffba5` and the re-applied bump,
+  `a4115666` passed `typecheck`, `format:check`, `lint`, the `src/i18n` unit files (54 files, 1,034 passed),
+  `build:checked` with a production build byte-identical to the first round (938 files), the `candidate` lane (20
+  passed, 11 skipped) and the locale recovery spec (2 passed). The branch Full E2E 45589921727 at `a4115666` (the first
+  run of the whole Linux Chromium suite and the WebKit lane on Playwright 1.65.1, not a gate): `webkit-mobile` 237
+  passed and 24 skipped of 261 (the same counts as 9.0.841) plus the service-worker test, and the production large-room
+  R2 smoke passed, and the Linux Chromium job passed 1212 and skipped 3 of 1215 (the same counts as 9.0.841), with no
+  flaky rows. App runtime paths since production `d40e8c8a`: 36 plus the runtime dependency change (0 other Workers).
+  Not verified on a real iPhone or Android, and the long-track engine has no spec on the WebKit lanes.
 - [App 9.0.841 / v841 train: a phone toast keeps clear of the playlist selection bar at any list length (2026-11-25)](design/app-9-0-841-train-2026-11-25.md):
   released on 2026-11-25 09:45 KST in Release 45520219367 (PR #638, squash `d40e8c8a`) as App 9.0.841 / v841 (App build
   841, target `app`, one update dialog; App `3cbb451e` to `e1d00867`); the public reads and the Drift Audit passed, and
@@ -2402,7 +2444,7 @@ runbooks. Neither belongs in a general setup document.
   moved from the 9.0.27 section, the post-deploy check and the open owner questions, with the
   playlist follow-up updated in place), its §4 the 9.0.28 entry and current boundary line (5), and
   the hotfix procedure's 9.0.25 bullet names 9.0.28's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.843 / v843 or later now that 9.0.29 to 9.0.841
+  rollback boundary is a forward revert at 9.0.843 / v843 or later now that 9.0.29 to 9.0.842
   shipped, or the checkpoint's 9.0.27 App without `lower` with the PRO Worker left in place, which
   now also removes every later App train (from the 9.0.29 font switch on) and restores a lower service-worker epoch, so until the owner or
   release owner decides the open rule in the 9.0.29 entry above, only as an explicitly reviewed CLI
@@ -2531,7 +2573,7 @@ runbooks. Neither belongs in a general setup document.
   pointer to the 9.0.28 section, and the chat Tab cycle follow-up, now closed), its §4 the 9.0.27 entry and
   current boundary line (5) (checkpoint artifact 13005387697, App 9.0.26 `b8dc4281`), and the
   hotfix procedure's 9.0.25 bullet names 9.0.27's merge SHA, Release ID and App version. The
-  rollback boundary is a forward revert at 9.0.843 / v843 or later now that 9.0.28 to 9.0.841
+  rollback boundary is a forward revert at 9.0.843 / v843 or later now that 9.0.28 to 9.0.842
   shipped, or the checkpoint's 9.0.26 App without `lower` with the PRO Worker left in place, which
   now also removes every later App train (from 9.0.28 on) and restores a lower service-worker epoch
   (the same open rule as in the 9.0.28 entry).

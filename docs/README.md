@@ -96,6 +96,17 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.844 / v844 train: clickable boot splash preview under Design System Loading states and standalone full-screen `/designsystem/loading` page (2026-11-26)](design/app-9-0-844-train-2026-11-26.md):
+  before deploy, awaiting PR CI on `agent/designsystem-loading-preview` over main `32ab3f8e` (#643, 9.0.843 release
+  record). Adds a buttonless clickable looping boot-splash preview card (`.boot-splash-demo`) under `Loading states` on
+  `/designsystem`, a standalone `noindex, nofollow` full-screen preview at `/designsystem/loading` (follows system
+  dark/light theme, loops draw → `1.2s` rise + spinner → `3s` hold → `0.9s` cubic-bezier fade-out → blank, and returns
+  to `/designsystem` on click anywhere or `Escape`), shared strict-TS classic script `boot-splash-loop.js`, and strict
+  CSP + canonical redirects in `cloudflare/app-worker.ts`. Target `app` only (0 changes on the other five Workers, App
+  build floor stays 795; owner chose to skip manual post-merge Full E2E for this small preview change). Local
+  verification at `be2a86fb`: source/architecture/worker guards, `typecheck`, `lint`, `format:check`, 11 targeted unit
+  suites (895 passed), production build and guards, `candidate` lane (20 passed, 11 skipped), 2 Chromium E2E specs (30
+  passed), and WebKit 27.2 `wordmark-reveal` (10 passed).
 - [App 9.0.843 / v843 train: pointer cursor on the enabled play button and smoother boot splash rise (1.2s cubic-bezier(0.8, 0, 0.2, 1)) with 0.6s loader delay (2026-11-26)](design/app-9-0-843-train-2026-11-26.md):
   released on 2026-11-26 01:52 KST in Release 45658210554 (PR #642, exact-main CI 45656430558 at `0ab75760`) as App
   9.0.843 / v843 (App build 843, target `app`, one update dialog; App `e9533066` to `a538064a`, App build floor stays

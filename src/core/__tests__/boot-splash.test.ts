@@ -723,18 +723,18 @@ describe('boot splash', () => {
     // The runtime's phase: the rise keeps the mark's fade-in by name, so the
     // fade does not restart.
     expect(animation("      .boot-splash[data-phase='loader'] .boot-splash-mark {")).toBe(
-      'boot-splash-mark-in 0.2s ease-out 0.3s forwards, boot-splash-mark-rise 0.45s ease-in-out forwards',
+      'boot-splash-mark-in 0.2s ease-out 0.3s forwards, boot-splash-mark-rise 1.2s cubic-bezier(0.8, 0, 0.2, 1) forwards',
     );
     expect(animation("      .boot-splash[data-phase='loader'] .boot-splash-spinner {")).toBe(
-      'boot-splash-spinner-in 0.3s ease-out 0.15s forwards',
+      'boot-splash-spinner-in 0.35s ease-out 0.6s forwards',
     );
     // Without the runtime the same motion runs on fixed times.
     expect(animation('      html:not([data-boot-splash-runtime]) .boot-splash-mark {')).toBe(
-      'boot-splash-mark-in 0.2s ease-out 0.3s forwards, boot-splash-mark-rise 0.45s ease-in-out 3.2s forwards',
+      'boot-splash-mark-in 0.2s ease-out 0.3s forwards, boot-splash-mark-rise 1.2s cubic-bezier(0.8, 0, 0.2, 1) 3.2s forwards',
     );
     expect(
       animation('      html:not([data-boot-splash-runtime]) .boot-splash .boot-splash-spinner {'),
-    ).toBe('boot-splash-spinner-in 0.3s ease-out 3.35s forwards');
+    ).toBe('boot-splash-spinner-in 0.35s ease-out 3.8s forwards');
     // After an app reset, or behind a fallback that already rose: the final
     // place at once.
     for (const opener of [
@@ -783,7 +783,11 @@ describe('boot splash', () => {
       'animation',
     ).replace(/\s+/gu, ' ');
     expect(constant('SPLASH_RISE_FALLBACK')).toBe(
-      seconds(fallbackRise.match(/boot-splash-mark-rise [\d.]+s [a-z-]+ ([\d.]+s)/u)?.[1]),
+      seconds(
+        fallbackRise.match(
+          /boot-splash-mark-rise [\d.]+s (?:[a-z-]+|cubic-bezier\([^)]+\)) ([\d.]+s)/u,
+        )?.[1],
+      ),
     );
     expect(constant('SPLASH_FADE')).toBe(
       seconds(

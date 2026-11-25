@@ -2465,6 +2465,7 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     display: flex;
     align-items: center;
     justify-content: center;
+    cursor: pointer;
     transition: transform 0.2s;
   }
 

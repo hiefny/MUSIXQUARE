@@ -1170,4 +1170,11 @@ describe('app UX markup contract', () => {
       /\.track-item:hover\s+\.playlist-reorder-handle\s+\.playlist-reorder-grip\s*\{[^}]*opacity:\s*1/,
     );
   });
+
+  it('gives the enabled play button a pointer cursor while keeping aria-disabled not-allowed', () => {
+    expect(declarationsForSelector('.play-fab').join('\n')).toMatch(/cursor:\s*pointer\s*;/u);
+    expect(declarationsForSelector(".play-fab[aria-disabled='true']").join('\n')).toMatch(
+      /cursor:\s*not-allowed\s*;/u,
+    );
+  });
 });

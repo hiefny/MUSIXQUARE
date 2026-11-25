@@ -175,7 +175,31 @@ test.describe('boot splash wordmark reveal', () => {
 
     await advanceDrawTo(page, end + 40);
     await expect(page.locator('.boot-splash')).toHaveAttribute('data-phase', 'loader');
-    // The rise (0.45 s) and the loader's fade run on real time.
+    // The rise (1.2 s) and the loader's fade (0.35 s after 0.6 s) run on real time.
+    const riseAndLoader = await page.evaluate(() => {
+      const read = (selector: string, name: string) => {
+        const animation = document
+          .querySelector(selector)
+          ?.getAnimations()
+          .find((entry) => (entry as CSSAnimation).animationName === name);
+        const timing = animation?.effect?.getTiming();
+        return timing
+          ? {
+              duration: timing.duration,
+              delay: timing.delay,
+              easing: timing.easing,
+            }
+          : null;
+      };
+      return {
+        rise: read('.boot-splash-mark', 'boot-splash-mark-rise'),
+        loader: read('.boot-splash-spinner', 'boot-splash-spinner-in'),
+      };
+    });
+    expect(riseAndLoader).toEqual({
+      rise: { duration: 1200, delay: 0, easing: 'cubic-bezier(0.8, 0, 0.2, 1)' },
+      loader: { duration: 350, delay: 600, easing: 'ease-out' },
+    });
     await expect.poll(() => markRise(page)).toBe(0);
     await expect(page.locator('.boot-splash .boot-splash-spinner')).toHaveCSS('opacity', '1');
     // One 24px unit: the wordmark 24px above the centre, the loader 24px below.

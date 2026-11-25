@@ -12,15 +12,11 @@
  * Usage: node scripts/generate-static-og.mts
  */
 import { readFile, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Resvg, initWasm } from '@resvg/resvg-wasm';
-
-// satori's ESM bundle reads `__dirname` while loading Yoga and throws under
-// Node ESM. Its CommonJS build defines `__dirname`, so load that one.
-const { default: satori } = createRequire(import.meta.url)('satori') as typeof import('satori');
+import satori from 'satori';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

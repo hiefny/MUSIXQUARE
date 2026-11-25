@@ -344,6 +344,11 @@ export function pageAliasTarget(rawUrl: string, built = false): string | null {
     target = '/blog/index.html';
   } else if (normalizedPath === '/designsystem') {
     target = '/designsystem/index.html';
+  } else if (
+    normalizedPath === '/designsystem/loading' ||
+    normalizedPath === '/designsystem/loading.html'
+  ) {
+    target = '/designsystem/loading.html';
   }
   return target ? target + query : null;
 }

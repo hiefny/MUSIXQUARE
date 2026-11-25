@@ -2717,6 +2717,128 @@
   /* Like the app header, the account pill stays usable while loading. */
 }
 
+.boot-splash-demo {
+  grid-column: 1 / -1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 180px;
+  overflow: hidden;
+  background: var(--surface-1);
+  color: var(--text-main);
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.boot-splash-demo:hover {
+  background: var(--surface-2);
+}
+
+.boot-splash-demo:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.boot-splash-demo .boot-splash-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  will-change: opacity;
+}
+
+.boot-splash-demo[data-loop='fadeout'] .boot-splash-stage {
+  animation: boot-splash-demo-loop-out 0.9s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+.boot-splash-demo[data-loop='blank'] .boot-splash-stage {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.boot-splash-demo .boot-splash-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(24px);
+  animation: boot-splash-demo-mark-in 0.2s ease-out 0.3s forwards;
+}
+
+.boot-splash-demo .boot-splash-logo {
+  display: block;
+  width: 214px;
+  height: 24px;
+  overflow: visible;
+}
+
+.boot-splash-demo .boot-splash-logo:not([data-wordmark-ready]) > .wg {
+  opacity: 0.15;
+}
+
+.boot-splash-demo .boot-splash-demo-spinner {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 24px;
+  height: 48px;
+  opacity: 0;
+}
+
+.boot-splash-demo[data-phase='loader'] .boot-splash-mark {
+  animation:
+    boot-splash-demo-mark-in 0.2s ease-out 0.3s forwards,
+    boot-splash-demo-mark-rise 1.2s cubic-bezier(0.8, 0, 0.2, 1) forwards;
+}
+
+.boot-splash-demo[data-phase='loader'] .boot-splash-demo-spinner {
+  animation: boot-splash-demo-spinner-in 0.35s ease-out 0.6s forwards;
+}
+
+.boot-splash-demo[data-phase='settled'] .boot-splash-mark {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+.boot-splash-demo[data-phase='settled'] .boot-splash-demo-spinner {
+  opacity: 1;
+  animation: none;
+}
+
+.boot-splash-demo[data-phase='settled'] .boot-splash-logo > .wg {
+  opacity: 1;
+  animation: none;
+}
+
+@keyframes boot-splash-demo-mark-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes boot-splash-demo-mark-rise {
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes boot-splash-demo-spinner-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes boot-splash-demo-loop-out {
+  to {
+    opacity: 0;
+  }
+}
+
 @keyframes app-header-loading-progress {
   0%,
   10% {
@@ -3523,6 +3645,23 @@
 
   .app-loading-header-logo {
     opacity: 0;
+  }
+
+  .boot-splash-demo .boot-splash-mark,
+  .boot-splash-demo[data-phase='loader'] .boot-splash-mark {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+
+  .boot-splash-demo .boot-splash-demo-spinner,
+  .boot-splash-demo[data-phase='loader'] .boot-splash-demo-spinner {
+    opacity: 1;
+    animation: none;
+  }
+
+  .boot-splash-demo .boot-splash-logo:not([data-wordmark-ready]) > .wg {
+    opacity: 1;
   }
 
   .volume-cycle-demo .volume-muted-backdrop,

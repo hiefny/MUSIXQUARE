@@ -44,6 +44,10 @@ export const CLASSIC_RUNTIME_ASSETS = [
     outputPath: 'blog-pagination.js',
   },
   {
+    sourcePath: 'browser/classic-runtime/boot-splash-loop.ts',
+    outputPath: 'boot-splash-loop.js',
+  },
+  {
     sourcePath: 'browser/classic-runtime/clearable-editors.ts',
     outputPath: 'clearable-editors.js',
   },

@@ -15,6 +15,7 @@ const PAGE_IMAGES = [
   ['.workshop/sitemap/sitemap.html', 'og-sitemap.png'],
   ['public/history/index.html', 'og-history.png'],
   ['public/designsystem/index.html', 'og-designsystem.png'],
+  ['public/designsystem/loading.html', 'og-designsystem.png'],
   ['public/blog/index.html', 'og-blog.png'],
   ['public/events/index.html', 'og-events.png'],
   ['public/404.html', 'og-404.png'],

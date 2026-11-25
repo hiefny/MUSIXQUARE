@@ -167,6 +167,7 @@ describe('Vite local API safety', () => {
     ['/changelog', '/history/index.html'],
     ['/roadmap', '/history/index.html'],
     ['/designsystem', '/designsystem/index.html'],
+    ['/designsystem/loading', '/designsystem/loading.html'],
     ['/events/example', '/events/index.html'],
     ['/events/example/1', '/events/index.html'],
   ])('keeps public static alias %s identical in development and preview', (route, target) => {

@@ -107,7 +107,7 @@ describe('screensaver document security boundary', () => {
       new URL('../../../cloudflare/app-static-assets/_headers', import.meta.url),
       'utf8',
     );
-    const childRules = source.split(/\/screensaver\.html\r?\n/u)[1];
+    const childRules = source.split(/\/screensaver\.html\r?\n/u)[1]?.split(/\r?\n\r?\n/u)[0];
     if (!childRules) throw new Error('Missing screensaver static header rules.');
     const response = await appWorker.fetch(
       new Request('https://musixquare.com/screensaver.html'),

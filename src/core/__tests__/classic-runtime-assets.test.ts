@@ -113,6 +113,10 @@ describe('strict TypeScript classic browser runtimes', () => {
         outputPath: 'blog-pagination.js',
       },
       {
+        sourcePath: 'browser/classic-runtime/boot-splash-loop.ts',
+        outputPath: 'boot-splash-loop.js',
+      },
+      {
         sourcePath: 'browser/classic-runtime/clearable-editors.ts',
         outputPath: 'clearable-editors.js',
       },
@@ -224,6 +228,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       'admin.js': 'ADMIN_SCRIPT_VERSION',
       'analytics-bootstrap.js': 'installStandaloneAnalytics',
       'blog-pagination.js': 'installBlogPagination',
+      'boot-splash-loop.js': 'installBootSplashLoop',
       'clearable-editors.js': 'clearable-editor-button',
       'bootstrap.js': '__mxqrTakeProRoomFragmentClaims',
       'editorial-pages.js': 'installEditorialPageRuntime',
@@ -1492,16 +1497,27 @@ describe('strict TypeScript classic browser runtimes', () => {
   });
 
   it('keeps HTML, CSP-safe classic tags, and service-worker cache URLs unchanged', async () => {
-    const [eventHtml, appHtml, landingHtml, faqHtml, accountHtml, blogHtml, serviceWorker] =
-      await Promise.all([
-        readFile(resolve(REPO_ROOT, 'public/events/index.html'), 'utf8'),
-        readFile(resolve(REPO_ROOT, 'index.html'), 'utf8'),
-        readFile(resolve(REPO_ROOT, '.workshop/landing/landing.html'), 'utf8'),
-        readFile(resolve(REPO_ROOT, '.workshop/faq/faq.html'), 'utf8'),
-        readFile(resolve(REPO_ROOT, 'public/account-complete.html'), 'utf8'),
-        readFile(resolve(REPO_ROOT, 'public/blog/index.html'), 'utf8'),
-        compileServiceWorkerAsset(REPO_ROOT).then(({ code }) => code),
-      ]);
+    const [
+      eventHtml,
+      appHtml,
+      landingHtml,
+      faqHtml,
+      accountHtml,
+      blogHtml,
+      designSystemHtml,
+      loadingPreviewHtml,
+      serviceWorker,
+    ] = await Promise.all([
+      readFile(resolve(REPO_ROOT, 'public/events/index.html'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'index.html'), 'utf8'),
+      readFile(resolve(REPO_ROOT, '.workshop/landing/landing.html'), 'utf8'),
+      readFile(resolve(REPO_ROOT, '.workshop/faq/faq.html'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'public/account-complete.html'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'public/blog/index.html'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'public/designsystem/index.html'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'public/designsystem/loading.html'), 'utf8'),
+      compileServiceWorkerAsset(REPO_ROOT).then(({ code }) => code),
+    ]);
 
     expect(eventHtml).toContain('<script src="/events/theme.js"></script>');
     expect(eventHtml).toContain('<script src="/clearable-editors.js" defer></script>');
@@ -1521,6 +1537,9 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(accountHtml).toContain('<script src="/account-complete.js" defer></script>');
     expect(blogHtml).toContain('<script src="/editorial-pages.js"></script>');
     expect(blogHtml).toContain('<script src="/blog-pagination.js" defer></script>');
+    expect(designSystemHtml).toContain('<script src="/boot-splash-loop.js" defer></script>');
+    expect(loadingPreviewHtml).toContain('<script src="/boot-splash-loop.js" defer></script>');
+    expect(loadingPreviewHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/iu);
     expect(eventHtml).not.toContain('type="module" src="/events/theme.js"');
     expect(eventHtml).not.toContain('type="module" src="/clearable-editors.js"');
     expect(eventHtml).not.toContain('type="module" src="/events/event.js"');

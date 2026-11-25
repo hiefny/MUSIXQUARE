@@ -23,6 +23,7 @@ const STYLE = readFileSync('css/style.css', 'utf8');
 const SPLASH_CSS = INDEX.match(/<style data-boot-splash>([\s\S]*?)<\/style>/u)?.[1] ?? '';
 const EDITORIAL = readFileSync('public/editorial-design.css', 'utf8');
 const DESIGN_SYSTEM = readFileSync('public/designsystem/index.html', 'utf8');
+const DESIGN_SYSTEM_LOADING = readFileSync('public/designsystem/loading.html', 'utf8');
 
 const SHEETS = [
   {
@@ -616,6 +617,7 @@ describe('shared loader (material elastic spinner)', () => {
     for (const [file, html] of [
       ['index.html', INDEX],
       ['public/designsystem/index.html', DESIGN_SYSTEM],
+      ['public/designsystem/loading.html', DESIGN_SYSTEM_LOADING],
     ] as const) {
       const document = new JSDOM(html).window.document;
       for (const loader of document.querySelectorAll(
@@ -624,8 +626,9 @@ describe('shared loader (material elastic spinner)', () => {
         copies.push([`${file} ${loader.getAttribute('class')}`, loader]);
       }
     }
-    // The splash, seven app loaders and the design-system page's large one.
-    expect(copies).toHaveLength(9);
+    // The splash, seven app loaders, two on the design-system page (large + boot splash demo),
+    // and one on the standalone full-screen loading preview.
+    expect(copies).toHaveLength(11);
     for (const [label, loader] of copies) {
       expect(parts(loader), label).toEqual(expected);
       expect(loader.getAttribute('aria-hidden'), label).toBe('true');
@@ -652,6 +655,7 @@ describe('shared loader (material elastic spinner)', () => {
     for (const [file, text] of [
       ['index.html', INDEX],
       ['public/designsystem/index.html', DESIGN_SYSTEM],
+      ['public/designsystem/loading.html', DESIGN_SYSTEM_LOADING],
     ] as const) {
       expect(text, file).not.toMatch(/<circle cx="22" cy="22" r="18"/u);
     }

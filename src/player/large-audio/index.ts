@@ -14,6 +14,7 @@ import {
   AudioBufferSink,
   BlobSource,
   Input,
+  Mp3InputFormat,
   Mp4InputFormat,
 } from 'mediabunny';
 import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
@@ -127,13 +128,26 @@ export async function openLargeAudioTrack(
     }
     const trim =
       codec === 'mp3' ? await readMp3GaplessTrim(blob) : { startSamples: 0, endSamples: 0 };
+    // Mediabunny 1.64+ starts LAME/Lavf/Lavc-tagged MP3 packets at -(encoder
+    // delay + 529) samples, while readMp3GaplessTrim counts from the first
+    // decoded sample. Anchoring the trim at the first packet keeps the timeline
+    // even where Mediabunny and readMp3GaplessTrim disagree about the tag.
+    const anchorsMp3Trim = codec === 'mp3' && (await input.getFormat()) instanceof Mp3InputFormat;
     assertCurrent();
     const aacTiming = aacConfig
-      ? await readAacContainerTiming(blob, track.id, aacConfig, options.isCurrent)
+      ? await readAacContainerTiming(
+          blob,
+          track.number,
+          (await input.getAudioTracks()).length,
+          aacConfig,
+          options.isCurrent,
+        )
       : null;
     assertCurrent();
     const origin =
-      aacTiming?.origin ?? Math.max(0, firstTimestamp) + trim.startSamples / sampleRate;
+      aacTiming?.origin ??
+      (anchorsMp3Trim ? firstTimestamp : Math.max(0, firstTimestamp)) +
+        trim.startSamples / sampleRate;
     const duration =
       Math.min(rawDuration, aacTiming?.end ?? rawDuration) - origin - trim.endSamples / sampleRate;
     if (

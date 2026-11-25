@@ -94,7 +94,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       CORS·lifecycle 글 파서는 다음 `all`·`remote-share`·`pro-room` 릴리스에서 4.168.0으로 처음 돈다. 이 배포 자체가 Wrangler 4.168.0이 운영 계정에서
       처음 도는 것이다(`whoami`, `secret list`, `deployments status`, `d1 execute`, App 배포, 실패 때 자동 복구). PR CI는 Chromium만 돌리고, Full E2E의
       Linux Chromium 전체와 `webkit-mobile`은 Playwright 1.65.1로 갈래 Full E2E [45589921727](https://github.com/hiefny/MUSIXQUARE/actions/runs/45589921727)(게이트
-      아님)에서 처음 돈다: `webkit-mobile`은 261행 가운데 237 통과·24 건너뜀(9.0.841과 같은 수)과 서비스 워커 시험 1 통과, 운영 대형 방 R2 smoke는 통과, Linux Chromium은 PR을 열 때 아직 실행 중([보고서 §4.11](design/app-9-0-842-train-2026-11-25.md#411-갈래-full-e2e-a4115666)). SNS는 공유 카드를 주소별로
+      아님)에서 처음 돌았고 모두 통과했다: Linux Chromium은 1215행 가운데 1212 통과·3 건너뜀, `webkit-mobile`은 261행 가운데 237 통과·24 건너뜀과 서비스 워커 시험 1 통과(둘 다 9.0.841과 같은 수), 운영 대형 방 R2 smoke 통과([보고서 §4.11](design/app-9-0-842-train-2026-11-25.md#411-갈래-full-e2e-a4115666)). SNS는 공유 카드를 주소별로
       캐시한다. 블라인드 기기 후보: 여러 기기가 섞인 방에서 긴 LAME 태그 MP3와 iTunes M4A를
       틀어 보기, 메신저·SNS에서 공유 미리보기 보기.
 

@@ -128,6 +128,20 @@ function iframe(n: number, init: Partial<FakeYtPlayer>): FakeYtPlayer {
   return fake;
 }
 
+/** A fake iframe, as iframe() makes it, that reports no video id until a load is issued on it. */
+function silentUntilLoad(n: number, init: Partial<FakeYtPlayer>): FakeYtPlayer {
+  const player = iframe(n, init);
+  const read = player.getVideoData;
+  const load = player.loadVideoById;
+  let loaded = false;
+  player.loadVideoById = (videoId: string, startSeconds?: number) => {
+    loaded = true;
+    load(videoId, startSeconds);
+  };
+  player.getVideoData = () => (loaded ? read() : ({} as { video_id: string }));
+  return player;
+}
+
 function fallbackEvent(
   handedOffPlayer: FakeYtPlayer | null,
   overrides: Partial<YouTubeZeroStartFallbackEvent> = {},
@@ -385,6 +399,47 @@ describe('GuestZeroStartRecovery', () => {
     },
   );
 
+  it('never takes an iframe that reports no video id for its target: it polls', () => {
+    const rig = newRig();
+    // Playing the adopted load, but reporting no video id.
+    rig.player = silentUntilLoad(1, { __state: 1 });
+    start(rig, fallbackEvent(rig.player));
+    vi.advanceTimersByTime(0);
+    expect(trace.lines.slice(3)).toEqual(['+0 retained true', ...once(0, NOT_READY)]);
+  });
+
+  it.each([
+    ['the target, adopted', () => iframe(1, { __state: 2, __currentTime: 180 }), false],
+    [
+      'another video, reloaded',
+      () => iframe(1, { __videoId: 'unitRecovC3', __state: 2, __currentTime: 180 }),
+      true,
+    ],
+    ['no video id, reloaded', () => silentUntilLoad(1, { __state: 2, __currentTime: 180 }), true],
+  ])(
+    'adopts the resident iframe the run hands over only when it reports the target: %s',
+    (_case, makePlayer, reload) => {
+      const rig = newRig();
+      rig.player = makePlayer();
+      start(
+        rig,
+        fallbackEvent(rig.player, { targetLoadIssued: false, mediaAction: 'resident-reposition' }),
+      );
+      vi.advanceTimersByTime(0);
+      expect(trace.lines.slice(3)).toEqual([
+        '+0 retained true',
+        ...once(0, [
+          'owned true',
+          'autoplay false',
+          ...(reload ? ['#1 mute()', `#1 loadVideoById(${VIDEO},0)`] : []),
+          '#1 pauseVideo()',
+          '#1 seekTo(0,true)',
+          POLL,
+        ]),
+      ]);
+    },
+  );
+
   it('pauses and seeks again at each attempt while a seek lands past the tolerance', () => {
     const rig = newRig();
     const player = iframe(1, { __state: 2 });
@@ -411,6 +466,61 @@ describe('GuestZeroStartRecovery', () => {
       '+100 #1 seekTo(0,true)',
       `+100 ${POLL}`,
     ]);
+  });
+
+  it('settles again when the iframe stops reporting its video id at the settled check', () => {
+    const rig = newRig();
+    const player = iframe(1, {});
+    rig.player = player;
+    start(rig, fallbackEvent(player));
+    vi.advanceTimersByTime(10);
+    // At the next attempt the identity check reads the video id and the
+    // settled check reads none; every later read reports it again.
+    const read = player.getVideoData;
+    let reads = 0;
+    player.getVideoData = () => ((reads += 1) === 2 ? ({} as { video_id: string }) : read());
+    vi.advanceTimersByTime(100);
+    const settle = ['owned true', 'autoplay false', '#1 pauseVideo()', '#1 seekTo(0,true)', POLL];
+    expect(trace.lines.slice(3)).toEqual([
+      '+0 retained true',
+      ...once(0, settle),
+      ...once(50, settle),
+      // Settled at +100: held muted at the local zero until the room's start at +700.
+      ...once(100, [
+        'owned true',
+        'autoplay false',
+        '#1 mute()',
+        '#1 pauseVideo()',
+        '#1 seekTo(0,true)',
+        'set 600',
+      ]),
+    ]);
+  });
+
+  it('counts an iframe its seek leaves cued at the local zero as settled', () => {
+    const rig = newRig();
+    // Every seek leaves the iframe CUED (state 5) rather than paused.
+    const player = iframe(1, { __seekStateSequence: [5] });
+    rig.player = player;
+    start(rig, fallbackEvent(player));
+    vi.advanceTimersByTime(60);
+    expect(trace.lines.slice(3)).toEqual([
+      '+0 retained true',
+      ...once(0, ['owned true', 'autoplay false', '#1 pauseVideo()', '#1 seekTo(0,true)', POLL]),
+      // Settled at +50, cued: held muted at the local zero until the room's start.
+      ...once(50, [
+        'owned true',
+        'autoplay false',
+        '#1 mute()',
+        '#1 pauseVideo()',
+        '#1 seekTo(0,true)',
+        'set 650',
+      ]),
+    ]);
+    expect(player.getPlayerState()).toBe(5);
+    vi.advanceTimersByTime(1_000);
+    expect(trace.lines.at(-1)).toBe('+701 log Recovered locally: cohort-excluded');
+    expect(rig.flags).toEqual({ owned: false, retained: false });
   });
 
   // Pinned as today's behaviour, not claimed right, like the host's row: the
@@ -756,6 +866,36 @@ describe('GuestZeroStartRecovery', () => {
     expect(rig.flags).toEqual({ owned: false, retained: false });
   });
 
+  it('takes a PLAYING as the release acknowledgment only once the iframe reports the target', () => {
+    const rig = newRig();
+    const player = iframe(1, {});
+    rig.player = player;
+    const play = player.playVideo;
+    const read = player.getVideoData;
+    player.playVideo = () => {
+      play();
+      // The first poll after the release reads no video id; later ones read the target.
+      let reads = 0;
+      player.getVideoData = () => ((reads += 1) === 1 ? ({} as { video_id: string }) : read());
+    };
+    start(rig, fallbackEvent(player, { mediaAction: 'resident-reposition' }));
+    vi.advanceTimersByTime(1_000);
+    const released = trace.lines.indexOf('+700 #1 playVideo()');
+    expect(released).toBeGreaterThan(0);
+    expect(trace.lines.slice(released)).toEqual([
+      '+700 #1 playVideo()',
+      '+700 set 0',
+      // PLAYING, but no video id: not acknowledged, so the poll goes on.
+      '+701 owned false',
+      '+701 autoplay true',
+      `+701 ${POLL}`,
+      '+751 cancel',
+      '+751 retained false',
+      '+751 log Recovered locally: cohort-excluded',
+    ]);
+    expect(rig.flags).toEqual({ owned: false, retained: false });
+  });
+
   it('logs a release playVideo() that throws and abandons with the verified cleanup', () => {
     const rig = newRig();
     const player = iframe(1, {});
@@ -992,6 +1132,26 @@ describe('HostZeroStartRecovery', () => {
     },
   );
 
+  it('reloads a resident iframe that reports no video id hard-muted, as it would another video', () => {
+    const rig = newHostRig();
+    rig.player = silentUntilLoad(1, { __videoId: VIDEO, __state: 2, __currentTime: 180 });
+    rig.recovery.start(
+      hostTarget(rig.player, { mediaAction: 'resident-reposition' }),
+      'prepare-timeout',
+    );
+    vi.advanceTimersByTime(0);
+    expect(trace.lines.slice(3)).toEqual(
+      once(0, [
+        ...HOST_ATTEMPT,
+        '#1 mute()',
+        `#1 loadVideoById(${VIDEO},0)`,
+        '#1 pauseVideo()',
+        '#1 seekTo(0,true)',
+        POLL,
+      ]),
+    );
+  });
+
   it('never takes an iframe that reports no video id for its target: it polls', () => {
     const rig = newHostRig();
     const player = iframe(1, { __videoId: VIDEO, __state: 1 });
@@ -1027,6 +1187,26 @@ describe('HostZeroStartRecovery', () => {
         'log Falling back to legacy rendezvous: hard-mute-timeout',
       ]),
     ]);
+  });
+
+  it('counts an iframe its seek leaves cued at 0:00 as settled', () => {
+    const rig = newHostRig();
+    // Every seek leaves the iframe CUED (state 5) rather than paused.
+    const player = iframe(1, { __videoId: VIDEO, __state: 2, __seekStateSequence: [5] });
+    rig.player = player;
+    rig.recovery.start(hostTarget(player, { targetLoadIssued: true }), 'hard-mute-timeout');
+    vi.advanceTimersByTime(1_000);
+    expect(trace.lines.slice(3)).toEqual([
+      ...once(0, HOST_SETTLE),
+      ...once(50, [
+        ...HOST_ATTEMPT,
+        '#1 setVolume(80)',
+        '#1 unMute()',
+        `hand-off ${VIDEO}`,
+        'log Falling back to legacy rendezvous: hard-mute-timeout',
+      ]),
+    ]);
+    expect(player.getPlayerState()).toBe(5);
   });
 
   it('reloads when the run issued its load on no iframe it hands over', () => {

@@ -10,7 +10,7 @@ interface Edit {
 }
 
 interface TrackTiming {
-  id: number | null;
+  handler: string | null;
   edits: Edit[] | null;
   error: string | null;
 }
@@ -40,10 +40,15 @@ function coreSampleRate(config: AudioDecoderConfig): number {
  * Read only MP4 framing and tiny timing fields, skipping encoded mdat bytes.
  * Mediabunny applies edit-list media offsets but does not clip their end;
  * iTunes gapless tags are separate from its packet timeline altogether.
+ *
+ * The track is the audioTrackNumber-th trak whose mdia handler is 'soun', as
+ * Mediabunny numbers audio tracks. Since Mediabunny 1.66, InputTrack.id is the
+ * track's getTracks() index, not the tkhd track_ID.
  */
 export async function readAacContainerTiming(
   blob: Blob,
-  trackId: number,
+  audioTrackNumber: number,
+  audioTrackCount: number,
   config: AudioDecoderConfig,
   isCurrent?: () => boolean,
 ): Promise<{ origin: number | null; end: number | null }> {
@@ -85,10 +90,14 @@ export async function readAacContainerTiming(
       const view = await read(box.payload, Math.min(box.end, box.payload + 32));
       const offset = view.getUint8(0) === 1 ? 20 : 12;
       if (view.byteLength >= offset + 4) timescale = view.getUint32(offset);
-    } else if (box.type === 'tkhd' && track) {
-      const view = await read(box.payload, Math.min(box.end, box.payload + 32));
-      const offset = view.getUint8(0) === 1 ? 20 : 12;
-      if (view.byteLength >= offset + 4) track.id = view.getUint32(offset);
+    } else if (box.type === 'mdia' && track) {
+      // Only the media handler names the track type. A trak-level udta/meta
+      // has its own hdlr ('mdir'), which must not replace it.
+      for await (const child of children(box.payload, box.end)) {
+        if (child.type !== 'hdlr') continue;
+        const view = await read(child.payload, Math.min(child.end, child.payload + 12));
+        if (view.byteLength >= 12) track.handler = text(view, 8);
+      }
     } else if (box.type === 'elst' && track) {
       const header = await read(box.payload, Math.min(box.end, box.payload + 8));
       if (header.byteLength < 8) return;
@@ -153,7 +162,7 @@ export async function readAacContainerTiming(
     } else if (['moov', 'trak', 'edts', 'udta', 'meta', 'ilst'].includes(box.type)) {
       let nestedTrack = track;
       if (box.type === 'trak') {
-        nestedTrack = { id: null, edits: null, error: null };
+        nestedTrack = { handler: null, edits: null, error: null };
         tracks.push(nestedTrack);
       }
       const start = box.payload + (box.type === 'meta' ? 4 : 0);
@@ -166,7 +175,13 @@ export async function readAacContainerTiming(
       break;
     }
   }
-  const selected = tracks.find((track) => track.id === trackId);
+  const audioTracks = tracks.filter((track) => track.handler === 'soun');
+  // Mediabunny numbers the 'soun' traks it accepts. With a different count,
+  // its track number no longer identifies one trak here.
+  if (audioTracks.length > 0 && audioTracks.length !== audioTrackCount) {
+    throw new Error('Ambiguous large AAC track layout');
+  }
+  const selected = audioTracks[audioTrackNumber - 1];
   if (!selected) return { origin: null, end: null };
   if (selected.error) throw new Error(selected.error);
   if (selected.edits) {

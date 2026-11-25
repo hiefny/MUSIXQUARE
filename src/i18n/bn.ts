@@ -205,8 +205,7 @@ const bn: Record<I18nKey, string> = {
   'settings.language_desc': 'একটি ভাষা বেছে নিন অথবা সিস্টেমের ভাষা ব্যবহার করুন।',
   'settings.theme_desc': 'লাইট বা ডার্ক থিম বেছে নিন।',
   'player.visualizer_mode_hint': 'শব্দ কীভাবে দৃশ্যমান হবে তা বেছে নিন।',
-  'settings.ui_sounds_desc':
-    'নোটিফিকেশন, যোগ দেওয়া, চলে যাওয়া ও স্পর্শের শব্দ চালু বা বন্ধ করুন।',
+  'settings.ui_sounds_desc': 'নোটিফিকেশন, যোগ দেওয়া, চলে যাওয়া ও স্পর্শের শব্দ চালু বা বন্ধ করুন।',
   'settings.reverb_desc': 'শব্দের রিভার্ব ও অনুরণন সামঞ্জস্য করুন।',
   'settings.eq_desc': 'শব্দের টোন সামঞ্জস্য করুন। ভলিউম নিয়ন্ত্রণের সঙ্গে এটি ব্যবহার করুন।',
   'settings.surround_desc': 'আরও নিমগ্ন শব্দের জন্য চ্যানেলগুলোর পৃথকতা বাড়ান।',
@@ -328,8 +327,7 @@ const bn: Record<I18nKey, string> = {
   'connect.signaling_recovery_wait': 'রুম সার্ভার আবার পরীক্ষা করা হচ্ছে।',
   'connect.signaling_reconnecting': 'রুম সার্ভারে আবার সংযুক্ত হচ্ছে · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'রুম সার্ভারের সংযোগ ফিরে এসেছে।',
-  'connect.signaling_exhausted':
-    'রুম সার্ভার সাড়া দিচ্ছে না।\nনতুন অংশগ্রহণকারীরা সংযুক্ত হতে পারবেন না।',
+  'connect.signaling_exhausted': 'রুম সার্ভার সাড়া দিচ্ছে না।\nনতুন অংশগ্রহণকারীরা সংযুক্ত হতে পারবেন না।',
   'connect.signaling_exhausted_pro':
     'রুম সার্ভার সাড়া দিচ্ছে না। নতুন করে যোগ দেওয়া ও লাইভ আপডেট সীমিত রয়েছে।',
   'connect.signaling_retry': 'আবার চেষ্টা করুন',
@@ -373,8 +371,7 @@ const bn: Record<I18nKey, string> = {
   'demo.finish_step_subtitle': 'এখনই শুরু করুন এবং একসঙ্গে চালান।',
   'demo.track_list_label': 'ডেমো ট্র্যাকের তালিকা',
   'demo.host_only_exit': 'শুধু হোস্ট এটি চাপতে পারবেন',
-  'demo.external_playback_stopped':
-    'ডেমো মোড বর্তমান YouTube বা সিস্টেম-অডিও প্লেব্যাক থামিয়ে দিয়েছে',
+  'demo.external_playback_stopped': 'ডেমো মোড বর্তমান YouTube বা সিস্টেম-অডিও প্লেব্যাক থামিয়ে দিয়েছে',
   'setup.how_to_connect': 'কীভাবে সংযোগ করবেন',
   'setup.set_role': 'এই ডিভাইসের ভূমিকা নির্ধারণ করুন',
   'setup.what_sound': 'এই ডিভাইসে কী বাজবে?',
@@ -440,14 +437,11 @@ const bn: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT অনুরোধটি সম্পন্ন করতে পারেনি',
   'chat.bot_added_tracks': 'BOT ট্র্যাক যোগ করেছে: {{count}}',
   'chat.bot_added_and_playing': 'BOT {{count}}টি ট্র্যাক যোগ করেছে। প্লেব্যাক শুরু হয়েছে',
-  'chat.bot_rate_limited':
-    'BOT অনুরোধের সীমা শেষ হয়েছে। {{duration}} অপেক্ষা করে আবার চেষ্টা করুন',
-  'chat.decode_skip_system_message':
-    'ট্র্যাকটি বাদ দেওয়া হচ্ছে: কিছু ডিভাইসে এই ফরম্যাট সমর্থিত নয়।',
+  'chat.bot_rate_limited': 'BOT অনুরোধের সীমা শেষ হয়েছে। {{duration}} অপেক্ষা করে আবার চেষ্টা করুন',
+  'chat.decode_skip_system_message': 'ট্র্যাকটি বাদ দেওয়া হচ্ছে: কিছু ডিভাইসে এই ফরম্যাট সমর্থিত নয়।',
   'chat.large_track_playback_system_message':
     'এই ট্র্যাকটি খুব বড়, তাই এটি ব্যবহারের সময় বিলম্ব হতে পারে।',
-  'chat.large_local_track_system_message':
-    'এই ট্র্যাকের ফাইল অনেক বড় এবং কিছু ডিভাইসে নাও চলতে পারে।',
+  'chat.large_local_track_system_message': 'এই ট্র্যাকের ফাইল অনেক বড় এবং কিছু ডিভাইসে নাও চলতে পারে।',
   'chat.device_track_unavailable_system_message': 'এই ডিভাইসটি বর্তমান ট্র্যাক চালাতে পারছে না।',
   'chat.system_audio_started_system_message':
     'সিস্টেম অডিও শেয়ার করা শুরু হয়েছে। হোস্ট ও অতিথি ডিভাইসের মাঝে সামান্য বিলম্ব স্বাভাবিক। প্রতিধ্বনি এড়াতে হোস্ট ডিভাইসের ভলিউম কমিয়ে রাখুন।',
@@ -601,14 +595,11 @@ const bn: Record<I18nKey, string> = {
   'toast.member_management_required': 'সদস্য সরানোর অনুমতি প্রয়োজন',
   'toast.chat_notice_required': 'চ্যাট নোটিশ পোস্ট করার অনুমতি প্রয়োজন',
   'toast.room_owner_required': 'শুধু রুমের মালিক এটি পরিবর্তন করতে পারবেন',
-  'toast.media_management_checking':
-    'মিডিয়া পরিচালনার অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.media_management_checking': 'মিডিয়া পরিচালনার অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
   'toast.playback_control_checking':
     'প্লেব্যাক নিয়ন্ত্রণের অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
-  'toast.member_management_checking':
-    'সদস্য সরানোর অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
-  'toast.chat_notice_checking':
-    'চ্যাট নোটিশ পোস্ট করার অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.member_management_checking': 'সদস্য সরানোর অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.chat_notice_checking': 'চ্যাট নোটিশ পোস্ট করার অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
   'toast.admin_permission_checking': 'অ্যাডমিন অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
   'toast.room_owner_checking': 'রুমের মালিকের অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
   'toast.system_audio_owner_required':
@@ -637,8 +628,7 @@ const bn: Record<I18nKey, string> = {
   'toast.yt_rendezvous_start': 'হোস্টের সঙ্গে মিলিয়ে নেওয়া হচ্ছে...',
   'toast.yt_rendezvous_done': 'সিঙ্ক সম্পন্ন হয়েছে',
   'toast.yt_rendezvous_host_paused': 'হোস্টের প্লেব্যাক বিরতিতে আছে, শুধু অবস্থান মেলানো হয়েছে',
-  'toast.yt_rendezvous_no_data':
-    'হোস্টের প্লেব্যাক তথ্য এখনো পাওয়া যায়নি\nএকটু পর আবার চেষ্টা করুন',
+  'toast.yt_rendezvous_no_data': 'হোস্টের প্লেব্যাক তথ্য এখনো পাওয়া যায়নি\nএকটু পর আবার চেষ্টা করুন',
   'toast.yt_rendezvous_timeout': 'সিঙ্ক ব্যর্থ হয়েছে\nএকটু পর আবার চেষ্টা করুন',
   'toast.yt_manual_sync_prompt':
     'এইমাত্র স্বয়ংক্রিয় সিঙ্কের চেষ্টা করা হয়েছে\nএখনো দেরি মনে হলে মানটি সামঞ্জস্য করুন',
@@ -667,17 +657,14 @@ const bn: Record<I18nKey, string> = {
   'share.remote.timeout': 'রিমোট ফাইল শেয়ারের সময় শেষ হয়েছে',
   'share.remote.too_large': 'ফাইলটি অনেক বড় (সর্বোচ্চ 200 MB)',
   'share.remote.network_error': 'রিমোট শেয়ারের সময় নেটওয়ার্কে সমস্যা হয়েছে',
-  'share.remote.rate_limited':
-    'এই মুহূর্তে রিমোট শেয়ারে অনেক বেশি আপলোড হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'share.remote.rate_limited': 'এই মুহূর্তে রিমোট শেয়ারে অনেক বেশি আপলোড হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
   'share.remote.quota_reached': 'রিমোট শেয়ারিংয়ের স্টোরেজ সীমা শেষ হয়েছে',
-  'share.remote.auth_failed':
-    'রিমোট শেয়ারের অনুমোদন যাচাই ব্যর্থ হয়েছে\nWorker সেটিংস পরীক্ষা করুন',
+  'share.remote.auth_failed': 'রিমোট শেয়ারের অনুমোদন যাচাই ব্যর্থ হয়েছে\nWorker সেটিংস পরীক্ষা করুন',
   'share.remote.expired': 'রিমোট ফাইল লিংকের মেয়াদ শেষ হয়েছে\nআবার শেয়ার করুন',
   'share.remote.unavailable': 'রিমোট শেয়ারিং ব্যর্থ হয়েছে\nএকটু পর আবার চেষ্টা করুন',
   'transfer.preload_fail': 'প্রিলোড করা ফাইল চালানো যায়নি, আবার লোড হচ্ছে',
   'transfer.download_finishing': 'ডাউনলোড শেষ করা হচ্ছে...',
-  'transfer.preparation_delayed':
-    'প্রস্তুত হতে দেরি হচ্ছে...\nহোস্টের কাছে পুনরুদ্ধারের অনুরোধ করা হচ্ছে',
+  'transfer.preparation_delayed': 'প্রস্তুত হতে দেরি হচ্ছে...\nহোস্টের কাছে পুনরুদ্ধারের অনুরোধ করা হচ্ছে',
   'transfer.receiving_0pct': 'গ্রহণ করা হচ্ছে... 0%',
   'transfer.check_conn_type': 'সংযোগের ধরন পরীক্ষা করা হচ্ছে...',
   'transfer.preload_pending': 'প্রিলোডের অপেক্ষায়: {{name}}',
@@ -786,8 +773,7 @@ const bn: Record<I18nKey, string> = {
     'যে অ্যাকাউন্টে এই রুমটি নিবন্ধন করতে চান, সেটি দিয়ে সাইন ইন করুন।',
   'pro.activation_account_continue': 'নিবন্ধন করুন',
   'pro.activation_account_switch': 'অন্য অ্যাকাউন্ট',
-  'pro.activation_account_unavailable':
-    'আপনার অ্যাকাউন্ট যাচাই করা যায়নি। একটু পর আবার চেষ্টা করুন।',
+  'pro.activation_account_unavailable': 'আপনার অ্যাকাউন্ট যাচাই করা যায়নি। একটু পর আবার চেষ্টা করুন।',
   'pro.claim_retry_title': 'PRO লিংক দিয়ে আবার চেষ্টা করবেন?',
   'pro.claim_retry_message':
     'সংযোগটি মাঝপথে বিচ্ছিন্ন হয়েছে। লিংকটি এই স্ক্রিনে নিরাপদে রাখা আছে, তাই আবার চেষ্টা করতে পারবেন।',
@@ -850,10 +836,8 @@ const bn: Record<I18nKey, string> = {
   'pro.room_full': 'এই PRO রুমটি পূর্ণ হয়ে গেছে',
   'pro.room_full_detail':
     'মালিকসহ সর্বোচ্চ 100টি ডিভাইস থাকতে পারে\nমালিকের জন্য সবসময় একটি জায়গা সংরক্ষিত থাকে',
-  'pro.join_rate_limited':
-    'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে\n{{count}} মিনিট পরে আবার চেষ্টা করুন',
-  'pro.join_rate_limited_later':
-    'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে\nকিছুক্ষণ পরে আবার চেষ্টা করুন',
+  'pro.join_rate_limited': 'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে\n{{count}} মিনিট পরে আবার চেষ্টা করুন',
+  'pro.join_rate_limited_later': 'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে\nকিছুক্ষণ পরে আবার চেষ্টা করুন',
   'pro.active_tab_title': 'আগের একটি সংযোগ রয়ে গেছে',
   'pro.active_tab_message': 'এখানে চালিয়ে গেলে আগের সংযোগটি বিচ্ছিন্ন হবে।',
   'pro.active_tab_replaced': 'এই PRO রুম ইতিমধ্যে অন্য একটি ট্যাবে খোলা আছে',
@@ -867,8 +851,7 @@ const bn: Record<I18nKey, string> = {
   'pro.upload.room_capacity': 'এই PRO রুমে আর কোনো ট্র্যাক রাখা যাবে না।',
   'pro.upload.room_state_limit':
     'এই PRO রুমে এখন আর কোনো পরিবর্তন করা যাবে না। কিছুক্ষণ পরে ফাইলটি আবার বেছে নিন।',
-  'pro.upload.pending_limit':
-    'এই PRO রুমে অসম্পূর্ণ আপলোড অনেক বেশি। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
+  'pro.upload.pending_limit': 'এই PRO রুমে অসম্পূর্ণ আপলোড অনেক বেশি। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
   'pro.upload.playlist_switched':
     'এই ট্র্যাকটি যোগ হওয়ার আগেই অন্য একটি প্লেলিস্ট চালু হয়েছে। ফাইলটি আবার বেছে নিন।',
   'pro.upload.permission_required': 'মিডিয়া পরিচালনার অনুমতি প্রয়োজন।',
@@ -883,8 +866,7 @@ const bn: Record<I18nKey, string> = {
   'pro.downloading': 'ফাইল লোড হচ্ছে...',
   'pro.quota_exceeded': 'এই PRO রুমের 1 GB স্টোরেজ সীমা পূর্ণ হয়েছে',
   'pro.file_too_large': 'এই ফাইলটি প্রতি ফাইলের 200 MB সীমার চেয়ে বড়',
-  'pro.room_state_limit':
-    'এই PRO রুমে এখন আর কোনো পরিবর্তন করা যাবে না\nকিছুক্ষণ পরে আবার চেষ্টা করুন',
+  'pro.room_state_limit': 'এই PRO রুমে এখন আর কোনো পরিবর্তন করা যাবে না\nকিছুক্ষণ পরে আবার চেষ্টা করুন',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':
@@ -936,24 +918,20 @@ const bn: Record<I18nKey, string> = {
   'system_audio.no_audio_track': '“অডিও শেয়ার করুন” চালু করা হয়নি\nআবার চেষ্টা করুন',
   'system_audio.stop': 'শেয়ার করা থামান',
   'system_audio.stop_compact': 'থামান',
-  'system_audio.started':
-    'সিস্টেম অডিওতে সামান্য বিলম্ব হতে পারে\nসম্ভব হলে উৎসের ভলিউম কমিয়ে দিন',
+  'system_audio.started': 'সিস্টেম অডিওতে সামান্য বিলম্ব হতে পারে\nসম্ভব হলে উৎসের ভলিউম কমিয়ে দিন',
   'system_audio.stopped': 'সিস্টেম অডিও শেয়ারিং শেষ হয়েছে\nপ্লেলিস্ট আবার চালু হচ্ছে',
   'system_audio.host_channel_locked': 'সিস্টেম অডিও শেয়ারিংয়ের সময় ভূমিকা পরিবর্তন করা যায় না',
-  'system_audio.effects_guest_only':
-    'সিস্টেম অডিও চালু আছে\nঅডিও ইফেক্ট শুধু অতিথি ডিভাইসে প্রয়োগ হবে',
+  'system_audio.effects_guest_only': 'সিস্টেম অডিও চালু আছে\nঅডিও ইফেক্ট শুধু অতিথি ডিভাইসে প্রয়োগ হবে',
   'system_audio.desktop_only':
     'শুধু Chromium-ভিত্তিক ব্রাউজার (Chrome, Edge ইত্যাদি) চালানো কম্পিউটারে পাওয়া যায়',
-  'system_audio.receive_failed':
-    'সিস্টেম অডিও পাওয়া যায়নি\nহোস্টকে আবার শেয়ার করা শুরু করতে বলুন',
+  'system_audio.receive_failed': 'সিস্টেম অডিও পাওয়া যায়নি\nহোস্টকে আবার শেয়ার করা শুরু করতে বলুন',
   'system_audio.remote_receive_limit':
     '2 ঘণ্টা পর সিস্টেম অডিও পাওয়া বন্ধ হয়েছে\nশোনা চালিয়ে যেতে রুমে আবার যোগ দিন',
   'system_audio.device_limit':
     'সিস্টেম অডিও সর্বোচ্চ {{count}}টি ডিভাইসে সমর্থিত\nএর মধ্যে হোস্টও অন্তর্ভুক্ত',
   'system_audio.device_limit_stopped':
     'সিস্টেম অডিও শেয়ারিং থামানো হয়েছে\n{{count}}টির বেশি ডিভাইস সংযুক্ত আছে',
-  'system_audio.duration_limit_stopped':
-    '2 ঘণ্টা পর সিস্টেম অডিও শেয়ারিং\nস্বয়ংক্রিয়ভাবে শেষ হয়েছে',
+  'system_audio.duration_limit_stopped': '2 ঘণ্টা পর সিস্টেম অডিও শেয়ারিং\nস্বয়ংক্রিয়ভাবে শেষ হয়েছে',
 
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'পরিষেবা সম্পর্কিত তথ্য',

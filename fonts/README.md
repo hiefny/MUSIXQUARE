@@ -126,7 +126,7 @@ retired by the public-page font train).
   records unchanged. `scripts/fonts/sfnt-names.mts` rewrites the name table,
   since the subsetter cannot.
 - `fonts/hangul-faces.json` records the source, the tool versions
-  (subset-font 2.9.0, harfbuzzjs 1.6.3, fontverter 2.0.0, wawoff2 2.0.1) and
+  (subset-font 2.9.0, harfbuzzjs 1.6.4, fontverter 2.1.0, wawoff2 2.0.1) and
   each face's code points and digest. Without `--record`, a face subset again
   from its recorded source and code points must give its recorded bytes,
   also after a tool update; otherwise the run writes nothing and stops. A

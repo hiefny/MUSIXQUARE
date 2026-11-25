@@ -432,8 +432,9 @@ function _loadLanguage(code: LanguageCode): Promise<void> {
 
   const pending = loader()
     .catch((error: unknown) => {
-      // Failed ESM URLs remain failed in a browser document's module map.
-      // An explicit later retry uses build-bound data, not eval/cache-busting.
+      // A failed ESM URL may stay failed in the document's module map (older
+      // engines) or be fetched again on the next import (Chromium 159). Either
+      // way, a second failure uses build-bound data, not eval/cache-busting.
       if (_failedLocales.has(code)) return loadLocaleRecovery(code);
       _failedLocales.add(code);
       throw error;

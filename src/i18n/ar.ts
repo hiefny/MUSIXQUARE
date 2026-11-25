@@ -855,8 +855,7 @@ const ar: Record<I18nKey, string> = {
   'pro.upload.confirming': 'جارٍ إنهاء الرفع {{current}}/{{total}}',
   'pro.upload.batch_progress': 'جارٍ رفع المقاطع {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'تعذّر رفع بعض المقاطع',
-  'pro.upload.batch_failed_message':
-    'تعذّر رفع {{failed}} من أصل {{total}} من المقاطع التي طلبتها.',
+  'pro.upload.batch_failed_message': 'تعذّر رفع {{failed}} من أصل {{total}} من المقاطع التي طلبتها.',
   'pro.upload.cancel_file': 'إلغاء رفع {{name}}',
   'pro.upload.confirming_file': 'جارٍ إنهاء رفع {{name}}',
   'pro.downloading': 'جارٍ تحميل الملف...',

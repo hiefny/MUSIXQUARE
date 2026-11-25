@@ -2,8 +2,8 @@
   "note": "Inter's symbol faces in fonts/app/inter-symbols/: harfbuzz subsets of fonts/inter-full.ttf, the full Inter (SIL OFL 1.1, no Reserved Font Name) of the build Google's Inter subsets were cut from, holding the code points it maps and no Google subset maps, but the excluded ones, one face per group of blocks. Each keeps the opsz and wght axes, the layout features and name records of Google's subsets (Inter's base forms) and the outlines of the full Inter, with the line box of src/i18n/font-metrics.ts baked in as in Google's Inter faces. sha256 and bytes are the digests of the WOFF2 files. Written by scripts/fonts/build-inter-symbol-faces.mts; checked by scripts/check-app-font.mts. Do not edit by hand.",
   "tools": {
     "subset-font": "2.9.0",
-    "harfbuzzjs": "1.6.3",
-    "fontverter": "2.0.0",
+    "harfbuzzjs": "1.6.4",
+    "fontverter": "2.1.0",
     "wawoff2": "2.0.1"
   },
   "source": {

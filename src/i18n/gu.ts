@@ -117,8 +117,7 @@ const gu: Record<I18nKey, string> = {
   'player.select_file_hint': 'ફાઇલ પસંદ કરો અથવા પ્લેલિસ્ટ તપાસો',
   'player.visualizer': 'ઑડિયો વિઝ્યુઅલાઇઝર',
   'player.seek': 'પ્લેબૅકનું સ્થાન',
-  'player.seek_unavailable_system_audio':
-    'સિસ્ટમ ઑડિયો શેર થતો હોય ત્યારે પ્લેબૅકનું સ્થાન બદલી શકાતું નથી',
+  'player.seek_unavailable_system_audio': 'સિસ્ટમ ઑડિયો શેર થતો હોય ત્યારે પ્લેબૅકનું સ્થાન બદલી શકાતું નથી',
   'player.volume': 'અવાજનું સ્તર',
   'player.toggle_mute': 'અવાજ બંધ',
   'player.fullscreen': 'પૂર્ણ સ્ક્રીન',
@@ -193,8 +192,7 @@ const gu: Record<I18nKey, string> = {
   'settings.theme': 'થીમ',
   'settings.ui_sounds': 'ઇન્ટરફેસના અવાજો',
   'settings.sync_settings': 'સેટિંગ્સ સિંક',
-  'settings.sync_settings_desc':
-    'આ સેટિંગ ચાલુ હોય તે ડિવાઇસ અવાજનું સ્તર અને ઑડિયો ઇફેક્ટ સિંક કરે છે.',
+  'settings.sync_settings_desc': 'આ સેટિંગ ચાલુ હોય તે ડિવાઇસ અવાજનું સ્તર અને ઑડિયો ઇફેક્ટ સિંક કરે છે.',
   'settings.audio_locked_desc': 'ફક્ત રૂમના સંચાલકો ઑડિયો સેટિંગ્સ બદલી શકે છે.',
   'settings.audio_lock_checking_desc': 'સંચાલક પરવાનગી તપાસી રહ્યાં છીએ.',
   'settings.virtual_effects_title': 'વર્ચ્યુઅલ ઇફેક્ટ',
@@ -313,8 +311,7 @@ const gu: Record<I18nKey, string> = {
   'connect.room_password_invalid': '8 અંકો દાખલ કરો',
   'connect.room_password_disabled': 'સહભાગીઓને હવે રૂમના પાસવર્ડની જરૂર નથી',
   'connect.room_password_apply_pending': 'જોડાણ પાછું આવે ત્યારે નવો પાસવર્ડ લાગુ થશે',
-  'connect.pin_enabled_removed_message':
-    'હોસ્ટે રૂમનો પાસવર્ડ સેટ કર્યો છે. ફરી જોડાવા માટે તે દાખલ કરો.',
+  'connect.pin_enabled_removed_message': 'હોસ્ટે રૂમનો પાસવર્ડ સેટ કર્યો છે. ફરી જોડાવા માટે તે દાખલ કરો.',
   'connect.pin_changed_removed_message':
     'હોસ્ટે રૂમનો પાસવર્ડ બદલ્યો છે. ફરી જોડાવા માટે નવો પાસવર્ડ દાખલ કરો.',
   'connect.signaling_healthy': 'રૂમ સર્વર ઑનલાઇન છે',
@@ -329,8 +326,7 @@ const gu: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'રૂમ સર્વર સાથે ફરી જોડાઈ રહ્યું છે · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'રૂમ સર્વરનું જોડાણ પુનઃસ્થાપિત થયું.',
   'connect.signaling_exhausted': 'રૂમ સર્વર પ્રતિસાદ આપતું નથી.\nનવા સહભાગીઓ જોડાઈ શકતા નથી.',
-  'connect.signaling_exhausted_pro':
-    'રૂમ સર્વર પ્રતિસાદ આપતું નથી. નવા જોડાણ અને જીવંત અપડેટ મર્યાદિત છે.',
+  'connect.signaling_exhausted_pro': 'રૂમ સર્વર પ્રતિસાદ આપતું નથી. નવા જોડાણ અને જીવંત અપડેટ મર્યાદિત છે.',
   'connect.signaling_retry': 'ફરી પ્રયાસ કરો',
   'connect.signaling_restart': 'સત્ર ફરી શરૂ કરો',
   'connect.signaling_new_room': 'નવો રૂમ શરૂ કરો',
@@ -362,12 +358,10 @@ const gu: Record<I18nKey, string> = {
   'demo.step_finish': '4. ડેમો બંધ કરો',
   'demo.session_title': 'આ {{code}} નંબરનો રૂમ છે.',
   'demo.session_subtitle': 'બીજા ડિવાઇસને ગમે ત્યારે આમંત્રિત કરી શકો છો.',
-  'demo.session_body_connected':
-    'હમણાં {{count}} ડિવાઇસ જોડાયેલા છે.\nદરેક ડિવાઇસની ભૂમિકા નક્કી કરો.',
+  'demo.session_body_connected': 'હમણાં {{count}} ડિવાઇસ જોડાયેલા છે.\nદરેક ડિવાઇસની ભૂમિકા નક્કી કરો.',
   'demo.session_body_alone': 'હમણાં ફક્ત આ ડિવાઇસ ચાલી રહ્યું છે.\nહવે બીજું ડિવાઇસ આમંત્રિત કરો.',
   'demo.effects_step_title': 'તમારી પસંદનો શ્રેષ્ઠ અવાજ બનાવો.',
-  'demo.effects_step_subtitle':
-    'સેટિંગ્સમાં આ અદ્યતન ધ્વનિ ગુણધર્મો ગમે ત્યારે બારીકાઈથી ગોઠવી શકો છો.',
+  'demo.effects_step_subtitle': 'સેટિંગ્સમાં આ અદ્યતન ધ્વનિ ગુણધર્મો ગમે ત્યારે બારીકાઈથી ગોઠવી શકો છો.',
   'demo.finish_step_title': 'બધી તૈયારી થઈ ગઈ!',
   'demo.finish_step_subtitle': 'હવે તરત શરૂ કરો અને સાથે મીડિયા ચલાવો.',
   'demo.track_list_label': 'ડેમો ટ્રૅકની યાદી',
@@ -390,8 +384,7 @@ const gu: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'કૅમેરાની પરવાનગી નકારવામાં આવી છે',
   'setup.camera_not_found': 'વાપરી શકાય એવો કૅમેરો મળ્યો નથી',
   'setup.camera_unavailable': 'કૅમેરો શરૂ થઈ શક્યો નથી',
-  'setup.camera_stream_stalled':
-    'કૅમેરાનું પૂર્વદર્શન શરૂ થયું નથી\nબ્રાઉઝરમાં ખોલો અથવા કોડ દાખલ કરો',
+  'setup.camera_stream_stalled': 'કૅમેરાનું પૂર્વદર્શન શરૂ થયું નથી\nબ્રાઉઝરમાં ખોલો અથવા કોડ દાખલ કરો',
   'setup.connect_devices': 'શરૂ કરવા તમારા અન્ય ડિવાઇસ જોડો.',
   'setup.enter_code_connect': 'આમંત્રણ કોડ',
   'setup.last_step': 'ચાલો, શરૂ કરીએ!',
@@ -571,8 +564,7 @@ const gu: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} પરવાનગી {{status}}',
   'toast.file_read_error': 'ફાઇલ વાંચવામાં ભૂલ: {{name}}',
   'toast.host_ended_connection': 'હોસ્ટે જોડાણ બંધ કર્યું છે',
-  'toast.host_background_blocked':
-    'હોસ્ટ ડિવાઇસ પૃષ્ઠભૂમિમાં છે\nહોસ્ટ ઍપ ફરી ખોલશે ત્યારે નિયંત્રણ કરી શકાશે',
+  'toast.host_background_blocked': 'હોસ્ટ ડિવાઇસ પૃષ્ઠભૂમિમાં છે\nહોસ્ટ ઍપ ફરી ખોલશે ત્યારે નિયંત્રણ કરી શકાશે',
   'toast.host_unresponsive_chat': 'સંદેશ મોકલી શકાયો નથી\nહોસ્ટ ડિવાઇસ પ્રતિસાદ આપતું નથી',
   'toast.host_unresponsive_blocked': 'વિનંતી મોકલી શકાઈ નથી\nહોસ્ટ ડિવાઇસ પ્રતિસાદ આપતું નથી',
   'toast.host_back': 'હોસ્ટ ડિવાઇસ પાછું આવી ગયું છે',
@@ -580,8 +572,7 @@ const gu: Record<I18nKey, string> = {
   'toast.copy_failed': 'કૉપિ થઈ શક્યું નથી',
   'toast.email_copied': 'ઈમેલ સરનામું કૉપિ થયું!',
   'toast.settings_sync_enabled': 'સેટિંગ્સ સિંક ચાલુ છે',
-  'toast.settings_sync_admin_required':
-    'સેટિંગ્સ સિંક ચાલુ છે\nફક્ત રૂમના સંચાલકો ઑડિયો સેટિંગ્સ બદલી શકે છે',
+  'toast.settings_sync_admin_required': 'સેટિંગ્સ સિંક ચાલુ છે\nફક્ત રૂમના સંચાલકો ઑડિયો સેટિંગ્સ બદલી શકે છે',
   'toast.virtual_bass_on': 'વર્ચ્યુઅલ બેસ ચાલુ છે',
   'toast.virtual_bass_off': 'વર્ચ્યુઅલ બેસ બંધ છે',
   'toast.virtual_treble_on': 'વર્ચ્યુઅલ ટ્રેબલ ચાલુ છે',
@@ -631,8 +622,7 @@ const gu: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'હોસ્ટે થોભાવ્યું છે; ફક્ત પ્લેબૅકનું સ્થાન ગોઠવ્યું',
   'toast.yt_rendezvous_no_data': 'હોસ્ટનો પ્લેબૅક ડેટા હજી નથી\nથોડી વારમાં ફરી પ્રયાસ કરો',
   'toast.yt_rendezvous_timeout': 'સિંક નિષ્ફળ\nથોડી વારમાં ફરી પ્રયાસ કરો',
-  'toast.yt_manual_sync_prompt':
-    'હમણાં આપમેળે સિંકનો પ્રયાસ થયો\nહજી પણ વિલંબ લાગે તો મૂલ્ય હવે ગોઠવો',
+  'toast.yt_manual_sync_prompt': 'હમણાં આપમેળે સિંકનો પ્રયાસ થયો\nહજી પણ વિલંબ લાગે તો મૂલ્ય હવે ગોઠવો',
   'toast.playlist_ended': 'પ્લેલિસ્ટનો છેલ્લો મીડિયા ઘટક પૂરો થયો',
   'toast.connection_closing': 'જોડાણ તૂટ્યું; સેટિંગ સિંક થયું નથી',
   'toast.host_changed_setting': 'સેટિંગ્સ બદલાઈ છે',
@@ -685,8 +675,7 @@ const gu: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ઑડિયો એન્જિન તૈયાર થઈ શક્યું નથી',
   'error.session_create_fail': 'સત્ર બનાવી શકાયું નથી',
   'error.network_generic': 'નેટવર્ક ભૂલ થઈ',
-  'error.session_handshake_failed':
-    'સત્રનું જોડાણ પૂર્ણ થઈ શક્યું નથી. બંને ડિવાઇસ રિફ્રેશ કરી ફરી પ્રયાસ કરો.',
+  'error.session_handshake_failed': 'સત્રનું જોડાણ પૂર્ણ થઈ શક્યું નથી. બંને ડિવાઇસ રિફ્રેશ કરી ફરી પ્રયાસ કરો.',
   'error.host_unreachable': 'લાગે છે કે હોસ્ટે સત્ર છોડી દીધું છે',
   'error.host_disconnected': 'હોસ્ટ સાથેનું જોડાણ તૂટ્યું',
   'error.host_conn_error': 'હોસ્ટ સાથે જોડાતાં ભૂલ થઈ',
@@ -742,11 +731,9 @@ const gu: Record<I18nKey, string> = {
   'dialog.sw_update_apply': 'લાગુ કરો',
   'dialog.sw_update_apply_msg': 'નવી આવૃત્તિ તૈયાર છે.\nલાગુ કરવાથી પેજ ફરી લોડ થશે.',
   'dialog.sw_update_room_host_msg': 'નવી આવૃત્તિ તૈયાર છે.\nલાગુ કરવા માટે રૂમ ફરીથી ખોલવો પડશે.',
-  'dialog.sw_update_room_guest_msg':
-    'નવી આવૃત્તિ તૈયાર છે.\nલાગુ કરવા માટે રૂમમાં ફરીથી જોડાવું પડશે.',
+  'dialog.sw_update_room_guest_msg': 'નવી આવૃત્તિ તૈયાર છે.\nલાગુ કરવા માટે રૂમમાં ફરીથી જોડાવું પડશે.',
   'dialog.feature_refresh_title': 'રિફ્રેશ કરવું જરૂરી છે',
-  'dialog.feature_refresh_msg':
-    'MUSIXQUARE અપડેટ થયું છે.\nસામાન્ય રીતે વાપરવાનું ચાલુ રાખવા રિફ્રેશ કરો.',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE અપડેટ થયું છે.\nસામાન્ય રીતે વાપરવાનું ચાલુ રાખવા રિફ્રેશ કરો.',
   'dialog.reconnect_ask': 'ફરી જોડાવું છે?',
   'dialog.reconnect': 'ફરી જોડાઓ',
   'dialog.go_back': 'પાછા જાઓ',
@@ -774,8 +761,7 @@ const gu: Record<I18nKey, string> = {
   'pro.activation_account_login_message': 'આ રૂમ જે ખાતામાં નોંધાવવો હોય તે ખાતાથી સાઇન ઇન કરો.',
   'pro.activation_account_continue': 'નોંધાવો',
   'pro.activation_account_switch': 'બીજું ખાતું',
-  'pro.activation_account_unavailable':
-    'તમારું ખાતું ચકાસી શકાયું નથી. થોડી વારમાં ફરી પ્રયાસ કરો.',
+  'pro.activation_account_unavailable': 'તમારું ખાતું ચકાસી શકાયું નથી. થોડી વારમાં ફરી પ્રયાસ કરો.',
   'pro.claim_retry_title': 'PRO લિંક ફરી અજમાવવી છે?',
   'pro.claim_retry_message':
     'જોડાણમાં વિક્ષેપ આવ્યો. લિંક આ સ્ક્રીન પર સુરક્ષિત રાખી છે, તેથી ફરી પ્રયાસ કરી શકો છો.',
@@ -797,8 +783,7 @@ const gu: Record<I18nKey, string> = {
   'pro.claim_account_capacity_message':
     'આ ખાતું PRO રૂમ લિંકની મર્યાદા સુધી પહોંચી ગયું છે. હાલની એક લિંક દૂર કરો, પછી નવી લિંક માગો.',
   'pro.claim_failed_title': 'આ વિનંતી પૂર્ણ થઈ શકી નથી',
-  'pro.claim_failed_message':
-    'સુરક્ષા માટે આ લિંકનો ફરી પ્રયાસ થયો નથી. રૂમના સંચાલક પાસેથી નવી લિંક માગો.',
+  'pro.claim_failed_message': 'સુરક્ષા માટે આ લિંકનો ફરી પ્રયાસ થયો નથી. રૂમના સંચાલક પાસેથી નવી લિંક માગો.',
   'pro.new_link_message':
     'લિંકની મુદત પૂરી થઈ છે અથવા તે પહેલેથી વપરાઈ છે. જરૂર હોય તો સંચાલક પાસેથી નવી લિંક માગો.',
   'pro.not_ready_title': 'આ PRO રૂમ હજી તૈયાર નથી',
@@ -853,24 +838,20 @@ const gu: Record<I18nKey, string> = {
   'pro.upload.room_capacity': 'આ PRO રૂમમાં હવે વધુ ટ્રૅક ઉમેરી શકાશે નહીં.',
   'pro.upload.room_state_limit':
     'આ PRO રૂમમાં હમણાં વધુ ફેરફારો કરી શકાશે નહીં. થોડી વાર પછી ફાઇલ ફરીથી પસંદ કરો.',
-  'pro.upload.pending_limit':
-    'આ PRO રૂમમાં અધૂરાં અપલોડ ઘણાં વધારે છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
-  'pro.upload.playlist_switched':
-    'આ ટ્રૅક ઉમેરાય તે પહેલાં બીજી પ્લેલિસ્ટ સક્રિય થઈ. ફાઇલ ફરીથી પસંદ કરો.',
+  'pro.upload.pending_limit': 'આ PRO રૂમમાં અધૂરાં અપલોડ ઘણાં વધારે છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
+  'pro.upload.playlist_switched': 'આ ટ્રૅક ઉમેરાય તે પહેલાં બીજી પ્લેલિસ્ટ સક્રિય થઈ. ફાઇલ ફરીથી પસંદ કરો.',
   'pro.upload.permission_required': 'મીડિયા સંચાલનની પરવાનગી જરૂરી છે.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
   'pro.upload.confirming': 'અપલોડ પૂરું થઈ રહ્યું છે {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ટ્રૅક અપલોડ થઈ રહ્યા છે {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'કેટલાક ટ્રૅક અપલોડ થઈ શક્યા નથી',
-  'pro.upload.batch_failed_message':
-    'તમે માગેલા {{total}} ટ્રૅકમાંથી {{failed}} ટ્રૅક અપલોડ થઈ શક્યા નથી.',
+  'pro.upload.batch_failed_message': 'તમે માગેલા {{total}} ટ્રૅકમાંથી {{failed}} ટ્રૅક અપલોડ થઈ શક્યા નથી.',
   'pro.upload.cancel_file': '{{name}} નું અપલોડ રદ કરો',
   'pro.upload.confirming_file': '{{name}} નું અપલોડ પૂરું થઈ રહ્યું છે',
   'pro.downloading': 'ફાઇલ લોડ થઈ રહી છે...',
   'pro.quota_exceeded': 'આ PRO રૂમમાં સંગ્રહની 1 GB મર્યાદા પૂરી થઈ છે',
   'pro.file_too_large': 'આ ફાઇલ દરેક ફાઇલ માટેની 200 MB મર્યાદાથી મોટી છે',
-  'pro.room_state_limit':
-    'આ PRO રૂમમાં હમણાં વધુ ફેરફારો કરી શકાશે નહીં\nથોડી વાર પછી ફરી પ્રયાસ કરો',
+  'pro.room_state_limit': 'આ PRO રૂમમાં હમણાં વધુ ફેરફારો કરી શકાશે નહીં\nથોડી વાર પછી ફરી પ્રયાસ કરો',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':
@@ -914,8 +895,7 @@ const gu: Record<I18nKey, string> = {
   'system_audio.owner_preparing': '{{name}} સિસ્ટમ ઑડિયો શેર કરવાની તૈયારી કરી રહ્યા છે',
   'system_audio.pro_preparing': 'સિસ્ટમ ઑડિયો શેર કરવાની તૈયારી થઈ રહી છે',
   'system_audio.pro_publish_failed': 'સિસ્ટમ ઑડિયો શેરિંગ શરૂ થઈ શક્યું નથી',
-  'system_audio.coordinator_update_required':
-    'સિસ્ટમ ઑડિયો શેર કરવા આ રૂમ સંભાળતું ડિવાઇસ અપડેટ કરો',
+  'system_audio.coordinator_update_required': 'સિસ્ટમ ઑડિયો શેર કરવા આ રૂમ સંભાળતું ડિવાઇસ અપડેટ કરો',
   'system_audio.connection_unstable':
     '{{name}} નું સિસ્ટમ ઑડિયો જોડાણ અસ્થિર છે\nફરી જોડવાનો પ્રયાસ થઈ રહ્યો છે',
   'system_audio.capture_denied': 'ઑડિયો શેરિંગ રદ થયું',
@@ -925,8 +905,7 @@ const gu: Record<I18nKey, string> = {
   'system_audio.started': 'સિસ્ટમ ઑડિયોમાં થોડો વિલંબ થઈ શકે છે\nશક્ય હોય તો સ્રોતનો અવાજ ઘટાડો',
   'system_audio.stopped': 'સિસ્ટમ ઑડિયો શેરિંગ પૂરું થયું\nપ્લેલિસ્ટ ફરી શરૂ થઈ રહી છે',
   'system_audio.host_channel_locked': 'સિસ્ટમ ઑડિયો શેર થતો હોય ત્યારે ભૂમિકાઓ બદલી શકાતી નથી',
-  'system_audio.effects_guest_only':
-    'સિસ્ટમ ઑડિયો સક્રિય છે\nધ્વનિ ઇફેક્ટ ફક્ત મહેમાન ડિવાઇસ પર લાગુ થાય છે',
+  'system_audio.effects_guest_only': 'સિસ્ટમ ઑડિયો સક્રિય છે\nધ્વનિ ઇફેક્ટ ફક્ત મહેમાન ડિવાઇસ પર લાગુ થાય છે',
   'system_audio.desktop_only':
     'ફક્ત Chromium-આધારિત બ્રાઉઝર (Chrome, Edge વગેરે) વાપરતા કમ્પ્યુટર પર ઉપલબ્ધ',
   'system_audio.receive_failed': 'સિસ્ટમ ઑડિયો મળી શક્યો નથી\nહોસ્ટને ફરી શેરિંગ શરૂ કરવા કહો',
@@ -934,8 +913,7 @@ const gu: Record<I18nKey, string> = {
     'સિસ્ટમ ઑડિયોનો પ્રવાહ 2 કલાક પછી બંધ થયો\nસાંભળવાનું ચાલુ રાખવા રૂમમાં ફરી જોડાઓ',
   'system_audio.device_limit':
     'સિસ્ટમ ઑડિયો વધુમાં વધુ {{count}} ડિવાઇસને સમર્થન આપે છે\nતેમાં હોસ્ટ પણ સામેલ છે',
-  'system_audio.device_limit_stopped':
-    'સિસ્ટમ ઑડિયો શેરિંગ બંધ થયું\n{{count}} કરતાં વધુ ડિવાઇસ જોડાયેલા છે',
+  'system_audio.device_limit_stopped': 'સિસ્ટમ ઑડિયો શેરિંગ બંધ થયું\n{{count}} કરતાં વધુ ડિવાઇસ જોડાયેલા છે',
   'system_audio.duration_limit_stopped': '2 કલાક પછી સિસ્ટમ ઑડિયો શેરિંગ\nઆપમેળે પૂરું થયું',
 
   // ─── Legal ───────────────────────────────────────────────────────

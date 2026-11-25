@@ -2,8 +2,8 @@
   "note": "The Hangul faces in fonts/app/hangul/: harfbuzz subsets of fonts/PretendardVariable.woff2 (Pretendard Variable by Kil Hyung-jin, SIL OFL 1.1 with the Reserved Font Name Pretendard), one per Noto Sans KR v40 numbered shard that declares Hangul the source draws, with that Hangul only, and face 0 for the Hangul no shard declares. Each keeps the whole wght axis, the outlines and the line box of the source, and is renamed MUSIXQUARE Hangul as OFL condition 3 asks of a Modified Version. sha256 and bytes are the digests of the WOFF2 files. Written by scripts/fonts/build-hangul-faces.mts; checked by scripts/check-app-font.mts. Do not edit by hand.",
   "tools": {
     "subset-font": "2.9.0",
-    "harfbuzzjs": "1.6.3",
-    "fontverter": "2.0.0",
+    "harfbuzzjs": "1.6.4",
+    "fontverter": "2.1.0",
     "wawoff2": "2.0.1"
   },
   "source": {

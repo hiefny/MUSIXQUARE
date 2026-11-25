@@ -117,8 +117,7 @@ const te: Record<I18nKey, string> = {
   'player.select_file_hint': 'ఫైల్‌ను ఎంచుకోండి లేదా ప్లేలిస్ట్‌ను చూడండి',
   'player.visualizer': 'ఆడియో విజువలైజర్',
   'player.seek': 'ప్లేబ్యాక్ స్థానం',
-  'player.seek_unavailable_system_audio':
-    'సిస్టమ్ ఆడియో షేర్ చేస్తున్నప్పుడు ప్లేబ్యాక్ స్థానాన్ని మార్చలేరు',
+  'player.seek_unavailable_system_audio': 'సిస్టమ్ ఆడియో షేర్ చేస్తున్నప్పుడు ప్లేబ్యాక్ స్థానాన్ని మార్చలేరు',
   'player.volume': 'వాల్యూమ్',
   'player.toggle_mute': 'మ్యూట్',
   'player.fullscreen': 'ఫుల్‌స్క్రీన్',
@@ -170,8 +169,7 @@ const te: Record<I18nKey, string> = {
   'playlist.select_all': 'అన్నింటినీ ఎంచుకో',
   'playlist.selected_count': 'ఎంచుకున్నవి: {{count}}',
   'playlist.slots_title': 'అనేక ప్లేలిస్ట్‌లు',
-  'playlist.slots_subtitle':
-    'అనేక ప్లేలిస్ట్‌లను ఉపయోగించి మీరు ట్రాక్‌ల సెట్‌లను వేగంగా మార్చుకోవచ్చు.',
+  'playlist.slots_subtitle': 'అనేక ప్లేలిస్ట్‌లను ఉపయోగించి మీరు ట్రాక్‌ల సెట్‌లను వేగంగా మార్చుకోవచ్చు.',
   'playlist.slot_tracks': '{{count}} ట్రాక్‌లు',
   'playlist.move_title': '{{count}} ట్రాక్‌లను తరలించు',
   'playlist.copy_action': 'కాపీ చేయి',
@@ -194,8 +192,7 @@ const te: Record<I18nKey, string> = {
   'settings.theme': 'థీమ్',
   'settings.ui_sounds': 'UI సౌండ్‌లు',
   'settings.sync_settings': 'సెట్టింగ్‌ల సింక్',
-  'settings.sync_settings_desc':
-    'ఈ సెట్టింగ్ ఆన్‌లో ఉన్న పరికరాల వాల్యూమ్, ఆడియో ఎఫెక్ట్‌లు సింక్ అవుతాయి.',
+  'settings.sync_settings_desc': 'ఈ సెట్టింగ్ ఆన్‌లో ఉన్న పరికరాల వాల్యూమ్, ఆడియో ఎఫెక్ట్‌లు సింక్ అవుతాయి.',
   'settings.audio_locked_desc': 'గది అడ్మిన్‌లు మాత్రమే ఆడియో సెట్టింగ్‌లను మార్చగలరు.',
   'settings.audio_lock_checking_desc': 'అడ్మిన్ అనుమతిని తనిఖీ చేస్తున్నాం.',
   'settings.virtual_effects_title': 'వర్చువల్ ఎఫెక్ట్‌లు',
@@ -216,8 +213,7 @@ const te: Record<I18nKey, string> = {
   'settings.role_center_desc': 'ఈ పరికరం సెంటర్ స్పీకర్‌గా పనిచేస్తోంది.\nదీన్ని మధ్యలో ఉంచండి.',
   'settings.role_left_desc': 'ఈ పరికరం ఎడమ స్పీకర్‌గా పనిచేస్తోంది.\nదీన్ని ఎడమవైపు ఉంచండి.',
   'settings.role_right_desc': 'ఈ పరికరం కుడి స్పీకర్‌గా పనిచేస్తోంది.\nదీన్ని కుడివైపు ఉంచండి.',
-  'settings.role_subwoofer_desc':
-    'ఈ పరికరం సబ్‌వూఫర్‌గా పనిచేస్తోంది.\nబేస్ బాగా వినిపించే చోట దీన్ని ఉంచండి.',
+  'settings.role_subwoofer_desc': 'ఈ పరికరం సబ్‌వూఫర్‌గా పనిచేస్తోంది.\nబేస్ బాగా వినిపించే చోట దీన్ని ఉంచండి.',
   'settings.dark': 'డార్క్',
   'settings.light': 'లైట్',
   'player.visualizer_circular': 'వృత్తాకారం',
@@ -314,8 +310,7 @@ const te: Record<I18nKey, string> = {
   'connect.room_password_invalid': '8 అంకెలను నమోదు చేయండి',
   'connect.room_password_disabled': 'చేరేవారికి ఇక గది పాస్‌వర్డ్ అవసరం లేదు',
   'connect.room_password_apply_pending': 'కనెక్షన్ తిరిగి వచ్చాక కొత్త పాస్‌వర్డ్ వర్తిస్తుంది',
-  'connect.pin_enabled_removed_message':
-    'హోస్ట్ గది పాస్‌వర్డ్ సెట్ చేశారు. మళ్లీ చేరడానికి దాన్ని నమోదు చేయండి.',
+  'connect.pin_enabled_removed_message': 'హోస్ట్ గది పాస్‌వర్డ్ సెట్ చేశారు. మళ్లీ చేరడానికి దాన్ని నమోదు చేయండి.',
   'connect.pin_changed_removed_message':
     'హోస్ట్ గది పాస్‌వర్డ్‌ను మార్చారు. మళ్లీ చేరడానికి కొత్త పాస్‌వర్డ్‌ను నమోదు చేయండి.',
   'connect.signaling_healthy': 'గది సర్వర్ ఆన్‌లైన్‌లో ఉంది',
@@ -330,8 +325,7 @@ const te: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'గది సర్వర్‌కు మళ్లీ కనెక్ట్ అవుతోంది · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'గది సర్వర్ కనెక్షన్ పునరుద్ధరించబడింది.',
   'connect.signaling_exhausted': 'గది సర్వర్ స్పందించడం లేదు.\nకొత్తగా ఎవరూ కనెక్ట్ కాలేరు.',
-  'connect.signaling_exhausted_pro':
-    'గది సర్వర్ స్పందించడం లేదు. కొత్తగా చేరడం, లైవ్ అప్‌డేట్‌లు పరిమితం చేయబడ్డాయి.',
+  'connect.signaling_exhausted_pro': 'గది సర్వర్ స్పందించడం లేదు. కొత్తగా చేరడం, లైవ్ అప్‌డేట్‌లు పరిమితం చేయబడ్డాయి.',
   'connect.signaling_retry': 'మళ్లీ ప్రయత్నించు',
   'connect.signaling_restart': 'సెషన్‌ను మళ్లీ ప్రారంభించు',
   'connect.signaling_new_room': 'కొత్త గదిని ప్రారంభించు',
@@ -365,17 +359,14 @@ const te: Record<I18nKey, string> = {
   'demo.session_subtitle': 'మరో పరికరాన్ని ఎప్పుడైనా ఆహ్వానించవచ్చు.',
   'demo.session_body_connected':
     'ప్రస్తుతం {{count}} పరికరాలు కనెక్ట్ అయ్యాయి.\nప్రతి పరికరానికి ఒక పాత్రను సెట్ చేయండి.',
-  'demo.session_body_alone':
-    'ప్రస్తుతం ఈ పరికరం మాత్రమే ప్లే చేస్తోంది.\nమరో పరికరాన్ని ఆహ్వానించండి.',
+  'demo.session_body_alone': 'ప్రస్తుతం ఈ పరికరం మాత్రమే ప్లే చేస్తోంది.\nమరో పరికరాన్ని ఆహ్వానించండి.',
   'demo.effects_step_title': 'మీ ప్రీమియం సౌండ్‌ను రూపొందించండి.',
-  'demo.effects_step_subtitle':
-    'ఈ అధునాతన అకౌస్టిక్ సెట్టింగ్‌లను ఎప్పుడైనా సెట్టింగ్‌లలో నిశితంగా సర్దుబాటు చేయవచ్చు.',
+  'demo.effects_step_subtitle': 'ఈ అధునాతన అకౌస్టిక్ సెట్టింగ్‌లను ఎప్పుడైనా సెట్టింగ్‌లలో నిశితంగా సర్దుబాటు చేయవచ్చు.',
   'demo.finish_step_title': 'అంతా సిద్ధం!',
   'demo.finish_step_subtitle': 'ఇప్పుడే ప్రారంభించి కలిసి ప్లే చేయండి.',
   'demo.track_list_label': 'డెమో ట్రాక్ జాబితా',
   'demo.host_only_exit': 'హోస్ట్ మాత్రమే దీన్ని నొక్కగలరు',
-  'demo.external_playback_stopped':
-    'డెమో మోడ్ ప్రస్తుత YouTube లేదా సిస్టమ్-ఆడియో ప్లేబ్యాక్‌ను ఆపింది',
+  'demo.external_playback_stopped': 'డెమో మోడ్ ప్రస్తుత YouTube లేదా సిస్టమ్-ఆడియో ప్లేబ్యాక్‌ను ఆపింది',
   'setup.how_to_connect': 'ఎలా కనెక్ట్ చేయాలి',
   'setup.set_role': 'ఈ పరికరం పాత్రను సెట్ చేయి',
   'setup.what_sound': 'ఈ పరికరం ఏమి ప్లే చేయాలి?',
@@ -393,8 +384,7 @@ const te: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'కెమెరా అనుమతి నిరాకరించబడింది',
   'setup.camera_not_found': 'ఉపయోగించగల కెమెరా కనిపించలేదు',
   'setup.camera_unavailable': 'కెమెరాను ప్రారంభించలేకపోయాం',
-  'setup.camera_stream_stalled':
-    'కెమెరా ప్రివ్యూ ప్రారంభం కాలేదు\nబ్రౌజర్‌లో తెరవండి లేదా కోడ్‌ను నమోదు చేయండి',
+  'setup.camera_stream_stalled': 'కెమెరా ప్రివ్యూ ప్రారంభం కాలేదు\nబ్రౌజర్‌లో తెరవండి లేదా కోడ్‌ను నమోదు చేయండి',
   'setup.connect_devices': 'ప్రారంభించడానికి మీ ఇతర పరికరాలను కనెక్ట్ చేయండి.',
   'setup.enter_code_connect': 'ఆహ్వాన కోడ్',
   'setup.last_step': 'ప్రారంభిద్దాం!',
@@ -409,10 +399,8 @@ const te: Record<I18nKey, string> = {
   'help.local_file': 'లోకల్ ఫైల్‌ను ఎంచుకో',
   'help.load_local': 'లోకల్ ఫైల్‌ను లోడ్ చేయి',
   'help.youtube_compat': 'YouTube',
-  'help.youtube_no_effects':
-    'YouTube మోడ్‌లో పాత్ర సెట్టింగ్‌లు, ఆడియో ఎఫెక్ట్‌లు అందుబాటులో ఉండవు.',
-  'help.media_synced_detail':
-    'ఎంచుకున్న మీడియా కనెక్ట్ అయిన అన్ని పరికరాల్లో ఒకేసారి ప్లే అవుతుంది.',
+  'help.youtube_no_effects': 'YouTube మోడ్‌లో పాత్ర సెట్టింగ్‌లు, ఆడియో ఎఫెక్ట్‌లు అందుబాటులో ఉండవు.',
+  'help.media_synced_detail': 'ఎంచుకున్న మీడియా కనెక్ట్ అయిన అన్ని పరికరాల్లో ఒకేసారి ప్లే అవుతుంది.',
   'help.wifi_hotspot': 'హాట్‌స్పాట్‌తో కూడా అందరినీ ఒకే నెట్‌వర్క్‌లో ఉంచవచ్చు',
 
   // ─── Chat ────────────────────────────────────────────────────────
@@ -444,16 +432,11 @@ const te: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT అభ్యర్థనను పూర్తి చేయలేకపోయింది',
   'chat.bot_added_tracks': 'BOT జోడించిన ట్రాక్‌లు: {{count}}',
   'chat.bot_added_and_playing': 'BOT జోడించిన ట్రాక్‌లు: {{count}}. ప్లేబ్యాక్ ప్రారంభమైంది',
-  'chat.bot_rate_limited':
-    'BOT అభ్యర్థన పరిమితి చేరుకుంది. {{duration}} వేచి ఉండి మళ్లీ ప్రయత్నించండి',
-  'chat.decode_skip_system_message':
-    'ట్రాక్ దాటవేయబడుతోంది: కొన్ని పరికరాల్లో ఈ ఫార్మాట్‌కు మద్దతు లేదు.',
-  'chat.large_track_playback_system_message':
-    'ఈ ట్రాక్ చాలా పెద్దది, కాబట్టి దీన్ని ఉపయోగిస్తున్నప్పుడు ఆలస్యం కావచ్చు.',
-  'chat.large_local_track_system_message':
-    'ఈ ట్రాక్ ఫైల్ చాలా పెద్దది; కొన్ని పరికరాల్లో ప్లే కాకపోవచ్చు.',
-  'chat.device_track_unavailable_system_message':
-    'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
+  'chat.bot_rate_limited': 'BOT అభ్యర్థన పరిమితి చేరుకుంది. {{duration}} వేచి ఉండి మళ్లీ ప్రయత్నించండి',
+  'chat.decode_skip_system_message': 'ట్రాక్ దాటవేయబడుతోంది: కొన్ని పరికరాల్లో ఈ ఫార్మాట్‌కు మద్దతు లేదు.',
+  'chat.large_track_playback_system_message': 'ఈ ట్రాక్ చాలా పెద్దది, కాబట్టి దీన్ని ఉపయోగిస్తున్నప్పుడు ఆలస్యం కావచ్చు.',
+  'chat.large_local_track_system_message': 'ఈ ట్రాక్ ఫైల్ చాలా పెద్దది; కొన్ని పరికరాల్లో ప్లే కాకపోవచ్చు.',
+  'chat.device_track_unavailable_system_message': 'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
   'chat.system_audio_started_system_message':
     'సిస్టమ్ ఆడియో షేరింగ్ ప్రారంభమైంది. హోస్ట్, అతిథి పరికరాల మధ్య కొద్దిపాటి ఆలస్యం సాధారణం. ప్రతిధ్వనిని నివారించడానికి హోస్ట్ పరికరం వాల్యూమ్‌ను తగ్గించాలని సిఫార్సు చేస్తున్నాం.',
   'chat.system_audio_stopped_system_message':
@@ -556,8 +539,7 @@ const te: Record<I18nKey, string> = {
   'network.disconnected': 'డిస్‌కనెక్ట్ అయింది',
   'network.cant_join': 'సెషన్ కనిపించలేదు.\nమీ నెట్‌వర్క్‌ను తనిఖీ చేయండి.',
   'network.session_full': 'గది నిండిపోయింది',
-  'network.session_full_detail':
-    'హోస్ట్‌తో కలిపి గరిష్ఠంగా 100 పరికరాలు ఇప్పటికే ఈ గదిలో కనెక్ట్ అయ్యాయి.',
+  'network.session_full_detail': 'హోస్ట్‌తో కలిపి గరిష్ఠంగా 100 పరికరాలు ఇప్పటికే ఈ గదిలో కనెక్ట్ అయ్యాయి.',
   'network.op_granted': 'అడ్మిన్ అనుమతి మంజూరు చేయబడింది',
   'network.op_revoked': 'అడ్మిన్ అనుమతి ఉపసంహరించబడింది',
   'network.host_waiting': 'హోస్ట్ కోసం వేచి ఉంది...',
@@ -567,8 +549,7 @@ const te: Record<I18nKey, string> = {
   'toast.device_disconnected': '{{name}} డిస్‌కనెక్ట్ అయ్యారు',
   'toast.device_conn_error': '{{name}} కనెక్షన్ లోపం',
   'toast.device_kicked': '{{name}} తొలగించబడ్డారు',
-  'toast.remote_decode_device_wait':
-    'ఒక పరికరం ఈ ట్రాక్‌ను డీకోడ్ చేయలేకపోయింది\nమిగతావారికి ప్లేబ్యాక్ కొనసాగుతోంది',
+  'toast.remote_decode_device_wait': 'ఒక పరికరం ఈ ట్రాక్‌ను డీకోడ్ చేయలేకపోయింది\nమిగతావారికి ప్లేబ్యాక్ కొనసాగుతోంది',
   'toast.invite_code_info': '{{count}} కనెక్ట్ అయ్యాయి | కోడ్ {{code}}',
   'toast.added_tracks': '{{count}} ట్రాక్‌లు జోడించబడ్డాయి',
   'toast.deleted_tracks': '{{count}} ట్రాక్‌లు తొలగించబడ్డాయి',
@@ -582,8 +563,7 @@ const te: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} అనుమతి {{status}}',
   'toast.file_read_error': 'ఫైల్ రీడ్ లోపం: {{name}}',
   'toast.host_ended_connection': 'హోస్ట్ కనెక్షన్‌ను ముగించారు',
-  'toast.host_background_blocked':
-    'హోస్ట్ పరికరం బ్యాక్‌గ్రౌండ్‌లో ఉంది\nహోస్ట్ యాప్‌ను మళ్లీ తెరిచాక నియంత్రించవచ్చు',
+  'toast.host_background_blocked': 'హోస్ట్ పరికరం బ్యాక్‌గ్రౌండ్‌లో ఉంది\nహోస్ట్ యాప్‌ను మళ్లీ తెరిచాక నియంత్రించవచ్చు',
   'toast.host_unresponsive_chat': 'సందేశాన్ని పంపడం సాధ్యపడలేదు\nహోస్ట్ పరికరం స్పందించడం లేదు',
   'toast.host_unresponsive_blocked': 'అభ్యర్థనను పంపడం సాధ్యపడలేదు\nహోస్ట్ పరికరం స్పందించడం లేదు',
   'toast.host_back': 'హోస్ట్ పరికరం తిరిగి వచ్చింది',
@@ -607,20 +587,13 @@ const te: Record<I18nKey, string> = {
   'toast.member_management_required': 'సభ్యులను తొలగించే అనుమతి అవసరం',
   'toast.chat_notice_required': 'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతి అవసరం',
   'toast.room_owner_required': 'గది యజమాని మాత్రమే దీన్ని మార్చగలరు',
-  'toast.media_management_checking':
-    'మీడియా నిర్వహణ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
-  'toast.playback_control_checking':
-    'ప్లేబ్యాక్ నియంత్రణ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
-  'toast.member_management_checking':
-    'సభ్యులను తొలగించే అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
-  'toast.chat_notice_checking':
-    'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
-  'toast.admin_permission_checking':
-    'అడ్మిన్ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
-  'toast.room_owner_checking':
-    'గది యజమాని అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
-  'toast.system_audio_owner_required':
-    'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను షేర్ చేయగలరు',
+  'toast.media_management_checking': 'మీడియా నిర్వహణ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.playback_control_checking': 'ప్లేబ్యాక్ నియంత్రణ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.member_management_checking': 'సభ్యులను తొలగించే అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.chat_notice_checking': 'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.admin_permission_checking': 'అడ్మిన్ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.room_owner_checking': 'గది యజమాని అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.system_audio_owner_required': 'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను షేర్ చేయగలరు',
   'toast.host_setting_required': 'హోస్ట్ మాత్రమే ఈ సెట్టింగ్‌ను మార్చగలరు',
   'toast.no_tracks': 'ప్లే చేయడానికి ట్రాక్‌లు లేవు',
   'toast.add_media_to_play': 'మీడియాను జోడించండి',
@@ -674,16 +647,14 @@ const te: Record<I18nKey, string> = {
   'share.remote.timeout': 'రిమోట్ ఫైల్ షేర్ సమయం ముగిసింది',
   'share.remote.too_large': 'ఫైల్ చాలా పెద్దది (గరిష్ఠంగా 200 MB)',
   'share.remote.network_error': 'రిమోట్ షేర్ సమయంలో నెట్‌వర్క్ లోపం',
-  'share.remote.rate_limited':
-    'చాలా రిమోట్ షేర్ అప్‌లోడ్‌లు జరిగాయి\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'share.remote.rate_limited': 'చాలా రిమోట్ షేర్ అప్‌లోడ్‌లు జరిగాయి\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'share.remote.quota_reached': 'రిమోట్ షేరింగ్ స్టోరేజ్ పరిమితి చేరుకుంది',
   'share.remote.auth_failed': 'రిమోట్ షేర్ అధీకరణ విఫలమైంది\nWorker సెట్టింగ్‌లను తనిఖీ చేయండి',
   'share.remote.expired': 'రిమోట్ ఫైల్ లింక్ గడువు ముగిసింది\nమళ్లీ షేర్ చేయండి',
   'share.remote.unavailable': 'రిమోట్ షేరింగ్ విఫలమైంది\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'transfer.preload_fail': 'ప్రీలోడ్ ప్లేబ్యాక్ విఫలమైంది, మళ్లీ లోడ్ అవుతోంది',
   'transfer.download_finishing': 'డౌన్‌లోడ్ పూర్తవుతోంది...',
-  'transfer.preparation_delayed':
-    'సిద్ధం కావడం ఆలస్యమవుతోంది...\nహోస్ట్ నుండి రికవరీ అభ్యర్థించబడుతోంది',
+  'transfer.preparation_delayed': 'సిద్ధం కావడం ఆలస్యమవుతోంది...\nహోస్ట్ నుండి రికవరీ అభ్యర్థించబడుతోంది',
   'transfer.receiving_0pct': 'స్వీకరిస్తోంది... 0%',
   'transfer.check_conn_type': 'కనెక్షన్ రకం తనిఖీ చేయబడుతోంది...',
   'transfer.preload_pending': 'ప్రీలోడ్ కోసం వేచి ఉంది: {{name}}',
@@ -717,8 +688,7 @@ const te: Record<I18nKey, string> = {
   'error.server_disconnected': 'సర్వర్ నుండి డిస్‌కనెక్ట్ అయ్యారు',
   'error.session_id_unavailable': 'సెషన్ ID అందుబాటులో లేదు\nమళ్లీ ప్రయత్నించండి',
   'error.webrtc_failed': 'WebRTC కనెక్షన్ విఫలమైంది\nమీ బ్రౌజర్ సెట్టింగ్‌లను తనిఖీ చేయండి',
-  'error.browser_unsupported':
-    'ఈ బ్రౌజర్‌తో రియల్-టైమ్ కనెక్షన్‌లు చేయడం సాధ్యం కాదు\nChrome లేదా Safari ప్రయత్నించండి',
+  'error.browser_unsupported': 'ఈ బ్రౌజర్‌తో రియల్-టైమ్ కనెక్షన్‌లు చేయడం సాధ్యం కాదు\nChrome లేదా Safari ప్రయత్నించండి',
   'error.ssl_required': 'సురక్షిత కనెక్షన్ (HTTPS) అవసరం',
   'error.room_password_required': 'ఈ గదికి పాస్‌వర్డ్ అవసరం.',
   'error.room_password_invalid': 'గది పాస్‌వర్డ్ సరిపోలలేదు.',
@@ -738,8 +708,7 @@ const te: Record<I18nKey, string> = {
   'dialog.audio_recovery_message':
     'బ్యాక్‌గ్రౌండ్ నుండి తిరిగి వచ్చిన తర్వాత ఈ పరికరంలోని ఆడియో పునరుద్ధరించబడలేదు. MUSIXQUARE ఈ పరికరం సౌండ్‌ను మళ్లీ సింక్ చేస్తున్నప్పుడు మీ గది కనెక్ట్‌గానే ఉంటుంది.',
   'dialog.audio_recovery_action': 'ఆడియోను పునరుద్ధరించు',
-  'dialog.background_resume_message':
-    'సింక్ సరిగా లేకపోతే లేదా ఆడియో ప్లే కాకపోతే యాప్‌ను పూర్తిగా మూసి మళ్లీ తెరవండి.',
+  'dialog.background_resume_message': 'సింక్ సరిగా లేకపోతే లేదా ఆడియో ప్లే కాకపోతే యాప్‌ను పూర్తిగా మూసి మళ్లీ తెరవండి.',
   'dialog.background_resume_sync_fallback_message':
     'సింక్ సరిగా లేకపోతే లేదా ఆడియో ప్లే కాకపోతే యాప్‌ను పూర్తిగా మూసి మళ్లీ తెరవండి.',
   'dialog.got_it': 'అర్థమైంది',
@@ -752,20 +721,15 @@ const te: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'యాప్‌ను తెరిచే ఉంచండి',
   'dialog.keep_open_message':
     'వేరే యాప్‌కు మారినా లేదా స్క్రీన్ ఆఫ్ అయినా సౌండ్ ఆగిపోవచ్చు లేదా సింక్ తప్పవచ్చు.\nహోస్ట్ పరికరం బ్యాక్‌గ్రౌండ్‌కు వెళ్తే గది మొత్తం ఆగిపోవచ్చు.',
-  'dialog.keep_open_message_pro':
-    'వేరే యాప్‌కు మారినా లేదా స్క్రీన్ ఆఫ్ అయినా సౌండ్ ఆగిపోవచ్చు లేదా సింక్ తప్పవచ్చు.',
+  'dialog.keep_open_message_pro': 'వేరే యాప్‌కు మారినా లేదా స్క్రీన్ ఆఫ్ అయినా సౌండ్ ఆగిపోవచ్చు లేదా సింక్ తప్పవచ్చు.',
   'dialog.sw_update_title': 'అప్‌డేట్',
   'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది\nఅప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి',
   'dialog.sw_update_apply': 'వర్తింపజేయండి',
-  'dialog.sw_update_apply_msg':
-    'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేస్తే పేజీ మళ్లీ లోడ్ అవుతుంది.',
-  'dialog.sw_update_room_host_msg':
-    'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేయడానికి గదిని మళ్లీ తెరవాలి.',
-  'dialog.sw_update_room_guest_msg':
-    'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేయడానికి గదిలో మళ్లీ చేరాలి.',
+  'dialog.sw_update_apply_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేస్తే పేజీ మళ్లీ లోడ్ అవుతుంది.',
+  'dialog.sw_update_room_host_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేయడానికి గదిని మళ్లీ తెరవాలి.',
+  'dialog.sw_update_room_guest_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేయడానికి గదిలో మళ్లీ చేరాలి.',
   'dialog.feature_refresh_title': 'రిఫ్రెష్ చేయాలి',
-  'dialog.feature_refresh_msg':
-    'MUSIXQUARE అప్‌డేట్ అయింది.\nఎప్పటిలాగే ఉపయోగించడం కొనసాగించడానికి రిఫ్రెష్ చేయండి.',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE అప్‌డేట్ అయింది.\nఎప్పటిలాగే ఉపయోగించడం కొనసాగించడానికి రిఫ్రెష్ చేయండి.',
   'dialog.reconnect_ask': 'మళ్లీ కనెక్ట్ కావాలా?',
   'dialog.reconnect': 'మళ్లీ కనెక్ట్ చేయి',
   'dialog.go_back': 'వెనక్కి వెళ్లు',
@@ -774,8 +738,7 @@ const te: Record<I18nKey, string> = {
   'dialog.room_password_title': 'గది పాస్‌వర్డ్‌ను నమోదు చేయి',
   'dialog.room_password_msg': 'ఈ గదిలో చేరడానికి పాస్‌వర్డ్ అవసరం.',
   'dialog.room_password_retry_msg': 'ఆ పాస్‌వర్డ్ సరిపోలలేదు',
-  'dialog.room_password_timeout_msg':
-    'కనెక్షన్ సమయం ముగిసింది. మళ్లీ ప్రయత్నించడానికి పాస్‌వర్డ్‌ను నమోదు చేయండి.',
+  'dialog.room_password_timeout_msg': 'కనెక్షన్ సమయం ముగిసింది. మళ్లీ ప్రయత్నించడానికి పాస్‌వర్డ్‌ను నమోదు చేయండి.',
   'dialog.room_password_placeholder': '8 అంకెల పాస్‌వర్డ్',
   'dialog.room_password_rate_limited':
     'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు\n{{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి',
@@ -794,11 +757,9 @@ const te: Record<I18nKey, string> = {
   'pro.activation_account_login_message': 'ఈ గదిని నమోదు చేసే ఖాతాతో సైన్ ఇన్ చేయండి.',
   'pro.activation_account_continue': 'నమోదు చేయి',
   'pro.activation_account_switch': 'మరో ఖాతా',
-  'pro.activation_account_unavailable':
-    'మీ ఖాతాను ధృవీకరించలేకపోయాం. కాసేపట్లో మళ్లీ ప్రయత్నించండి.',
+  'pro.activation_account_unavailable': 'మీ ఖాతాను ధృవీకరించలేకపోయాం. కాసేపట్లో మళ్లీ ప్రయత్నించండి.',
   'pro.claim_retry_title': 'PRO లింక్‌ను మళ్లీ ప్రయత్నించాలా?',
-  'pro.claim_retry_message':
-    'కనెక్షన్ మధ్యలో ఆగింది. లింక్ ఈ స్క్రీన్‌లో సురక్షితంగా ఉంది, కాబట్టి మళ్లీ ప్రయత్నించవచ్చు.',
+  'pro.claim_retry_message': 'కనెక్షన్ మధ్యలో ఆగింది. లింక్ ఈ స్క్రీన్‌లో సురక్షితంగా ఉంది, కాబట్టి మళ్లీ ప్రయత్నించవచ్చు.',
   'pro.claim_unavailable_title': 'ఈ లింక్‌ను ఇక ఉపయోగించలేరు',
   'pro.claim_login_title': 'ముందుగా సైన్ ఇన్ చేయండి',
   'pro.claim_login_button': 'సైన్ ఇన్',
@@ -817,10 +778,8 @@ const te: Record<I18nKey, string> = {
   'pro.claim_account_capacity_message':
     'ఈ ఖాతా PRO గది లింక్ పరిమితిని చేరుకుంది. ఇప్పటికే ఉన్న లింక్‌ను తొలగించి కొత్తదాన్ని అభ్యర్థించండి.',
   'pro.claim_failed_title': 'ఈ అభ్యర్థనను పూర్తి చేయలేకపోయాం',
-  'pro.claim_failed_message':
-    'భద్రత కోసం ఈ లింక్ మళ్లీ ప్రయత్నించబడలేదు. గది అడ్మిన్‌ను కొత్త లింక్ అడగండి.',
-  'pro.new_link_message':
-    'లింక్ గడువు ముగిసింది లేదా ఇప్పటికే ఉపయోగించబడింది. అవసరమైతే అడ్మిన్‌ను కొత్త లింక్ అడగండి.',
+  'pro.claim_failed_message': 'భద్రత కోసం ఈ లింక్ మళ్లీ ప్రయత్నించబడలేదు. గది అడ్మిన్‌ను కొత్త లింక్ అడగండి.',
+  'pro.new_link_message': 'లింక్ గడువు ముగిసింది లేదా ఇప్పటికే ఉపయోగించబడింది. అవసరమైతే అడ్మిన్‌ను కొత్త లింక్ అడగండి.',
   'pro.not_ready_title': 'ఈ PRO గది ఇంకా సిద్ధంగా లేదు',
   'pro.not_ready_message': 'గది యజమాని ముందుగా దీన్ని యాక్టివేట్ చేయాలి.',
   'pro.suspended_title': 'ఈ PRO గది అందుబాటులో లేదు',
@@ -838,30 +797,25 @@ const te: Record<I18nKey, string> = {
   'pro.pin_enabled': 'గది పాస్‌వర్డ్ సెట్ చేయబడింది',
   'pro.pin_members_title': 'ప్రస్తుత పాల్గొనేవారిని ఏం చేయాలి?',
   'pro.pin_members_keep': 'అందరినీ ఉండనివ్వు',
-  'pro.pin_members_keep_detail':
-    'మళ్లీ చేరే లేదా కొత్తగా చేరే పరికరాలు మాత్రమే పాస్‌వర్డ్‌ను నమోదు చేయాలి.',
+  'pro.pin_members_keep_detail': 'మళ్లీ చేరే లేదా కొత్తగా చేరే పరికరాలు మాత్రమే పాస్‌వర్డ్‌ను నమోదు చేయాలి.',
   'pro.pin_members_reenter': 'అందరూ మళ్లీ చేరాలి',
   'pro.pin_members_reenter_detail':
     'అందరూ మళ్లీ చేరాల్సి ఉంటుంది. తెలియని వ్యక్తులను ఒకేసారి తొలగించడానికి ఈ పద్ధతిని సిఫార్సు చేస్తున్నాం.',
   'pro.pin_enabled_removed_title': 'గదికి పాస్‌వర్డ్ సెట్ చేయబడింది',
-  'pro.pin_enabled_removed_message':
-    'గది యజమాని ఈ గదికి పాస్‌వర్డ్ సెట్ చేశారు. మళ్లీ చేరడానికి దాన్ని నమోదు చేయండి.',
+  'pro.pin_enabled_removed_message': 'గది యజమాని ఈ గదికి పాస్‌వర్డ్ సెట్ చేశారు. మళ్లీ చేరడానికి దాన్ని నమోదు చేయండి.',
   'pro.pin_changed_removed_title': 'గది పాస్‌వర్డ్ మారింది',
   'pro.pin_changed_removed_message':
     'గది యజమాని గది పాస్‌వర్డ్‌ను మార్చారు. మళ్లీ చేరడానికి కొత్త పాస్‌వర్డ్‌ను నమోదు చేయండి.',
   'pro.removed_title': 'మిమ్మల్ని గది నుండి తొలగించారు',
   'pro.removed_message': 'గది యజమాని లేదా ఒక అడ్మిన్ మిమ్మల్ని ఈ గది నుండి తొలగించారు.',
-  'pro.device_removed_message':
-    'మీ ఖాతాకు సైన్ ఇన్ అయిన మరో పరికరం ఈ పరికరాన్ని గది నుండి డిస్‌కనెక్ట్ చేసింది.',
+  'pro.device_removed_message': 'మీ ఖాతాకు సైన్ ఇన్ అయిన మరో పరికరం ఈ పరికరాన్ని గది నుండి డిస్‌కనెక్ట్ చేసింది.',
   'pro.owner_only': 'గది యజమాని మాత్రమే దీన్ని చేయగలరు',
   'pro.connect_failed': 'PRO గదికి కనెక్ట్ కాలేకపోయాం',
   'pro.room_full': 'ఈ PRO గది నిండిపోయింది',
   'pro.room_full_detail':
     'యజమానితో కలిపి గరిష్ఠంగా 100 పరికరాలు ఉండవచ్చు\nయజమాని కోసం ఎల్లప్పుడూ ఒక స్థానం ప్రత్యేకంగా ఉంచబడుతుంది',
-  'pro.join_rate_limited':
-    'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి\n{{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి',
-  'pro.join_rate_limited_later':
-    'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి\nకొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి',
+  'pro.join_rate_limited': 'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి\n{{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి',
+  'pro.join_rate_limited_later': 'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి\nకొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి',
   'pro.active_tab_title': 'మునుపటి కనెక్షన్ మిగిలి ఉంది',
   'pro.active_tab_message': 'ఇక్కడ కొనసాగితే మునుపటి కనెక్షన్ నిలిపివేయబడుతుంది.',
   'pro.active_tab_replaced': 'ఈ PRO గది ఇప్పటికే మరో ట్యాబ్‌లో తెరిచి ఉంది',
@@ -877,22 +831,19 @@ const te: Record<I18nKey, string> = {
     'ఈ PRO గదిలో ప్రస్తుతం మరిన్ని మార్పులు చేయలేము. కొద్దిసేపటి తర్వాత ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
   'pro.upload.pending_limit':
     'ఈ PRO గదిలో పూర్తికాని అప్‌లోడ్‌లు చాలా ఎక్కువగా ఉన్నాయి. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
-  'pro.upload.playlist_switched':
-    'ఈ ట్రాక్‌ను జోడించే ముందే మరో ప్లేలిస్ట్ సక్రియమైంది. ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
+  'pro.upload.playlist_switched': 'ఈ ట్రాక్‌ను జోడించే ముందే మరో ప్లేలిస్ట్ సక్రియమైంది. ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
   'pro.upload.permission_required': 'మీడియా నిర్వహణ అనుమతి అవసరం.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
   'pro.upload.confirming': 'అప్‌లోడ్ పూర్తవుతోంది {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ట్రాక్‌లు అప్‌లోడ్ అవుతున్నాయి {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'కొన్ని ట్రాక్‌లను అప్‌లోడ్ చేయలేకపోయాం',
-  'pro.upload.batch_failed_message':
-    'మీరు కోరిన {{total}} ట్రాక్‌లలో {{failed}} ట్రాక్‌లను అప్‌లోడ్ చేయలేకపోయాం.',
+  'pro.upload.batch_failed_message': 'మీరు కోరిన {{total}} ట్రాక్‌లలో {{failed}} ట్రాక్‌లను అప్‌లోడ్ చేయలేకపోయాం.',
   'pro.upload.cancel_file': '{{name}} అప్‌లోడ్‌ను రద్దు చేయి',
   'pro.upload.confirming_file': '{{name}} అప్‌లోడ్ పూర్తవుతోంది',
   'pro.downloading': 'ఫైల్ లోడ్ అవుతోంది...',
   'pro.quota_exceeded': 'ఈ PRO గది 1 GB స్టోరేజ్ పరిమితిని చేరుకుంది',
   'pro.file_too_large': 'ఈ ఫైల్ ఒక్కో ఫైల్‌కు ఉన్న 200 MB పరిమితి కంటే పెద్దది',
-  'pro.room_state_limit':
-    'ఈ PRO గదిలో ప్రస్తుతం మరిన్ని మార్పులు చేయలేము\nకొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి',
+  'pro.room_state_limit': 'ఈ PRO గదిలో ప్రస్తుతం మరిన్ని మార్పులు చేయలేము\nకొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':
@@ -944,24 +895,19 @@ const te: Record<I18nKey, string> = {
   'system_audio.no_audio_track': '“ఆడియోను షేర్ చేయి” ఆన్ చేయలేదు\nమళ్లీ ప్రయత్నించండి',
   'system_audio.stop': 'షేరింగ్‌ను ఆపు',
   'system_audio.stop_compact': 'ఆపు',
-  'system_audio.started':
-    'సిస్టమ్ ఆడియోలో కొద్దిగా ఆలస్యం ఉండవచ్చు\nవీలైతే సోర్స్ వాల్యూమ్‌ను తగ్గించండి',
+  'system_audio.started': 'సిస్టమ్ ఆడియోలో కొద్దిగా ఆలస్యం ఉండవచ్చు\nవీలైతే సోర్స్ వాల్యూమ్‌ను తగ్గించండి',
   'system_audio.stopped': 'సిస్టమ్ ఆడియో షేరింగ్ ముగిసింది\nప్లేలిస్ట్ మళ్లీ ప్రారంభమవుతోంది',
   'system_audio.host_channel_locked': 'సిస్టమ్ ఆడియో షేరింగ్ సమయంలో పాత్రలను మార్చలేరు',
-  'system_audio.effects_guest_only':
-    'సిస్టమ్ ఆడియో యాక్టివ్‌గా ఉంది\nసౌండ్ ఎఫెక్ట్‌లు అతిథి పరికరాలకు మాత్రమే వర్తిస్తాయి',
+  'system_audio.effects_guest_only': 'సిస్టమ్ ఆడియో యాక్టివ్‌గా ఉంది\nసౌండ్ ఎఫెక్ట్‌లు అతిథి పరికరాలకు మాత్రమే వర్తిస్తాయి',
   'system_audio.desktop_only':
     'Chromium ఆధారిత బ్రౌజర్‌ను (Chrome, Edge మొదలైనవి) ఉపయోగించే కంప్యూటర్లలో మాత్రమే అందుబాటులో ఉంటుంది',
-  'system_audio.receive_failed':
-    'సిస్టమ్ ఆడియోను స్వీకరించలేకపోయాం\nషేరింగ్‌ను మళ్లీ ప్రారంభించమని హోస్ట్‌ను అడగండి',
+  'system_audio.receive_failed': 'సిస్టమ్ ఆడియోను స్వీకరించలేకపోయాం\nషేరింగ్‌ను మళ్లీ ప్రారంభించమని హోస్ట్‌ను అడగండి',
   'system_audio.remote_receive_limit':
     '2 గంటల తర్వాత సిస్టమ్ ఆడియో స్వీకరణ ముగిసింది\nవినడం కొనసాగించడానికి గదిలో మళ్లీ చేరండి',
   'system_audio.device_limit':
     'సిస్టమ్ ఆడియో గరిష్ఠంగా {{count}} పరికరాలకు మద్దతు ఇస్తుంది\nఇందులో హోస్ట్ కూడా ఉంటారు',
-  'system_audio.device_limit_stopped':
-    'సిస్టమ్ ఆడియో షేరింగ్ ఆగిపోయింది\n{{count}} కంటే ఎక్కువ పరికరాలు కనెక్ట్ అయ్యాయి',
-  'system_audio.duration_limit_stopped':
-    '2 గంటల తర్వాత సిస్టమ్ ఆడియో షేరింగ్\nఆటోమేటిక్‌గా ముగిసింది',
+  'system_audio.device_limit_stopped': 'సిస్టమ్ ఆడియో షేరింగ్ ఆగిపోయింది\n{{count}} కంటే ఎక్కువ పరికరాలు కనెక్ట్ అయ్యాయి',
+  'system_audio.duration_limit_stopped': '2 గంటల తర్వాత సిస్టమ్ ఆడియో షేరింగ్\nఆటోమేటిక్‌గా ముగిసింది',
 
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'సేవా గమనికలు',

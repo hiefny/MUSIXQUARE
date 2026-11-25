@@ -33,31 +33,54 @@ function movieHeader(timescale = 1000): Uint8Array<ArrayBuffer> {
   return box('mvhd', bytes);
 }
 
+function handler(type: string): Uint8Array<ArrayBuffer> {
+  // Version and flags, pre_defined, handler_type, three reserved words, empty name.
+  const payload = new Uint8Array(25);
+  payload.set(new TextEncoder().encode(type), 8);
+  return box('hdlr', payload);
+}
+
+interface TrackOptions {
+  version?: number;
+  /** The mdia handler type, 'soun' for audio. */
+  handler?: string;
+  /** Where to put a trak-level udta/meta, whose own hdlr is 'mdir'. */
+  metadata?: 'before-media' | 'after-media';
+}
+
 function track(
   id: number,
   edits?: [duration: number, mediaTime: number, rate?: number][],
-  version = 0,
+  { version = 0, handler: type = 'soun', metadata }: TrackOptions = {},
 ): Uint8Array<ArrayBuffer> {
   const header = new Uint8Array(20);
   new DataView(header.buffer).setUint32(12, id);
-  if (!edits) return box('trak', box('tkhd', header));
-  const size = version === 1 ? 20 : 12;
-  const data = new Uint8Array(8 + size * edits.length);
-  const view = new DataView(data.buffer);
-  view.setUint8(0, version);
-  view.setUint32(4, edits.length);
-  edits.forEach(([duration, mediaTime, rate = 65536], i) => {
-    const offset = 8 + i * size;
-    if (version === 1) {
-      view.setBigUint64(offset, BigInt(duration));
-      view.setBigInt64(offset + 8, BigInt(mediaTime));
-    } else {
-      view.setUint32(offset, duration);
-      view.setInt32(offset + 4, mediaTime);
-    }
-    view.setInt32(offset + size - 4, rate);
-  });
-  return box('trak', box('tkhd', header), box('edts', box('elst', data)));
+  const boxes = [box('tkhd', header)];
+  if (edits) {
+    const size = version === 1 ? 20 : 12;
+    const data = new Uint8Array(8 + size * edits.length);
+    const view = new DataView(data.buffer);
+    view.setUint8(0, version);
+    view.setUint32(4, edits.length);
+    edits.forEach(([duration, mediaTime, rate = 65536], i) => {
+      const offset = 8 + i * size;
+      if (version === 1) {
+        view.setBigUint64(offset, BigInt(duration));
+        view.setBigInt64(offset + 8, BigInt(mediaTime));
+      } else {
+        view.setUint32(offset, duration);
+        view.setInt32(offset + 4, mediaTime);
+      }
+      view.setInt32(offset + size - 4, rate);
+    });
+    boxes.push(box('edts', box('elst', data)));
+  }
+  const media = box('mdia', handler(type));
+  const meta = box('udta', box('meta', new Uint8Array(4), handler('mdir'), box('ilst')));
+  if (metadata === 'before-media') boxes.push(meta, media);
+  else if (metadata === 'after-media') boxes.push(media, meta);
+  else boxes.push(media);
+  return box('trak', ...boxes);
 }
 
 function itunes(delay = '00000800', samples = '0000000000035D54'): Uint8Array<ArrayBuffer> {
@@ -89,17 +112,63 @@ describe('bounded AAC container timing', () => {
         box(
           'moov',
           movieHeader(),
-          track(1, [[12000, 0]], version),
-          track(2, [[5000, 2048]], version),
+          track(1, [[12000, 0]], { version }),
+          track(2, [[5000, 2048]], { version }),
         ),
       ]);
       const slice = vi.spyOn(blob, 'slice');
-      expect(await readAacContainerTiming(blob, 2, CONFIG)).toEqual({ origin: null, end: 5 });
+      expect(await readAacContainerTiming(blob, 2, 2, CONFIG)).toEqual({ origin: null, end: 5 });
       expect(slice.mock.calls.every(([start = 0, end = blob.size]) => end - start <= 40)).toBe(
         true,
       );
     },
   );
+
+  it('selects the audio trak by its number among soun traks, not by its tkhd track ID', async () => {
+    const renumbered = new Blob([box('moov', movieHeader(), track(7, [[5000, 2048]]))]);
+    expect(await readAacContainerTiming(renumbered, 1, 1, CONFIG)).toEqual({
+      origin: null,
+      end: 5,
+    });
+    // Selecting the video trak would refuse its two-entry edit list. Its tkhd
+    // ID 1 equals the audio track's position in getTracks() when audio is first.
+    const video = track(
+      1,
+      [
+        [1000, -1],
+        [12000, 0],
+      ],
+      { handler: 'vide' },
+    );
+    for (const traks of [
+      [video, track(2, [[5000, 2048]])],
+      [track(2, [[5000, 2048]]), video],
+    ]) {
+      const blob = new Blob([box('moov', movieHeader(), ...traks)]);
+      expect(await readAacContainerTiming(blob, 1, 1, CONFIG)).toEqual({ origin: null, end: 5 });
+    }
+  });
+
+  it.each(['after-media', 'before-media'] as const)(
+    'does not take the handler of trak-level metadata placed %s',
+    async (metadata) => {
+      const blob = new Blob([box('moov', movieHeader(), track(7, [[5000, 2048]], { metadata }))]);
+      expect(await readAacContainerTiming(blob, 1, 1, CONFIG)).toEqual({ origin: null, end: 5 });
+    },
+  );
+
+  it('refuses a soun trak count that differs from the decoder audio track count', async () => {
+    const two = new Blob([
+      box('moov', movieHeader(), track(1, [[5000, 2048]]), track(2, [[5000, 2048]])),
+    ]);
+    await expect(readAacContainerTiming(two, 1, 1, CONFIG)).rejects.toThrow(
+      'Ambiguous large AAC track layout',
+    );
+    const one = new Blob([box('moov', movieHeader(), track(1, [[5000, 2048]]))]);
+    await expect(readAacContainerTiming(one, 1, 2, CONFIG)).rejects.toThrow(
+      'Ambiguous large AAC track layout',
+    );
+  });
 
   it('refuses unverified leading empty edits and multiple audio edits', async () => {
     const empty = new Blob([
@@ -112,7 +181,7 @@ describe('bounded AAC container timing', () => {
         ]),
       ),
     ]);
-    await expect(readAacContainerTiming(empty, 1, CONFIG)).rejects.toThrow('edit list');
+    await expect(readAacContainerTiming(empty, 1, 1, CONFIG)).rejects.toThrow('edit list');
     const multiple = new Blob([
       box(
         'moov',
@@ -123,16 +192,16 @@ describe('bounded AAC container timing', () => {
         ]),
       ),
     ]);
-    await expect(readAacContainerTiming(multiple, 1, CONFIG)).rejects.toThrow('edit list');
+    await expect(readAacContainerTiming(multiple, 1, 1, CONFIG)).rejects.toThrow('edit list');
   });
 
   it('ignores unsupported edits on another track and accepts an empty selected edit list', async () => {
     const other = new Blob([
       box('moov', movieHeader(), track(1, [[5000, 0, 32768]]), track(2, [[5000, 2048]])),
     ]);
-    expect(await readAacContainerTiming(other, 2, CONFIG)).toEqual({ origin: null, end: 5 });
+    expect(await readAacContainerTiming(other, 2, 2, CONFIG)).toEqual({ origin: null, end: 5 });
     const empty = new Blob([box('moov', movieHeader(), track(1, []), itunes())]);
-    const timing = await readAacContainerTiming(empty, 1, CONFIG);
+    const timing = await readAacContainerTiming(empty, 1, 1, CONFIG);
     expect(timing.origin).toBeCloseTo(2048 / 44100, 12);
   });
 
@@ -140,7 +209,7 @@ describe('bounded AAC container timing', () => {
     const blob = new Blob([
       box('moov', movieHeader(), track(1), itunes('00000800', '000000000001AEAA')),
     ]);
-    const result = await readAacContainerTiming(blob, 1, {
+    const result = await readAacContainerTiming(blob, 1, 1, {
       ...CONFIG,
       description: new Uint8Array([19, 144, 86, 229, 160]),
     });
@@ -150,16 +219,21 @@ describe('bounded AAC container timing', () => {
 
   it('prefers explicit edits over iTunes tags and ignores invalid excessive priming', async () => {
     const edits = new Blob([box('moov', movieHeader(), track(1, [[5000, 1024]]), itunes())]);
-    expect(await readAacContainerTiming(edits, 1, CONFIG)).toEqual({ origin: null, end: 5 });
+    expect(await readAacContainerTiming(edits, 1, 1, CONFIG)).toEqual({ origin: null, end: 5 });
     const invalid = new Blob([box('moov', movieHeader(), track(1), itunes('00004000'))]);
-    expect(await readAacContainerTiming(invalid, 1, CONFIG)).toEqual({ origin: null, end: null });
+    expect(await readAacContainerTiming(invalid, 1, 1, CONFIG)).toEqual({
+      origin: null,
+      end: null,
+    });
   });
 
   it('refuses ambiguous multi-track gapless tags and non-unit edit rates', async () => {
     const multi = new Blob([box('moov', movieHeader(), track(1), track(2), itunes())]);
-    await expect(readAacContainerTiming(multi, 1, CONFIG)).rejects.toThrow('Ambiguous');
+    await expect(readAacContainerTiming(multi, 1, 2, CONFIG)).rejects.toThrow(
+      'Ambiguous large AAC gapless metadata',
+    );
     const rate = new Blob([box('moov', movieHeader(), track(1, [[5000, 0, 32768]]))]);
-    await expect(readAacContainerTiming(rate, 1, CONFIG)).rejects.toThrow('edit rate');
+    await expect(readAacContainerTiming(rate, 1, 1, CONFIG)).rejects.toThrow('edit rate');
   });
 
   it('does not apply MP4 timing to raw ADTS and stops scanning after cancellation', async () => {
@@ -167,13 +241,14 @@ describe('bounded AAC container timing', () => {
       await readAacContainerTiming(
         new Blob([new Uint8Array([255, 241, 80, 128, 2, 0, 0, 0])]),
         1,
+        1,
         CONFIG,
       ),
     ).toEqual({ origin: null, end: null });
     const blob = new Blob([box('moov', movieHeader(), track(1), itunes())]);
     let checks = 0;
-    await expect(readAacContainerTiming(blob, 1, CONFIG, () => ++checks < 4)).rejects.toMatchObject(
-      { name: 'AbortError' },
-    );
+    await expect(
+      readAacContainerTiming(blob, 1, 1, CONFIG, () => ++checks < 4),
+    ).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

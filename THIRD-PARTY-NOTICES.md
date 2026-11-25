@@ -36,18 +36,18 @@ the licensing and copyright information distributed with those components.
 
 ## 6. Mediabunny (Large-Track Container Parsing And Incremental Audio)
 
-- **Version**: 1.61.3
+- **Version**: 1.66.4
 - **License**: Mozilla Public License 2.0
 - **Copyright**: Copyright (c) 2026-present, Vanilagy and contributors
 - **Corresponding source**:
-  [Mediabunny at the package's source revision](https://github.com/Vanilagy/mediabunny/tree/9d36fc5779b254904bc609e66f2cd80ed8390b4b)
+  [Mediabunny at the package's source revision](https://github.com/Vanilagy/mediabunny/tree/2953e86300eb0b086a7e7e4aeaa0d9afd345339e)
 - **License text**:
   [Mozilla Public License 2.0](public/licenses/mediabunny-mpl-2.0.txt)
 
 ## 7. WASM Audio Decoder JavaScript Wrappers
 
 - **Packages**: `mpg123-decoder` 1.0.3,
-  `@wasm-audio-decoders/flac` 0.2.11,
+  `@wasm-audio-decoders/flac` 0.2.12,
   `@wasm-audio-decoders/aac` 0.0.1, and
   `@wasm-audio-decoders/common` 9.0.7
 - **License of the wrapper code**: MIT License (text below)
@@ -57,7 +57,7 @@ the licensing and copyright information distributed with those components.
   Copyright 2026 Ethan Halsall (`@wasm-audio-decoders/aac`)
 - **Corresponding source and build recipes**:
   [MP3 decoder source revision](https://github.com/eshaz/wasm-audio-decoders/tree/8f2428c1cd96b54dab74836c8471ff75fe35cbee),
-  [FLAC decoder source revision](https://github.com/eshaz/wasm-audio-decoders/tree/11530fe7d1ed6d78e6b968297e7f858c322704d2),
+  [FLAC decoder source revision](https://github.com/eshaz/wasm-audio-decoders/tree/8f41ee11e769951eeefe56e56ed5080994d3b02d),
   [AAC decoder source revision and build recipes](https://github.com/eshaz/wasm-audio-decoders/tree/826e2d079e744697a2cfcde406db7ffd894447af),
   [shared wrapper source revision](https://github.com/eshaz/wasm-audio-decoders/tree/e4f7eef8cda48719a884023582d8efc5b8d76f6c)
 

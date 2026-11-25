@@ -28,7 +28,7 @@ jobs:
     # image (tag = locked @playwright/test version), not from apt on Azure's
     # Ubuntu mirrors, whose stalls often broke the browser install step.
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
       options: --user 1001 --ipc=host
     env:
       TZ: Etc/UTC
@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same Playwright image as the e2e job above.
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
       options: --user 1001 --ipc=host
     env:
       TZ: Etc/UTC
@@ -137,7 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same Playwright image as the e2e job above.
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
       options: --user 1001 --ipc=host
     env:
       TZ: Etc/UTC

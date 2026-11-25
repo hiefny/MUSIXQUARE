@@ -272,8 +272,7 @@ describe('completed translation factual contracts', () => {
       th: {
         'dialog.room_password_rate_limited':
           'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
-        'dialog.room_password_rate_limited_later':
-          'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
+        'dialog.room_password_rate_limited_later': 'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
         'pro.join_rate_limited': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
         'pro.join_rate_limited_later': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในภายหลัง',
         'pro.room_full_detail':
@@ -328,10 +327,7 @@ describe('completed translation factual contracts', () => {
       'That password did not match',
       'That password is not correct',
     ]);
-    expect(keys.map((key) => APP_DICTIONARIES.th[key])).toEqual([
-      'รหัสผ่านไม่ตรงกัน',
-      'รหัสผ่านไม่ถูกต้อง',
-    ]);
+    expect(keys.map((key) => APP_DICTIONARIES.th[key])).toEqual(['รหัสผ่านไม่ตรงกัน', 'รหัสผ่านไม่ถูกต้อง']);
     expect(keys.map((key) => APP_DICTIONARIES['zh-hans'][key])).toEqual([
       '密码不正确',
       '密码不正确',

@@ -35,7 +35,11 @@ test('a failed locale module recovers through public re-selection without reload
   await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
   await expect(page.locator('html')).toHaveAttribute('data-recovery-document', 'same-document');
   expect(recoveryRequests).toHaveLength(1);
-  expect(failedRequests).toBe(1);
+  // Chromium 153 rejected the re-selection from the document's module map;
+  // Chromium 159 fetches the failed module URL again, which the route fails
+  // again. Either way the re-selection asks for the module at most once more.
+  expect(failedRequests).toBeGreaterThanOrEqual(1);
+  expect(failedRequests).toBeLessThanOrEqual(2);
 });
 
 test('a failed optional font CSS retries its immutable URL at a later render', async ({ page }) => {

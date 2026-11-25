@@ -380,7 +380,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '9.0.843';
+const ADMIN_ASSET_VERSION = '9.0.844';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -619,6 +619,17 @@ const SCREENSAVER_SECURITY_HEADERS = {
   'Permissions-Policy': 'camera=(), microphone=(), display-capture=(), geolocation=(), payment=()',
   'Content-Security-Policy':
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+};
+
+const LOADING_PREVIEW_SECURITY_HEADERS = {
+  'Cache-Control': 'public, max-age=0, must-revalidate',
+  'CDN-Cache-Control': 'no-store',
+  'Cloudflare-CDN-Cache-Control': 'no-store',
+  'X-Frame-Options': 'DENY',
+  'X-Robots-Tag': 'noindex, nofollow',
+  'Permissions-Policy': 'camera=(), microphone=(), display-capture=(), geolocation=(), payment=()',
+  'Content-Security-Policy':
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'none'; worker-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
 };
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {
@@ -16194,6 +16205,12 @@ function redirectTarget(pathname: string) {
   if (['/landing', '/landing/'].includes(lower)) return '/about';
   if (/^\/translate(?:\.html)?\/*$/.test(lower) && pathname !== '/translate') return '/translate';
   if (/^\/sitemap(?:\.html)?\/*$/.test(lower) && pathname !== '/sitemap') return '/sitemap';
+  if (
+    /^\/designsystem\/loading(?:\.html)?\/*$/.test(lower) &&
+    pathname !== '/designsystem/loading'
+  ) {
+    return '/designsystem/loading';
+  }
   if (['/changelog', '/changelog/', '/roadmap', '/roadmap/'].includes(lower)) return '/history';
   const canonical = new Map([
     ['/about', '/about'],
@@ -16260,6 +16277,9 @@ function routeStaticPath(pathname: string) {
   if (path === '/sitemap' || path === '/sitemap/') return '/sitemap.html';
   if (path === '/history' || path === '/history/') return '/history/index.html';
   if (path === '/designsystem' || path === '/designsystem/') return '/designsystem/index.html';
+  if (path === '/designsystem/loading' || path === '/designsystem/loading/') {
+    return '/designsystem/loading.html';
+  }
   if (eventCampaignSlugFromPath(path)) return EVENT_PAGE_ASSET_PATH;
   return null;
 }
@@ -16410,7 +16430,7 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
     const preserveUrlState =
       localizedRoute !== null ||
       legacyLocalePathRedirect(url.pathname) !== null ||
-      /^\/(?:about(?:\.html)?|translate(?:\.html)?|sitemap(?:\.html)?|blog|privacy|terms|faq|developers|history|designsystem)\/*$/iu.test(
+      /^\/(?:about(?:\.html)?|translate(?:\.html)?|sitemap(?:\.html)?|blog|privacy|terms|faq|developers|history|designsystem(?:\/loading(?:\.html)?)?)\/*$/iu.test(
         url.pathname,
       );
     const target = new URL(redirect, url);
@@ -16464,6 +16484,15 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
   ) {
     return withSecurityHeaders(await fetchAsset(env, request, '/screensaver.html'), {
       ...SCREENSAVER_SECURITY_HEADERS,
+    });
+  }
+
+  if (
+    url.pathname === '/designsystem/loading' &&
+    (request.method === 'GET' || request.method === 'HEAD')
+  ) {
+    return withSecurityHeaders(await fetchAsset(env, request, '/designsystem/loading.html'), {
+      ...LOADING_PREVIEW_SECURITY_HEADERS,
     });
   }
 

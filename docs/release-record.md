@@ -53,7 +53,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `agent/deps-9-0-842`(main `85ed5715`(#639) 위 커밋 열과 그 뒤의 문서 커밋 `19054043`, `9e3fce0b`)가 #640으로 21:33:01 KST에 main `4de95529`에 squash로
       머지됐다(머지 트리는 `9e3fce0b`의 트리와 같다). 운영 `d40e8c8a`와 견준 App 런타임 경로 36개(공유 카드 16, Prettier 줄바꿈 12, 긴 트랙 엔진 3, 로케일 불러오기 주석 1, 버전 거울
       넷)와 App 런타임 의존성(Mediabunny 1.61.3 → 1.66.4, `@wasm-audio-decoders/flac` 0.2.11 → 0.2.12), 다른 다섯 Worker 0개. 의존성과 버전 요구(Node 24.22.3,
-      npm 12.2.3, 개발 도구, override, `allowScripts`, Worker 타입 파일 여섯)는 §1 '의존성·호환'에 적었다. 2026-10-12부터 열려 있던 Dependabot 묶음 #297은 머지 뒤
+      npm 12.2.3, 개발 도구, override, `allowScripts`, Worker 타입 파일 여섯)는 보고서의 [의존성 표](design/app-9-0-842-train-2026-11-25.md#52-의존성-표),
+      [Node·npm 고정값](design/app-9-0-842-train-2026-11-25.md#53-nodenpm-고정값-override-allowscripts-worker-타입)과
+      [싣지 않은 것](design/app-9-0-842-train-2026-11-25.md#54-싣지-않은-것과-이유)에 적었다. 2026-10-12부터 열려 있던 Dependabot 묶음 #297은 머지 뒤
       21:33:51 KST에 #640을 가리키는 댓글과 함께 닫았고(네 업데이트 모두 이 열차가 더 새 판으로 실음), 그 뒤 열린 PR은 없었다. Dependabot alert #35(minimatch,
       GHSA-g3hv-75wg-m249, medium, development)는 GitHub이 main의 lockfile을 읽은 21:33:10 KST(머지 9초 뒤)에 fixed가 됐고, 그 뒤 열린 Dependabot 알림은 0이다.
       기기 판정은 아래 블라인드 후보로 남는다. [보고서](design/app-9-0-842-train-2026-11-25.md),
@@ -71,14 +73,15 @@ gh run list --workflow e2e.yml --branch main --limit 3
       건너뜀, 커버리지 셋, `build:checked`, 운영 9.0.841과 같은 바탕 빌드와의 비교, `check:worker-bundles`, 핵심 Chromium E2E 101 통과, 미디어 parity·hybrid E2E
       34 통과, 후보 레인 1행 실패(Chromium 159가 실패한 로케일 모듈 URL을 다시 가져옴). 보고서 §4.10(`a4115666`): 시험 고침 뒤 `typecheck`, `format:check`,
       `lint`, `src/i18n` 단위 54파일 1,034 통과, `build:checked`(운영 빌드가 첫 라운드와 938파일 모두 바이트까지 같음), 후보 20 통과·11 건너뜀, 로케일 복구
-      명세 2 통과. 갈래 Full E2E [45589921727](https://github.com/hiefny/MUSIXQUARE/actions/runs/45589921727)(게이트 아님)도 통과했고(§1 'Full E2E'), 머지 전에
-      Wrangler 4.148.0과 4.168.0의 릴리스 출력을 로컬 mock Cloudflare API에서 견줘 막는 것이 없었다([보고서 §4.12](design/app-9-0-842-train-2026-11-25.md#412-wrangler-41680-출력-비교-배포-전-로컬-mock)).
+      명세 2 통과. 갈래 Full E2E [45589921727](https://github.com/hiefny/MUSIXQUARE/actions/runs/45589921727)(게이트 아님)도
+      통과했고([보고서 §4.11](design/app-9-0-842-train-2026-11-25.md#411-갈래-full-e2e-a4115666)), 머지 전에 Wrangler 4.148.0과 4.168.0의 릴리스 출력을 로컬
+      mock Cloudflare API에서 견줘 막는 것이 없었다([보고서 §4.12](design/app-9-0-842-train-2026-11-25.md#412-wrangler-41680-출력-비교-배포-전-로컬-mock)).
       (3) PR CI는 머리 `19054043`의 [45601134692](https://github.com/hiefny/MUSIXQUARE/actions/runs/45601134692)(attempt 1, 11 jobs)가 success였고, 마지막 머리
       `9e3fce0b`의 [45604599912](https://github.com/hiefny/MUSIXQUARE/actions/runs/45604599912)와 exact-main CI [45614833544](https://github.com/hiefny/MUSIXQUARE/actions/runs/45614833544)는
       둘 다 attempt 1에서 npm 레지스트리의 서명 응답 문제로 의존성 서명 확인만 실패해, 실패한 job만 다시 돌린 attempt 2가 success였다(§1 '배포 main SHA',
-      '검증 범위'). PR CI는 Linux에서 Node 24.22.3과 Playwright 이미지 `v1.65.1-noble`로 돈 첫 확인이었다(CI의 npm은 아래 남긴 한계). exact-main CI가 끝난 뒤
-      Release를 dispatch했고(21:46:24 KST), Release는 exact-main CI attempt 1의 후보 artifact를 썼다. (4) 배포 뒤 공개 읽기와 첫 방문(21:49 ~ 21:50 KST), Drift
-      [45617401121](https://github.com/hiefny/MUSIXQUARE/actions/runs/45617401121)(32 / 0 / 5)가 통과했다. 머지 뒤 Full E2E
+      '검증 범위'). PR CI도 (2)의 갈래 Full E2E처럼 Linux에서 Node 24.22.3과 Playwright 이미지 `v1.65.1-noble`로 돌았다(CI의 npm은 아래 남긴 한계).
+      exact-main CI가 끝난 뒤 Release를 dispatch했고(21:46:24 KST), Release는 exact-main CI attempt 1의 후보 artifact를 썼다. (4) 배포 뒤 공개 읽기와 첫
+      방문(21:49 ~ 21:50 KST), Drift [45617401121](https://github.com/hiefny/MUSIXQUARE/actions/runs/45617401121)(32 / 0 / 5)이 통과했다. 머지 뒤 Full E2E
       [45617406923](https://github.com/hiefny/MUSIXQUARE/actions/runs/45617406923): FULL_E2E_PENDING. 다음 App 업데이트는 9.0.843 / v843 이상이고, 이 열차의 머지
       뒤 Full E2E가 통과하고 이 기록이 머지된 뒤에 머지할 수 있다(한 번에 한 열차).
 - [ ] 되돌리기([보고서 §6](design/app-9-0-842-train-2026-11-25.md#6-되돌리기와-남긴-한계)): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지
@@ -91,14 +94,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
       견준 것은 Chromium뿐이다. 시험하지 않은 Mediabunny 동작 변경: VBRI MP3의 소리가 MP3 프레임 하나(약 26ms)만큼 일찍 나오고 그만큼 짧게
       끝남(아마 기본 해독에 더 가까움), blockAlign이 어긋난 WAV를 다르게 읽을 수 있음, Matroska CodecDelay를 따름, 1.62의 강화가 일부 깨진 파일을
       거절함. Mediabunny만 받아들이는 깨진 태그의 MP3는 시작이 기본 해독과 같고, 끝에 기본 해독이 잘라내는 731 샘플(16.6ms)이 남는다. jsdom 31은
-      싣지 않았고 miniflare 안의 ws 8.21.0은 그대로다(공지 없음). Wrangler 4.168.0은 이 배포에서 운영 계정에서 처음 돌았고(`whoami`, `secret list --format json`,
+      싣지 않았고 miniflare 안의 ws 8.21.0은 그대로다(공지 없음). Wrangler 4.168.0은 이 배포로 운영 계정에서 처음 돌았고(`whoami`, `secret list --format json`,
       `deployments status --json`, `d1 execute --json`과 `--file`, App 배포) 모두 성공해 파서가 모두 그 출력을 받아들였다. 4.168.0으로 도는 실패 자동 복구와 CLI
-      `rollback`은 운영에서 돈 적이 없다(로컬 mock에서는 4.148.0과 같은 요청과 출력). 다른 다섯 Worker는 다음 배포까지 Wrangler 4.148.0으로 묶은 배포
-      그대로이고, R2 CORS·lifecycle 글 파서는 머지 전에 로컬 mock에서만 4.148.0과 견줬을 뿐(같은 PUT 몸통, grep하는 글은 배너의 판 말고 같음) 다음
-      `all`·`remote-share`·`pro-room` 릴리스에서 처음 실제로 돈다. 4.168.0의 새 동작은 릴리스가 실패로 읽지 않는다: 신호로 죽은 CLI가 0이 아니라 128+신호로
-      끝나 실패 길과 복구로 감(더 안전), `<설정 폴더>/.cloudflare/output/v<N>`이 있으면 `deploy`를 거절함(그 폴더는 없고 저장소는 만들지 않음), 자산 올리기
-      세션을 5xx·429·네트워크 오류에 세 번까지 시도함, 토큰이 없을 때 stderr에 `--temporary` 안내를 더함(종료 1 그대로), undici 7.30.2와 cloudflare SDK 5.2.0을
-      실행 때 읽어 호출마다 시작이 약 0.25 ~ 0.35초 느림, 새로 짠 npm 업데이트 확인은 배너 끝과 stderr 경고, 오류 길의 안내에만 닿음. 두 판 모두에 있던
+      `rollback`은 운영에서 돈 적이 없다(로컬 mock에서는 4.148.0과 같은 요청, 출력은 배너의 판 줄만 다름). 다른 다섯 Worker는 다음 배포까지 Wrangler 4.148.0으로
+      묶은 배포 그대로이고, R2 CORS·lifecycle 글 파서는 머지 전에 로컬 mock에서만 4.148.0과 견줬을 뿐(같은 PUT 몸통, grep하는 글은 배너의 판 말고 같음) 다음
+      `all`·`remote-share`·`pro-room` 릴리스에서 처음 실제로 돈다. 4.168.0의 새 동작 가운데 정상 실행을 실패로 바꾸는 것은 없다: 신호로 죽은 CLI가 0이 아니라
+      128+신호로 끝나 실패 길과 복구로 감(더 안전), `<설정 폴더>/.cloudflare/output/v<N>`이 있으면 `deploy`를 거절함(그 폴더는 없고 저장소는 만들지 않음), 자산
+      올리기 세션을 5xx·429·네트워크 오류에 세 번까지 시도함, 토큰이 없을 때 stderr에 `--temporary` 안내를 더함(종료 1 그대로), undici 7.30.2와 cloudflare SDK
+      5.2.0을 실행 때 읽어 호출마다 시작이 약 0.25 ~ 0.35초 느림, 새로 짠 npm 업데이트 확인은 배너 끝과 stderr 경고, 오류 길의 안내에만 닿음. 두 판 모두에 있던
       위험(지금은 일어나지 않음): 설정에 예상 밖 필드가 있고 npm에 더 새 wrangler가 있으면 업그레이드 안내가 stdout에 찍혀 JSON 모드의 `secret list`와 `d1`
       읽기가 닫힌 채 실패한다(지금 설정은 두 판 모두 설정 경고 없음, [보고서 §4.12](design/app-9-0-842-train-2026-11-25.md#412-wrangler-41680-출력-비교-배포-전-로컬-mock)).
       npm 레지스트리가 같은 날 두 번(PR CI 20:29, exact-main CI 21:34 KST) `workerd@1.20261123.1`의 서명 주소에 본문 'OK'로 답해 CI의 `npm audit signatures`가
@@ -8354,9 +8357,10 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
     lockfile로 하는 CLI 되돌리기는 이제 Wrangler 4.168.0으로 돈다(`rollback`은 운영에서 4.168.0으로 돈 적이 없고, 로컬 mock에서는 4.148.0과 같은 요청 넷과 몸통,
     보고서 §4.12). 공유 카드는 같은 주소라 SNS가 이미 캐시한 새 카드는 캐시가 끝날 때까지 남는다.
   - 실패한 `app` 실행의 자동 복구: App 배포 뒤 단계가 실패하면 그 실행의 checkpoint App(9.0.841 `e1d00867`)을 되돌린다. 이 릴리스는 계약 표지와 forward floor를 더하지
-    않아 그 되돌림을 막지 않는다. 그 복구(`release-recovery.yml`)도 그 커밋에서 `npm ci`를 하고 Wrangler 4.168.0으로 돈다(운영에서는 돈 적이 없고, `deployments status`와
-    `rollback`의 출력과 요청은 로컬 mock에서 4.148.0과 같았음. 신호로 죽은 배포가 이제 실패 길로 가 복구를 시작함, 보고서 §4.12). `app`의 배포 뒤 smoke는 HTTP만 보고
-    긴 트랙 재생과 공유 카드를 보지 않는다. 이 릴리스는 성공해 그 복구는 돌지 않았다.
+    않아 그 되돌림을 막지 않는다. 그 복구(`release.yml` 배포 job의 복구 단계와 독립 recovery job `release-recovery.yml`)도 그 커밋에서 `npm ci`를 하고 Wrangler
+    4.168.0으로 돈다(운영에서는 돈 적이 없고, 로컬 mock에서 `deployments status`의 stdout은 4.148.0과 바이트까지 같았고 `rollback`은 같은 요청 넷과 몸통을
+    보냈음(배너의 판 줄만 다름). 신호로 죽은 배포가 이제 실패 길로 가 복구를 시작함, 보고서 §4.12). `app`의 배포 뒤 smoke는 HTTP만 보고 긴 트랙 재생과 공유
+    카드를 보지 않는다. 이 릴리스는 성공해 그 복구는 돌지 않았다.
   - 사용자가 알아챌 변화: 업데이트 창이 한 번 뜬다. 앱 화면과 문구는 그대로다. 링크를 메신저나 SNS에 붙이면 보이는 공유 카드 16장은 제목과 부제 글자의 가장자리만
     조금 바뀌었다(두 낱말 제목의 낱말 사이가 3 ~ 4px 좁아지고 부제가 1px 올라감, SNS가 캐시한 예전 카드는 캐시가 끝날 때까지 보일 수 있음). 큰 로컬 파일을 조각으로
     해독하는 긴 트랙 엔진은 Mediabunny 1.66.4에서도 MP3·M4A의 시작과 길이를 기본 해독과 같게 지킨다(자동화로 견준 것은 Chromium뿐). Mediabunny만 받아들이는 깨진

@@ -101,8 +101,8 @@ runbooks. Neither belongs in a general setup document.
   842, target `app`, one update dialog; App `e1d00867` to `e9533066`), the first release to run Wrangler 4.168.0 against
   the production account (`whoami`, `secret list`, `deployments status`, `d1 execute` and the deploy all passed, and
   every parser accepted the output); the public reads and the Drift Audit passed, and the post-merge Full E2E
-  45617406923: FULL_E2E_PENDING. PR CI 45601134692 passed at the head `19054043` (all 11 jobs). At the last head
-  `9e3fce0b`, PR CI 45604599912 and then exact-main CI 45614833544 each failed at attempt 1 only in
+  45617406923: FULL_E2E_PENDING. PR CI 45601134692 passed at the head `19054043` (all 11 jobs). PR CI 45604599912 at
+  the last head `9e3fce0b` and then exact-main CI 45614833544 at `4de95529` each failed at attempt 1 only in
   `npm audit signatures`, when the npm registry answered the `workerd@1.20261123.1` attestation URL with the body "OK"
   instead of JSON, and passed when the failed jobs were re-run (`npm audit --omit=dev` found 0 vulnerabilities; the
   release used exact-main CI's attempt-1 candidate). Before the merge, both Wrangler builds ran the release's four

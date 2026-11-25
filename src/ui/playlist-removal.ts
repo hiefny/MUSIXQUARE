@@ -38,6 +38,18 @@ const BAR_EXIT_EASING = 'cubic-bezier(0.4, 0, 0.9, 0.6)';
  * scroll that never arrives cannot hold the list or the room.
  */
 const ROOM_SCROLL_LIMIT_MS = 600;
+/**
+ * A phone toast that moves above the bar keeps this far from it, the same
+ * gap the fallback in css/style.css keeps above the floating bar (the layout
+ * contract test pins the two together).
+ */
+const TOAST_CLEARANCE_PX = 16;
+/**
+ * Whether the toast moves is decided as if its message were at least this
+ * many lines tall. The first message of a session, or the next one, then
+ * cannot change the decision as it appears and send the toast across the bar.
+ */
+const TOAST_LINES_DECIDED_ALIKE = 3;
 /** The tab header crossfades between its normal and selection controls. */
 const HEADER_FADE_OUT_MS = 180;
 const HEADER_FADE_IN_MS = 240;
@@ -238,6 +250,10 @@ export function createPlaylistRemovalController(
   let exitLayer: HTMLElement | null = null;
   let headerFadeLayer: HTMLElement | null = null;
   let headerFadeTimer = 0;
+  /** The toast keeps clear of the bar while it is up (keepToastClear). */
+  const toast = document.getElementById('toast');
+  let toastClearBottom: string | null = null;
+  let toastClearObserver: ResizeObserver | null = null;
   // Selection blocks morph as whole pills once this loads after the list
   // mounts (docs/design/initial-bundle-loading-policy.md); until then, and
   // with reduced motion or forced colors, each row's fill changes in place.
@@ -341,6 +357,76 @@ export function createPlaylistRemovalController(
     }
   }
 
+  /**
+   * The height the decision allows the toast: its message, but never less
+   * than TOAST_LINES_DECIDED_ALIKE lines of it with the pill's padding.
+   */
+  function toastHeightDecided(element: HTMLElement): number {
+    const message = element.firstElementChild;
+    if (!message) return element.offsetHeight;
+    const style = getComputedStyle(message);
+    const lines =
+      Number.parseFloat(style.paddingTop) +
+      Number.parseFloat(style.paddingBottom) +
+      TOAST_LINES_DECIDED_ALIKE * Number.parseFloat(style.lineHeight);
+    return Number.isFinite(lines) ? Math.max(element.offsetHeight, lines) : element.offsetHeight;
+  }
+
+  /**
+   * A phone toast keeps clear of the bar. On a long list the bar floats above
+   * the nav, but on a short one it follows the last track, so no single place
+   * suits the toast: while the bar is up the toast stays at its usual place
+   * unless the bar comes within TOAST_CLEARANCE_PX of it there, and then sits
+   * that far above the bar's top. A message longer than the lines the
+   * decision allows counts with its own height, so it moves too. CSS applies
+   * the place on a phone only (css/style.css), and falls back to the floating
+   * bar's when unset.
+   */
+  function keepToastClear(): void {
+    if (!toast) return;
+    let value: string | null = null;
+    const rest =
+      barState === 'select'
+        ? Number.parseFloat(getComputedStyle(toast).getPropertyValue('--toast-rest-bottom'))
+        : Number.NaN;
+    if (Number.isFinite(rest)) {
+      const scale = getBodyRenderedScale();
+      const barTop = restingBarTop(scale);
+      const barBottom = barTop + bar.offsetHeight * scale;
+      // The toast's usual place in viewport pixels: a phone, where CSS uses
+      // the place, renders the body unscaled, so CSS pixels match them.
+      const restBottom = window.innerHeight - rest;
+      const restTop = restBottom - toastHeightDecided(toast);
+      const clear =
+        barBottom + TOAST_CLEARANCE_PX <= restTop + 0.5 ||
+        barTop - TOAST_CLEARANCE_PX >= restBottom - 0.5;
+      value = clear
+        ? 'var(--toast-rest-bottom)'
+        : `calc(100% - ${Math.round(barTop - TOAST_CLEARANCE_PX)}px)`;
+    }
+    if (value === toastClearBottom) return;
+    toastClearBottom = value;
+    if (value === null) toast.style.removeProperty('--toast-clear-bottom');
+    else toast.style.setProperty('--toast-clear-bottom', value);
+  }
+
+  /**
+   * While the bar is up, a new message's height, the list's length and the
+   * view's size can each bring the toast and the bar together (scrolling the
+   * end of a long list is followed separately).
+   */
+  function watchToastClearance(on: boolean): void {
+    if (!on) {
+      toastClearObserver?.disconnect();
+      return;
+    }
+    if (!toast || typeof ResizeObserver !== 'function') return;
+    toastClearObserver ??= new ResizeObserver(keepToastClear);
+    toastClearObserver.observe(toast);
+    toastClearObserver.observe(list);
+    if (scroller) toastClearObserver.observe(scroller);
+  }
+
   function scrollRoom(kind: 'reveal' | 'exit', top: number): void {
     if (!scroller) return;
     roomScroll = { kind, top, until: performance.now() + ROOM_SCROLL_LIMIT_MS };
@@ -442,6 +528,7 @@ export function createPlaylistRemovalController(
   function setBarState(state: BarState): void {
     if (state === barState && state !== 'select') return;
     stopBarAnimations();
+    const wasUp = barState === 'select';
     const reentering = barState === 'leaving' && state === 'select';
     if (state !== barState) {
       // The room's own scroll belongs to the state it started in.
@@ -468,6 +555,9 @@ export function createPlaylistRemovalController(
       selectionEndPending = false;
       queueMicrotask(releaseSelection);
     }
+    if (state !== 'select') watchToastClearance(false);
+    else if (!wasUp) watchToastClearance(true);
+    keepToastClear();
   }
 
   function canAnimateBarExit(): boolean {
@@ -1139,6 +1229,23 @@ export function createPlaylistRemovalController(
     );
   }
 
+  // At the end of a long list the bar leaves its floating place and rides up
+  // with the last track, and the toast keeps clear of it on the way.
+  scroller?.addEventListener(
+    'scroll',
+    () => {
+      if (barState === 'select') keepToastClear();
+    },
+    { passive: true, signal: abortController.signal },
+  );
+  window.addEventListener(
+    'resize',
+    () => {
+      if (barState === 'select') keepToastClear();
+    },
+    { signal: abortController.signal },
+  );
+
   syncDom();
 
   // Drag selection is an accelerator over the check circles, which already
@@ -1184,6 +1291,10 @@ export function createPlaylistRemovalController(
       revealFrame = 0;
       pressedPointers.clear();
       roomScroll = null;
+      toastClearObserver?.disconnect();
+      toastClearObserver = null;
+      if (toastClearBottom !== null) toast?.style.removeProperty('--toast-clear-bottom');
+      toastClearBottom = null;
       removeExitLayer();
       removeHeaderFade();
       morph?.destroy();

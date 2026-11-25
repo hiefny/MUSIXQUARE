@@ -58,7 +58,9 @@ describe('visualizer layout contract', () => {
       /\.bottom-nav\s*\{[\s\S]*?padding:\s*10px 16px calc\(10px \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\)\);/u,
     );
     expect(stylesheet).toMatch(/\.nav-item\s*\{[\s\S]*?min-height:\s*44px;/u);
-    expect(stylesheet).toMatch(/\.toast\s*\{[\s\S]*?bottom:\s*110px;/u);
+    expect(stylesheet).toMatch(
+      /\.toast\s*\{[^}]*?--toast-rest-bottom:\s*110px;[^}]*?bottom:\s*var\(--toast-rest-bottom\);/u,
+    );
     expect(stylesheet).toMatch(
       /\.playlist-selection-bar\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?bottom:\s*-10px;/u,
     );
@@ -111,12 +113,20 @@ describe('visualizer layout contract', () => {
       px(rule('.playlist-selection-action'), /\bheight:\s*(\d+)px;/u) +
       2 * px(bar, /\bpadding:\s*(\d+)px;/u) +
       2 * px(bar, /\bborder:\s*(\d+)px solid/u);
+    // The bar's owner writes the place while the bar is up; until then the
+    // toast keeps above the floating bar.
     const toastOffset = px(
       stylesheet,
-      /\.playlist-selection-bar:not\(\[hidden\]\):not\(\[data-state='leaving'\]\)\)\s*\.toast\s*\{\s*bottom:\s*calc\(var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\) \+ (\d+)px\);/u,
+      /@media \(max-width: 719\.98px\)\s*\{\s*body:has\(#tab-playlist\.active \.playlist-selection-bar:not\(\[hidden\]\):not\(\[data-state='leaving'\]\)\)\s*\.toast\s*\{\s*bottom:\s*var\(\s*--toast-clear-bottom,\s*calc\(var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\) \+ (\d+)px\)\s*\);/u,
+    );
+    // The gap the bar's owner keeps when it moves a toast above the bar.
+    const toastClearance = px(
+      readFileSync(resolve('src/ui/playlist-removal.ts'), 'utf8'),
+      /\bconst TOAST_CLEARANCE_PX = (\d+);/u,
     );
     expect({ barAboveNav, barHeight }).toEqual({ barAboveNav: 14, barHeight: 70 });
     expect(toastOffset - barAboveNav - barHeight).toBe(16);
+    expect(toastClearance).toBe(16);
   });
 
   it('centers both visualizer modes inside the shared stage without sizing the stage', () => {

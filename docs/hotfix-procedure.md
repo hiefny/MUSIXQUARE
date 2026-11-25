@@ -27,7 +27,7 @@ git switch -c agent/describe-the-fix
 # make the fix
 
 # For public/PWA runtime inputs or product copy, bump SERVICE_WORKER_CACHE_VERSION
-# and set the product patch to that new epoch (9.0.842 with v842) in the same
+# and set the product patch to that new epoch (9.0.843 with v843) in the same
 # commit, with both package-lock entries and both admin mirrors. A Worker-only
 # change bumps neither. See "Client Update Behavior" below.
 
@@ -642,7 +642,7 @@ Use this when stale clients are likely to keep hitting a severe bug.
 
 1. Make the minimal code fix.
 2. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
-3. Set the product patch to that new epoch (9.0.842 with v842) with every
+3. Set the product patch to that new epoch (9.0.843 with v843) with every
    required mirror, as defined by [release versioning](release-versioning.md).
 4. Run the repository's non-E2E verification baseline:
 

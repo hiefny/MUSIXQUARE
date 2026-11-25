@@ -96,6 +96,16 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.843 / v843 train: pointer cursor on the enabled play button and smoother boot splash rise (1.2s cubic-bezier(0.8, 0, 0.2, 1)) with 0.6s loader delay (2026-11-26)](design/app-9-0-843-train-2026-11-26.md):
+  before deploy, awaiting PR CI on `agent/play-fab-cursor-and-splash-rise` over main `95b2b4ae` (#641, 9.0.842 release
+  record). Adds `cursor: pointer` to `.play-fab` in `css/style.css` (keeping `cursor: not-allowed` on
+  `.play-fab[aria-disabled='true']`), updates `boot-splash-mark-rise` in `index.html` from `0.45s ease-in-out` to
+  `1.2s cubic-bezier(0.8, 0, 0.2, 1)` and `boot-splash-spinner-in` from `0.3s ease-out 0.15s` to `0.35s ease-out 0.6s`
+  (no-runtime fallback `3.2s` rise and `3.8s` loader fade-in; RO-55 fallback wording updated to match). Target `app`
+  only (5 App runtime paths against live `4de95529`, 0 on the other five Workers, App build floor stays 795). Local
+  verification at `974c4ad4` (last runtime commit `bc36a5a9`): source/architecture/worker guards, `typecheck`, `lint`,
+  `format:check`, 4 targeted unit suites (162 passed), production build and guards, `candidate` lane (20 passed, 11
+  skipped), 4 Chromium E2E specs (54 passed), and 2 WebKit 27.2 E2E specs (21 passed).
 - [App 9.0.842 / v842 train: every dependency and toolchain update that could be taken (Node 24.22.3, npm 12.2.3, Vite 8.3.8, Playwright 1.65.1, Wrangler 4.168.0, Mediabunny 1.66.4), with the long-track engine kept at native decoding timing and the 16 OG cards redrawn (2026-11-25)](design/app-9-0-842-train-2026-11-25.md):
   released on 2026-11-25 21:48 KST in Release 45616984444 (PR #640, squash `4de95529`) as App 9.0.842 / v842 (App build
   842, target `app`, one update dialog; App `e1d00867` to `e9533066`), the first release to run Wrangler 4.168.0 against

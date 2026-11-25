@@ -617,3 +617,18 @@ for (const viewport of [
     await expect(page.locator('#btn-media-source')).toBeFocused();
   });
 }
+
+test('play button shows pointer cursor when enabled and not-allowed when aria-disabled', async ({
+  page,
+}) => {
+  await page.setContent(`<!doctype html>
+    <html lang="en" data-theme="dark">
+      <head><style>${await compiledCss}</style></head>
+      <body class="fouc-loaded">
+        <button class="play-fab" id="play-enabled" aria-label="Play"></button>
+        <button class="play-fab" id="play-disabled" aria-label="Play" aria-disabled="true"></button>
+      </body>
+    </html>`);
+  await expect(page.locator('#play-enabled')).toHaveCSS('cursor', 'pointer');
+  await expect(page.locator('#play-disabled')).toHaveCSS('cursor', 'not-allowed');
+});

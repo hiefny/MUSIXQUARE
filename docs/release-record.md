@@ -46,6 +46,29 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### App 9.0.843 / v843 열차(메인 재생 버튼 호버 커서 추가와 부트 스플래시 로고 상승 곡선·스피너 타이밍 조정, 9.0.843/v843) 배포 전: 증분 둘([화면 바뀜] `.play-fab` `cursor: pointer;` 추가, `boot-splash-mark-rise` `1.2s cubic-bezier(0.8, 0, 0.2, 1)` + `boot-splash-spinner-in` `0.35s ease-out 0.6s` 및 폴백 `3.8s`), CI 대기
+
+- [ ] 범위와 상태(미병합·미배포): 운영 9.0.842 / v842 다음 App 업데이트인 9.0.843 / v843(App 빌드 843)으로 target `app`, 업데이트 창 한 번, 바닥 795
+      그대로(`raise_app_build_floor` false, Developer API D1 false). main `95b2b4ae`(#641, 9.0.842 배포 기록, 문서만) 위의 열차 갈래
+      `agent/play-fab-cursor-and-splash-rise`: 구현·시험 `7d24f428`, 버전 올리기 `bc36a5a9`(마지막 런타임 커밋), E2E 시험 보강 `974c4ad4`, 그 뒤 문서 커밋.
+      운영 `4de95529`와 견준 App 런타임 경로 5개(`css/style.css`, `index.html`, `browser/classic-runtime/admin.ts`, `cloudflare/app-worker.ts`,
+      `scripts/service-worker-asset.ts`), 다른 다섯 Worker 0개, 의존성·D1·비밀·바인딩·CSP·계약 표지·저장 모양 변경 0.
+      [보고서](design/app-9-0-843-train-2026-11-26.md).
+- [ ] 기댄 오너 결정(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-26 오너가 메인 재생 버튼 호버 커서 누락 수정(`.play-fab` `cursor: pointer;`)과
+      인터랙티브 커브 비교기에서 고른 부트 스플래시 상승(`1.2s cubic-bezier(0.8, 0, 0.2, 1)`)·스피너 등장(`0.35s ease-out 0.6s`)을 함께 반영해 배포하도록
+      정했다([보고서 §1](design/app-9-0-843-train-2026-11-26.md#1-오너-결정)).
+- [ ] 배포 조건(모두 채운 뒤에만 머지하고 dispatch한다): (1) 한 번에 한 열차이고 9.0.842 / v842 다음이다(9.0.842 배포 기록 #641과 Full E2E `45617406923`
+      통과 완료). (2) 최종 로컬 검증(`974c4ad4`, 마지막 런타임 커밋 `bc36a5a9`): 소스·아키텍처·워커 가드, `typecheck`, `lint`, `format:check`, 관련 단위 4파일
+      162 통과, 프로덕션 빌드(`main-CpIK212L.js`, `main-DBbV0SYZ.css`)·가드, 후보 레인 20 통과·11 건너뜀, 관련 Chromium E2E 4파일 54 통과, WebKit 27.2 E2E
+      2파일 21 통과([보고서 §4.1](design/app-9-0-843-train-2026-11-26.md#41-최종-로컬-검증-버전-올리기-bc36a5a9--e2e-시험-보강-974c4ad4)). (3) PR CI와 exact-main CI
+      통과 뒤 main 머리와 다른 Release·App Build Floor 실행이 없음을 보고 Production Release(target `app`, D1 false, 바닥 false)를 dispatch한다. (4) 배포 뒤
+      공개 읽기·첫 방문·Drift·Full E2E를 확인한다.
+- [ ] 되돌리기([보고서 §6](design/app-9-0-843-train-2026-11-26.md#6-되돌리기와-남긴-한계)): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥 795 그대로). 기본은
+      9.0.844 / v844 이상으로 앞으로 되돌리기다. 실패한 `app` 실행은 dispatch 때의 App(9.0.842, `4de95529`)으로 복구된다.
+- [ ] 확인하지 않은 것과 남긴 한계(게이트 아님): 실제 iPhone·Android·Firefox 실기기는 확인하지 않았다. `prefers-reduced-motion: reduce`에서는 기존대로
+      `animation-duration: 0s`만 적용되므로 스피너 등장 딜레이가 `0.6s`로 늘어난다. 블라인드 기기 후보: 데스크톱에서 재생 버튼 호버 커서(`not-allowed` →
+      `pointer`), 느린 네트워크에서 부트 스플래시 상승·스피너 등장 감각 확인.
+
 ### App 9.0.842 / v842 열차(할 수 있는 의존성·도구 업데이트를 모두 싣고 긴 트랙 엔진의 시간을 기본 해독과 같게 지킴, 9.0.842/v842) 배포 뒤 확인: Release 45616984444가 attempt 1에 성공했고(App `e1d00867` → `e9533066`, Wrangler 4.168.0이 운영 계정에서 처음 돎), 공개 읽기와 첫 방문, Drift, 머지 뒤 Full E2E 45617406923(attempt 1 success)까지 통과, 증분 일곱([화면 바뀜] 공유 카드 16장, 도구 묶음 셋(Node 24.22.3, npm 12.2.3, Vite 8.3.8, Playwright 1.65.1, Wrangler 4.168.0 등), 커버리지 시험, Mediabunny 1.66.4에 맞춘 긴 트랙 엔진의 MP3·M4A 시간, Chromium 159가 실패한 로케일 모듈을 다시 가져오는 것을 받아들이는 시험·주석 고침), 기기 판정은 아직
 
 - [ ] 범위와 상태(배포 뒤): 9.0.842 / v842(App 빌드 842, target `app`, 업데이트 창 한 번)가 2026-11-25 21:48 KST에 운영에 올랐다([Release 45616984444](https://github.com/hiefny/MUSIXQUARE/actions/runs/45616984444)

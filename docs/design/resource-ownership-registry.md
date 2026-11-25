@@ -4778,7 +4778,7 @@ entry needs the owner's acceptance and is not implied by this registry.
   the installed app's hold:
   - the sheet `<style data-boot-splash>` in `index.html`: the mark's fade-in 0.3 s after the
     splash first styles, and without this release's runtime the whole wordmark at 1.8 s, the rise
-    at 3.2 s and the loader's fade-in at 3.35 s; the 0.3 s fade over the app once
+    at 3.2 s and the loader's fade-in at 3.8 s; the 0.3 s fade over the app once
     `setup-boot-block` leaves the root or `boot-splash-released` or `setup-boot-failed` arrives;
     the freeze of everything inside at that release when this release's runtime never ran; the
     last-resort fade 5 s after `--setup-boot-failure-delay`; and, for a settled splash, the final

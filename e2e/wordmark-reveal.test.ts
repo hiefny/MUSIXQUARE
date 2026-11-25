@@ -182,12 +182,14 @@ test.describe('boot splash wordmark reveal', () => {
           .querySelector(selector)
           ?.getAnimations()
           .find((entry) => (entry as CSSAnimation).animationName === name);
-        const timing = animation?.effect?.getTiming();
+        const effect = animation?.effect as KeyframeEffect | null | undefined;
+        const timing = effect?.getTiming();
+        const easing = effect?.getKeyframes()[0]?.easing ?? null;
         return timing
           ? {
               duration: timing.duration,
               delay: timing.delay,
-              easing: timing.easing,
+              easing,
             }
           : null;
       };

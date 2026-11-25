@@ -129,10 +129,12 @@ export async function openLargeAudioTrack(
     const trim =
       codec === 'mp3' ? await readMp3GaplessTrim(blob) : { startSamples: 0, endSamples: 0 };
     // Mediabunny 1.64+ starts LAME/Lavf/Lavc-tagged MP3 packets at -(encoder
-    // delay + 529) samples, while readMp3GaplessTrim counts from the first
-    // decoded sample. Anchoring the trim at the first packet keeps the timeline
-    // even where Mediabunny and readMp3GaplessTrim disagree about the tag.
-    const anchorsMp3Trim = codec === 'mp3' && (await input.getFormat()) instanceof Mp3InputFormat;
+    // delay + 529) samples, the start Chromium's decodeAudioData skips too.
+    // readMp3GaplessTrim counts that skip from the first decoded sample, so
+    // when it applies, anchor it at the first packet to apply it once. A tag
+    // only Mediabunny accepts keeps Mediabunny's start, as Chromium does.
+    const anchorsMp3Trim =
+      trim.startSamples > 0 && (await input.getFormat()) instanceof Mp3InputFormat;
     assertCurrent();
     const aacTiming = aacConfig
       ? await readAacContainerTiming(

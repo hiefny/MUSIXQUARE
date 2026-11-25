@@ -100,8 +100,9 @@ runbooks. Neither belongs in a general setup document.
   released on 2026-11-25 21:48 KST in Release 45616984444 (PR #640, squash `4de95529`) as App 9.0.842 / v842 (App build
   842, target `app`, one update dialog; App `e1d00867` to `e9533066`), the first release to run Wrangler 4.168.0 against
   the production account (`whoami`, `secret list`, `deployments status`, `d1 execute` and the deploy all passed, and
-  every parser accepted the output); the public reads and the Drift Audit passed, and the post-merge Full E2E
-  45617406923: FULL_E2E_PENDING. PR CI 45601134692 passed at the head `19054043` (all 11 jobs). PR CI 45604599912 at
+  every parser accepted the output); the public reads, the Drift Audit and the post-merge Full E2E 45617406923 (attempt
+  1 success: Chromium 1,212 passed and 3 skipped, WebKit mobile 237 passed and 24 skipped plus the service worker row,
+  large-room R2 smoke passed) all passed. PR CI 45601134692 passed at the head `19054043` (all 11 jobs). PR CI 45604599912 at
   the last head `9e3fce0b` and then exact-main CI 45614833544 at `4de95529` each failed at attempt 1 only in
   `npm audit signatures`, when the npm registry answered the `workerd@1.20261123.1` attestation URL with the body "OK"
   instead of JSON, and passed when the failed jobs were re-run (`npm audit --omit=dev` found 0 vulnerabilities; the

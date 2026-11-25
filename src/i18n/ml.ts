@@ -117,8 +117,7 @@ const ml: Record<I18nKey, string> = {
   'player.select_file_hint': 'ഒരു ഫയൽ തിരഞ്ഞെടുക്കുക അല്ലെങ്കിൽ പ്ലേലിസ്റ്റ് പരിശോധിക്കുക',
   'player.visualizer': 'ഓഡിയോ ദൃശ്യാവിഷ്കാരം',
   'player.seek': 'പ്ലേബാക്ക് സ്ഥാനം',
-  'player.seek_unavailable_system_audio':
-    'സിസ്റ്റം ഓഡിയോ പങ്കിടുമ്പോൾ പ്ലേബാക്ക് സ്ഥാനം മാറ്റാനാകില്ല',
+  'player.seek_unavailable_system_audio': 'സിസ്റ്റം ഓഡിയോ പങ്കിടുമ്പോൾ പ്ലേബാക്ക് സ്ഥാനം മാറ്റാനാകില്ല',
   'player.volume': 'ശബ്ദനില',
   'player.toggle_mute': 'നിശ്ശബ്ദമാക്കുക',
   'player.fullscreen': 'പൂർണ്ണസ്ക്രീൻ',
@@ -170,8 +169,7 @@ const ml: Record<I18nKey, string> = {
   'playlist.select_all': 'എല്ലാം തിരഞ്ഞെടുക്കുക',
   'playlist.selected_count': '{{count}} തെരഞ്ഞെടുത്തു',
   'playlist.slots_title': 'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ',
-  'playlist.slots_subtitle':
-    'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ ഉപയോഗിച്ച് ട്രാക്കുകളുടെ സെറ്റുകൾ വേഗത്തിൽ മാറ്റാം.',
+  'playlist.slots_subtitle': 'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ ഉപയോഗിച്ച് ട്രാക്കുകളുടെ സെറ്റുകൾ വേഗത്തിൽ മാറ്റാം.',
   'playlist.slot_tracks': '{{count}} ട്രാക്കുകൾ',
   'playlist.move_title': '{{count}} ട്രാക്കുകൾ നീക്കുക',
   'playlist.copy_action': 'പകർത്തുക',
@@ -182,8 +180,7 @@ const ml: Record<I18nKey, string> = {
   'playlist.host_update_required': 'ഈ റൂം നിയന്ത്രിക്കുന്ന ഡിവൈസ് പുതുക്കുക',
   'playlist.queue_full': 'പ്ലേലിസ്റ്റ് നിറഞ്ഞു',
   'playlist.mutation_retry': 'പ്ലേലിസ്റ്റ് മാറി\nവീണ്ടും ശ്രമിക്കുക',
-  'transfer.host_busy':
-    'ഹോസ്റ്റ് മറ്റൊരു ഫയൽ പ്രോസസ് ചെയ്യുകയാണ്\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
+  'transfer.host_busy': 'ഹോസ്റ്റ് മറ്റൊരു ഫയൽ പ്രോസസ് ചെയ്യുകയാണ്\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center_placement': 'ഡിവൈസ് മധ്യത്തിൽ വയ്ക്കുക',
@@ -208,19 +205,15 @@ const ml: Record<I18nKey, string> = {
   'settings.language_desc': 'ഒരു ഭാഷ തിരഞ്ഞെടുക്കുക അല്ലെങ്കിൽ സിസ്റ്റം ഭാഷ പിന്തുടരുക.',
   'settings.theme_desc': 'ലൈറ്റ് അല്ലെങ്കിൽ ഡാർക്ക് തീം തിരഞ്ഞെടുക്കുക.',
   'player.visualizer_mode_hint': 'ശബ്ദം എങ്ങനെ ദൃശ്യവൽക്കരിക്കണമെന്ന് തിരഞ്ഞെടുക്കുക.',
-  'settings.ui_sounds_desc':
-    'അറിയിപ്പ്, ചേരൽ, പുറത്തുകടക്കൽ, ടച്ച് ശബ്ദങ്ങൾ ഓൺ അല്ലെങ്കിൽ ഓഫ് ചെയ്യുക.',
+  'settings.ui_sounds_desc': 'അറിയിപ്പ്, ചേരൽ, പുറത്തുകടക്കൽ, ടച്ച് ശബ്ദങ്ങൾ ഓൺ അല്ലെങ്കിൽ ഓഫ് ചെയ്യുക.',
   'settings.reverb_desc': 'ശബ്ദത്തിന്റെ റീവർബും അനുരണനവും ക്രമീകരിക്കുക.',
   'settings.eq_desc': 'ശബ്ദത്തിന്റെ ടോൺ ക്രമീകരിക്കുക. ശബ്ദനില നിയന്ത്രണത്തോടൊപ്പം ഉപയോഗിക്കുക.',
   'settings.surround_desc': 'കൂടുതൽ ആഴമുള്ള ശബ്ദത്തിനായി വേർതിരിവ് കൂട്ടുക.',
   'settings.bass_desc': 'കൂടുതൽ പ്രഭാവത്തിനായി താഴ്ന്ന ആവൃത്തികൾ കൃത്രിമമായി സൃഷ്ടിക്കുക.',
   'settings.exciter_desc': 'കൂടുതൽ വ്യക്തതയ്ക്കായി അത്യുച്ച ആവൃത്തികൾ സൃഷ്ടിക്കുക.',
-  'settings.role_center_desc':
-    'ഈ ഡിവൈസ് മധ്യ സ്പീക്കറായി പ്രവർത്തിക്കുന്നു.\nഇത് മധ്യത്തിൽ വയ്ക്കുക.',
-  'settings.role_left_desc':
-    'ഈ ഡിവൈസ് ഇടത് സ്പീക്കറായി പ്രവർത്തിക്കുന്നു.\nഇത് ഇടതുവശത്ത് വയ്ക്കുക.',
-  'settings.role_right_desc':
-    'ഈ ഡിവൈസ് വലത് സ്പീക്കറായി പ്രവർത്തിക്കുന്നു.\nഇത് വലതുവശത്ത് വയ്ക്കുക.',
+  'settings.role_center_desc': 'ഈ ഡിവൈസ് മധ്യ സ്പീക്കറായി പ്രവർത്തിക്കുന്നു.\nഇത് മധ്യത്തിൽ വയ്ക്കുക.',
+  'settings.role_left_desc': 'ഈ ഡിവൈസ് ഇടത് സ്പീക്കറായി പ്രവർത്തിക്കുന്നു.\nഇത് ഇടതുവശത്ത് വയ്ക്കുക.',
+  'settings.role_right_desc': 'ഈ ഡിവൈസ് വലത് സ്പീക്കറായി പ്രവർത്തിക്കുന്നു.\nഇത് വലതുവശത്ത് വയ്ക്കുക.',
   'settings.role_subwoofer_desc':
     'ഈ ഡിവൈസ് സബ്‌വൂഫറായി പ്രവർത്തിക്കുന്നു.\nബാസ് നന്നായി കേൾക്കുന്നിടത്ത് ഇത് വയ്ക്കുക.',
   'settings.dark': 'ഡാർക്ക്',
@@ -319,10 +312,8 @@ const ml: Record<I18nKey, string> = {
   'connect.room_password_invalid': '8 അക്കങ്ങൾ നൽകുക',
   'connect.room_password_disabled': 'പങ്കാളികൾക്ക് ഇനി റൂം പാസ്‌വേഡ് ആവശ്യമില്ല',
   'connect.room_password_apply_pending': 'കണക്ഷൻ തിരികെ വരുമ്പോൾ പുതിയ പാസ്‌വേഡ് ബാധകമാകും',
-  'connect.pin_enabled_removed_message':
-    'ഹോസ്റ്റ് റൂം പാസ്‌വേഡ് സജ്ജമാക്കി. വീണ്ടും ചേരാൻ അത് നൽകുക.',
-  'connect.pin_changed_removed_message':
-    'ഹോസ്റ്റ് റൂം പാസ്‌വേഡ് മാറ്റി. വീണ്ടും ചേരാൻ പുതിയ പാസ്‌വേഡ് നൽകുക.',
+  'connect.pin_enabled_removed_message': 'ഹോസ്റ്റ് റൂം പാസ്‌വേഡ് സജ്ജമാക്കി. വീണ്ടും ചേരാൻ അത് നൽകുക.',
+  'connect.pin_changed_removed_message': 'ഹോസ്റ്റ് റൂം പാസ്‌വേഡ് മാറ്റി. വീണ്ടും ചേരാൻ പുതിയ പാസ്‌വേഡ് നൽകുക.',
   'connect.signaling_healthy': 'റൂം സർവർ ഓൺലൈനാണ്',
   'connect.signaling_expired': 'റൂം കണക്ഷൻ അവസാനിച്ചു',
   'connect.signaling_expired_detail':
@@ -332,11 +323,9 @@ const ml: Record<I18nKey, string> = {
   'connect.signaling_failed': 'സർവർ ബന്ധം പരാജയപ്പെട്ടു',
   'connect.signaling_recover_action': 'വീണ്ടും ബന്ധിപ്പിക്കുക',
   'connect.signaling_recovery_wait': 'റൂം സർവർ വീണ്ടും പരിശോധിക്കുന്നു.',
-  'connect.signaling_reconnecting':
-    'റൂം സർവറിലേക്ക് വീണ്ടും ബന്ധിപ്പിക്കുന്നു · {{attempt}}/{{max}}',
+  'connect.signaling_reconnecting': 'റൂം സർവറിലേക്ക് വീണ്ടും ബന്ധിപ്പിക്കുന്നു · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'റൂം സർവർ ബന്ധം പുനഃസ്ഥാപിച്ചു.',
-  'connect.signaling_exhausted':
-    'റൂം സർവർ പ്രതികരിക്കുന്നില്ല.\nപുതിയ പങ്കാളികൾക്ക് ബന്ധിപ്പിക്കാനാകില്ല.',
+  'connect.signaling_exhausted': 'റൂം സർവർ പ്രതികരിക്കുന്നില്ല.\nപുതിയ പങ്കാളികൾക്ക് ബന്ധിപ്പിക്കാനാകില്ല.',
   'connect.signaling_exhausted_pro':
     'റൂം സർവർ പ്രതികരിക്കുന്നില്ല. പുതുതായി ചേരുന്നതും തത്സമയ അപ്‌ഡേറ്റുകളും പരിമിതമാണ്.',
   'connect.signaling_retry': 'വീണ്ടും ശ്രമിക്കുക',
@@ -372,8 +361,7 @@ const ml: Record<I18nKey, string> = {
   'demo.session_subtitle': 'എപ്പോൾ വേണമെങ്കിലും മറ്റൊരു ഡിവൈസിനെ ക്ഷണിക്കാം.',
   'demo.session_body_connected':
     'ഇപ്പോൾ {{count}} ഡിവൈസുകൾ ബന്ധിപ്പിച്ചിട്ടുണ്ട്.\nഓരോ ഡിവൈസിനും ഒരു റോൾ സജ്ജമാക്കുക.',
-  'demo.session_body_alone':
-    'ഇപ്പോൾ ഈ ഡിവൈസ് മാത്രമാണ് പ്ലേ ചെയ്യുന്നത്.\nമറ്റൊരു ഡിവൈസിനെ ഇപ്പോൾ ക്ഷണിക്കുക.',
+  'demo.session_body_alone': 'ഇപ്പോൾ ഈ ഡിവൈസ് മാത്രമാണ് പ്ലേ ചെയ്യുന്നത്.\nമറ്റൊരു ഡിവൈസിനെ ഇപ്പോൾ ക്ഷണിക്കുക.',
   'demo.effects_step_title': 'നിങ്ങളുടെ മികച്ച ശബ്ദം രൂപപ്പെടുത്തൂ.',
   'demo.effects_step_subtitle':
     'ക്രമീകരണങ്ങളിൽ എപ്പോൾ വേണമെങ്കിലും ഈ വിപുലമായ ശബ്ദക്രമങ്ങൾ സൂക്ഷ്മമായി ക്രമീകരിക്കാം.',
@@ -381,8 +369,7 @@ const ml: Record<I18nKey, string> = {
   'demo.finish_step_subtitle': 'ഉടൻ തുടങ്ങുകയും ഒരുമിച്ച് പ്ലേ ചെയ്യുകയും ചെയ്യൂ.',
   'demo.track_list_label': 'ഡെമോ ട്രാക്ക് ലിസ്റ്റ്',
   'demo.host_only_exit': 'ഹോസ്റ്റിന് മാത്രമേ ഇത് അമർത്താനാകൂ',
-  'demo.external_playback_stopped':
-    'ഡെമോ മോഡ് നിലവിലെ YouTube അല്ലെങ്കിൽ സിസ്റ്റം ഓഡിയോ പ്ലേബാക്ക് നിർത്തി',
+  'demo.external_playback_stopped': 'ഡെമോ മോഡ് നിലവിലെ YouTube അല്ലെങ്കിൽ സിസ്റ്റം ഓഡിയോ പ്ലേബാക്ക് നിർത്തി',
   'setup.how_to_connect': 'എങ്ങനെ ബന്ധിപ്പിക്കാം',
   'setup.set_role': 'ഈ ഡിവൈസിന്റെ റോൾ സജ്ജമാക്കുക',
   'setup.what_sound': 'ഈ ഡിവൈസ് എന്താണ് പ്ലേ ചെയ്യേണ്ടത്?',
@@ -400,8 +387,7 @@ const ml: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'ക്യാമറ അനുമതി നിഷേധിച്ചു',
   'setup.camera_not_found': 'ഉപയോഗിക്കാവുന്ന ക്യാമറ കണ്ടെത്തിയില്ല',
   'setup.camera_unavailable': 'ക്യാമറ ആരംഭിക്കാനായില്ല',
-  'setup.camera_stream_stalled':
-    'ക്യാമറ പ്രിവ്യൂ ആരംഭിച്ചില്ല\nബ്രൗസറിൽ തുറക്കുക അല്ലെങ്കിൽ കോഡ് നൽകുക',
+  'setup.camera_stream_stalled': 'ക്യാമറ പ്രിവ്യൂ ആരംഭിച്ചില്ല\nബ്രൗസറിൽ തുറക്കുക അല്ലെങ്കിൽ കോഡ് നൽകുക',
   'setup.connect_devices': 'തുടങ്ങാൻ നിങ്ങളുടെ മറ്റ് ഡിവൈസുകൾ ബന്ധിപ്പിക്കുക.',
   'setup.enter_code_connect': 'ക്ഷണ കോഡ്',
   'setup.last_step': 'നമുക്ക് തുടങ്ങാം!',
@@ -417,8 +403,7 @@ const ml: Record<I18nKey, string> = {
   'help.load_local': 'ലോക്കൽ ഫയൽ ലോഡ് ചെയ്യുക',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'YouTube മോഡിൽ റോൾ ക്രമീകരണങ്ങളും ഓഡിയോ ഇഫക്റ്റുകളും ലഭ്യമല്ല.',
-  'help.media_synced_detail':
-    'തിരഞ്ഞെടുത്ത മീഡിയ ബന്ധിപ്പിച്ച എല്ലാ ഡിവൈസുകളിലും ഒരേസമയം പ്ലേ ചെയ്യും.',
+  'help.media_synced_detail': 'തിരഞ്ഞെടുത്ത മീഡിയ ബന്ധിപ്പിച്ച എല്ലാ ഡിവൈസുകളിലും ഒരേസമയം പ്ലേ ചെയ്യും.',
   'help.wifi_hotspot': 'ഒരു ഹോട്ട്‌സ്‌പോട്ടിനും എല്ലാവരെയും ഒരേ നെറ്റ്‌വർക്കിൽ എത്തിക്കാം',
 
   // ─── Chat ────────────────────────────────────────────────────────
@@ -450,10 +435,8 @@ const ml: Record<I18nKey, string> = {
   'chat.bot_failed': 'BOT-ന് അഭ്യർത്ഥന പൂർത്തിയാക്കാനായില്ല',
   'chat.bot_added_tracks': 'BOT ചേർത്ത ട്രാക്കുകൾ: {{count}}',
   'chat.bot_added_and_playing': 'BOT ചേർത്ത ട്രാക്കുകൾ: {{count}}. പ്ലേബാക്ക് ആരംഭിച്ചു',
-  'chat.bot_rate_limited':
-    'BOT അഭ്യർത്ഥന പരിധിയിലെത്തി. {{duration}} കാത്തിരുന്ന് വീണ്ടും ശ്രമിക്കുക',
-  'chat.decode_skip_system_message':
-    'ട്രാക്ക് ഒഴിവാക്കുന്നു: ചില ഡിവൈസുകളിൽ ഈ ഫോർമാറ്റ് പിന്തുണയ്ക്കുന്നില്ല.',
+  'chat.bot_rate_limited': 'BOT അഭ്യർത്ഥന പരിധിയിലെത്തി. {{duration}} കാത്തിരുന്ന് വീണ്ടും ശ്രമിക്കുക',
+  'chat.decode_skip_system_message': 'ട്രാക്ക് ഒഴിവാക്കുന്നു: ചില ഡിവൈസുകളിൽ ഈ ഫോർമാറ്റ് പിന്തുണയ്ക്കുന്നില്ല.',
   'chat.large_track_playback_system_message':
     'ഈ ട്രാക്ക് വളരെ വലുതായതിനാൽ ഇത് ഉപയോഗിക്കുമ്പോൾ കാലതാമസം ഉണ്ടായേക്കാം.',
   'chat.large_local_track_system_message':
@@ -537,8 +520,7 @@ const ml: Record<I18nKey, string> = {
   'youtube.video_unavailable': 'വീഡിയോ ലഭ്യമല്ല; അടുത്ത ട്രാക്കിലേക്ക് പോകുന്നു',
   'youtube.load_timeout': 'YouTube ലോഡ് ചെയ്യാനുള്ള സമയം കഴിഞ്ഞു\nവീണ്ടും ശ്രമിക്കുക',
   'youtube.invalid_link': 'YouTube ലിങ്ക് അസാധുവാണ്',
-  'youtube.effects_disabled':
-    'ഒരുമിച്ച് YouTube കാണുക\nവിപുലമായ ഓഡിയോ ഇഫക്റ്റുകൾ പ്രവർത്തനരഹിതമാണ്',
+  'youtube.effects_disabled': 'ഒരുമിച്ച് YouTube കാണുക\nവിപുലമായ ഓഡിയോ ഇഫക്റ്റുകൾ പ്രവർത്തനരഹിതമാണ്',
   'youtube.enter_link_placeholder': 'വീഡിയോ അല്ലെങ്കിൽ പ്ലേലിസ്റ്റ് ലിങ്ക് നൽകുക',
   'youtube.enter_source_toast': 'YouTube ലിങ്കോ തിരയൽ വാക്കോ നൽകുക',
   'youtube.fetching_info': 'വീഡിയോ വിവരം ലോഡ് ചെയ്യുന്നു...',
@@ -562,8 +544,7 @@ const ml: Record<I18nKey, string> = {
   'network.disconnected': 'ബന്ധം വിച്ഛേദിച്ചു',
   'network.cant_join': 'സെഷൻ കണ്ടെത്താനായില്ല.\nനിങ്ങളുടെ നെറ്റ്‌വർക്ക് പരിശോധിക്കുക.',
   'network.session_full': 'റൂം നിറഞ്ഞു',
-  'network.session_full_detail':
-    'ഹോസ്റ്റ് ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾ ഇതിനകം ഈ റൂമിൽ ബന്ധിപ്പിച്ചിട്ടുണ്ട്.',
+  'network.session_full_detail': 'ഹോസ്റ്റ് ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾ ഇതിനകം ഈ റൂമിൽ ബന്ധിപ്പിച്ചിട്ടുണ്ട്.',
   'network.op_granted': 'അഡ്മിൻ അനുമതി നൽകി',
   'network.op_revoked': 'അഡ്മിൻ അനുമതി പിൻവലിച്ചു',
   'network.host_waiting': 'ഹോസ്റ്റിനായി കാത്തിരിക്കുന്നു...',
@@ -588,11 +569,9 @@ const ml: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} അനുമതി {{status}}',
   'toast.file_read_error': 'ഫയൽ വായിക്കുന്നതിൽ പിശക്: {{name}}',
   'toast.host_ended_connection': 'ഹോസ്റ്റ് ബന്ധം അവസാനിപ്പിച്ചു',
-  'toast.host_background_blocked':
-    'ഹോസ്റ്റ് ഡിവൈസ് പശ്ചാത്തലത്തിലാണ്\nഹോസ്റ്റ് ആപ്പ് വീണ്ടും തുറന്നാൽ നിയന്ത്രിക്കാം',
+  'toast.host_background_blocked': 'ഹോസ്റ്റ് ഡിവൈസ് പശ്ചാത്തലത്തിലാണ്\nഹോസ്റ്റ് ആപ്പ് വീണ്ടും തുറന്നാൽ നിയന്ത്രിക്കാം',
   'toast.host_unresponsive_chat': 'സന്ദേശം അയയ്ക്കാനായില്ല\nഹോസ്റ്റ് ഡിവൈസ് പ്രതികരിക്കുന്നില്ല',
-  'toast.host_unresponsive_blocked':
-    'അഭ്യർത്ഥന അയയ്ക്കാനായില്ല\nഹോസ്റ്റ് ഡിവൈസ് പ്രതികരിക്കുന്നില്ല',
+  'toast.host_unresponsive_blocked': 'അഭ്യർത്ഥന അയയ്ക്കാനായില്ല\nഹോസ്റ്റ് ഡിവൈസ് പ്രതികരിക്കുന്നില്ല',
   'toast.host_back': 'ഹോസ്റ്റ് ഡിവൈസ് തിരിച്ചെത്തി',
   'toast.announcement_available': 'പുതിയ അറിയിപ്പ്\nചാറ്റ് പാനൽ പരിശോധിക്കുക',
 
@@ -622,12 +601,9 @@ const ml: Record<I18nKey, string> = {
     'അംഗങ്ങളെ പുറത്താക്കാനുള്ള അനുമതി പരിശോധിക്കുന്നു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'toast.chat_notice_checking':
     'ചാറ്റ് അറിയിപ്പുകൾ പോസ്റ്റ് ചെയ്യാനുള്ള അനുമതി പരിശോധിക്കുന്നു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
-  'toast.admin_permission_checking':
-    'അഡ്മിൻ അനുമതി പരിശോധിക്കുന്നു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
-  'toast.room_owner_checking':
-    'റൂം ഉടമയുടെ അനുമതി പരിശോധിക്കുന്നു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
-  'toast.system_audio_owner_required':
-    'റൂം തുറന്ന ടാബിൽ നിന്ന് മാത്രമേ നിങ്ങൾക്ക് ഓഡിയോ പങ്കിടാനാകൂ',
+  'toast.admin_permission_checking': 'അഡ്മിൻ അനുമതി പരിശോധിക്കുന്നു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
+  'toast.room_owner_checking': 'റൂം ഉടമയുടെ അനുമതി പരിശോധിക്കുന്നു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
+  'toast.system_audio_owner_required': 'റൂം തുറന്ന ടാബിൽ നിന്ന് മാത്രമേ നിങ്ങൾക്ക് ഓഡിയോ പങ്കിടാനാകൂ',
   'toast.host_setting_required': 'ഹോസ്റ്റിന് മാത്രമേ ഈ ക്രമീകരണം മാറ്റാനാകൂ',
   'toast.no_tracks': 'പ്ലേ ചെയ്യാൻ ട്രാക്കുകളില്ല',
   'toast.add_media_to_play': 'മീഡിയ ചേർക്കുക',
@@ -646,16 +622,13 @@ const ml: Record<I18nKey, string> = {
   'toast.file_ready': 'നിങ്ങളുടെ ഫയൽ തയ്യാറാണ്!\nപ്ലേ അമർത്തുക',
   'toast.sync_not_in_system_audio': 'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ മോഡിൽ സിങ്ക് ലഭ്യമല്ല',
   'toast.sync_not_ready': 'ഇതുവരെ തയ്യാറായിട്ടില്ല\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
-  'toast.sync_no_media':
-    'സിങ്ക് ചെയ്യാൻ മീഡിയയില്ല\nആദ്യം പ്ലേ ചെയ്യാൻ എന്തെങ്കിലും തിരഞ്ഞെടുക്കുക',
+  'toast.sync_no_media': 'സിങ്ക് ചെയ്യാൻ മീഡിയയില്ല\nആദ്യം പ്ലേ ചെയ്യാൻ എന്തെങ്കിലും തിരഞ്ഞെടുക്കുക',
   'toast.host_ad': 'ഹോസ്റ്റ് ഒരു പരസ്യം കാണുന്നതായി തോന്നുന്നു',
   'toast.yt_sync_start': 'സിങ്ക് ചെയ്യുന്നു...',
   'toast.yt_rendezvous_start': 'ഹോസ്റ്റുമായി പൊരുത്തപ്പെടുത്തുന്നു...',
   'toast.yt_rendezvous_done': 'സിങ്ക് പൂർത്തിയായി',
-  'toast.yt_rendezvous_host_paused':
-    'ഹോസ്റ്റ് താൽക്കാലികമായി നിർത്തി; സ്ഥാനം മാത്രം പൊരുത്തപ്പെടുത്തി',
-  'toast.yt_rendezvous_no_data':
-    'ഹോസ്റ്റിന്റെ പ്ലേബാക്ക് ഡാറ്റ ഇതുവരെ ലഭ്യമല്ല\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
+  'toast.yt_rendezvous_host_paused': 'ഹോസ്റ്റ് താൽക്കാലികമായി നിർത്തി; സ്ഥാനം മാത്രം പൊരുത്തപ്പെടുത്തി',
+  'toast.yt_rendezvous_no_data': 'ഹോസ്റ്റിന്റെ പ്ലേബാക്ക് ഡാറ്റ ഇതുവരെ ലഭ്യമല്ല\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'toast.yt_rendezvous_timeout': 'സിങ്ക് പരാജയപ്പെട്ടു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'toast.yt_manual_sync_prompt':
     'സ്വയമേവ സിങ്ക് ചെയ്യാൻ ഇപ്പോൾ ശ്രമിച്ചു\nഇപ്പോഴും കാലതാമസം തോന്നുന്നെങ്കിൽ മൂല്യം ക്രമീകരിക്കുക',
@@ -685,17 +658,14 @@ const ml: Record<I18nKey, string> = {
   'share.remote.timeout': 'റിമോട്ട് ഫയൽ പങ്കിടാനുള്ള സമയം കഴിഞ്ഞു',
   'share.remote.too_large': 'ഫയൽ വളരെ വലുതാണ് (പരമാവധി 200 MB)',
   'share.remote.network_error': 'റിമോട്ട് പങ്കിടലിനിടെ നെറ്റ്‌വർക്ക് പിശക്',
-  'share.remote.rate_limited':
-    'റിമോട്ട് പങ്കിടൽ അപ്‌ലോഡുകൾ വളരെ കൂടുതലാണ്\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
+  'share.remote.rate_limited': 'റിമോട്ട് പങ്കിടൽ അപ്‌ലോഡുകൾ വളരെ കൂടുതലാണ്\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'share.remote.quota_reached': 'റിമോട്ട് പങ്കിടൽ സ്റ്റോറേജ് പരിധിയിലെത്തി',
-  'share.remote.auth_failed':
-    'റിമോട്ട് പങ്കിടൽ അംഗീകാരം പരാജയപ്പെട്ടു\nWorker ക്രമീകരണങ്ങൾ പരിശോധിക്കുക',
+  'share.remote.auth_failed': 'റിമോട്ട് പങ്കിടൽ അംഗീകാരം പരാജയപ്പെട്ടു\nWorker ക്രമീകരണങ്ങൾ പരിശോധിക്കുക',
   'share.remote.expired': 'റിമോട്ട് ഫയൽ ലിങ്കിന്റെ കാലാവധി കഴിഞ്ഞു\nവീണ്ടും പങ്കിടുക',
   'share.remote.unavailable': 'റിമോട്ട് പങ്കിടൽ പരാജയപ്പെട്ടു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'transfer.preload_fail': 'മുൻകൂട്ടി ലോഡ് ചെയ്ത പ്ലേബാക്ക് പരാജയപ്പെട്ടു; വീണ്ടും ലോഡ് ചെയ്യുന്നു',
   'transfer.download_finishing': 'ഡൗൺലോഡ് പൂർത്തിയാക്കുന്നു...',
-  'transfer.preparation_delayed':
-    'തയ്യാറാക്കൽ വൈകുന്നു...\nഹോസ്റ്റിനോട് വീണ്ടെടുക്കൽ അഭ്യർത്ഥിക്കുന്നു',
+  'transfer.preparation_delayed': 'തയ്യാറാക്കൽ വൈകുന്നു...\nഹോസ്റ്റിനോട് വീണ്ടെടുക്കൽ അഭ്യർത്ഥിക്കുന്നു',
   'transfer.receiving_0pct': 'സ്വീകരിക്കുന്നു... 0%',
   'transfer.check_conn_type': 'ബന്ധത്തിന്റെ തരം പരിശോധിക്കുന്നു...',
   'transfer.preload_pending': 'മുൻകൂട്ടി ലോഡ് ചെയ്യാൻ കാത്തിരിക്കുന്നു: {{name}}',
@@ -713,8 +683,7 @@ const ml: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ഓഡിയോ എൻജിൻ തയ്യാറാക്കാനായില്ല',
   'error.session_create_fail': 'സെഷൻ സൃഷ്ടിക്കാനായില്ല',
   'error.network_generic': 'ഒരു നെറ്റ്‌വർക്ക് പിശക് സംഭവിച്ചു',
-  'error.session_handshake_failed':
-    'സെഷൻ ബന്ധം പൂർത്തിയാക്കാനായില്ല. രണ്ട് ഡിവൈസുകളും പുതുക്കി വീണ്ടും ശ്രമിക്കുക.',
+  'error.session_handshake_failed': 'സെഷൻ ബന്ധം പൂർത്തിയാക്കാനായില്ല. രണ്ട് ഡിവൈസുകളും പുതുക്കി വീണ്ടും ശ്രമിക്കുക.',
   'error.host_unreachable': 'ഹോസ്റ്റ് സെഷനിൽ നിന്ന് പുറത്തുപോയതായി തോന്നുന്നു',
   'error.host_disconnected': 'ഹോസ്റ്റുമായുള്ള ബന്ധം വിച്ഛേദിച്ചു',
   'error.host_conn_error': 'ഹോസ്റ്റുമായി ബന്ധിപ്പിക്കുന്നതിനിടെ പിശക് സംഭവിച്ചു',
@@ -725,8 +694,7 @@ const ml: Record<I18nKey, string> = {
   'error.peer_unavailable': 'സെഷൻ കണ്ടെത്താനായില്ല\nകോഡ് വീണ്ടും പരിശോധിക്കുക',
   'error.host_left': 'ഹോസ്റ്റ് സെഷനിൽ നിന്ന് പുറത്തുപോയതായി തോന്നുന്നു',
   'error.network_issue': 'നെറ്റ്‌വർക്കിൽ പ്രശ്നമുണ്ട്\nഇന്റർനെറ്റ് ബന്ധം പരിശോധിക്കുക',
-  'error.signal_server_fail':
-    'സിഗ്നലിംഗ് സർവറിലേക്ക് എത്താനാകുന്നില്ല\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
+  'error.signal_server_fail': 'സിഗ്നലിംഗ് സർവറിലേക്ക് എത്താനാകുന്നില്ല\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'error.server_disconnected': 'സർവറുമായുള്ള ബന്ധം വിച്ഛേദിച്ചു',
   'error.session_id_unavailable': 'സെഷൻ ID ലഭ്യമല്ല\nവീണ്ടും ശ്രമിക്കുക',
   'error.webrtc_failed': 'WebRTC ബന്ധം പരാജയപ്പെട്ടു\nബ്രൗസർ ക്രമീകരണങ്ങൾ പരിശോധിക്കുക',
@@ -784,8 +752,7 @@ const ml: Record<I18nKey, string> = {
   'dialog.room_password_title': 'റൂം പാസ്‌വേഡ് നൽകുക',
   'dialog.room_password_msg': 'ഈ റൂമിൽ ചേരാൻ പാസ്‌വേഡ് ആവശ്യമാണ്.',
   'dialog.room_password_retry_msg': 'ആ പാസ്‌വേഡ് പൊരുത്തപ്പെട്ടില്ല',
-  'dialog.room_password_timeout_msg':
-    'ബന്ധത്തിനുള്ള സമയം കഴിഞ്ഞു. വീണ്ടും ശ്രമിക്കാൻ പാസ്‌വേഡ് വീണ്ടും നൽകുക.',
+  'dialog.room_password_timeout_msg': 'ബന്ധത്തിനുള്ള സമയം കഴിഞ്ഞു. വീണ്ടും ശ്രമിക്കാൻ പാസ്‌വേഡ് വീണ്ടും നൽകുക.',
   'dialog.room_password_placeholder': '8 അക്ക പാസ്‌വേഡ്',
   'dialog.room_password_rate_limited':
     'നിങ്ങൾ പലതവണ തെറ്റായ പാസ്‌വേഡ് നൽകി\n{{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക',
@@ -854,11 +821,9 @@ const ml: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'എല്ലാവരും വീണ്ടും ചേരേണ്ടിവരും. അപരിചിതരെ ഒറ്റയടിക്ക് നീക്കാൻ ഈ രീതി ശുപാർശ ചെയ്യുന്നു.',
   'pro.pin_enabled_removed_title': 'റൂമിന് പാസ്‌വേഡ് സജ്ജമാക്കി',
-  'pro.pin_enabled_removed_message':
-    'റൂം ഉടമ ഈ റൂമിന് പാസ്‌വേഡ് സജ്ജമാക്കി. വീണ്ടും ചേരാൻ അത് നൽകുക.',
+  'pro.pin_enabled_removed_message': 'റൂം ഉടമ ഈ റൂമിന് പാസ്‌വേഡ് സജ്ജമാക്കി. വീണ്ടും ചേരാൻ അത് നൽകുക.',
   'pro.pin_changed_removed_title': 'റൂം പാസ്‌വേഡ് മാറി',
-  'pro.pin_changed_removed_message':
-    'റൂം ഉടമ റൂം പാസ്‌വേഡ് മാറ്റി. വീണ്ടും ചേരാൻ പുതിയ പാസ്‌വേഡ് നൽകുക.',
+  'pro.pin_changed_removed_message': 'റൂം ഉടമ റൂം പാസ്‌വേഡ് മാറ്റി. വീണ്ടും ചേരാൻ പുതിയ പാസ്‌വേഡ് നൽകുക.',
   'pro.removed_title': 'നിങ്ങളെ റൂമിൽ നിന്ന് നീക്കി',
   'pro.removed_message': 'റൂം ഉടമയോ ഒരു അഡ്മിനോ നിങ്ങളെ ഈ റൂമിൽ നിന്ന് നീക്കി.',
   'pro.device_removed_message':
@@ -868,16 +833,13 @@ const ml: Record<I18nKey, string> = {
   'pro.room_full': 'ഈ PRO റൂം നിറഞ്ഞു',
   'pro.room_full_detail':
     'ഉടമ ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾ ചേരാം\nഉടമയ്ക്കായി എപ്പോഴും ഒരു സ്ഥാനം മാറ്റിവച്ചിരിക്കും',
-  'pro.join_rate_limited':
-    'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്\n{{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക',
-  'pro.join_rate_limited_later':
-    'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്\nകുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക',
+  'pro.join_rate_limited': 'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്\n{{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക',
+  'pro.join_rate_limited_later': 'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്\nകുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക',
   'pro.active_tab_title': 'മുമ്പത്തെ കണക്ഷൻ ശേഷിക്കുന്നു',
   'pro.active_tab_message': 'ഇവിടെ തുടർന്നാൽ മുമ്പത്തെ കണക്ഷൻ വിച്ഛേദിക്കപ്പെടും.',
   'pro.active_tab_replaced': 'ഈ PRO റൂം മറ്റൊരു ടാബിൽ ഇതിനകം തുറന്നിരിക്കുന്നു',
   'pro.use_this_tab': 'ഇവിടെ തുടരുക',
-  'pro.upload.retry_unavailable':
-    'ഈ അപ്‌ലോഡ് ഇനി പൂർത്തിയാക്കാനാവില്ല. ഫയൽ വീണ്ടും തിരഞ്ഞെടുക്കുക.',
+  'pro.upload.retry_unavailable': 'ഈ അപ്‌ലോഡ് ഇനി പൂർത്തിയാക്കാനാവില്ല. ഫയൽ വീണ്ടും തിരഞ്ഞെടുക്കുക.',
   'pro.upload.failed_retryable': 'അപ്‌ലോഡ് പൂർത്തിയാക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.',
   'pro.upload.empty_file': 'ശൂന്യമായ ഫയൽ അപ്‌ലോഡ് ചെയ്യാനാകില്ല.',
   'pro.upload.file_too_large': 'ഈ ഫയൽ ഓരോ ഫയലിനുമുള്ള 200 MB പരിധിയേക്കാൾ വലുതാണ്.',
@@ -902,8 +864,7 @@ const ml: Record<I18nKey, string> = {
   'pro.downloading': 'ഫയൽ ലോഡ് ചെയ്യുന്നു...',
   'pro.quota_exceeded': 'ഈ PRO റൂം 1 GB സ്റ്റോറേജ് പരിധിയിലെത്തി',
   'pro.file_too_large': 'ഈ ഫയൽ ഓരോ ഫയലിനുമുള്ള 200 MB പരിധിയേക്കാൾ വലുതാണ്',
-  'pro.room_state_limit':
-    'ഈ PRO റൂമിൽ ഇപ്പോൾ കൂടുതൽ മാറ്റങ്ങൾ വരുത്താനാവില്ല\nകുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക',
+  'pro.room_state_limit': 'ഈ PRO റൂമിൽ ഇപ്പോൾ കൂടുതൽ മാറ്റങ്ങൾ വരുത്താനാവില്ല\nകുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
@@ -936,8 +897,7 @@ const ml: Record<I18nKey, string> = {
     'ഓരോ ഡിവൈസിന്റെയും റോൾ സജ്ജമാക്കുക.<br>ഇടത്, വലത് ഓഡിയോ പ്രത്യേകം പ്ലേ ചെയ്ത്<br>വൂഫറിൽ നിന്നുള്ള ആഴമുള്ള ബാസ് അനുഭവിക്കൂ.',
   'setup.advanced_audio_desc_html':
     'റീവർബ്, EQ, വിർച്വൽ ഇഫക്റ്റുകൾ<br>തുടങ്ങിയവ ഉപയോഗിച്ച് സിസ്റ്റത്തിലാകെ<br>ഹോസ്റ്റിന്റെ ക്രമീകരണങ്ങൾ പൊരുത്തപ്പെടുത്തുക.',
-  'youtube.enter_link_desc_html':
-    'പൊതുവായി ലഭ്യമായ വീഡിയോകളോ പ്ലേലിസ്റ്റുകളോ മാത്രമേ പ്ലേ ചെയ്യാനാകൂ.',
+  'youtube.enter_link_desc_html': 'പൊതുവായി ലഭ്യമായ വീഡിയോകളോ പ്ലേലിസ്റ്റുകളോ മാത്രമേ പ്ലേ ചെയ്യാനാകൂ.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'സിസ്റ്റം ഓഡിയോ',
@@ -948,8 +908,7 @@ const ml: Record<I18nKey, string> = {
   'system_audio.owner_preparing': '{{name}} സിസ്റ്റം ഓഡിയോ പങ്കിടാൻ തയ്യാറെടുക്കുന്നു',
   'system_audio.pro_preparing': 'സിസ്റ്റം ഓഡിയോ പങ്കിടാൻ തയ്യാറെടുക്കുന്നു',
   'system_audio.pro_publish_failed': 'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ ആരംഭിക്കാനായില്ല',
-  'system_audio.coordinator_update_required':
-    'സിസ്റ്റം ഓഡിയോ പങ്കിടാൻ ഈ റൂം നിയന്ത്രിക്കുന്ന ഡിവൈസ് പുതുക്കുക',
+  'system_audio.coordinator_update_required': 'സിസ്റ്റം ഓഡിയോ പങ്കിടാൻ ഈ റൂം നിയന്ത്രിക്കുന്ന ഡിവൈസ് പുതുക്കുക',
   'system_audio.connection_unstable':
     '{{name}}-ന്റെ സിസ്റ്റം ഓഡിയോ ബന്ധം അസ്ഥിരമാണ്\nവീണ്ടും ബന്ധിപ്പിക്കാൻ ശ്രമിക്കുന്നു',
   'system_audio.capture_denied': 'ഓഡിയോ പങ്കിടൽ റദ്ദാക്കി',
@@ -972,8 +931,7 @@ const ml: Record<I18nKey, string> = {
     'സിസ്റ്റം ഓഡിയോ പരമാവധി {{count}} ഡിവൈസുകളെ പിന്തുണയ്ക്കുന്നു\nഇതിൽ ഹോസ്റ്റും ഉൾപ്പെടുന്നു',
   'system_audio.device_limit_stopped':
     'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ നിർത്തി\n{{count}}-ൽ കൂടുതൽ ഡിവൈസുകൾ ബന്ധിപ്പിച്ചിട്ടുണ്ട്',
-  'system_audio.duration_limit_stopped':
-    '2 മണിക്കൂറിന് ശേഷം സിസ്റ്റം ഓഡിയോ പങ്കിടൽ\nസ്വയം അവസാനിച്ചു',
+  'system_audio.duration_limit_stopped': '2 മണിക്കൂറിന് ശേഷം സിസ്റ്റം ഓഡിയോ പങ്കിടൽ\nസ്വയം അവസാനിച്ചു',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'സേവന കുറിപ്പുകൾ',

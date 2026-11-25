@@ -188,13 +188,11 @@ const th: Record<I18nKey, string> = {
   'settings.theme': 'ธีม',
   'settings.ui_sounds': 'เสียงอินเทอร์เฟซ',
   'settings.sync_settings': 'ซิงก์การตั้งค่า',
-  'settings.sync_settings_desc':
-    'อุปกรณ์ที่เปิดการตั้งค่านี้จะซิงก์ระดับเสียงและเอฟเฟกต์เสียงระหว่างกัน',
+  'settings.sync_settings_desc': 'อุปกรณ์ที่เปิดการตั้งค่านี้จะซิงก์ระดับเสียงและเอฟเฟกต์เสียงระหว่างกัน',
   'settings.audio_locked_desc': 'ผู้ดูแลห้องเท่านั้นที่เปลี่ยนการตั้งค่าเสียงได้',
   'settings.audio_lock_checking_desc': 'กำลังตรวจสอบสิทธิ์ผู้ดูแล',
   'settings.virtual_effects_title': 'เอฟเฟกต์เสมือน',
-  'settings.virtual_effects_desc':
-    'ใช้เอฟเฟกต์สังเคราะห์กับเสียง ซึ่งอาจทำให้เสียงผิดเพี้ยนอย่างมาก',
+  'settings.virtual_effects_desc': 'ใช้เอฟเฟกต์สังเคราะห์กับเสียง ซึ่งอาจทำให้เสียงผิดเพี้ยนอย่างมาก',
   'settings.virtual_effect_bass': 'เบส',
   'settings.virtual_effect_treble': 'เสียงแหลม',
   'settings.virtual_effect_surround': 'รอบทิศทาง',
@@ -210,8 +208,7 @@ const th: Record<I18nKey, string> = {
   'settings.role_center_desc': 'อุปกรณ์นี้ทำหน้าที่เป็นลำโพงกลาง\nวางไว้ตรงกลาง',
   'settings.role_left_desc': 'อุปกรณ์นี้ทำหน้าที่เป็นลำโพงซ้าย\nวางไว้ด้านซ้าย',
   'settings.role_right_desc': 'อุปกรณ์นี้ทำหน้าที่เป็นลำโพงขวา\nวางไว้ด้านขวา',
-  'settings.role_subwoofer_desc':
-    'อุปกรณ์นี้ทำหน้าที่เป็นซับวูฟเฟอร์\nวางในจุดที่เสียงเบสกระจายได้ดี',
+  'settings.role_subwoofer_desc': 'อุปกรณ์นี้ทำหน้าที่เป็นซับวูฟเฟอร์\nวางในจุดที่เสียงเบสกระจายได้ดี',
   'settings.dark': 'มืด',
   'settings.light': 'สว่าง',
   'player.visualizer_circular': 'วงกลม',
@@ -308,10 +305,8 @@ const th: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'ใส่รหัสผ่าน 8 หลัก',
   'connect.room_password_disabled': 'ผู้เข้าร่วมไม่ต้องใช้รหัสผ่านห้องแล้ว',
   'connect.room_password_apply_pending': 'รหัสผ่านใหม่จะมีผลเมื่อการเชื่อมต่อกลับมา',
-  'connect.pin_enabled_removed_message':
-    'เจ้าของห้องตั้งรหัสผ่านห้องแล้ว ใส่รหัสผ่านเพื่อกลับเข้าห้อง',
-  'connect.pin_changed_removed_message':
-    'เจ้าของห้องเปลี่ยนรหัสผ่านห้องแล้ว ใส่รหัสผ่านใหม่เพื่อกลับเข้าห้อง',
+  'connect.pin_enabled_removed_message': 'เจ้าของห้องตั้งรหัสผ่านห้องแล้ว ใส่รหัสผ่านเพื่อกลับเข้าห้อง',
+  'connect.pin_changed_removed_message': 'เจ้าของห้องเปลี่ยนรหัสผ่านห้องแล้ว ใส่รหัสผ่านใหม่เพื่อกลับเข้าห้อง',
   'connect.signaling_healthy': 'เซิร์ฟเวอร์ห้องทำงานปกติ',
   'connect.signaling_expired': 'การเชื่อมต่อห้องสิ้นสุดแล้ว',
   'connect.signaling_expired_detail':
@@ -324,8 +319,7 @@ const th: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'กำลังเชื่อมต่อเซิร์ฟเวอร์ห้องอีกครั้ง · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'กู้คืนการเชื่อมต่อเซิร์ฟเวอร์ห้องแล้ว',
   'connect.signaling_exhausted': 'เซิร์ฟเวอร์ห้องไม่ตอบสนอง\nผู้เข้าร่วมใหม่ไม่สามารถเชื่อมต่อได้',
-  'connect.signaling_exhausted_pro':
-    'เซิร์ฟเวอร์ห้องไม่ตอบสนอง การเข้าร่วมใหม่และการอัปเดตแบบเรียลไทม์ถูกจำกัด',
+  'connect.signaling_exhausted_pro': 'เซิร์ฟเวอร์ห้องไม่ตอบสนอง การเข้าร่วมใหม่และการอัปเดตแบบเรียลไทม์ถูกจำกัด',
   'connect.signaling_retry': 'ลองอีกครั้ง',
   'connect.signaling_restart': 'เริ่มห้องนี้ใหม่',
   'connect.signaling_new_room': 'เริ่มห้องใหม่',
@@ -357,10 +351,8 @@ const th: Record<I18nKey, string> = {
   'demo.step_finish': '4. สิ้นสุดทัวร์',
   'demo.session_title': 'ห้องของคุณ: {{code}}',
   'demo.session_subtitle': 'เชิญอุปกรณ์อื่นได้ทุกเมื่อ',
-  'demo.session_body_connected':
-    'ขณะนี้มีอุปกรณ์เชื่อมต่อ {{count}} เครื่อง\nตั้งค่าบทบาทให้แต่ละอุปกรณ์',
-  'demo.session_body_alone':
-    'ตอนนี้มีเพียงอุปกรณ์เครื่องนี้ที่กำลังเล่นอยู่\nเชิญอุปกรณ์อื่นเพื่อเริ่มการเล่นด้วยกัน',
+  'demo.session_body_connected': 'ขณะนี้มีอุปกรณ์เชื่อมต่อ {{count}} เครื่อง\nตั้งค่าบทบาทให้แต่ละอุปกรณ์',
+  'demo.session_body_alone': 'ตอนนี้มีเพียงอุปกรณ์เครื่องนี้ที่กำลังเล่นอยู่\nเชิญอุปกรณ์อื่นเพื่อเริ่มการเล่นด้วยกัน',
   'demo.effects_step_title': 'สร้างเสียงระดับพรีเมียมในแบบของคุณ',
   'demo.effects_step_subtitle': 'ปรับเสียงขั้นสูงอย่างละเอียดได้ทุกเมื่อในการตั้งค่า',
   'demo.finish_step_title': 'พร้อมแล้ว!',
@@ -400,8 +392,7 @@ const th: Record<I18nKey, string> = {
   'help.local_file': 'เลือกไฟล์ในเครื่อง',
   'help.load_local': 'โหลดไฟล์ในเครื่อง',
   'help.youtube_compat': 'YouTube',
-  'help.youtube_no_effects':
-    'ในโหมด YouTube จะไม่สามารถแยกช่องสัญญาณลำโพงและใช้เอฟเฟกต์เสียงขั้นสูงได้',
+  'help.youtube_no_effects': 'ในโหมด YouTube จะไม่สามารถแยกช่องสัญญาณลำโพงและใช้เอฟเฟกต์เสียงขั้นสูงได้',
   'help.media_synced_detail': 'สื่อที่เลือกจะเล่นพร้อมกันบนทุกอุปกรณ์ที่เชื่อมต่อ',
   'help.wifi_hotspot': 'ใช้ฮอตสปอตมือถือเพื่อเชื่อมต่อทุกอุปกรณ์เข้ากับเครือข่ายเดียวกันได้',
 
@@ -436,10 +427,8 @@ const th: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT เพิ่ม {{count}} รายการและเริ่มเล่นแล้ว',
   'chat.bot_rate_limited': 'ถึงขีดจำกัดคำขอ BOT แล้ว ลองอีกครั้งในอีก {{duration}}',
   'chat.decode_skip_system_message': 'บางอุปกรณ์เล่นรายการนี้ไม่ได้ กำลังข้ามไปรายการถัดไป',
-  'chat.large_track_playback_system_message':
-    'รายการนี้มีขนาดใหญ่มาก จึงอาจเกิดความล่าช้าขณะใช้งาน',
-  'chat.large_local_track_system_message':
-    'รายการนี้มีไฟล์ขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
+  'chat.large_track_playback_system_message': 'รายการนี้มีขนาดใหญ่มาก จึงอาจเกิดความล่าช้าขณะใช้งาน',
+  'chat.large_local_track_system_message': 'รายการนี้มีไฟล์ขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
   'chat.device_track_unavailable_system_message': 'อุปกรณ์นี้เล่นรายการปัจจุบันไม่ได้',
   'chat.system_audio_started_system_message':
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างอุปกรณ์ของเจ้าของห้องกับผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์เจ้าของห้องเพื่อเลี่ยงเสียงสะท้อน',
@@ -543,8 +532,7 @@ const th: Record<I18nKey, string> = {
   'network.disconnected': 'ตัดการเชื่อมต่อแล้ว',
   'network.cant_join': 'ไม่พบห้อง\nตรวจสอบเครือข่าย',
   'network.session_full': 'ห้องเต็มแล้ว',
-  'network.session_full_detail':
-    'ห้องนี้มีอุปกรณ์เชื่อมต่อครบสูงสุด 100 เครื่องแล้ว รวมเจ้าของห้อง',
+  'network.session_full_detail': 'ห้องนี้มีอุปกรณ์เชื่อมต่อครบสูงสุด 100 เครื่องแล้ว รวมเจ้าของห้อง',
   'network.op_granted': 'ให้สิทธิ์ผู้ดูแลแล้ว',
   'network.op_revoked': 'ถอนสิทธิ์ผู้ดูแลแล้ว',
   'network.host_waiting': 'กำลังรอเจ้าของห้อง...',
@@ -554,8 +542,7 @@ const th: Record<I18nKey, string> = {
   'toast.device_disconnected': '{{name}} ตัดการเชื่อมต่อแล้ว',
   'toast.device_conn_error': 'ข้อผิดพลาดการเชื่อมต่อของ {{name}}',
   'toast.device_kicked': '{{name}} ถูกนำออกแล้ว',
-  'toast.remote_decode_device_wait':
-    'มีอุปกรณ์ที่ถอดรหัสรายการนี้ไม่ได้\nการเล่นจะดำเนินต่อสำหรับอุปกรณ์อื่น',
+  'toast.remote_decode_device_wait': 'มีอุปกรณ์ที่ถอดรหัสรายการนี้ไม่ได้\nการเล่นจะดำเนินต่อสำหรับอุปกรณ์อื่น',
   'toast.invite_code_info': 'เชื่อมต่อ {{count}} เครื่อง | รหัส {{code}}',
   'toast.added_tracks': 'เพิ่ม {{count}} รายการแล้ว',
   'toast.deleted_tracks': 'ลบ {{count}} รายการแล้ว',
@@ -569,8 +556,7 @@ const th: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} {{status}}',
   'toast.file_read_error': 'ข้อผิดพลาดอ่านไฟล์: {{name}}',
   'toast.host_ended_connection': 'เจ้าของห้องสิ้นสุดการเชื่อมต่อแล้ว',
-  'toast.host_background_blocked':
-    'อุปกรณ์ของเจ้าของห้องไปอยู่เบื้องหลัง\nควบคุมได้เมื่อเจ้าของห้องเปิดแอปอีกครั้ง',
+  'toast.host_background_blocked': 'อุปกรณ์ของเจ้าของห้องไปอยู่เบื้องหลัง\nควบคุมได้เมื่อเจ้าของห้องเปิดแอปอีกครั้ง',
   'toast.host_unresponsive_chat': 'ส่งข้อความไม่ได้\nอุปกรณ์ของเจ้าของห้องไม่ตอบสนอง',
   'toast.host_unresponsive_blocked': 'ส่งคำขอไม่ได้\nอุปกรณ์ของเจ้าของห้องไม่ตอบสนอง',
   'toast.host_back': 'อุปกรณ์ของเจ้าของห้องกลับมาแล้ว',
@@ -580,8 +566,7 @@ const th: Record<I18nKey, string> = {
   'toast.copy_failed': 'คัดลอกไม่ได้',
   'toast.email_copied': 'คัดลอกที่อยู่อีเมลแล้ว!',
   'toast.settings_sync_enabled': 'เปิดการซิงก์การตั้งค่าอยู่',
-  'toast.settings_sync_admin_required':
-    'เปิดการซิงก์การตั้งค่าอยู่\nผู้ดูแลห้องเท่านั้นที่เปลี่ยนการตั้งค่าเสียงได้',
+  'toast.settings_sync_admin_required': 'เปิดการซิงก์การตั้งค่าอยู่\nผู้ดูแลห้องเท่านั้นที่เปลี่ยนการตั้งค่าเสียงได้',
   'toast.virtual_bass_on': 'เปิดเบสเสมือนแล้ว',
   'toast.virtual_bass_off': 'ปิดเบสเสมือนแล้ว',
   'toast.virtual_treble_on': 'เปิดเสียงแหลมเสมือนแล้ว',
@@ -679,8 +664,7 @@ const th: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'เตรียมระบบเสียงไม่ได้',
   'error.session_create_fail': 'สร้างห้องไม่ได้',
   'error.network_generic': 'เกิดข้อผิดพลาดเครือข่าย',
-  'error.session_handshake_failed':
-    'เชื่อมต่อห้องไม่สำเร็จ โหลดหน้าใหม่บนอุปกรณ์ทั้งสองเครื่องแล้วลองอีกครั้ง',
+  'error.session_handshake_failed': 'เชื่อมต่อห้องไม่สำเร็จ โหลดหน้าใหม่บนอุปกรณ์ทั้งสองเครื่องแล้วลองอีกครั้ง',
   'error.host_unreachable': 'ดูเหมือนเจ้าของห้องออกจากห้องแล้ว',
   'error.host_disconnected': 'ตัดการเชื่อมต่อจากเจ้าของห้องแล้ว',
   'error.host_conn_error': 'เกิดข้อผิดพลาดขณะเชื่อมต่อกับเจ้าของห้อง',
@@ -695,8 +679,7 @@ const th: Record<I18nKey, string> = {
   'error.server_disconnected': 'ตัดการเชื่อมต่อจากเซิร์ฟเวอร์แล้ว',
   'error.session_id_unavailable': 'ใช้ ID ห้องไม่ได้\nลองอีกครั้ง',
   'error.webrtc_failed': 'เชื่อมต่อ WebRTC ไม่สำเร็จ\nตรวจสอบการตั้งค่าเบราว์เซอร์',
-  'error.browser_unsupported':
-    'เบราว์เซอร์นี้ไม่รองรับการเชื่อมต่อแบบเรียลไทม์\nลองใช้ Chrome หรือ Safari',
+  'error.browser_unsupported': 'เบราว์เซอร์นี้ไม่รองรับการเชื่อมต่อแบบเรียลไทม์\nลองใช้ Chrome หรือ Safari',
   'error.ssl_required': 'ต้องใช้การเชื่อมต่อที่ปลอดภัย (HTTPS)',
   'error.room_password_required': 'ห้องนี้ต้องใช้รหัสผ่าน',
   'error.room_password_invalid': 'รหัสผ่านห้องไม่ตรงกัน',
@@ -717,8 +700,7 @@ const th: Record<I18nKey, string> = {
     'หลังจากกลับมาจากเบื้องหลัง ระบบยังไม่สามารถกู้คืนเสียงบนอุปกรณ์นี้ได้ ห้องจะยังคงเชื่อมต่ออยู่ระหว่างที่เราปรับเสียงของอุปกรณ์นี้ให้ตรงกันอีกครั้ง',
   'dialog.audio_recovery_action': 'กู้คืนเสียง',
   'dialog.background_resume_message': 'ถ้าซิงก์ไม่ตรงหรือเสียงไม่เล่น ให้ปิดแอปให้สนิทแล้วเปิดใหม่',
-  'dialog.background_resume_sync_fallback_message':
-    'ถ้าซิงก์ไม่ตรงหรือเสียงไม่เล่น ให้ปิดแอปให้สนิทแล้วเปิดใหม่',
+  'dialog.background_resume_sync_fallback_message': 'ถ้าซิงก์ไม่ตรงหรือเสียงไม่เล่น ให้ปิดแอปให้สนิทแล้วเปิดใหม่',
   'dialog.got_it': 'เข้าใจแล้ว',
   'dialog.continue_using': 'ใช้ต่อ',
   'dialog.leave_session': 'ออก',
@@ -729,16 +711,13 @@ const th: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'เปิดแอปค้างไว้ระหว่างใช้งาน',
   'dialog.keep_open_message':
     'การสลับไปใช้แอปอื่นหรือปิดหน้าจออาจทำให้เสียงหยุดหรือซิงก์ไม่ตรง\nถ้าอุปกรณ์ของเจ้าของห้องไปอยู่เบื้องหลัง ทั้งห้องอาจหยุดทำงาน',
-  'dialog.keep_open_message_pro':
-    'การสลับไปใช้แอปอื่นหรือปิดหน้าจออาจทำให้เสียงหยุดหรือซิงก์ไม่ตรง',
+  'dialog.keep_open_message_pro': 'การสลับไปใช้แอปอื่นหรือปิดหน้าจออาจทำให้เสียงหยุดหรือซิงก์ไม่ตรง',
   'dialog.sw_update_title': 'อัปเดต',
   'dialog.sw_update_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว\nโหลดหน้าใหม่เพื่ออัปเดต',
   'dialog.sw_update_apply': 'ใช้',
   'dialog.sw_update_apply_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว\nเมื่อใช้แล้ว หน้าจะโหลดใหม่',
-  'dialog.sw_update_room_host_msg':
-    'มีเวอร์ชันใหม่พร้อมแล้ว\nหากต้องการใช้ ต้องเปิดห้องใหม่อีกครั้ง',
-  'dialog.sw_update_room_guest_msg':
-    'มีเวอร์ชันใหม่พร้อมแล้ว\nหากต้องการใช้ ต้องเข้าร่วมห้องอีกครั้ง',
+  'dialog.sw_update_room_host_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว\nหากต้องการใช้ ต้องเปิดห้องใหม่อีกครั้ง',
+  'dialog.sw_update_room_guest_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว\nหากต้องการใช้ ต้องเข้าร่วมห้องอีกครั้ง',
   'dialog.feature_refresh_title': 'จำเป็นต้องรีเฟรช',
   'dialog.feature_refresh_msg': 'MUSIXQUARE อัปเดตแล้ว\nรีเฟรชเพื่อใช้งานต่อได้ตามปกติ',
   'dialog.reconnect_ask': 'ต้องการเชื่อมต่อใหม่ไหม?',
@@ -751,12 +730,9 @@ const th: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'รหัสผ่านไม่ตรงกัน',
   'dialog.room_password_timeout_msg': 'การเชื่อมต่อหมดเวลา ใส่รหัสผ่านอีกครั้ง',
   'dialog.room_password_placeholder': 'รหัสผ่าน 8 หลัก',
-  'dialog.room_password_rate_limited':
-    'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
-  'dialog.room_password_rate_limited_later':
-    'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
-  'dialog.session_lost_msg':
-    'แอปเข้าสู่โหมดพักหรือการเชื่อมต่อหลุด อุปกรณ์อื่นจึงหลุดไปแล้ว เริ่มใหม่เพื่อเปิดห้องใหม่',
+  'dialog.room_password_rate_limited': 'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
+  'dialog.room_password_rate_limited_later': 'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
+  'dialog.session_lost_msg': 'แอปเข้าสู่โหมดพักหรือการเชื่อมต่อหลุด อุปกรณ์อื่นจึงหลุดไปแล้ว เริ่มใหม่เพื่อเปิดห้องใหม่',
   'dialog.session_lost_guest_msg':
     'แอปเข้าสู่โหมดพักหรือการเชื่อมต่อหลุด อุปกรณ์อื่นจึงหลุดไปแล้ว เริ่มใหม่เพื่อเข้าร่วมห้องนี้อีกครั้ง',
   'dialog.session_lost_btn': 'เริ่มใหม่',
@@ -770,8 +746,7 @@ const th: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'บัญชีอื่น',
   'pro.activation_account_unavailable': 'ตรวจสอบข้อมูลบัญชีไม่ได้ ลองอีกครั้งในอีกสักครู่',
   'pro.claim_retry_title': 'ลองใช้ลิงก์ PRO อีกครั้งไหม?',
-  'pro.claim_retry_message':
-    'การเชื่อมต่อขาดช่วง ลิงก์ยังถูกเก็บไว้อย่างปลอดภัยบนหน้าจอนี้ จึงลองอีกครั้งได้',
+  'pro.claim_retry_message': 'การเชื่อมต่อขาดช่วง ลิงก์ยังถูกเก็บไว้อย่างปลอดภัยบนหน้าจอนี้ จึงลองอีกครั้งได้',
   'pro.claim_unavailable_title': 'ลิงก์นี้ใช้ไม่ได้อีกต่อไป',
   'pro.claim_login_title': 'เข้าสู่ระบบก่อน',
   'pro.claim_login_button': 'เข้าสู่ระบบ',
@@ -790,8 +765,7 @@ const th: Record<I18nKey, string> = {
   'pro.claim_account_capacity_message':
     'บัญชีนี้ถึงขีดจำกัดการเชื่อมโยงห้อง PRO แล้ว โปรดลบการเชื่อมโยงเดิมและขอลิงก์ใหม่',
   'pro.claim_failed_title': 'ดำเนินการตามคำขอไม่สำเร็จ',
-  'pro.claim_failed_message':
-    'เพื่อความปลอดภัย ระบบไม่ได้ลองใช้ลิงก์นี้ซ้ำ โปรดขอลิงก์ใหม่จากผู้ดูแลห้อง',
+  'pro.claim_failed_message': 'เพื่อความปลอดภัย ระบบไม่ได้ลองใช้ลิงก์นี้ซ้ำ โปรดขอลิงก์ใหม่จากผู้ดูแลห้อง',
   'pro.new_link_message': 'ลิงก์หมดอายุหรือถูกใช้แล้ว หากจำเป็น โปรดขอลิงก์ใหม่จากผู้ดูแล',
   'pro.not_ready_title': 'ห้อง PRO นี้ยังไม่พร้อม',
   'pro.not_ready_message': 'เจ้าของห้องต้องเปิดใช้งานก่อน',
@@ -810,26 +784,20 @@ const th: Record<I18nKey, string> = {
   'pro.pin_enabled': 'ตั้งรหัสผ่านห้องแล้ว',
   'pro.pin_members_title': 'จะจัดการกับผู้เข้าร่วมที่อยู่ในห้องตอนนี้อย่างไร?',
   'pro.pin_members_keep': 'ให้ทุกคนอยู่ต่อ',
-  'pro.pin_members_keep_detail':
-    'เฉพาะอุปกรณ์ที่เข้าร่วมใหม่หรือเข้าร่วมเป็นครั้งแรกเท่านั้นที่ต้องใส่รหัสผ่าน',
+  'pro.pin_members_keep_detail': 'เฉพาะอุปกรณ์ที่เข้าร่วมใหม่หรือเข้าร่วมเป็นครั้งแรกเท่านั้นที่ต้องใส่รหัสผ่าน',
   'pro.pin_members_reenter': 'ทุกคนเข้าร่วมใหม่',
-  'pro.pin_members_reenter_detail':
-    'ทุกคนต้องเข้าร่วมใหม่ แนะนำวิธีนี้หากต้องการนำคนที่ไม่รู้จักออกทั้งหมดในครั้งเดียว',
+  'pro.pin_members_reenter_detail': 'ทุกคนต้องเข้าร่วมใหม่ แนะนำวิธีนี้หากต้องการนำคนที่ไม่รู้จักออกทั้งหมดในครั้งเดียว',
   'pro.pin_enabled_removed_title': 'ห้องนี้ตั้งรหัสผ่านแล้ว',
-  'pro.pin_enabled_removed_message':
-    'เจ้าของห้องตั้งรหัสผ่านให้ห้องนี้แล้ว ใส่รหัสผ่านเพื่อเข้าร่วมอีกครั้ง',
+  'pro.pin_enabled_removed_message': 'เจ้าของห้องตั้งรหัสผ่านให้ห้องนี้แล้ว ใส่รหัสผ่านเพื่อเข้าร่วมอีกครั้ง',
   'pro.pin_changed_removed_title': 'รหัสผ่านห้องเปลี่ยนแล้ว',
-  'pro.pin_changed_removed_message':
-    'เจ้าของห้องเปลี่ยนรหัสผ่านห้องแล้ว ใส่รหัสผ่านใหม่เพื่อเข้าร่วมอีกครั้ง',
+  'pro.pin_changed_removed_message': 'เจ้าของห้องเปลี่ยนรหัสผ่านห้องแล้ว ใส่รหัสผ่านใหม่เพื่อเข้าร่วมอีกครั้ง',
   'pro.removed_title': 'คุณถูกนำออกจากห้องนี้',
   'pro.removed_message': 'เจ้าของห้องหรือผู้ดูแลนำคุณออกจากห้องนี้',
-  'pro.device_removed_message':
-    'อุปกรณ์อื่นที่เข้าสู่ระบบด้วยบัญชีของคุณได้ตัดการเชื่อมต่ออุปกรณ์นี้ออกจากห้อง',
+  'pro.device_removed_message': 'อุปกรณ์อื่นที่เข้าสู่ระบบด้วยบัญชีของคุณได้ตัดการเชื่อมต่ออุปกรณ์นี้ออกจากห้อง',
   'pro.owner_only': 'เฉพาะเจ้าของห้องเท่านั้นที่ทำได้',
   'pro.connect_failed': 'เชื่อมต่อห้อง PRO ไม่สำเร็จ',
   'pro.room_full': 'ห้อง PRO นี้เต็มแล้ว',
-  'pro.room_full_detail':
-    'รองรับอุปกรณ์ได้สูงสุด 100 เครื่องรวมเจ้าของห้อง และจะเว้นที่ไว้ให้เจ้าของห้องหนึ่งที่เสมอ',
+  'pro.room_full_detail': 'รองรับอุปกรณ์ได้สูงสุด 100 เครื่องรวมเจ้าของห้อง และจะเว้นที่ไว้ให้เจ้าของห้องหนึ่งที่เสมอ',
   'pro.join_rate_limited': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
   'pro.join_rate_limited_later': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในภายหลัง',
   'pro.active_tab_title': 'ยังมีการเชื่อมต่อก่อนหน้าค้างอยู่',
@@ -843,12 +811,9 @@ const th: Record<I18nKey, string> = {
   'pro.upload.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',
   'pro.upload.playlist_full': 'เพลย์ลิสต์เต็มแล้ว',
   'pro.upload.room_capacity': 'ห้อง PRO นี้เพิ่มรายการไม่ได้อีกแล้ว',
-  'pro.upload.room_state_limit':
-    'ห้อง PRO นี้ยังรับการเปลี่ยนแปลงเพิ่มไม่ได้ในขณะนี้ โปรดเลือกไฟล์อีกครั้งในภายหลัง',
-  'pro.upload.pending_limit':
-    'ห้อง PRO นี้มีการอัปโหลดที่ยังไม่เสร็จมากเกินไป โปรดลองอีกครั้งในภายหลัง',
-  'pro.upload.playlist_switched':
-    'มีการสลับไปใช้เพลย์ลิสต์อื่นก่อนที่จะเพิ่มรายการนี้ โปรดเลือกไฟล์อีกครั้ง',
+  'pro.upload.room_state_limit': 'ห้อง PRO นี้ยังรับการเปลี่ยนแปลงเพิ่มไม่ได้ในขณะนี้ โปรดเลือกไฟล์อีกครั้งในภายหลัง',
+  'pro.upload.pending_limit': 'ห้อง PRO นี้มีการอัปโหลดที่ยังไม่เสร็จมากเกินไป โปรดลองอีกครั้งในภายหลัง',
+  'pro.upload.playlist_switched': 'มีการสลับไปใช้เพลย์ลิสต์อื่นก่อนที่จะเพิ่มรายการนี้ โปรดเลือกไฟล์อีกครั้ง',
   'pro.upload.permission_required': 'ต้องมีสิทธิ์จัดการสื่อ',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
   'pro.upload.confirming': 'กำลังยืนยันการอัปโหลด {{current}}/{{total}}',
@@ -860,8 +825,7 @@ const th: Record<I18nKey, string> = {
   'pro.downloading': 'กำลังดาวน์โหลดไฟล์...',
   'pro.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',
   'pro.file_too_large': 'ไฟล์นี้เกินขีดจำกัด 200 MB ต่อไฟล์',
-  'pro.room_state_limit':
-    'ห้อง PRO นี้ยังรับการเปลี่ยนแปลงเพิ่มไม่ได้ในขณะนี้\nโปรดลองอีกครั้งในภายหลัง',
+  'pro.room_state_limit': 'ห้อง PRO นี้ยังรับการเปลี่ยนแปลงเพิ่มไม่ได้ในขณะนี้\nโปรดลองอีกครั้งในภายหลัง',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
@@ -881,8 +845,7 @@ const th: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} เพิ่ม 1 รายการ: {{title}}',
   'chat.tracks_added_named': '{{name}} เพิ่ม {{count}} รายการ รวมถึง {{title}}',
   'chat.peer_disconnected': '{{name}} ออกแล้ว',
-  'chat.participant_connection_unstable_recovering':
-    'การเชื่อมต่อของ {{name}} ไม่เสถียร กำลังพยายามกู้คืน',
+  'chat.participant_connection_unstable_recovering': 'การเชื่อมต่อของ {{name}} ไม่เสถียร กำลังพยายามกู้คืน',
   'chat.empty_html': 'ยังไม่มีข้อความ<br>ส่งข้อความแรกเลย!',
   'chat.msg_truncated': 'ข้อความถูกตัดเหลือ {{max}} ตัวอักษร',
   'chat.scroll_to_bottom': 'เลื่อนไปด้านล่าง',
@@ -906,8 +869,7 @@ const th: Record<I18nKey, string> = {
   'system_audio.pro_preparing': 'กำลังเตรียมแชร์เสียงระบบ',
   'system_audio.pro_publish_failed': 'เริ่มแชร์เสียงระบบไม่ได้',
   'system_audio.coordinator_update_required': 'อัปเดตอุปกรณ์ที่จัดการห้องนี้เพื่อแชร์เสียงระบบ',
-  'system_audio.connection_unstable':
-    'การเชื่อมต่อเสียงระบบของ {{name}} ไม่เสถียร\nกำลังพยายามเชื่อมต่อใหม่',
+  'system_audio.connection_unstable': 'การเชื่อมต่อเสียงระบบของ {{name}} ไม่เสถียร\nกำลังพยายามเชื่อมต่อใหม่',
   'system_audio.capture_denied': 'การแชร์เสียงถูกยกเลิก',
   'system_audio.no_audio_track': 'ไม่ได้เปิด "แชร์เสียง"\nลองอีกครั้ง',
   'system_audio.stop': 'หยุดแชร์',
@@ -916,14 +878,11 @@ const th: Record<I18nKey, string> = {
   'system_audio.stopped': 'สิ้นสุดการแชร์เสียงระบบแล้ว\nกำลังเล่นเพลย์ลิสต์ต่อ',
   'system_audio.host_channel_locked': 'เปลี่ยนบทบาทไม่ได้ระหว่างแชร์เสียงระบบ',
   'system_audio.effects_guest_only': 'กำลังแชร์เสียงระบบ\nเอฟเฟกต์ใช้กับอุปกรณ์ผู้เข้าร่วมเท่านั้น',
-  'system_audio.desktop_only':
-    'ใช้ได้เฉพาะบนคอมพิวเตอร์ที่ใช้เบราว์เซอร์ Chromium (เช่น Chrome, Edge)',
+  'system_audio.desktop_only': 'ใช้ได้เฉพาะบนคอมพิวเตอร์ที่ใช้เบราว์เซอร์ Chromium (เช่น Chrome, Edge)',
   'system_audio.receive_failed': 'รับเสียงระบบไม่ได้\nขอให้เจ้าของห้องเริ่มแชร์อีกครั้ง',
-  'system_audio.remote_receive_limit':
-    'การรับเสียงระบบหยุดหลังจาก 2 ชั่วโมง\nเข้าร่วมห้องอีกครั้งเพื่อฟังต่อ',
+  'system_audio.remote_receive_limit': 'การรับเสียงระบบหยุดหลังจาก 2 ชั่วโมง\nเข้าร่วมห้องอีกครั้งเพื่อฟังต่อ',
   'system_audio.device_limit': 'เสียงระบบรองรับสูงสุด {{count}} เครื่อง\nรวมเจ้าของห้องแล้ว',
-  'system_audio.device_limit_stopped':
-    'หยุดแชร์เสียงระบบแล้ว\nมีอุปกรณ์เชื่อมต่อเกิน {{count}} เครื่อง',
+  'system_audio.device_limit_stopped': 'หยุดแชร์เสียงระบบแล้ว\nมีอุปกรณ์เชื่อมต่อเกิน {{count}} เครื่อง',
   'system_audio.duration_limit_stopped': 'การแชร์เสียงระบบสิ้นสุดอัตโนมัติ\nหลังจาก 2 ชั่วโมง',
 
   // ─── Legal ────────────────────────────────────────────────────────

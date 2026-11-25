@@ -192,8 +192,7 @@ const mr: Record<I18nKey, string> = {
   'settings.theme': 'थीम',
   'settings.ui_sounds': 'इंटरफेसचे आवाज',
   'settings.sync_settings': 'सेटिंग्ज सिंक',
-  'settings.sync_settings_desc':
-    'हे सेटिंग सुरू असलेली डिव्हाइस आवाजाची पातळी आणि ऑडिओ इफेक्ट सिंक करतात.',
+  'settings.sync_settings_desc': 'हे सेटिंग सुरू असलेली डिव्हाइस आवाजाची पातळी आणि ऑडिओ इफेक्ट सिंक करतात.',
   'settings.audio_locked_desc': 'फक्त रूमचे प्रशासक ऑडिओ सेटिंग्ज बदलू शकतात.',
   'settings.audio_lock_checking_desc': 'प्रशासकीय परवानगी तपासत आहोत.',
   'settings.virtual_effects_title': 'आभासी इफेक्ट',
@@ -205,8 +204,7 @@ const mr: Record<I18nKey, string> = {
   'settings.language_desc': 'भाषा निवडा किंवा सिस्टमची भाषा वापरा.',
   'settings.theme_desc': 'फिकट किंवा गडद थीम निवडा.',
   'player.visualizer_mode_hint': 'आवाज कसा दृश्यरूपात दाखवायचा ते निवडा.',
-  'settings.ui_sounds_desc':
-    'सूचना, सामील होणे व बाहेर पडणे आणि स्पर्शाचे आवाज सुरू किंवा बंद करा.',
+  'settings.ui_sounds_desc': 'सूचना, सामील होणे व बाहेर पडणे आणि स्पर्शाचे आवाज सुरू किंवा बंद करा.',
   'settings.reverb_desc': 'आवाजाचा प्रतिध्वनी आणि अनुनाद समायोजित करा.',
   'settings.eq_desc': 'आवाजाचा पोत समायोजित करा. आवाजाच्या पातळीच्या नियंत्रणासोबत वापरा.',
   'settings.surround_desc': 'अधिक समृद्ध अनुभवासाठी ध्वनीचे विभाजन वाढवा.',
@@ -328,8 +326,7 @@ const mr: Record<I18nKey, string> = {
   'connect.signaling_recovery_wait': 'रूम सर्व्हरची पुन्हा तपासणी सुरू आहे.',
   'connect.signaling_reconnecting': 'रूम सर्व्हरशी पुन्हा कनेक्ट होत आहे · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'रूम सर्व्हरचे कनेक्शन पूर्ववत झाले.',
-  'connect.signaling_exhausted':
-    'रूम सर्व्हर प्रतिसाद देत नाही.\nनवीन सहभागी कनेक्ट होऊ शकत नाहीत.',
+  'connect.signaling_exhausted': 'रूम सर्व्हर प्रतिसाद देत नाही.\nनवीन सहभागी कनेक्ट होऊ शकत नाहीत.',
   'connect.signaling_exhausted_pro':
     'रूम सर्व्हर प्रतिसाद देत नाही. नवीन सहभाग आणि थेट अद्यतने मर्यादित आहेत.',
   'connect.signaling_retry': 'पुन्हा प्रयत्न करा',
@@ -363,13 +360,10 @@ const mr: Record<I18nKey, string> = {
   'demo.step_finish': '4. डेमो बंद करा',
   'demo.session_title': 'ही {{code}} क्रमांकाची रूम आहे.',
   'demo.session_subtitle': 'दुसऱ्या डिव्हाइसला कधीही आमंत्रित करू शकता.',
-  'demo.session_body_connected':
-    'सध्या {{count}} डिव्हाइस कनेक्ट आहेत.\nप्रत्येक डिव्हाइसची भूमिका ठरवा.',
-  'demo.session_body_alone':
-    'सध्या फक्त हे डिव्हाइस प्ले करत आहे.\nआता दुसऱ्या डिव्हाइसला आमंत्रित करा.',
+  'demo.session_body_connected': 'सध्या {{count}} डिव्हाइस कनेक्ट आहेत.\nप्रत्येक डिव्हाइसची भूमिका ठरवा.',
+  'demo.session_body_alone': 'सध्या फक्त हे डिव्हाइस प्ले करत आहे.\nआता दुसऱ्या डिव्हाइसला आमंत्रित करा.',
   'demo.effects_step_title': 'तुमच्या आवडीचा उत्कृष्ट आवाज घडवा.',
-  'demo.effects_step_subtitle':
-    'सेटिंग्जमध्ये हे प्रगत ध्वनी गुणधर्म कधीही बारकाईने समायोजित करू शकता.',
+  'demo.effects_step_subtitle': 'सेटिंग्जमध्ये हे प्रगत ध्वनी गुणधर्म कधीही बारकाईने समायोजित करू शकता.',
   'demo.finish_step_title': 'सर्व तयारी झाली!',
   'demo.finish_step_subtitle': 'आता लगेच सुरुवात करा आणि एकत्र प्ले करा.',
   'demo.track_list_label': 'डेमो ट्रॅकची यादी',
@@ -392,8 +386,7 @@ const mr: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'कॅमेऱ्याची परवानगी नाकारली आहे',
   'setup.camera_not_found': 'वापरता येईल असा कॅमेरा सापडला नाही',
   'setup.camera_unavailable': 'कॅमेरा सुरू करता आला नाही',
-  'setup.camera_stream_stalled':
-    'कॅमेऱ्याचे पूर्वदृश्य सुरू झाले नाही\nब्राउझरमध्ये उघडा किंवा कोड प्रविष्ट करा',
+  'setup.camera_stream_stalled': 'कॅमेऱ्याचे पूर्वदृश्य सुरू झाले नाही\nब्राउझरमध्ये उघडा किंवा कोड प्रविष्ट करा',
   'setup.connect_devices': 'सुरू करण्यासाठी तुमची इतर डिव्हाइस कनेक्ट करा.',
   'setup.enter_code_connect': 'आमंत्रण कोड',
   'setup.last_step': 'चला, सुरुवात करूया!',
@@ -409,8 +402,7 @@ const mr: Record<I18nKey, string> = {
   'help.load_local': 'स्थानिक फाइल लोड करा',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'YouTube मोडमध्ये भूमिका सेटिंग्ज आणि ऑडिओ इफेक्ट उपलब्ध नसतात.',
-  'help.media_synced_detail':
-    'निवडलेले मीडिया सर्व कनेक्ट केलेल्या डिव्हाइसवर एकाच वेळी प्ले होते.',
+  'help.media_synced_detail': 'निवडलेले मीडिया सर्व कनेक्ट केलेल्या डिव्हाइसवर एकाच वेळी प्ले होते.',
   'help.wifi_hotspot': 'हॉटस्पॉट वापरूनही सर्वांना एकाच नेटवर्कवर आणता येते',
 
   // ─── Chat ────────────────────────────────────────────────────────
@@ -444,8 +436,7 @@ const mr: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT ने जोडलेले ट्रॅक: {{count}}. प्लेबॅक सुरू झाला',
   'chat.bot_rate_limited': 'BOT विनंतीची मर्यादा गाठली. {{duration}} थांबा आणि पुन्हा प्रयत्न करा',
   'chat.decode_skip_system_message': 'ट्रॅक वगळत आहे: काही डिव्हाइसवर हे स्वरूप समर्थित नाही.',
-  'chat.large_track_playback_system_message':
-    'हा ट्रॅक खूप मोठा आहे, त्यामुळे तो वापरताना विलंब होऊ शकतो.',
+  'chat.large_track_playback_system_message': 'हा ट्रॅक खूप मोठा आहे, त्यामुळे तो वापरताना विलंब होऊ शकतो.',
   'chat.large_local_track_system_message':
     'या ट्रॅकची फाइल खूप मोठी आहे आणि काही डिव्हाइसवर तो कदाचित प्ले होणार नाही.',
   'chat.device_track_unavailable_system_message': 'हे डिव्हाइस सध्याचा ट्रॅक प्ले करू शकत नाही.',
@@ -583,8 +574,7 @@ const mr: Record<I18nKey, string> = {
   'toast.copy_failed': 'कॉपी करता आले नाही',
   'toast.email_copied': 'ईमेल पत्ता कॉपी केला!',
   'toast.settings_sync_enabled': 'सेटिंग्ज सिंक सुरू आहे',
-  'toast.settings_sync_admin_required':
-    'सेटिंग्ज सिंक सुरू आहे\nफक्त रूमचे प्रशासक ऑडिओ सेटिंग्ज बदलू शकतात',
+  'toast.settings_sync_admin_required': 'सेटिंग्ज सिंक सुरू आहे\nफक्त रूमचे प्रशासक ऑडिओ सेटिंग्ज बदलू शकतात',
   'toast.virtual_bass_on': 'आभासी बेस सुरू आहे',
   'toast.virtual_bass_off': 'आभासी बेस बंद आहे',
   'toast.virtual_treble_on': 'आभासी ट्रेबल सुरू आहे',
@@ -599,16 +589,13 @@ const mr: Record<I18nKey, string> = {
   'toast.room_owner_required': 'हे फक्त रूमचा मालक बदलू शकतो',
   'toast.media_management_checking':
     'मीडिया व्यवस्थापनाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
-  'toast.playback_control_checking':
-    'प्लेबॅक नियंत्रणाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.playback_control_checking': 'प्लेबॅक नियंत्रणाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'toast.member_management_checking':
     'सदस्यांना काढण्याची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'toast.chat_notice_checking':
     'चॅट सूचना पोस्ट करण्याची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
-  'toast.admin_permission_checking':
-    'प्रशासकीय परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
-  'toast.room_owner_checking':
-    'रूमच्या मालकाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.admin_permission_checking': 'प्रशासकीय परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.room_owner_checking': 'रूमच्या मालकाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'toast.system_audio_owner_required': 'तुम्ही फक्त रूम उघडलेल्या टॅबमधूनच ऑडिओ शेअर करू शकता',
   'toast.host_setting_required': 'हे सेटिंग फक्त होस्ट बदलू शकतो',
   'toast.no_tracks': 'प्ले करण्यासाठी कोणतेही ट्रॅक नाहीत',
@@ -634,8 +621,7 @@ const mr: Record<I18nKey, string> = {
   'toast.yt_rendezvous_start': 'होस्टशी जुळवत आहे...',
   'toast.yt_rendezvous_done': 'सिंक पूर्ण',
   'toast.yt_rendezvous_host_paused': 'होस्टने विराम दिला आहे; फक्त प्लेबॅकचे स्थान जुळवले',
-  'toast.yt_rendezvous_no_data':
-    'होस्टचा प्लेबॅक डेटा अद्याप नाही\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.yt_rendezvous_no_data': 'होस्टचा प्लेबॅक डेटा अद्याप नाही\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'toast.yt_rendezvous_timeout': 'सिंक अयशस्वी\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'toast.yt_manual_sync_prompt':
     'आत्ताच स्वयंचलित सिंकचा प्रयत्न केला\nतरीही विलंब जाणवत असल्यास आता मूल्य समायोजित करा',
@@ -666,16 +652,14 @@ const mr: Record<I18nKey, string> = {
   'share.remote.timeout': 'दूरस्थ फाइल शेअरची वेळ संपली',
   'share.remote.too_large': 'फाइल खूप मोठी आहे (कमाल 200 MB)',
   'share.remote.network_error': 'दूरस्थ शेअर करताना नेटवर्क त्रुटी',
-  'share.remote.rate_limited':
-    'दूरस्थ शेअरसाठी खूप अपलोड झाले आहेत\nकाही वेळाने पुन्हा प्रयत्न करा',
+  'share.remote.rate_limited': 'दूरस्थ शेअरसाठी खूप अपलोड झाले आहेत\nकाही वेळाने पुन्हा प्रयत्न करा',
   'share.remote.quota_reached': 'दूरस्थ शेअरिंगच्या संचयनाची मर्यादा गाठली',
   'share.remote.auth_failed': 'दूरस्थ शेअरची अधिकृतता अयशस्वी\nWorker सेटिंग्ज तपासा',
   'share.remote.expired': 'दूरस्थ फाइलची लिंक कालबाह्य झाली\nकृपया पुन्हा शेअर करा',
   'share.remote.unavailable': 'दूरस्थ शेअरिंग अयशस्वी\nकाही वेळाने पुन्हा प्रयत्न करा',
   'transfer.preload_fail': 'पूर्वलोड केलेले प्लेबॅक अयशस्वी; पुन्हा लोड करत आहे',
   'transfer.download_finishing': 'डाउनलोड पूर्ण करत आहे...',
-  'transfer.preparation_delayed':
-    'तयारीला विलंब होत आहे...\nहोस्टकडे पुनर्प्राप्तीची विनंती करत आहे',
+  'transfer.preparation_delayed': 'तयारीला विलंब होत आहे...\nहोस्टकडे पुनर्प्राप्तीची विनंती करत आहे',
   'transfer.receiving_0pct': 'प्राप्त होत आहे... 0%',
   'transfer.check_conn_type': 'कनेक्शनचा प्रकार तपासत आहे...',
   'transfer.preload_pending': 'पूर्वलोडची प्रतीक्षा: {{name}}',
@@ -705,8 +689,7 @@ const mr: Record<I18nKey, string> = {
   'error.peer_unavailable': 'सत्र सापडले नाही\nकोड पुन्हा तपासा',
   'error.host_left': 'होस्टने सत्र सोडले असावे',
   'error.network_issue': 'नेटवर्कमध्ये समस्या आहे\nतुमचे इंटरनेट कनेक्शन तपासा',
-  'error.signal_server_fail':
-    'सिग्नलिंग सर्व्हरशी संपर्क होऊ शकत नाही\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'error.signal_server_fail': 'सिग्नलिंग सर्व्हरशी संपर्क होऊ शकत नाही\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'error.server_disconnected': 'सर्व्हरशी कनेक्शन तुटले',
   'error.session_id_unavailable': 'सत्र ID उपलब्ध नाही\nपुन्हा प्रयत्न करा',
   'error.webrtc_failed': 'WebRTC कनेक्शन अयशस्वी\nतुमच्या ब्राउझरची सेटिंग्ज तपासा',
@@ -751,8 +734,7 @@ const mr: Record<I18nKey, string> = {
   'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे\nअद्ययावत करण्यासाठी रीफ्रेश करा',
   'dialog.sw_update_apply': 'लागू करा',
   'dialog.sw_update_apply_msg': 'नवीन आवृत्ती तयार आहे.\nलागू केल्यावर पेज पुन्हा लोड होईल.',
-  'dialog.sw_update_room_host_msg':
-    'नवीन आवृत्ती तयार आहे.\nलागू करण्यासाठी रूम पुन्हा उघडावी लागेल.',
+  'dialog.sw_update_room_host_msg': 'नवीन आवृत्ती तयार आहे.\nलागू करण्यासाठी रूम पुन्हा उघडावी लागेल.',
   'dialog.sw_update_room_guest_msg':
     'नवीन आवृत्ती तयार आहे.\nलागू करण्यासाठी रूममध्ये पुन्हा सामील व्हावे लागेल.',
   'dialog.feature_refresh_title': 'रीफ्रेश करणे आवश्यक आहे',
@@ -783,12 +765,10 @@ const mr: Record<I18nKey, string> = {
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'या PRO रूमसाठी खाते निवडा',
   'pro.activation_account_message': 'ही रूम “{{name}}” या खात्यावर नोंदवायची?',
-  'pro.activation_account_login_message':
-    'ही रूम ज्या खात्यावर नोंदवायची आहे, त्या खात्याने साइन इन करा.',
+  'pro.activation_account_login_message': 'ही रूम ज्या खात्यावर नोंदवायची आहे, त्या खात्याने साइन इन करा.',
   'pro.activation_account_continue': 'नोंदवा',
   'pro.activation_account_switch': 'दुसरे खाते',
-  'pro.activation_account_unavailable':
-    'तुमचे खाते पडताळता आले नाही. थोड्या वेळाने पुन्हा प्रयत्न करा.',
+  'pro.activation_account_unavailable': 'तुमचे खाते पडताळता आले नाही. थोड्या वेळाने पुन्हा प्रयत्न करा.',
   'pro.claim_retry_title': 'PRO लिंकचा पुन्हा प्रयत्न करायचा?',
   'pro.claim_retry_message':
     'कनेक्शनमध्ये व्यत्यय आला. लिंक या स्क्रीनवर सुरक्षित ठेवली आहे, त्यामुळे पुन्हा प्रयत्न करू शकता.',
@@ -851,10 +831,8 @@ const mr: Record<I18nKey, string> = {
   'pro.room_full': 'ही PRO रूम भरली आहे',
   'pro.room_full_detail':
     'मालकासह कमाल 100 डिव्हाइस कनेक्ट होऊ शकतात\nमालकासाठी नेहमी एक जागा राखीव ठेवली जाते',
-  'pro.join_rate_limited':
-    'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत\n{{count}} मिनिटांनी पुन्हा प्रयत्न करा',
-  'pro.join_rate_limited_later':
-    'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'pro.join_rate_limited': 'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत\n{{count}} मिनिटांनी पुन्हा प्रयत्न करा',
+  'pro.join_rate_limited_later': 'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'pro.active_tab_title': 'आधीचे कनेक्शन शिल्लक आहे',
   'pro.active_tab_message': 'इथे पुढे गेल्यास आधीचे कनेक्शन तुटेल.',
   'pro.active_tab_replaced': 'ही PRO रूम आधीपासून दुसऱ्या टॅबमध्ये उघडी आहे',
@@ -868,10 +846,8 @@ const mr: Record<I18nKey, string> = {
   'pro.upload.room_capacity': 'या PRO रूममध्ये आणखी ट्रॅक जोडता येणार नाहीत.',
   'pro.upload.room_state_limit':
     'या PRO रूममध्ये आत्ता आणखी बदल करता येणार नाहीत. थोड्या वेळाने फाइल पुन्हा निवडा.',
-  'pro.upload.pending_limit':
-    'या PRO रूममध्ये अपूर्ण अपलोड खूप जास्त आहेत. थोड्या वेळाने पुन्हा प्रयत्न करा.',
-  'pro.upload.playlist_switched':
-    'हा ट्रॅक जोडण्यापूर्वी दुसरी प्लेलिस्ट सक्रिय झाली. फाइल पुन्हा निवडा.',
+  'pro.upload.pending_limit': 'या PRO रूममध्ये अपूर्ण अपलोड खूप जास्त आहेत. थोड्या वेळाने पुन्हा प्रयत्न करा.',
+  'pro.upload.playlist_switched': 'हा ट्रॅक जोडण्यापूर्वी दुसरी प्लेलिस्ट सक्रिय झाली. फाइल पुन्हा निवडा.',
   'pro.upload.permission_required': 'मीडिया व्यवस्थापनाची परवानगी आवश्यक आहे.',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
   'pro.upload.confirming': 'अपलोड पूर्ण करत आहे {{current}}/{{total}}',
@@ -884,8 +860,7 @@ const mr: Record<I18nKey, string> = {
   'pro.downloading': 'फाइल लोड होत आहे...',
   'pro.quota_exceeded': 'या PRO रूमने संचयनाची 1 GB मर्यादा गाठली आहे',
   'pro.file_too_large': 'ही फाइल प्रत्येक फाइलसाठी असलेल्या 200 MB मर्यादेपेक्षा मोठी आहे',
-  'pro.room_state_limit':
-    'या PRO रूममध्ये आत्ता आणखी बदल करता येणार नाहीत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'pro.room_state_limit': 'या PRO रूममध्ये आत्ता आणखी बदल करता येणार नाहीत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':
@@ -937,16 +912,13 @@ const mr: Record<I18nKey, string> = {
   'system_audio.no_audio_track': '“ऑडिओ शेअर करा” सुरू केले नव्हते\nपुन्हा प्रयत्न करा',
   'system_audio.stop': 'शेअरिंग थांबवा',
   'system_audio.stop_compact': 'थांबवा',
-  'system_audio.started':
-    'सिस्टम ऑडिओमध्ये थोडा विलंब होऊ शकतो\nशक्य असल्यास स्रोताचा आवाज कमी करा',
+  'system_audio.started': 'सिस्टम ऑडिओमध्ये थोडा विलंब होऊ शकतो\nशक्य असल्यास स्रोताचा आवाज कमी करा',
   'system_audio.stopped': 'सिस्टम ऑडिओ शेअरिंग संपले\nप्लेलिस्ट पुन्हा सुरू होत आहे',
   'system_audio.host_channel_locked': 'सिस्टम ऑडिओ शेअर होत असताना भूमिका बदलता येत नाहीत',
-  'system_audio.effects_guest_only':
-    'सिस्टम ऑडिओ सक्रिय आहे\nध्वनी इफेक्ट फक्त अतिथी डिव्हाइसवर लागू होतात',
+  'system_audio.effects_guest_only': 'सिस्टम ऑडिओ सक्रिय आहे\nध्वनी इफेक्ट फक्त अतिथी डिव्हाइसवर लागू होतात',
   'system_audio.desktop_only':
     'फक्त Chromium-आधारित ब्राउझर (Chrome, Edge इ.) वापरणाऱ्या संगणकांवर उपलब्ध',
-  'system_audio.receive_failed':
-    'सिस्टम ऑडिओ प्राप्त करता आला नाही\nहोस्टला पुन्हा शेअरिंग सुरू करण्यास सांगा',
+  'system_audio.receive_failed': 'सिस्टम ऑडिओ प्राप्त करता आला नाही\nहोस्टला पुन्हा शेअरिंग सुरू करण्यास सांगा',
   'system_audio.remote_receive_limit':
     'सिस्टम ऑडिओचा प्रवाह 2 तासांनंतर थांबला\nऐकणे सुरू ठेवण्यासाठी रूममध्ये पुन्हा सामील व्हा',
   'system_audio.device_limit':

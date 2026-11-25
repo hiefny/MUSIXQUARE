@@ -61,8 +61,7 @@ const pa: Record<I18nKey, string> = {
   'account.google_continue': 'Google ਨਾਲ ਅੱਗੇ ਵਧੋ',
   'account.terms': 'ਸ਼ਰਤਾਂ',
   'account.privacy': 'ਪਰਦੇਦਾਰੀ',
-  'account.unavailable':
-    'ਸਾਈਨ ਇਨ ਕੁਝ ਸਮੇਂ ਲਈ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਤੁਸੀਂ ਇਸ ਤੋਂ ਬਿਨਾਂ ਵੀ ਅੱਗੇ ਵਧ ਸਕਦੇ ਹੋ।',
+  'account.unavailable': 'ਸਾਈਨ ਇਨ ਕੁਝ ਸਮੇਂ ਲਈ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਤੁਸੀਂ ਇਸ ਤੋਂ ਬਿਨਾਂ ਵੀ ਅੱਗੇ ਵਧ ਸਕਦੇ ਹੋ।',
   'account.account_title': 'ਖਾਤਾ',
   'account.stats_sessions_label': 'ਸ਼ਾਮਲ ਹੋਏ ਸੈਸ਼ਨ',
   'account.stats_listening_label': 'ਸੁਣਨ ਦਾ ਸਮਾਂ',
@@ -118,8 +117,7 @@ const pa: Record<I18nKey, string> = {
   'player.select_file_hint': 'ਫ਼ਾਈਲ ਚੁਣੋ ਜਾਂ ਪਲੇਲਿਸਟ ਵੇਖੋ',
   'player.visualizer': 'ਆਡੀਓ ਵਿਜ਼ੁਅਲਾਈਜ਼ਰ',
   'player.seek': 'ਪਲੇਬੈਕ ਦੀ ਥਾਂ',
-  'player.seek_unavailable_system_audio':
-    'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਹੋਣ ਦੌਰਾਨ ਪਲੇਬੈਕ ਦੀ ਥਾਂ ਨਹੀਂ ਬਦਲੀ ਜਾ ਸਕਦੀ',
+  'player.seek_unavailable_system_audio': 'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਹੋਣ ਦੌਰਾਨ ਪਲੇਬੈਕ ਦੀ ਥਾਂ ਨਹੀਂ ਬਦਲੀ ਜਾ ਸਕਦੀ',
   'player.volume': 'ਆਵਾਜ਼ ਦਾ ਪੱਧਰ',
   'player.toggle_mute': 'ਆਵਾਜ਼ ਬੰਦ',
   'player.fullscreen': 'ਪੂਰੀ ਸਕ੍ਰੀਨ',
@@ -182,8 +180,7 @@ const pa: Record<I18nKey, string> = {
   'playlist.host_update_required': 'ਇਸ ਰੂਮ ਨੂੰ ਸੰਭਾਲ ਰਹੀ ਡਿਵਾਈਸ ਅੱਪਡੇਟ ਕਰੋ',
   'playlist.queue_full': 'ਪਲੇਲਿਸਟ ਭਰ ਗਈ ਹੈ',
   'playlist.mutation_retry': 'ਪਲੇਲਿਸਟ ਬਦਲ ਗਈ ਹੈ\nਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
-  'transfer.host_busy':
-    'ਹੋਸਟ ਕਿਸੇ ਹੋਰ ਫ਼ਾਈਲ ਉੱਤੇ ਕਾਰਵਾਈ ਕਰ ਰਿਹਾ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'transfer.host_busy': 'ਹੋਸਟ ਕਿਸੇ ਹੋਰ ਫ਼ਾਈਲ ਉੱਤੇ ਕਾਰਵਾਈ ਕਰ ਰਿਹਾ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center_placement': 'ਡਿਵਾਈਸ ਨੂੰ ਵਿਚਕਾਰ ਰੱਖੋ',
@@ -200,16 +197,14 @@ const pa: Record<I18nKey, string> = {
   'settings.audio_locked_desc': 'ਸਿਰਫ਼ ਰੂਮ ਪ੍ਰਬੰਧਕ ਆਡੀਓ ਸੈਟਿੰਗਾਂ ਬਦਲ ਸਕਦੇ ਹਨ।',
   'settings.audio_lock_checking_desc': 'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ।',
   'settings.virtual_effects_title': 'ਵਰਚੁਅਲ ਪ੍ਰਭਾਵ',
-  'settings.virtual_effects_desc':
-    'ਆਡੀਓ ਉੱਤੇ ਬਣਾਉਟੀ ਪ੍ਰਭਾਵ ਲਗਾਓ। ਇਸ ਨਾਲ ਆਵਾਜ਼ ਬਹੁਤ ਜ਼ਿਆਦਾ ਵਿਗੜ ਸਕਦੀ ਹੈ।',
+  'settings.virtual_effects_desc': 'ਆਡੀਓ ਉੱਤੇ ਬਣਾਉਟੀ ਪ੍ਰਭਾਵ ਲਗਾਓ। ਇਸ ਨਾਲ ਆਵਾਜ਼ ਬਹੁਤ ਜ਼ਿਆਦਾ ਵਿਗੜ ਸਕਦੀ ਹੈ।',
   'settings.virtual_effect_bass': 'ਬੇਸ',
   'settings.virtual_effect_treble': 'ਟਰੈਬਲ',
   'settings.virtual_effect_surround': 'ਸਰਾਊਂਡ',
   'settings.language_desc': 'ਕੋਈ ਭਾਸ਼ਾ ਚੁਣੋ ਜਾਂ ਆਪਣੇ ਸਿਸਟਮ ਦੀ ਭਾਸ਼ਾ ਵਰਤੋ।',
   'settings.theme_desc': 'ਹਲਕੀ ਜਾਂ ਗੂੜ੍ਹੀ ਥੀਮ ਚੁਣੋ।',
   'player.visualizer_mode_hint': 'ਚੁਣੋ ਕਿ ਆਵਾਜ਼ ਨੂੰ ਕਿਵੇਂ ਦਿਖਾਇਆ ਜਾਵੇ।',
-  'settings.ui_sounds_desc':
-    'ਸੂਚਨਾਵਾਂ, ਸ਼ਾਮਲ ਹੋਣ ਤੇ ਬਾਹਰ ਜਾਣ ਅਤੇ ਛੂਹਣ ਦੀਆਂ ਆਵਾਜ਼ਾਂ ਚਾਲੂ ਜਾਂ ਬੰਦ ਕਰੋ।',
+  'settings.ui_sounds_desc': 'ਸੂਚਨਾਵਾਂ, ਸ਼ਾਮਲ ਹੋਣ ਤੇ ਬਾਹਰ ਜਾਣ ਅਤੇ ਛੂਹਣ ਦੀਆਂ ਆਵਾਜ਼ਾਂ ਚਾਲੂ ਜਾਂ ਬੰਦ ਕਰੋ।',
   'settings.reverb_desc': 'ਆਵਾਜ਼ ਦੀ ਗੂੰਜ ਅਤੇ ਅਨੁਨਾਦ ਨੂੰ ਬਦਲੋ।',
   'settings.eq_desc': 'ਆਵਾਜ਼ ਦੀ ਸੁਰ ਬਦਲੋ। ਇਸ ਨੂੰ ਆਵਾਜ਼ ਦੇ ਪੱਧਰ ਨਾਲ ਮਿਲਾ ਕੇ ਵਰਤੋ।',
   'settings.surround_desc': 'ਵਧੇਰੇ ਡੂੰਘੇ ਅਨੁਭਵ ਲਈ ਚੈਨਲਾਂ ਵਿਚਲਾ ਫ਼ਰਕ ਵਧਾਓ।',
@@ -365,13 +360,10 @@ const pa: Record<I18nKey, string> = {
   'demo.step_finish': '4. ਡੈਮੋ ਬੰਦ ਕਰੋ',
   'demo.session_title': 'ਇਹ {{code}} ਨੰਬਰ ਦਾ ਰੂਮ ਹੈ।',
   'demo.session_subtitle': 'ਤੁਸੀਂ ਕਿਸੇ ਹੋਰ ਡਿਵਾਈਸ ਨੂੰ ਕਦੇ ਵੀ ਸੱਦਾ ਦੇ ਸਕਦੇ ਹੋ।',
-  'demo.session_body_connected':
-    'ਇਸ ਵੇਲੇ {{count}} ਡਿਵਾਈਸਾਂ ਜੁੜੀਆਂ ਹੋਈਆਂ ਹਨ।\nਹਰ ਡਿਵਾਈਸ ਦੀ ਭੂਮਿਕਾ ਸੈੱਟ ਕਰੋ।',
-  'demo.session_body_alone':
-    'ਇਸ ਵੇਲੇ ਸਿਰਫ਼ ਇਹ ਡਿਵਾਈਸ ਆਡੀਓ ਚਲਾ ਰਹੀ ਹੈ।\nਹੁਣ ਕਿਸੇ ਹੋਰ ਡਿਵਾਈਸ ਨੂੰ ਸੱਦਾ ਦਿਓ।',
+  'demo.session_body_connected': 'ਇਸ ਵੇਲੇ {{count}} ਡਿਵਾਈਸਾਂ ਜੁੜੀਆਂ ਹੋਈਆਂ ਹਨ।\nਹਰ ਡਿਵਾਈਸ ਦੀ ਭੂਮਿਕਾ ਸੈੱਟ ਕਰੋ।',
+  'demo.session_body_alone': 'ਇਸ ਵੇਲੇ ਸਿਰਫ਼ ਇਹ ਡਿਵਾਈਸ ਆਡੀਓ ਚਲਾ ਰਹੀ ਹੈ।\nਹੁਣ ਕਿਸੇ ਹੋਰ ਡਿਵਾਈਸ ਨੂੰ ਸੱਦਾ ਦਿਓ।',
   'demo.effects_step_title': 'ਆਪਣੀ ਸ਼ਾਨਦਾਰ ਆਵਾਜ਼ ਤਿਆਰ ਕਰੋ।',
-  'demo.effects_step_subtitle':
-    'ਤੁਸੀਂ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਇਹਨਾਂ ਉੱਨਤ ਆਵਾਜ਼ ਗੁਣਾਂ ਨੂੰ ਕਦੇ ਵੀ ਬਾਰੀਕੀ ਨਾਲ ਬਦਲ ਸਕਦੇ ਹੋ।',
+  'demo.effects_step_subtitle': 'ਤੁਸੀਂ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਇਹਨਾਂ ਉੱਨਤ ਆਵਾਜ਼ ਗੁਣਾਂ ਨੂੰ ਕਦੇ ਵੀ ਬਾਰੀਕੀ ਨਾਲ ਬਦਲ ਸਕਦੇ ਹੋ।',
   'demo.finish_step_title': 'ਸਭ ਕੁਝ ਤਿਆਰ ਹੈ!',
   'demo.finish_step_subtitle': 'ਹੁਣੇ ਸ਼ੁਰੂ ਕਰੋ ਅਤੇ ਇਕੱਠੇ ਮੀਡੀਆ ਚਲਾਓ।',
   'demo.track_list_label': 'ਡੈਮੋ ਟਰੈਕਾਂ ਦੀ ਸੂਚੀ',
@@ -394,8 +386,7 @@ const pa: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'ਕੈਮਰੇ ਦੀ ਇਜਾਜ਼ਤ ਨਹੀਂ ਦਿੱਤੀ ਗਈ',
   'setup.camera_not_found': 'ਵਰਤਣ ਯੋਗ ਕੈਮਰਾ ਨਹੀਂ ਮਿਲਿਆ',
   'setup.camera_unavailable': 'ਕੈਮਰਾ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋ ਸਕਿਆ',
-  'setup.camera_stream_stalled':
-    'ਕੈਮਰੇ ਦੀ ਝਲਕ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਈ\nਬ੍ਰਾਊਜ਼ਰ ਵਿੱਚ ਖੋਲ੍ਹੋ ਜਾਂ ਕੋਡ ਦਾਖਲ ਕਰੋ',
+  'setup.camera_stream_stalled': 'ਕੈਮਰੇ ਦੀ ਝਲਕ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਈ\nਬ੍ਰਾਊਜ਼ਰ ਵਿੱਚ ਖੋਲ੍ਹੋ ਜਾਂ ਕੋਡ ਦਾਖਲ ਕਰੋ',
   'setup.connect_devices': 'ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਆਪਣੀਆਂ ਹੋਰ ਡਿਵਾਈਸਾਂ ਕਨੈਕਟ ਕਰੋ।',
   'setup.enter_code_connect': 'ਸੱਦਾ ਕੋਡ',
   'setup.last_step': 'ਚਲੋ ਸ਼ੁਰੂ ਕਰੀਏ!',
@@ -444,12 +435,9 @@ const pa: Record<I18nKey, string> = {
   'chat.bot_added_tracks': 'BOT ਨੇ ਜੋੜੇ ਟਰੈਕ: {{count}}',
   'chat.bot_added_and_playing': 'BOT ਨੇ ਜੋੜੇ ਟਰੈਕ: {{count}}। ਪਲੇਬੈਕ ਸ਼ੁਰੂ ਹੋ ਗਿਆ',
   'chat.bot_rate_limited': 'BOT ਬੇਨਤੀ ਦੀ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ। {{duration}} ਉਡੀਕ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
-  'chat.decode_skip_system_message':
-    'ਟਰੈਕ ਛੱਡਿਆ ਜਾ ਰਿਹਾ ਹੈ: ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਫਾਰਮੈਟ ਨਹੀਂ ਚੱਲਦਾ।',
-  'chat.large_track_playback_system_message':
-    'ਇਹ ਟਰੈਕ ਬਹੁਤ ਵੱਡਾ ਹੈ, ਇਸ ਲਈ ਇਸ ਨੂੰ ਵਰਤਦੇ ਸਮੇਂ ਦੇਰੀ ਹੋ ਸਕਦੀ ਹੈ।',
-  'chat.large_local_track_system_message':
-    'ਇਸ ਟਰੈਕ ਦੀ ਫ਼ਾਈਲ ਬਹੁਤ ਵੱਡੀ ਹੈ ਅਤੇ ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਸ਼ਾਇਦ ਨਾ ਚੱਲੇ।',
+  'chat.decode_skip_system_message': 'ਟਰੈਕ ਛੱਡਿਆ ਜਾ ਰਿਹਾ ਹੈ: ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਫਾਰਮੈਟ ਨਹੀਂ ਚੱਲਦਾ।',
+  'chat.large_track_playback_system_message': 'ਇਹ ਟਰੈਕ ਬਹੁਤ ਵੱਡਾ ਹੈ, ਇਸ ਲਈ ਇਸ ਨੂੰ ਵਰਤਦੇ ਸਮੇਂ ਦੇਰੀ ਹੋ ਸਕਦੀ ਹੈ।',
+  'chat.large_local_track_system_message': 'ਇਸ ਟਰੈਕ ਦੀ ਫ਼ਾਈਲ ਬਹੁਤ ਵੱਡੀ ਹੈ ਅਤੇ ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਸ਼ਾਇਦ ਨਾ ਚੱਲੇ।',
   'chat.device_track_unavailable_system_message': 'ਇਹ ਡਿਵਾਈਸ ਮੌਜੂਦਾ ਟਰੈਕ ਨਹੀਂ ਚਲਾ ਸਕਦੀ।',
   'chat.system_audio_started_system_message':
     'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ ਸ਼ੁਰੂ ਹੋ ਗਿਆ ਹੈ। ਹੋਸਟ ਅਤੇ ਮਹਿਮਾਨ ਡਿਵਾਈਸਾਂ ਵਿਚਕਾਰ ਥੋੜ੍ਹੀ ਦੇਰੀ ਆਮ ਗੱਲ ਹੈ। ਗੂੰਜ ਤੋਂ ਬਚਣ ਲਈ ਹੋਸਟ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਘਟਾਉਣ ਦੀ ਸਿਫ਼ਾਰਸ਼ ਕੀਤੀ ਜਾਂਦੀ ਹੈ।',
@@ -551,8 +539,7 @@ const pa: Record<I18nKey, string> = {
   'network.disconnected': 'ਕਨੈਕਸ਼ਨ ਟੁੱਟਿਆ',
   'network.cant_join': 'ਸੈਸ਼ਨ ਨਹੀਂ ਮਿਲਿਆ।\nਆਪਣਾ ਨੈੱਟਵਰਕ ਵੇਖੋ।',
   'network.session_full': 'ਰੂਮ ਭਰ ਗਿਆ ਹੈ',
-  'network.session_full_detail':
-    'ਇਸ ਰੂਮ ਵਿੱਚ ਹੋਸਟ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ ਪਹਿਲਾਂ ਹੀ ਜੁੜੀਆਂ ਹੋਈਆਂ ਹਨ।',
+  'network.session_full_detail': 'ਇਸ ਰੂਮ ਵਿੱਚ ਹੋਸਟ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ ਪਹਿਲਾਂ ਹੀ ਜੁੜੀਆਂ ਹੋਈਆਂ ਹਨ।',
   'network.op_granted': 'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦਿੱਤੀ ਗਈ',
   'network.op_revoked': 'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਵਾਪਸ ਲਈ ਗਈ',
   'network.host_waiting': 'ਹੋਸਟ ਦੀ ਉਡੀਕ ਹੈ...',
@@ -577,8 +564,7 @@ const pa: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} ਇਜਾਜ਼ਤ {{status}}',
   'toast.file_read_error': 'ਫ਼ਾਈਲ ਪੜ੍ਹਨ ਵਿੱਚ ਗੜਬੜ: {{name}}',
   'toast.host_ended_connection': 'ਹੋਸਟ ਨੇ ਕਨੈਕਸ਼ਨ ਖ਼ਤਮ ਕਰ ਦਿੱਤਾ ਹੈ',
-  'toast.host_background_blocked':
-    'ਹੋਸਟ ਡਿਵਾਈਸ ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਹੈ\nਹੋਸਟ ਐਪ ਦੁਬਾਰਾ ਖੋਲ੍ਹੇ ਤਾਂ ਕੰਟਰੋਲ ਫਿਰ ਕੰਮ ਕਰਨਗੇ',
+  'toast.host_background_blocked': 'ਹੋਸਟ ਡਿਵਾਈਸ ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਹੈ\nਹੋਸਟ ਐਪ ਦੁਬਾਰਾ ਖੋਲ੍ਹੇ ਤਾਂ ਕੰਟਰੋਲ ਫਿਰ ਕੰਮ ਕਰਨਗੇ',
   'toast.host_unresponsive_chat': 'ਸੁਨੇਹਾ ਨਹੀਂ ਭੇਜਿਆ ਜਾ ਸਕਿਆ\nਹੋਸਟ ਡਿਵਾਈਸ ਜਵਾਬ ਨਹੀਂ ਦੇ ਰਹੀ',
   'toast.host_unresponsive_blocked': 'ਬੇਨਤੀ ਨਹੀਂ ਭੇਜੀ ਜਾ ਸਕੀ\nਹੋਸਟ ਡਿਵਾਈਸ ਜਵਾਬ ਨਹੀਂ ਦੇ ਰਹੀ',
   'toast.host_back': 'ਹੋਸਟ ਡਿਵਾਈਸ ਵਾਪਸ ਆ ਗਈ ਹੈ',
@@ -586,8 +572,7 @@ const pa: Record<I18nKey, string> = {
   'toast.copy_failed': 'ਕਾਪੀ ਨਹੀਂ ਹੋ ਸਕੀ',
   'toast.email_copied': 'ਈਮੇਲ ਪਤਾ ਕਾਪੀ ਹੋ ਗਿਆ!',
   'toast.settings_sync_enabled': 'ਸੈਟਿੰਗਾਂ ਦਾ ਸਿੰਕ ਚਾਲੂ ਹੈ',
-  'toast.settings_sync_admin_required':
-    'ਸੈਟਿੰਗਾਂ ਦਾ ਸਿੰਕ ਚਾਲੂ ਹੈ\nਸਿਰਫ਼ ਰੂਮ ਪ੍ਰਬੰਧਕ ਆਡੀਓ ਸੈਟਿੰਗਾਂ ਬਦਲ ਸਕਦੇ ਹਨ',
+  'toast.settings_sync_admin_required': 'ਸੈਟਿੰਗਾਂ ਦਾ ਸਿੰਕ ਚਾਲੂ ਹੈ\nਸਿਰਫ਼ ਰੂਮ ਪ੍ਰਬੰਧਕ ਆਡੀਓ ਸੈਟਿੰਗਾਂ ਬਦਲ ਸਕਦੇ ਹਨ',
   'toast.virtual_bass_on': 'ਵਰਚੁਅਲ ਬੇਸ ਚਾਲੂ ਹੈ',
   'toast.virtual_bass_off': 'ਵਰਚੁਅਲ ਬੇਸ ਬੰਦ ਹੈ',
   'toast.virtual_treble_on': 'ਵਰਚੁਅਲ ਟਰੈਬਲ ਚਾਲੂ ਹੈ',
@@ -608,12 +593,9 @@ const pa: Record<I18nKey, string> = {
     'ਮੈਂਬਰਾਂ ਨੂੰ ਕੱਢਣ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'toast.chat_notice_checking':
     'ਚੈਟ ਸੂਚਨਾਵਾਂ ਪੋਸਟ ਕਰਨ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
-  'toast.admin_permission_checking':
-    'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
-  'toast.room_owner_checking':
-    'ਰੂਮ ਦੇ ਮਾਲਕ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
-  'toast.system_audio_owner_required':
-    'ਤੁਸੀਂ ਸਿਰਫ਼ ਉਸੇ ਟੈਬ ਤੋਂ ਆਡੀਓ ਸਾਂਝਾ ਕਰ ਸਕਦੇ ਹੋ ਜਿਸ ਨੇ ਰੂਮ ਖੋਲ੍ਹਿਆ ਸੀ',
+  'toast.admin_permission_checking': 'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.room_owner_checking': 'ਰੂਮ ਦੇ ਮਾਲਕ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.system_audio_owner_required': 'ਤੁਸੀਂ ਸਿਰਫ਼ ਉਸੇ ਟੈਬ ਤੋਂ ਆਡੀਓ ਸਾਂਝਾ ਕਰ ਸਕਦੇ ਹੋ ਜਿਸ ਨੇ ਰੂਮ ਖੋਲ੍ਹਿਆ ਸੀ',
   'toast.host_setting_required': 'ਇਹ ਸੈਟਿੰਗ ਸਿਰਫ਼ ਹੋਸਟ ਬਦਲ ਸਕਦਾ ਹੈ',
   'toast.no_tracks': 'ਚਲਾਉਣ ਲਈ ਕੋਈ ਟਰੈਕ ਨਹੀਂ ਹੈ',
   'toast.add_media_to_play': 'ਕਿਰਪਾ ਕਰਕੇ ਮੀਡੀਆ ਜੋੜੋ',
@@ -638,8 +620,7 @@ const pa: Record<I18nKey, string> = {
   'toast.yt_rendezvous_start': 'ਹੋਸਟ ਨਾਲ ਮਿਲਾਇਆ ਜਾ ਰਿਹਾ ਹੈ...',
   'toast.yt_rendezvous_done': 'ਸਿੰਕ ਪੂਰਾ ਹੋ ਗਿਆ',
   'toast.yt_rendezvous_host_paused': 'ਹੋਸਟ ਨੇ ਵਿਰਾਮ ਦਿੱਤਾ ਹੈ; ਸਿਰਫ਼ ਪਲੇਬੈਕ ਦੀ ਥਾਂ ਮਿਲਾਈ ਗਈ',
-  'toast.yt_rendezvous_no_data':
-    'ਹੋਸਟ ਦਾ ਪਲੇਬੈਕ ਡਾਟਾ ਹਾਲੇ ਨਹੀਂ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.yt_rendezvous_no_data': 'ਹੋਸਟ ਦਾ ਪਲੇਬੈਕ ਡਾਟਾ ਹਾਲੇ ਨਹੀਂ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'toast.yt_rendezvous_timeout': 'ਸਿੰਕ ਅਸਫਲ ਰਿਹਾ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'toast.yt_manual_sync_prompt':
     'ਹੁਣੇ ਆਪਣੇ ਆਪ ਸਿੰਕ ਕਰਨ ਦੀ ਕੋਸ਼ਿਸ਼ ਕੀਤੀ ਗਈ\nਜੇ ਹਾਲੇ ਵੀ ਦੇਰੀ ਮਹਿਸੂਸ ਹੋਵੇ ਤਾਂ ਹੁਣ ਮੁੱਲ ਬਦਲੋ',
@@ -670,8 +651,7 @@ const pa: Record<I18nKey, string> = {
   'share.remote.timeout': 'ਦੂਰਲੀ ਫ਼ਾਈਲ ਸਾਂਝੀ ਕਰਨ ਦਾ ਸਮਾਂ ਮੁੱਕ ਗਿਆ',
   'share.remote.too_large': 'ਫ਼ਾਈਲ ਬਹੁਤ ਵੱਡੀ ਹੈ (ਵੱਧ ਤੋਂ ਵੱਧ 200 MB)',
   'share.remote.network_error': 'ਦੂਰੋਂ ਸਾਂਝਾ ਕਰਨ ਦੌਰਾਨ ਨੈੱਟਵਰਕ ਗੜਬੜ',
-  'share.remote.rate_limited':
-    'ਦੂਰੋਂ ਸਾਂਝਾ ਕਰਨ ਲਈ ਬਹੁਤ ਸਾਰੇ ਅੱਪਲੋਡ ਹੋਏ ਹਨ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'share.remote.rate_limited': 'ਦੂਰੋਂ ਸਾਂਝਾ ਕਰਨ ਲਈ ਬਹੁਤ ਸਾਰੇ ਅੱਪਲੋਡ ਹੋਏ ਹਨ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'share.remote.quota_reached': 'ਦੂਰੋਂ ਸਾਂਝਾ ਕਰਨ ਦੀ ਸਟੋਰੇਜ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ',
   'share.remote.auth_failed': 'ਦੂਰੋਂ ਸਾਂਝਾ ਕਰਨ ਦੀ ਇਜਾਜ਼ਤ ਜਾਂਚ ਅਸਫਲ ਰਹੀ\nWorker ਸੈਟਿੰਗਾਂ ਵੇਖੋ',
   'share.remote.expired': 'ਦੂਰਲੀ ਫ਼ਾਈਲ ਦੇ ਲਿੰਕ ਦੀ ਮਿਆਦ ਮੁੱਕ ਗਈ\nਕਿਰਪਾ ਕਰਕੇ ਮੁੜ ਸਾਂਝਾ ਕਰੋ',
@@ -708,13 +688,11 @@ const pa: Record<I18nKey, string> = {
   'error.peer_unavailable': 'ਸੈਸ਼ਨ ਨਹੀਂ ਮਿਲਿਆ\nਕੋਡ ਦੁਬਾਰਾ ਵੇਖੋ',
   'error.host_left': 'ਲੱਗਦਾ ਹੈ ਕਿ ਹੋਸਟ ਸੈਸ਼ਨ ਛੱਡ ਗਿਆ ਹੈ',
   'error.network_issue': 'ਨੈੱਟਵਰਕ ਵਿੱਚ ਸਮੱਸਿਆ ਹੈ\nਆਪਣਾ ਇੰਟਰਨੈੱਟ ਕਨੈਕਸ਼ਨ ਵੇਖੋ',
-  'error.signal_server_fail':
-    'ਸਿਗਨਲਿੰਗ ਸਰਵਰ ਤੱਕ ਨਹੀਂ ਪਹੁੰਚਿਆ ਜਾ ਸਕਦਾ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'error.signal_server_fail': 'ਸਿਗਨਲਿੰਗ ਸਰਵਰ ਤੱਕ ਨਹੀਂ ਪਹੁੰਚਿਆ ਜਾ ਸਕਦਾ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'error.server_disconnected': 'ਸਰਵਰ ਨਾਲ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਗਿਆ',
   'error.session_id_unavailable': 'ਸੈਸ਼ਨ ID ਉਪਲਬਧ ਨਹੀਂ ਹੈ\nਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'error.webrtc_failed': 'WebRTC ਕਨੈਕਸ਼ਨ ਅਸਫਲ ਰਿਹਾ\nਆਪਣੇ ਬ੍ਰਾਊਜ਼ਰ ਦੀਆਂ ਸੈਟਿੰਗਾਂ ਵੇਖੋ',
-  'error.browser_unsupported':
-    'ਇਹ ਬ੍ਰਾਊਜ਼ਰ ਰੀਅਲ-ਟਾਈਮ ਕਨੈਕਸ਼ਨ ਨਹੀਂ ਬਣਾ ਸਕਦਾ\nChrome ਜਾਂ Safari ਅਜ਼ਮਾਓ',
+  'error.browser_unsupported': 'ਇਹ ਬ੍ਰਾਊਜ਼ਰ ਰੀਅਲ-ਟਾਈਮ ਕਨੈਕਸ਼ਨ ਨਹੀਂ ਬਣਾ ਸਕਦਾ\nChrome ਜਾਂ Safari ਅਜ਼ਮਾਓ',
   'error.ssl_required': 'ਸੁਰੱਖਿਅਤ ਕਨੈਕਸ਼ਨ (HTTPS) ਲਾਜ਼ਮੀ ਹੈ',
   'error.room_password_required': 'ਇਸ ਰੂਮ ਲਈ ਪਾਸਵਰਡ ਲਾਜ਼ਮੀ ਹੈ।',
   'error.room_password_invalid': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਮੇਲ ਨਹੀਂ ਖਾਂਦਾ।',
@@ -734,8 +712,7 @@ const pa: Record<I18nKey, string> = {
   'dialog.audio_recovery_message':
     'ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚੋਂ ਵਾਪਸ ਆਉਣ ਤੋਂ ਬਾਅਦ ਇਸ ਡਿਵਾਈਸ ਦਾ ਆਡੀਓ ਬਹਾਲ ਨਹੀਂ ਹੋਇਆ। MUSIXQUARE ਜਦੋਂ ਇਸ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਮੁੜ ਮਿਲਾਏਗਾ, ਤੁਹਾਡਾ ਰੂਮ ਕਨੈਕਟ ਰਹੇਗਾ।',
   'dialog.audio_recovery_action': 'ਆਡੀਓ ਬਹਾਲ ਕਰੋ',
-  'dialog.background_resume_message':
-    'ਜੇ ਸਿੰਕ ਠੀਕ ਨਾ ਹੋਵੇ ਜਾਂ ਆਡੀਓ ਨਾ ਚੱਲੇ ਤਾਂ ਐਪ ਪੂਰੀ ਤਰ੍ਹਾਂ ਬੰਦ ਕਰਕੇ ਮੁੜ ਖੋਲ੍ਹੋ।',
+  'dialog.background_resume_message': 'ਜੇ ਸਿੰਕ ਠੀਕ ਨਾ ਹੋਵੇ ਜਾਂ ਆਡੀਓ ਨਾ ਚੱਲੇ ਤਾਂ ਐਪ ਪੂਰੀ ਤਰ੍ਹਾਂ ਬੰਦ ਕਰਕੇ ਮੁੜ ਖੋਲ੍ਹੋ।',
   'dialog.background_resume_sync_fallback_message':
     'ਜੇ ਸਿੰਕ ਠੀਕ ਨਾ ਹੋਵੇ ਜਾਂ ਆਡੀਓ ਨਾ ਚੱਲੇ ਤਾਂ ਐਪ ਪੂਰੀ ਤਰ੍ਹਾਂ ਬੰਦ ਕਰਕੇ ਮੁੜ ਖੋਲ੍ਹੋ।',
   'dialog.got_it': 'ਸਮਝ ਆ ਗਈ',
@@ -755,11 +732,9 @@ const pa: Record<I18nKey, string> = {
   'dialog.sw_update_apply': 'ਲਾਗੂ ਕਰੋ',
   'dialog.sw_update_apply_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਲਾਗੂ ਕਰਨ ਨਾਲ ਪੰਨਾ ਮੁੜ ਲੋਡ ਹੋਵੇਗਾ।',
   'dialog.sw_update_room_host_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਲਾਗੂ ਕਰਨ ਲਈ ਰੂਮ ਦੁਬਾਰਾ ਖੋਲ੍ਹਣਾ ਪਵੇਗਾ।',
-  'dialog.sw_update_room_guest_msg':
-    'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਲਾਗੂ ਕਰਨ ਲਈ ਰੂਮ ਵਿੱਚ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣਾ ਪਵੇਗਾ।',
+  'dialog.sw_update_room_guest_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਲਾਗੂ ਕਰਨ ਲਈ ਰੂਮ ਵਿੱਚ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣਾ ਪਵੇਗਾ।',
   'dialog.feature_refresh_title': 'ਰਿਫ੍ਰੈਸ਼ ਕਰਨਾ ਜ਼ਰੂਰੀ ਹੈ',
-  'dialog.feature_refresh_msg':
-    'MUSIXQUARE ਅੱਪਡੇਟ ਹੋ ਗਿਆ ਹੈ।\nਇਸਨੂੰ ਆਮ ਵਾਂਗ ਵਰਤਦੇ ਰਹਿਣ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE ਅੱਪਡੇਟ ਹੋ ਗਿਆ ਹੈ।\nਇਸਨੂੰ ਆਮ ਵਾਂਗ ਵਰਤਦੇ ਰਹਿਣ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
   'dialog.reconnect_ask': 'ਮੁੜ ਕਨੈਕਟ ਕਰਨਾ ਹੈ?',
   'dialog.reconnect': 'ਮੁੜ ਕਨੈਕਟ ਕਰੋ',
   'dialog.go_back': 'ਪਿੱਛੇ ਜਾਓ',
@@ -768,8 +743,7 @@ const pa: Record<I18nKey, string> = {
   'dialog.room_password_title': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰੋ',
   'dialog.room_password_msg': 'ਇਸ ਰੂਮ ਵਿੱਚ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਪਾਸਵਰਡ ਲਾਜ਼ਮੀ ਹੈ।',
   'dialog.room_password_retry_msg': 'ਉਹ ਪਾਸਵਰਡ ਮੇਲ ਨਹੀਂ ਖਾਂਦਾ',
-  'dialog.room_password_timeout_msg':
-    'ਕਨੈਕਸ਼ਨ ਦਾ ਸਮਾਂ ਮੁੱਕ ਗਿਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ ਲਈ ਪਾਸਵਰਡ ਫਿਰ ਦਾਖਲ ਕਰੋ।',
+  'dialog.room_password_timeout_msg': 'ਕਨੈਕਸ਼ਨ ਦਾ ਸਮਾਂ ਮੁੱਕ ਗਿਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ ਲਈ ਪਾਸਵਰਡ ਫਿਰ ਦਾਖਲ ਕਰੋ।',
   'dialog.room_password_placeholder': '8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ',
   'dialog.room_password_rate_limited':
     'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ\n{{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
@@ -811,8 +785,7 @@ const pa: Record<I18nKey, string> = {
   'pro.claim_account_capacity_message':
     'ਇਸ ਖਾਤੇ ਦੀ PRO ਰੂਮ ਲਿੰਕ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ। ਮੌਜੂਦਾ ਲਿੰਕ ਹਟਾਓ, ਫਿਰ ਨਵੇਂ ਲਿੰਕ ਦੀ ਬੇਨਤੀ ਕਰੋ।',
   'pro.claim_failed_title': 'ਇਹ ਬੇਨਤੀ ਪੂਰੀ ਨਹੀਂ ਹੋ ਸਕੀ',
-  'pro.claim_failed_message':
-    'ਸੁਰੱਖਿਆ ਲਈ ਇਸ ਲਿੰਕ ਨੂੰ ਦੁਬਾਰਾ ਨਹੀਂ ਅਜ਼ਮਾਇਆ ਗਿਆ। ਰੂਮ ਪ੍ਰਬੰਧਕ ਤੋਂ ਨਵਾਂ ਲਿੰਕ ਮੰਗੋ।',
+  'pro.claim_failed_message': 'ਸੁਰੱਖਿਆ ਲਈ ਇਸ ਲਿੰਕ ਨੂੰ ਦੁਬਾਰਾ ਨਹੀਂ ਅਜ਼ਮਾਇਆ ਗਿਆ। ਰੂਮ ਪ੍ਰਬੰਧਕ ਤੋਂ ਨਵਾਂ ਲਿੰਕ ਮੰਗੋ।',
   'pro.new_link_message':
     'ਲਿੰਕ ਦੀ ਮਿਆਦ ਮੁੱਕ ਗਈ ਹੈ ਜਾਂ ਇਹ ਪਹਿਲਾਂ ਹੀ ਵਰਤਿਆ ਜਾ ਚੁੱਕਾ ਹੈ। ਲੋੜ ਹੋਵੇ ਤਾਂ ਪ੍ਰਬੰਧਕ ਤੋਂ ਨਵਾਂ ਲਿੰਕ ਮੰਗੋ।',
   'pro.not_ready_title': 'ਇਹ PRO ਰੂਮ ਹਾਲੇ ਤਿਆਰ ਨਹੀਂ ਹੈ',
@@ -852,10 +825,8 @@ const pa: Record<I18nKey, string> = {
   'pro.room_full': 'ਇਹ PRO ਰੂਮ ਭਰ ਗਿਆ ਹੈ',
   'pro.room_full_detail':
     'ਮਾਲਕ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ ਜੁੜ ਸਕਦੀਆਂ ਹਨ\nਮਾਲਕ ਲਈ ਹਮੇਸ਼ਾ ਇੱਕ ਥਾਂ ਰਾਖਵੀਂ ਰੱਖੀ ਜਾਂਦੀ ਹੈ',
-  'pro.join_rate_limited':
-    'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ\n{{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
-  'pro.join_rate_limited_later':
-    'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'pro.join_rate_limited': 'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ\n{{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'pro.join_rate_limited_later': 'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'pro.active_tab_title': 'ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਬਾਕੀ ਹੈ',
   'pro.active_tab_message': 'ਇੱਥੇ ਅੱਗੇ ਵਧਣ ਨਾਲ ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਜਾਵੇਗਾ।',
   'pro.active_tab_replaced': 'ਇਹ PRO ਰੂਮ ਪਹਿਲਾਂ ਹੀ ਕਿਸੇ ਹੋਰ ਟੈਬ ਵਿੱਚ ਖੁੱਲ੍ਹਾ ਹੈ',
@@ -869,24 +840,20 @@ const pa: Record<I18nKey, string> = {
   'pro.upload.room_capacity': 'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਹੋਰ ਟਰੈਕ ਨਹੀਂ ਜੋੜੇ ਜਾ ਸਕਦੇ।',
   'pro.upload.room_state_limit':
     'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਇਸ ਵੇਲੇ ਹੋਰ ਬਦਲਾਅ ਨਹੀਂ ਕੀਤੇ ਜਾ ਸਕਦੇ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
-  'pro.upload.pending_limit':
-    'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਅਧੂਰੇ ਅੱਪਲੋਡ ਬਹੁਤ ਜ਼ਿਆਦਾ ਹਨ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
-  'pro.upload.playlist_switched':
-    'ਇਹ ਟਰੈਕ ਜੁੜਨ ਤੋਂ ਪਹਿਲਾਂ ਹੋਰ ਪਲੇਲਿਸਟ ਚਾਲੂ ਹੋ ਗਈ। ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
+  'pro.upload.pending_limit': 'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਅਧੂਰੇ ਅੱਪਲੋਡ ਬਹੁਤ ਜ਼ਿਆਦਾ ਹਨ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'pro.upload.playlist_switched': 'ਇਹ ਟਰੈਕ ਜੁੜਨ ਤੋਂ ਪਹਿਲਾਂ ਹੋਰ ਪਲੇਲਿਸਟ ਚਾਲੂ ਹੋ ਗਈ। ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
   'pro.upload.permission_required': 'ਮੀਡੀਆ ਪ੍ਰਬੰਧ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ।',
   'pro.upload.failed_file': '{{name}}: {{reason}}',
   'pro.upload.confirming': 'ਅੱਪਲੋਡ ਪੂਰਾ ਹੋ ਰਿਹਾ ਹੈ {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ਟਰੈਕ ਅੱਪਲੋਡ ਹੋ ਰਹੇ ਹਨ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ਕੁਝ ਟਰੈਕ ਅੱਪਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ',
-  'pro.upload.batch_failed_message':
-    'ਤੁਹਾਡੇ ਵੱਲੋਂ ਮੰਗੇ {{total}} ਟਰੈਕਾਂ ਵਿੱਚੋਂ {{failed}} ਟਰੈਕ ਅੱਪਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ।',
+  'pro.upload.batch_failed_message': 'ਤੁਹਾਡੇ ਵੱਲੋਂ ਮੰਗੇ {{total}} ਟਰੈਕਾਂ ਵਿੱਚੋਂ {{failed}} ਟਰੈਕ ਅੱਪਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ।',
   'pro.upload.cancel_file': '{{name}} ਦਾ ਅੱਪਲੋਡ ਰੱਦ ਕਰੋ',
   'pro.upload.confirming_file': '{{name}} ਦਾ ਅੱਪਲੋਡ ਪੂਰਾ ਹੋ ਰਿਹਾ ਹੈ',
   'pro.downloading': 'ਫ਼ਾਈਲ ਲੋਡ ਹੋ ਰਹੀ ਹੈ...',
   'pro.quota_exceeded': 'ਇਸ PRO ਰੂਮ ਦੀ 1 GB ਸਟੋਰੇਜ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ',
   'pro.file_too_large': 'ਇਹ ਫ਼ਾਈਲ ਹਰੇਕ ਫ਼ਾਈਲ ਲਈ 200 MB ਦੀ ਹੱਦ ਤੋਂ ਵੱਡੀ ਹੈ',
-  'pro.room_state_limit':
-    'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਇਸ ਵੇਲੇ ਹੋਰ ਬਦਲਾਅ ਨਹੀਂ ਕੀਤੇ ਜਾ ਸਕਦੇ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'pro.room_state_limit': 'ਇਸ PRO ਰੂਮ ਵਿੱਚ ਇਸ ਵੇਲੇ ਹੋਰ ਬਦਲਾਅ ਨਹੀਂ ਕੀਤੇ ਜਾ ਸਕਦੇ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':
@@ -938,16 +905,14 @@ const pa: Record<I18nKey, string> = {
   'system_audio.no_audio_track': '“ਆਡੀਓ ਸਾਂਝਾ ਕਰੋ” ਚਾਲੂ ਨਹੀਂ ਕੀਤਾ ਗਿਆ ਸੀ\nਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'system_audio.stop': 'ਸਾਂਝਾ ਕਰਨਾ ਰੋਕੋ',
   'system_audio.stop_compact': 'ਰੋਕੋ',
-  'system_audio.started':
-    'ਸਿਸਟਮ ਆਡੀਓ ਵਿੱਚ ਥੋੜ੍ਹੀ ਦੇਰੀ ਹੋ ਸਕਦੀ ਹੈ\nਜੇ ਹੋ ਸਕੇ ਤਾਂ ਸਰੋਤ ਦੀ ਆਵਾਜ਼ ਘਟਾਓ',
+  'system_audio.started': 'ਸਿਸਟਮ ਆਡੀਓ ਵਿੱਚ ਥੋੜ੍ਹੀ ਦੇਰੀ ਹੋ ਸਕਦੀ ਹੈ\nਜੇ ਹੋ ਸਕੇ ਤਾਂ ਸਰੋਤ ਦੀ ਆਵਾਜ਼ ਘਟਾਓ',
   'system_audio.stopped': 'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ ਮੁੱਕ ਗਿਆ\nਪਲੇਲਿਸਟ ਮੁੜ ਸ਼ੁਰੂ ਹੋ ਰਹੀ ਹੈ',
   'system_audio.host_channel_locked': 'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਹੋਣ ਵੇਲੇ ਭੂਮਿਕਾਵਾਂ ਨਹੀਂ ਬਦਲੀਆਂ ਜਾ ਸਕਦੀਆਂ',
   'system_audio.effects_guest_only':
     'ਸਿਸਟਮ ਆਡੀਓ ਚਾਲੂ ਹੈ\nਆਵਾਜ਼ ਦੇ ਪ੍ਰਭਾਵ ਸਿਰਫ਼ ਮਹਿਮਾਨ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਲਾਗੂ ਹੁੰਦੇ ਹਨ',
   'system_audio.desktop_only':
     'ਸਿਰਫ਼ Chromium-ਆਧਾਰਿਤ ਬ੍ਰਾਊਜ਼ਰ (Chrome, Edge ਆਦਿ) ਵਰਤਣ ਵਾਲੇ ਕੰਪਿਊਟਰਾਂ ਉੱਤੇ ਉਪਲਬਧ',
-  'system_audio.receive_failed':
-    'ਸਿਸਟਮ ਆਡੀਓ ਨਹੀਂ ਮਿਲ ਸਕਿਆ\nਹੋਸਟ ਨੂੰ ਸਾਂਝਾ ਕਰਨਾ ਮੁੜ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਕਹੋ',
+  'system_audio.receive_failed': 'ਸਿਸਟਮ ਆਡੀਓ ਨਹੀਂ ਮਿਲ ਸਕਿਆ\nਹੋਸਟ ਨੂੰ ਸਾਂਝਾ ਕਰਨਾ ਮੁੜ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਕਹੋ',
   'system_audio.remote_receive_limit':
     '2 ਘੰਟਿਆਂ ਬਾਅਦ ਸਿਸਟਮ ਆਡੀਓ ਮਿਲਣਾ ਬੰਦ ਹੋ ਗਿਆ\nਸੁਣਨਾ ਜਾਰੀ ਰੱਖਣ ਲਈ ਰੂਮ ਵਿੱਚ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਵੋ',
   'system_audio.device_limit':

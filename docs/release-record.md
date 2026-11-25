@@ -46,6 +46,58 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### App 9.0.842 / v842 열차(할 수 있는 의존성·도구 업데이트를 모두 싣고 긴 트랙 엔진의 시간을 기본 해독과 같게 지킴, 9.0.842/v842) 배포 전: 증분 일곱([화면 바뀜] 공유 카드 16장, 도구 묶음 셋(Node 24.22.3, npm 12.2.3, Vite 8.3.8, Playwright 1.65.1, Wrangler 4.168.0 등), 커버리지 시험, Mediabunny 1.66.4에 맞춘 긴 트랙 엔진의 MP3·M4A 시간, Chromium 159가 실패한 로케일 모듈을 다시 가져오는 것을 받아들이는 시험·주석 고침), CI 대기
+
+- [ ] 범위와 상태(미병합·미배포): 운영 9.0.841 / v841 다음 App 업데이트인 9.0.842 / v842(App 빌드 842)로 target `app`, 업데이트 창 한 번, 바닥 795
+      그대로(`raise_app_build_floor` false, Developer API D1 false). main `85ed5715`(#639, 9.0.841 배포 기록, 문서만) 위의 열차 갈래 `agent/deps-9-0-842`:
+      묶음 1 `18a68fb5`, 공유 카드 `73110423`, 묶음 2 `04d5f111`, 묶음 3 `220bac6f`, 커버리지 시험 `005ed51d`, 미디어 `d08b44ed`·`1e8be851`·`43cba03a`,
+      로케일 복구 시험·주석 고침 `bb4ffba5`, 버전 올리기 `a4115666`(마지막 런타임 커밋. 처음 버전 올리기 `35f1ef7c`는 시험 고침 뒤에 다시 얹어 갈래에
+      없음), 그 뒤 문서 커밋. 운영 `d40e8c8a`와 견준 App 런타임 경로 36개(공유 카드 16, Prettier 줄바꿈 12, 긴 트랙 엔진 3, 로케일 불러오기 주석 1, 버전
+      거울 넷)와 App 런타임 의존성(Mediabunny 1.61.3 → 1.66.4, `@wasm-audio-decoders/flac` 0.2.11 → 0.2.12), 다른 다섯 Worker 0개. 의존성과
+      버전 요구가 바뀐다: Node 24.22.2 → 24.22.3(`.node-version`, `engines.node`와 lockfile 루트), npm 12.0.2 → 12.2.3(`packageManager`), 개발 도구(Vite
+      8.3.8, Playwright 1.65.1과 CI 이미지 `v1.65.1-noble`, Wrangler 4.168.0, ESLint 10.15.0, Vitest 5.1.1, satori 0.63.2, Prettier 3.10.1 등), override
+      (`undici@7`과 `miniflare.undici` 7.30.2, `undici@8` 8.12.4), `allowScripts`(workerd 1.20261123.1, esbuild 0.28.1 지움), Worker 타입 파일 여섯. 전이
+      minimatch 11.0.9가 Dependabot alert #35를 고친다. 싣지 않은 것: TypeScript 6.1 이상과 `@types/node` 25 이상(Dependabot ignore 규칙), jsdom 31(단위
+      11행 실패, 뒤 열차) 등. [보고서](design/app-9-0-842-train-2026-11-25.md), [의존성 표](design/app-9-0-842-train-2026-11-25.md#52-의존성-표),
+      [싣지 않은 것](design/app-9-0-842-train-2026-11-25.md#54-싣지-않은-것과-이유).
+- [ ] 기댄 오너 결정(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-25 9.0.841이 나간 뒤 오너가 남은 일을 물었다(열린 PR은 2026-10-12에
+      열려 멈춰 있던 Dependabot 묶음 #297 하나: `package.json`이나 lockfile이 바뀌면 캐시 번호 올리기가 필요해 'Production release candidate'가 실패했고, 그 PR이
+      열려 있는 동안 Dependabot은 새 npm 버전 PR을 미룸). 오너가 개발 도구를 올리는 것이 좋은지 물었고, 읽기만 하는 조사 결과(vite 8.3.3의 개발 서버
+      critical 공지 GHSA-p4f5-76q4-ffq7 등)를 본 뒤 satori를 포함해 할 수 있는 것은 모두 하기로 하고 이 열차의 판단을 릴리스 담당에게 맡겼다
+      ([보고서 §1](design/app-9-0-842-train-2026-11-25.md#1-오너-결정)). [화면 바뀜]은 공유 카드 16장뿐이고, 전후 비교 사진은 머지 전에 오너에게
+      보냈다. 배포 허가(2026-11-11, 자동 관문이 통과하면 배포는 모두 허가), 2026-11-17 결정(최종 관문에는 관련 e2e 파일, 전체 e2e는 배포 뒤 Full E2E),
+      열차마다 업데이트 창 한 번.
+- [ ] 배포 조건(모두 채운 뒤에만 머지하고 dispatch한다): (1) 한 번에 한 열차이고 9.0.841 / v841 다음이다(9.0.841 배포 기록 #639와 Full E2E `45520749816`
+      통과 완료). (2) 최종 관문 첫 라운드(처음 버전 올리기 `35f1ef7c`, 2026-11-25 18:18 ~ 18:44 KST)에서 `npm ci`, `typecheck`, `check:workers`,
+      `format:check`, `lint`, 단위 800/800파일 19,662 통과·0 실패·0 건너뜀, 커버리지 셋(critical 119파일 4,887, tooling 14파일 478, workers 69파일
+      3,333), `build:checked`, 운영 9.0.841과 같은 바탕 빌드와의 비교(`assets/` 아래 이름이 같고 바이트가 다른 파일 0), `check:worker-bundles`, 핵심
+      Chromium E2E 101 통과, 미디어 parity·hybrid E2E 34 통과였고, 프로덕션 `candidate` 레인은 19 통과·1 실패·11 건너뜀이었다(로케일 복구 행:
+      Chromium 159가 실패한 모듈 URL을 다음 `import()`에서 다시 가져옴, 운영 9.0.841과 같은 바탕 빌드도 같은 실패). 시험 고침 `bb4ffba5` 뒤 다시 얹은
+      버전 올리기 `a4115666`(마지막 런타임 커밋)에서 `typecheck`, `format:check`, `lint`, `src/i18n` 단위 54파일 1,034 통과, `build:checked`(운영
+      빌드가 첫 라운드와 938파일 모두 바이트까지 같음), `candidate` 20 통과·11 건너뜀(`offline-room-entry`의 e2e 빌드용 행), 로케일 복구 명세 2 통과를
+      다시 돌렸다. `npm ci`, `check:workers`, 전체 단위, 커버리지 셋, `check:worker-bundles`, 핵심·미디어 E2E는 다시 돌리지 않았다(두 머리의 차이는
+      시험 하나와 주석 하나)([보고서 §4.9](design/app-9-0-842-train-2026-11-25.md#49-최종-관문-첫-라운드-처음-버전-올리기-머리-35f1ef7c),
+      [§4.10](design/app-9-0-842-train-2026-11-25.md#410-시험-고침-뒤-다시-돈-관문-버전-올리기-머리-a4115666)). (3) PR CI(Linux에서 Node 24.22.3,
+      npm 12.2.3과 Playwright 이미지 `v1.65.1-noble`로 도는 첫 확인, 배포되는 의존성만 보는 `security:audit -- --omit=dev`와 `security:signatures`
+      포함)와 exact-main CI 통과 뒤 main 머리와 다른 Release·App Build Floor 실행이 없음을 보고 Production Release(target `app`, D1 false, 바닥
+      false)를 dispatch한다. (4) 배포 뒤 공개 읽기·첫 방문·Drift·Full E2E를 확인한다. 머지부터 App이 나갈 때까지 부분 릴리스 게이트는 Worker만의
+      릴리스를 거부한다(선택하지 않은 App의 런타임 차이).
+- [ ] 되돌리기([보고서 §6](design/app-9-0-842-train-2026-11-25.md#6-되돌리기와-남긴-한계)): 새 경계는 없다(계약 표지, D1, 저장 모양, 바닥을 바꾸지
+      않음). 기본은 9.0.843 / v843 이상으로 앞으로 되돌리기다. 실패한 `app` 실행은 dispatch 때의 App(9.0.841, `d40e8c8a`)으로 복구된다. 공유 카드는 같은
+      주소라 되돌려도 SNS 캐시가 끝날 때까지 바뀐 카드가 보일 수 있다.
+- [ ] 확인하지 않은 것과 남긴 한계(게이트 아님): 실제 iPhone·Android 실기기는 확인하지 않았다. 긴 트랙 엔진의 해독은 WebKit·iPhone에서 자동화로
+      돌리지 않았다(Windows WebKit에는 Web Audio가 없고, WebKit 레인에 large-audio 명세가 없음). 시간 약속은 기본 해독과 같은 시작과 길이이고, 자동화로
+      견준 것은 Chromium뿐이다. 시험하지 않은 Mediabunny 동작 변경: VBRI MP3의 소리가 MP3 프레임 하나(약 26ms)만큼 일찍 나오고 그만큼 짧게
+      끝남(아마 기본 해독에 더 가까움), blockAlign이 어긋난 WAV를 다르게 읽을 수 있음, Matroska CodecDelay를 따름, 1.62의 강화가 일부 깨진 파일을
+      거절함. Mediabunny만 받아들이는 깨진 태그의 MP3는 시작이 기본 해독과 같고, 끝에 기본 해독이 잘라내는 731 샘플(16.6ms)이 남는다. jsdom 31은
+      싣지 않았고 miniflare 안의 ws 8.21.0은 그대로다(공지 없음). 다른 다섯 Worker는 다음 배포까지 Wrangler 4.148.0으로 묶은 배포 그대로이고, R2
+      CORS·lifecycle 글 파서는 다음 `all`·`remote-share`·`pro-room` 릴리스에서 4.168.0으로 처음 돈다. 이 배포 자체가 Wrangler 4.168.0이 운영 계정에서
+      처음 도는 것이다(`whoami`, `secret list`, `deployments status`, `d1 execute`, App 배포, 실패 때 자동 복구). PR CI는 Chromium만 돌리고, Full E2E의
+      Linux Chromium 전체와 `webkit-mobile`은 Playwright 1.65.1로 갈래 Full E2E [45589921727](https://github.com/hiefny/MUSIXQUARE/actions/runs/45589921727)(게이트
+      아님)에서 처음 돈다: `webkit-mobile`은 261행 가운데 237 통과·24 건너뜀(9.0.841과 같은 수)과 서비스 워커 시험 1 통과, 운영 대형 방 R2 smoke는 통과, Linux Chromium은 PR을 열 때 아직 실행 중([보고서 §4.11](design/app-9-0-842-train-2026-11-25.md#411-갈래-full-e2e-a4115666)). SNS는 공유 카드를 주소별로
+      캐시한다. 블라인드 기기 후보: 여러 기기가 섞인 방에서 긴 LAME 태그 MP3와 iTunes M4A를
+      틀어 보기, 메신저·SNS에서 공유 미리보기 보기.
+
 ### App 9.0.841 / v841 열차(휴대폰 토스트가 목록 길이와 상관없이 재생목록 선택 바를 피함, 9.0.841/v841) 배포 뒤 확인: Release 45520219367이 attempt 1에 성공했고(App `3cbb451e` → `e1d00867`), 공개 읽기와 첫 방문, Drift, 머지 뒤 Full E2E 45520749816(attempt 1 success, 휴대폰 토스트 행 셋 포함)까지 통과, 증분 하나([화면 바뀜] 선택 바가 떠 있는 동안 토스트 자리를 바의 실제 위치로 정해 8.11.32부터의 짧은 목록 겹침을 고침), 기기 판정은 아직
 
 - [ ] 범위와 상태(배포 뒤): 9.0.841 / v841(App 빌드 841, target `app`, 업데이트 창 한 번)이 2026-11-25 09:45 KST에 운영에 올랐다([Release 45520219367](https://github.com/hiefny/MUSIXQUARE/actions/runs/45520219367)

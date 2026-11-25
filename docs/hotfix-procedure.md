@@ -27,7 +27,7 @@ git switch -c agent/describe-the-fix
 # make the fix
 
 # For public/PWA runtime inputs or product copy, bump SERVICE_WORKER_CACHE_VERSION
-# and set the product patch to that new epoch (9.0.841 with v841) in the same
+# and set the product patch to that new epoch (9.0.842 with v842) in the same
 # commit, with both package-lock entries and both admin mirrors. A Worker-only
 # change bumps neither. See "Client Update Behavior" below.
 
@@ -642,7 +642,7 @@ Use this when stale clients are likely to keep hitting a severe bug.
 
 1. Make the minimal code fix.
 2. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
-3. Set the product patch to that new epoch (9.0.841 with v841) with every
+3. Set the product patch to that new epoch (9.0.842 with v842) with every
    required mirror, as defined by [release versioning](release-versioning.md).
 4. Run the repository's non-E2E verification baseline:
 
@@ -1134,6 +1134,11 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   replaced it. 9.0.840 does not read schemaVersion 1 either, so the same holds for 9.0.840 and its
   tabs, and step (1) of both orders does not go to the 9.0.840 release's checkpoint App (9.0.839,
   `f6fcc094`, as inferred from the release log; it reads only schemaVersion 2).
+  9.0.840 stayed live until 9.0.841 (build 841, the `app` release of merge `d40e8c8a` (#638),
+  Production Release 45520219367, which deployed App version `e1d00867` on 2026-11-25 at 09:45 KST)
+  replaced it. 9.0.841 does not read schemaVersion 1 either, so the same holds for 9.0.841 and its
+  tabs, and step (1) of both orders does not go to the 9.0.841 release's checkpoint App (9.0.840,
+  `3cbb451e`, as inferred from the release log; it reads only schemaVersion 2).
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling

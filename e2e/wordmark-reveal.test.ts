@@ -450,4 +450,43 @@ test.describe('boot splash wordmark reveal', () => {
       expect(await offsets(page)).toEqual({ logo: -24, loader: 24 });
     });
   }
+
+  test('opens /designsystem/loading from Loading states, loops cleanly, and returns on click', async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(String(err)));
+
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'no-preference' });
+    await page.goto('/designsystem', { waitUntil: 'domcontentloaded' });
+
+    const card = page.locator('.loading-showcase .boot-splash-demo');
+    await card.scrollIntoViewIfNeeded();
+    await expect(card).toHaveAttribute('href', '/designsystem/loading');
+    await expect(card).toHaveCSS('cursor', 'pointer');
+    await expect(card.locator('.boot-splash-logo')).toHaveAttribute('data-wordmark-ready', 'true');
+
+    await Promise.all([page.waitForURL(/\/designsystem\/loading(?:\.html)?$/u), card.click()]);
+
+    const splash = page.locator('.boot-splash[data-boot-splash-loop="fullscreen"]');
+    await expect(splash).toBeVisible();
+    await expect(splash).toHaveCSS('background-color', 'rgb(18, 18, 18)');
+    await expect(splash).toHaveCSS('color', 'rgb(238, 238, 238)');
+
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect(splash).toHaveCSS('background-color', 'rgb(248, 249, 250)');
+    await expect(splash).toHaveCSS('color', 'rgb(48, 53, 64)');
+
+    await expect(splash).toHaveAttribute('data-phase', 'loader', { timeout: 8_000 });
+    await expect(splash).toHaveAttribute('data-loop', 'fadeout', { timeout: 8_000 });
+    await expect(splash).toHaveAttribute('data-loop', 'blank', { timeout: 4_000 });
+    await expect(splash).not.toHaveAttribute('data-loop', /.*/u, { timeout: 4_000 });
+
+    await Promise.all([
+      page.waitForURL(/\/designsystem(?:\/index\.html)?$/u),
+      splash.click({ position: { x: 24, y: 24 } }),
+    ]);
+
+    expect(errors).toEqual([]);
+  });
 });

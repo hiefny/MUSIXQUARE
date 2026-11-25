@@ -46,6 +46,18 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### App 9.0.844 / v844 열차(`/designsystem` Loading states 부트 스플래시 프리뷰 카드 및 `/designsystem/loading` 전체 화면 페이지, 9.0.844/v844) 배포 전: PR 및 CI 대기 중, 증분 둘([화면 바뀜] `/designsystem` Loading states 아래 버튼 없는 클릭 프리뷰 카드, `/designsystem/loading` `noindex` 전체 화면 반복·클릭 복귀 페이지), 배포 뒤 수동 Full E2E 생략
+
+- [ ] 범위와 상태(배포 전): 열차 갈래 `agent/designsystem-loading-preview`(main `32ab3f8e`(#643) 위 구현·시험 `bb5913d2`, 버전 올리기 `be2a86fb`, 문서 커밋)가
+      PR 및 CI 대기 중이다. `9.0.844` / `v844`(App 빌드 844, target `app`, 업데이트 창 한 번, 바닥 795 그대로, Developer API D1 false). 다른 다섯 Worker 런타임
+      변경 0, 의존성 변경 0. [보고서](design/app-9-0-844-train-2026-11-26.md).
+- [ ] 기댄 오너 결정(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-26 오너가 `/designsystem`의 `Loading states` 아래에 별도 버튼 없이 클릭 가능한 부트
+      스플래시 반복 프리뷰 카드를 두고, 누르거나 URL로 여는 `/designsystem/loading`(`noindex, nofollow`, 시스템 테마 자동 추종, 화면 클릭·Escape 복귀)을 `9.0.844 / v844`로
+      바로 배포하되 배포 뒤 수동 Full E2E는 생략하도록 정했다([보고서 §1](design/app-9-0-844-train-2026-11-26.md#1-오너-결정)).
+- [ ] 배포와 배포 뒤 확인: 최종 로컬 검증(`be2a86fb`) 통과([보고서 §4.1](design/app-9-0-844-train-2026-11-26.md#41-최종-로컬-검증-버전-올리기-be2a86fb)). PR CI,
+      exact-main CI, Release, 공개 읽기·첫 방문, Drift 확인 예정(수동 Full E2E는 오너 결정으로 생략).
+- [ ] 되돌리기([보고서 §6](design/app-9-0-844-train-2026-11-26.md#6-되돌리기와-남긴-한계)): 새 경계는 없다. 기본은 9.0.845 / v845 이상으로 앞으로 되돌리기다.
+
 ### App 9.0.843 / v843 열차(메인 재생 버튼 호버 커서 추가와 부트 스플래시 로고 상승 곡선·스피너 타이밍 조정, 9.0.843/v843) 배포 뒤 확인: Release 45658210554가 attempt 1에 성공했고(App `e9533066` → `a538064a`), 공개 읽기와 첫 방문, Drift 통과, 머지 뒤 Full E2E 45658752268 실행 중, 증분 둘([화면 바뀜] `.play-fab` `cursor: pointer;` 추가, `boot-splash-mark-rise` `1.2s cubic-bezier(0.8, 0, 0.2, 1)` + `boot-splash-spinner-in` `0.35s ease-out 0.6s` 및 폴백 `3.8s`), 기기 판정은 아직
 
 - [ ] 범위와 상태(배포 뒤): 9.0.843 / v843(App 빌드 843, target `app`, 업데이트 창 한 번)가 2026-11-26 01:52 KST에 운영에 올랐다([Release 45658210554](https://github.com/hiefny/MUSIXQUARE/actions/runs/45658210554)

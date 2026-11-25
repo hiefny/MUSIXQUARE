@@ -901,6 +901,7 @@ describe('every page source and built page is a registered public page or a reco
       'index.html',
       'public/account-complete.html',
       'public/screensaver.html',
+      'public/designsystem/loading.html',
     ]);
     for (const { html, dist, reason } of PUBLIC_FONT_PAGE_EXCLUSIONS) {
       expect(existsSync(html), html).toBe(true);

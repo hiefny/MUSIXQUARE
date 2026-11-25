@@ -507,6 +507,12 @@ export const PUBLIC_FONT_PAGE_EXCLUSIONS: readonly PublicFontPageExclusion[] = [
     reason:
       "an app screen in the service worker's APP_SHELL, with its own fonts, not a public page",
   },
+  {
+    html: 'public/designsystem/loading.html',
+    dist: ['designsystem/loading.html'],
+    reason:
+      'a standalone noindex full-screen boot-splash preview that renders only the SVG wordmark and SVG spinner with no visible text or web fonts',
+  },
 ];
 
 /**

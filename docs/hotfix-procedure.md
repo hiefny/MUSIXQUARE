@@ -27,7 +27,7 @@ git switch -c agent/describe-the-fix
 # make the fix
 
 # For public/PWA runtime inputs or product copy, bump SERVICE_WORKER_CACHE_VERSION
-# and set the product patch to that new epoch (9.0.845 with v845) in the same
+# and set the product patch to that new epoch (9.0.846 with v846) in the same
 # commit, with both package-lock entries and both admin mirrors. A Worker-only
 # change bumps neither. See "Client Update Behavior" below.
 
@@ -657,7 +657,7 @@ Use this when stale clients are likely to keep hitting a severe bug.
 
 1. Make the minimal code fix.
 2. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
-3. Set the product patch to that new epoch (9.0.845 with v845) with every
+3. Set the product patch to that new epoch (9.0.846 with v846) with every
    required mirror, as defined by [release versioning](release-versioning.md).
 4. Run the repository's non-E2E verification baseline:
 
@@ -863,7 +863,10 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   Share uploads fail with `REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE`, and its host liveness
   probe and PIN membership choice are off. The App-first rule above applies only when Signaling
   itself goes below 9.0.14. Once the PRO Worker that first sends PRO snapshot schemaVersion 2
-  is live, the PRO step of the next bullet comes before step (1).
+  is live, the PRO step of the next bullet comes before step (1). The 9.0.845 Signaling Worker
+  (`e3f167c8`) does not advertise the markers either, so step (1) still goes to the 9.0.22
+  release's checkpoint version (`d212819f`), not to the 9.0.845 release's checkpoint (`36579bdf`,
+  the 9.0.22 Signaling Worker, which does not advertise them).
 - Once the PRO Worker that first sends PRO snapshot schemaVersion 2 is live (the `pro-room`
   release of merge `0e5a9b87` (#528), Production Release 40901986997, which deployed PRO Worker
   version `ef882f7c` on 2026-10-30 at 00:30 KST after the floor reached 795; it stayed live
@@ -928,6 +931,15 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   the PRO-only cleanup Worker (`e7657f88`) is live, the first schemaVersion 2 PRO Worker
   (`ef882f7c`) is the cleanup release's recovery checkpoint and stays the floor for a manual PRO
   rollback, and the PRO steps of both orders still go to the 9.0.22 PRO Worker.
+  The PRO-only cleanup Worker stayed live until 9.0.845 (the `all` release of merge `8bf07f29`
+  (#646), Production Release 45865175393, which deployed PRO Worker version `6ec2b944` on 2026-11-27
+  at 02:11 KST) replaced it. Its changed PRO paths are only the service-control object (a status page
+  note role for a third named object), the shared maintenance module and the admin metrics D1
+  baseline; its room code is the cleanup Worker's, so it still sends schemaVersion 2 and writes the
+  same records. What this bullet and the next say while the cleanup Worker is live therefore holds
+  while the 9.0.845 PRO Worker is live, the cleanup Worker (`e7657f88`) is the 9.0.845 release's PRO
+  recovery checkpoint, `ef882f7c` stays the floor for a manual PRO rollback, and the PRO steps of
+  both orders still go to the 9.0.22 PRO Worker.
 - Once 9.0.25 (build 798), the App that no longer reads PRO snapshot schemaVersion 1, is live
   (the `app` release of merge `b8ae59e7` (#532), Production Release 40964572017, which deployed
   App version `b4e8fc56` on 2026-10-30 at 07:18 KST after the PRO Worker of the previous bullet;
@@ -1169,6 +1181,11 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   replaced it. 9.0.844 does not read schemaVersion 1 either, so the same holds for 9.0.844 and its
   tabs, and step (1) of both orders does not go to the 9.0.844 release's checkpoint App (9.0.843,
   `a538064a`, as inferred from the release log; it reads only schemaVersion 2).
+  9.0.844 stayed live until 9.0.845 (build 845, the `all` release of merge `8bf07f29` (#646),
+  Production Release 45865175393, which deployed App version `87e87f8c` on 2026-11-27 at 02:13 KST)
+  replaced it. 9.0.845 does not read schemaVersion 1 either, so the same holds for 9.0.845 and its
+  tabs, and step (1) of both orders does not go to the 9.0.845 release's checkpoint App (9.0.844,
+  `29659e35`, as inferred from the release log; it reads only schemaVersion 2).
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
   the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling

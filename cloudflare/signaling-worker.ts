@@ -527,6 +527,19 @@ const HOST_RECLAIM_GRACE_MS = 120_000;
 const HOST_AUTH_TIMEOUT_MS = 10_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
+// Status page probes (registry RO-57). The App claims an idle Standard room
+// code through this binding-only route before its check's host-auth. The next
+// new room on that code consumes the claim, keeps a probe flag for its epoch,
+// and records status_probe_room_opened and status_probe_guest_joined instead
+// of the counted room_opened and guest_joined. Both records have their own
+// keys because RoomMeta is exact-key, so an older Worker ignores them. This
+// file is the home of these values; status-policy-parity.test.ts pins the
+// App's copy of the path.
+const STATUS_PROBE_CLAIM_PATH = '/internal/status-probe/v1/claim';
+const STATUS_PROBE_CLAIM_KEY = 'status-probe-claim';
+const STATUS_PROBE_ROOM_KEY = 'status-probe-room';
+const STATUS_PROBE_CLAIM_TTL_MS = 120_000;
+const STATUS_PROBE_ROOM_TTL_MS = 30 * 60_000;
 const ATTACHMENT_VERSION = 1;
 const WS_RATE_LIMIT_PER_MINUTE = 120;
 const SIGNALING_LIVENESS_PING = '{"type":"signaling-liveness-ping","version":1}';
@@ -1986,6 +1999,16 @@ function isQuarantinedRoomMeta(meta: RoomMeta): boolean {
   return meta.v === 2 && meta.roomPasswordVerifier?.v === 0;
 }
 
+/** The expiry of a stored status-probe claim or flag, or null when the value is not one. */
+function statusProbeRecordUntil(value: unknown): number | null {
+  return hasExactKeys(value, ['v', 'until']) &&
+    value.v === 1 &&
+    isSafeInteger(value.until) &&
+    value.until > 0
+    ? value.until
+    : null;
+}
+
 function normalizeProRoomMeta(value: unknown): ProRoomMeta | null {
   if (
     !hasExactKeys(value, ['v', 'kind', 'roomId', 'coordinatorEpoch'], ['roomGeneration']) ||
@@ -2523,6 +2546,8 @@ export class MusixquareRoom {
   private guestBindingsLoad: Promise<GuestBindings> | null;
   // Lazy caches of the two additive PIN keys; undefined/null = not loaded.
   private standardPinMembership: StandardRoomPinMembership | null | undefined;
+  // Lazy cache of the epoch's status-probe flag expiry; undefined = not loaded.
+  private statusProbeRoomUntil: number | null | undefined;
   private standardPinFailures: StandardRoomPinFailures | null;
   private standardRoomMembers: StandardRoomMembers | null;
   private proTicketUses: ProTicketUses | null;
@@ -2610,6 +2635,7 @@ export class MusixquareRoom {
     this.guestBindingsFutureVersion = false;
     this.guestBindingsLoad = null;
     this.standardPinMembership = undefined;
+    this.statusProbeRoomUntil = undefined;
     this.standardPinFailures = null;
     this.standardRoomMembers = null;
     this.proTicketUses = null;
@@ -4723,6 +4749,9 @@ export class MusixquareRoom {
     }
     const expiredEpoch =
       !this.host && !!this.roomMeta?.hostReleaseAt && this.roomMeta.hostReleaseAt <= Date.now();
+    // A status probe room's expiry is not counted. Read its flag before the
+    // reset below deletes it with the rest of the epoch.
+    const statusProbeRoom = expiredEpoch && (await this.isStatusProbeRoom());
     const roomMeta = defaultRoomMeta();
     const members = defaultStandardRoomMembers();
     const bindings = defaultGuestBindings();
@@ -4741,6 +4770,7 @@ export class MusixquareRoom {
         await transaction.put(GUEST_BINDINGS_KEY, bindings);
         await transaction.delete(STANDARD_ROOM_PIN_MEMBERSHIP_KEY);
         await transaction.delete(STANDARD_ROOM_PIN_FAILURES_KEY);
+        await transaction.delete(STATUS_PROBE_ROOM_KEY);
       });
     } else {
       // Test/runtime compatibility fallback. Production Durable Object storage
@@ -4750,6 +4780,7 @@ export class MusixquareRoom {
       await this.state.storage.put(GUEST_BINDINGS_KEY, bindings);
       await this.state.storage.delete(STANDARD_ROOM_PIN_MEMBERSHIP_KEY);
       await this.state.storage.delete(STANDARD_ROOM_PIN_FAILURES_KEY);
+      await this.state.storage.delete(STATUS_PROBE_ROOM_KEY);
     }
     this.roomMeta = roomMeta;
     this.futureRoomMetaVersion = false;
@@ -4759,9 +4790,10 @@ export class MusixquareRoom {
     this.guestBindingsFutureVersion = false;
     this.standardPinMembership = null;
     this.standardPinFailures = normalizeStandardRoomPinFailures(undefined);
+    this.statusProbeRoomUntil = null;
     // Both the grace alarm and a last-guest close can complete an expired
     // epoch. Count only their shared successful reset, never a cleanup retry.
-    if (expiredEpoch) this.recordMetric('standard_room_expired');
+    if (expiredEpoch && !statusProbeRoom) this.recordMetric('standard_room_expired');
     return roomMeta;
   }
 
@@ -4771,6 +4803,41 @@ export class MusixquareRoom {
       this.standardPinMembership = normalizeStandardRoomPinMembership(stored);
     }
     return this.standardPinMembership;
+  }
+
+  private async loadStatusProbeRoomUntil(): Promise<number | null> {
+    if (this.statusProbeRoomUntil === undefined) {
+      const stored = await this.state.storage.get(STATUS_PROBE_ROOM_KEY);
+      this.statusProbeRoomUntil = statusProbeRecordUntil(stored);
+    }
+    return this.statusProbeRoomUntil;
+  }
+
+  /** Whether this room epoch is a status probe: its flag exists and has not expired. */
+  private async isStatusProbeRoom(now = Date.now()): Promise<boolean> {
+    const until = await this.loadStatusProbeRoomUntil();
+    return until !== null && until > now;
+  }
+
+  /**
+   * A new room epoch consumes the status-probe claim (an expired or malformed
+   * one is only dropped) and keeps the result as the epoch's flag. The caller
+   * holds the Standard admission queue, like the claim route that wrote it.
+   */
+  private async consumeStatusProbeClaim(now = Date.now()): Promise<boolean> {
+    const claim = await this.state.storage.get(STATUS_PROBE_CLAIM_KEY);
+    const claimUntil = statusProbeRecordUntil(claim);
+    const statusProbeRoom = claimUntil !== null && claimUntil > now;
+    if (statusProbeRoom) {
+      const until = now + STATUS_PROBE_ROOM_TTL_MS;
+      await this.state.storage.put(STATUS_PROBE_ROOM_KEY, { v: 1, until });
+      this.statusProbeRoomUntil = until;
+    } else if (this.statusProbeRoomUntil !== null) {
+      await this.state.storage.delete(STATUS_PROBE_ROOM_KEY);
+      this.statusProbeRoomUntil = null;
+    }
+    if (claim !== undefined) await this.state.storage.delete(STATUS_PROBE_CLAIM_KEY);
+    return statusProbeRoom;
   }
 
   private async loadStandardPinFailures(): Promise<StandardRoomPinFailures> {
@@ -5609,6 +5676,9 @@ export class MusixquareRoom {
           this.enqueueProChatMutation(() => this.handleInternalOwnerAccountDeletedFence(request)),
         );
       }
+      if (url.pathname === STATUS_PROBE_CLAIM_PATH) {
+        return this.handleInternalStatusProbeClaim(request);
+      }
       return json({ error: 'NOT_FOUND' }, 404);
     }
     const upgrade = request.headers.get('Upgrade') || '';
@@ -5688,6 +5758,41 @@ export class MusixquareRoom {
     }
 
     return webSocketUpgradeResponse(client);
+  }
+
+  /**
+   * Binding-only status-probe pre-claim of an idle room code (the public
+   * router answers 404 for every /internal/ path). The body is read before
+   * the Standard admission queue, as the HTTP bridge reads its own; the room
+   * state check and the claim write run inside it, ordered with host-auth.
+   */
+  private async handleInternalStatusProbeClaim(request: Request): Promise<Response> {
+    const value = await readBoundedJson(request, INTERNAL_ADMIN_BODY_MAX_BYTES);
+    if (
+      !hasExactKeys(value, ['v', 'roomId']) ||
+      value.v !== 1 ||
+      typeof value.roomId !== 'string' ||
+      !STANDARD_HTTP_BRIDGE_ROOM_ID_RE.test(value.roomId)
+    ) {
+      return json({ error: 'INVALID_REQUEST' }, 400);
+    }
+    if (!this.rememberStandardRoomId(value.roomId)) {
+      return json({ error: 'ROOM_STATE_INVALID' }, 409);
+    }
+    return this.enqueueStandardAdmission(async () => {
+      // Expire a finished epoch first, exactly as host-auth does, so a room
+      // whose reclaim grace has passed is idle and claimable.
+      const meta = await this.clearExpiredHostRelease();
+      if (isQuarantinedRoomMeta(meta)) return json({ error: 'ROOM_STATE_INVALID' }, 409);
+      if (meta.roomSecret || this.host || this.pendingHosts.size > 0) {
+        return json({ error: 'ROOM_ACTIVE' }, 409);
+      }
+      await this.state.storage.put(STATUS_PROBE_CLAIM_KEY, {
+        v: 1,
+        until: Date.now() + STATUS_PROBE_CLAIM_TTL_MS,
+      });
+      return json({ ok: true });
+    });
   }
 
   /**
@@ -6426,6 +6531,7 @@ export class MusixquareRoom {
     }
 
     const isNewRoom = !meta.roomSecret;
+    let statusProbeRoom = false;
     let identity: StandardRoomIdentity | null = null;
     let attachment: StandardHostOkAttachment;
     this.standardRoomPinMutationFence = pinMutationId;
@@ -6436,6 +6542,7 @@ export class MusixquareRoom {
         await this.clearStandardRoomMembers();
         await this.state.storage.delete(STANDARD_ROOM_PIN_MEMBERSHIP_KEY);
         this.standardPinMembership = null;
+        statusProbeRoom = await this.consumeStatusProbeClaim();
       }
       identity = await this.resolveStandardRoomIdentity(
         accountAssertion,
@@ -6532,7 +6639,8 @@ export class MusixquareRoom {
       );
     }
     this.requestMaintenanceAlarm();
-    this.recordMetric(isNewRoom ? 'room_opened' : 'host_reconnected');
+    const openedEvent = statusProbeRoom ? 'status_probe_room_opened' : 'room_opened';
+    this.recordMetric(isNewRoom ? openedEvent : 'host_reconnected');
     return true;
   }
 
@@ -6796,6 +6904,9 @@ export class MusixquareRoom {
     peerId: string,
     identity: StandardRoomIdentity | null = null,
   ): Promise<void> {
+    // Read the epoch's probe flag before admission, so a storage failure fails
+    // this guest-auth rather than surfacing after the guest was admitted.
+    const statusProbeRoom = await this.isStatusProbeRoom();
     const previous = this.guests.get(peerId);
     const currentAttachment = readAttachment(ws);
     const previousAttachment = readAttachment(previous);
@@ -6852,7 +6963,7 @@ export class MusixquareRoom {
       closeSocket(pending, 1012, 'GUEST_REPLACED');
     }
     this.requestMaintenanceAlarm();
-    this.recordMetric('guest_joined');
+    this.recordMetric(statusProbeRoom ? 'status_probe_guest_joined' : 'guest_joined');
     if (identity) await this.scheduleMaintenanceAlarm();
   }
 

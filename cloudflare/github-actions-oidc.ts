@@ -33,6 +33,13 @@ const JWT_MAX_AGE_SECONDS = 60 * 60;
 const JWT_KID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]*$/;
 
+/** This repository's identity claims, which every App ops policy pins. */
+export const MUSIXQUARE_GITHUB_REPOSITORY = Object.freeze({
+  repository: 'hiefny/MUSIXQUARE',
+  repositoryId: '1141408724',
+  repositoryOwnerId: '257024056',
+} as const);
+
 /** The identity a token must carry; every field is compared exactly. */
 export interface GitHubActionsOidcPolicy {
   readonly audience: string;
@@ -40,8 +47,13 @@ export interface GitHubActionsOidcPolicy {
   readonly repositoryId: string;
   readonly repositoryOwnerId: string;
   readonly ref: string;
-  readonly environment: string;
-  readonly eventName: string;
+  /**
+   * The GitHub environment the job names. Null pins a job that names none:
+   * its token must then carry no `environment` claim at all.
+   */
+  readonly environment: string | null;
+  /** The event that started the run, or a list of events any one of which may have. */
+  readonly eventName: string | readonly string[];
   readonly runnerEnvironment: string;
   /**
    * Workflows (`owner/repo/.github/workflows/file.yml@ref`) whose jobs may
@@ -242,14 +254,24 @@ function timeClaimsValid(claims: JsonObject, nowMs: number): boolean {
   );
 }
 
+function environmentMatches(environment: unknown, expected: string | null): boolean {
+  // Any present value, even an empty string, refuses a policy without one.
+  return expected === null ? environment === undefined : environment === expected;
+}
+
+function eventNameMatches(eventName: unknown, expected: string | readonly string[]): boolean {
+  if (typeof expected === 'string') return eventName === expected;
+  return typeof eventName === 'string' && expected.includes(eventName);
+}
+
 function identityMatches(claims: JsonObject, policy: GitHubActionsOidcPolicy): boolean {
   return (
     claims.repository === policy.repository &&
     claims.repository_id === policy.repositoryId &&
     claims.repository_owner_id === policy.repositoryOwnerId &&
     claims.ref === policy.ref &&
-    claims.environment === policy.environment &&
-    claims.event_name === policy.eventName &&
+    environmentMatches(claims.environment, policy.environment) &&
+    eventNameMatches(claims.event_name, policy.eventName) &&
     claims.runner_environment === policy.runnerEnvironment
   );
 }

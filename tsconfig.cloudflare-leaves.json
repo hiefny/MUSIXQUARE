@@ -16,6 +16,7 @@
     "cloudflare/account-nickname.ts",
     "cloudflare/announcement-expiry.ts",
     "cloudflare/app-build-floor-contract.ts",
+    "cloudflare/status-contract.ts",
     "cloudflare/display-name-policy.ts",
     "cloudflare/developer-api-credential.ts",
     "cloudflare/pro-room-validation.ts",

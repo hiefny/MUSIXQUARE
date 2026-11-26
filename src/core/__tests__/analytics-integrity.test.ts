@@ -15,6 +15,7 @@ const STATIC_ANALYTICS_PAGES = [
   '.workshop/landing/landing.html',
   '.workshop/privacy/privacy.html',
   '.workshop/sitemap/sitemap.html',
+  '.workshop/status/status.html',
   '.workshop/terms/terms.html',
   '.workshop/translate/translate.html',
   'public/blog/index.html',

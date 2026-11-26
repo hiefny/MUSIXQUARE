@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 
 import {
   ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+  ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
@@ -23,6 +24,7 @@ import {
   SERVICE_CONTROL_STATUS_REVISION_HEADER,
   SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_VERSION_HEADER,
+  STATUS_NOTE_CONTROL_OBJECT_NAME,
   clearServiceMaintenanceCacheForTests,
   consumeAbuseRateLimit,
   consumeAbuseRateLimitPair,
@@ -35,12 +37,14 @@ import {
   readCachedServiceMaintenance,
   readServiceMaintenance,
   readServiceMaintenanceHistory,
+  readStatusNoteControl,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
   reportLiveAppBuild,
   updateAppBuildFloor,
   updateServiceMaintenance,
   updateAdminAnnouncementControl,
+  updateStatusNoteControl,
   type ServiceMaintenanceState,
 } from '../../../cloudflare/service-maintenance.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
@@ -2531,6 +2535,186 @@ describe('shared service-maintenance control', () => {
     expect(response.status).toBe(503);
     expect(response.headers.get('Content-Language')).toBe('ja');
     expect(await response.text()).toBe('');
+  });
+});
+
+describe('shared status note control', () => {
+  const noteInput = {
+    message: 'Checks are delayed',
+    enabled: true,
+    expiresAt: null,
+    expectedRevision: 0,
+    requestId: '123e4567-e89b-42d3-a456-426614174090',
+  };
+
+  function recordingEnv(
+    handlers: Readonly<Record<string, (request: Request) => Response | Promise<Response>>>,
+  ) {
+    const calls: Array<{ name: string; request: Request }> = [];
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn((name: string) => ({
+          fetch: (request: Request) => {
+            calls.push({ name, request: request.clone() });
+            const handler = handlers[name];
+            if (!handler) throw new Error(`Unexpected service-control object ${name}`);
+            return handler(request);
+          },
+        })),
+      },
+    };
+    return { env, calls };
+  }
+
+  it('answers unbound without a binding', async () => {
+    await expect(readStatusNoteControl({})).resolves.toEqual({ status: 'unbound', payload: null });
+    await expect(updateStatusNoteControl({}, noteInput)).resolves.toEqual({
+      status: 'unbound',
+      payload: null,
+    });
+  });
+
+  it('addresses only the note object, never migrates or inherits history, and caches nothing', async () => {
+    const { env, calls } = recordingEnv({
+      [STATUS_NOTE_CONTROL_OBJECT_NAME]: (request) =>
+        Response.json(announcementControlPayload(request.method === 'POST' ? 1 : 0)),
+    });
+
+    // An empty note never falls back to the main object or any other store.
+    await expect(readStatusNoteControl(env)).resolves.toEqual({
+      status: 'ok',
+      payload: announcementControlPayload(0),
+    });
+    await expect(readStatusNoteControl(env)).resolves.toEqual({
+      status: 'ok',
+      payload: announcementControlPayload(0),
+    });
+    await expect(updateStatusNoteControl(env, noteInput)).resolves.toEqual({
+      status: 'ok',
+      payload: announcementControlPayload(1),
+    });
+
+    expect(calls.map(({ name }) => name)).toEqual([
+      STATUS_NOTE_CONTROL_OBJECT_NAME,
+      STATUS_NOTE_CONTROL_OBJECT_NAME,
+      STATUS_NOTE_CONTROL_OBJECT_NAME,
+    ]);
+    const [read, , write] = calls.map(({ request }) => request);
+    expect(read?.method).toBe('GET');
+    expect(new URL(String(read?.url)).pathname).toBe(ADMIN_ANNOUNCEMENT_STATUS_PATH);
+    expect(write?.method).toBe('POST');
+    expect(new URL(String(write?.url)).pathname).toBe(ADMIN_ANNOUNCEMENT_STATE_PATH);
+    expect(write?.headers.get('Content-Type')).toBe('application/json');
+    expect(write?.headers.get(ADMIN_ANNOUNCEMENT_MIGRATION_HEADER)).toBeNull();
+    await expect(write?.json()).resolves.toEqual({ ...noteInput, baseHistory: [] });
+  });
+
+  it('never changes the cached in-room announcement', async () => {
+    let announcementReads = 0;
+    const { env, calls } = recordingEnv({
+      [ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME]: () => {
+        announcementReads += 1;
+        return Response.json(announcementControlPayload(2));
+      },
+      [STATUS_NOTE_CONTROL_OBJECT_NAME]: (request) =>
+        Response.json(announcementControlPayload(request.method === 'POST' ? 1 : 0)),
+    });
+
+    const cached = await readAdminAnnouncementControl(env);
+    expect(cached).toEqual({ status: 'ok', payload: announcementControlPayload(2) });
+    await expect(updateStatusNoteControl(env, noteInput)).resolves.toMatchObject({ status: 'ok' });
+    await expect(readStatusNoteControl(env)).resolves.toEqual({
+      status: 'ok',
+      payload: announcementControlPayload(0),
+    });
+
+    await expect(readAdminAnnouncementControl(env)).resolves.toBe(cached);
+    expect(announcementReads).toBe(1);
+    expect(calls.map(({ name }) => name)).toEqual([
+      ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+      STATUS_NOTE_CONTROL_OBJECT_NAME,
+      STATUS_NOTE_CONTROL_OBJECT_NAME,
+    ]);
+  });
+
+  it('keeps the note at revision 0 beside a revision-1 room announcement on real objects', async () => {
+    const control = createAtomicRateControlBinding();
+    const names: string[] = [];
+    const kvGet = vi.fn(async () => null);
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        idFromName: (name: string) => {
+          names.push(name);
+          return control.binding.idFromName(name);
+        },
+        get: (id: string) => control.binding.get(id),
+      },
+      // The App's legacy announcement stores. The note never reads them.
+      MUSIXQUARE_ADMIN_CONFIG: { get: kvGet },
+      SORO_RSS_BACKUP: { get: kvGet },
+    };
+    const main = control.binding.get(control.binding.idFromName(SERVICE_CONTROL_OBJECT_NAME));
+    const seeded = await main.fetch(
+      new Request(`https://service-control.internal${ADMIN_ANNOUNCEMENT_STATE_PATH}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Room notice',
+          enabled: true,
+          expiresAt: null,
+          expectedRevision: 0,
+          requestId: 'room-notice-0001',
+          baseHistory: [],
+        }),
+      }),
+    );
+    expect(seeded.status).toBe(200);
+
+    await expect(readStatusNoteControl(env)).resolves.toMatchObject({
+      status: 'ok',
+      payload: { announcementState: { revision: 0, announcement: { message: '' }, history: [] } },
+    });
+    await expect(updateStatusNoteControl(env, noteInput)).resolves.toMatchObject({
+      status: 'ok',
+      payload: {
+        replayed: false,
+        announcementState: {
+          revision: 1,
+          announcement: { message: 'Checks are delayed', enabled: true, expiresAt: null },
+          history: [{ message: 'Checks are delayed', action: 'published' }],
+        },
+      },
+    });
+    await expect(updateStatusNoteControl(env, noteInput)).resolves.toMatchObject({
+      status: 'ok',
+      payload: { replayed: true, announcementState: { revision: 1 } },
+    });
+    await expect(
+      updateStatusNoteControl(env, { ...noteInput, requestId: 'status-note-stale-0002' }),
+    ).resolves.toMatchObject({
+      status: 'conflict',
+      payload: { announcementState: { revision: 1 } },
+    });
+    await expect(
+      updateStatusNoteControl(env, {
+        ...noteInput,
+        expectedRevision: 1,
+        expiresAt: '2020-01-01T00:00:00.000Z',
+        requestId: 'status-note-past-0003',
+      }),
+    ).resolves.toEqual({
+      status: 'rejected',
+      payload: { error: 'EXPIRES_AT_IN_PAST' },
+      responseStatus: 400,
+    });
+    expect(names).toEqual(Array(5).fill(STATUS_NOTE_CONTROL_OBJECT_NAME));
+
+    // The in-room announcement still reads the older shared copy, never the note.
+    await expect(readAdminAnnouncementControl(env, { fresh: true })).resolves.toMatchObject({
+      status: 'ok',
+      payload: { announcementState: { revision: 1, announcement: { message: 'Room notice' } } },
+    });
+    expect(kvGet).not.toHaveBeenCalled();
   });
 });
 

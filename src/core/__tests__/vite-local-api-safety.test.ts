@@ -76,6 +76,77 @@ function invoke(middleware: DevMiddleware, url: string, method = 'GET') {
   return { body, headers, next, response };
 }
 
+type StatusFixtureMiddleware = (
+  request: { method?: string; url?: string; headers: { referer?: string } },
+  response: {
+    statusCode: number;
+    setHeader(name: string, value: string): void;
+    end(body?: string): void;
+  },
+  next: () => void,
+) => void;
+
+interface StatusFixturePlugin {
+  apply?: unknown;
+  configureServer(server: { middlewares: { use(value: StatusFixtureMiddleware): void } }): void;
+  configurePreviewServer?: unknown;
+}
+
+function statusFixturePlugin(env: Record<string, string | undefined>): StatusFixturePlugin {
+  const plugin = (createViteConfig(env).plugins || []).find(
+    (candidate) =>
+      candidate &&
+      typeof candidate === 'object' &&
+      !Array.isArray(candidate) &&
+      'name' in candidate &&
+      candidate.name === 'dev-status-fixtures',
+  ) as StatusFixturePlugin | undefined;
+  if (!plugin) {
+    throw new Error('dev-status-fixtures plugin is missing');
+  }
+  return plugin;
+}
+
+function statusFixtureMiddleware(
+  env: Record<string, string | undefined>,
+): StatusFixtureMiddleware | null {
+  let middleware: StatusFixtureMiddleware | null = null;
+  statusFixturePlugin(env).configureServer({
+    middlewares: { use: (value) => (middleware = value) },
+  });
+  return middleware;
+}
+
+interface StatusFixtureResult {
+  readonly body: string | undefined;
+  readonly headers: Map<string, string>;
+  readonly passedOn: boolean;
+  readonly statusCode: number;
+}
+
+/** Settles once the middleware answers or passes the request on (it reads files). */
+function invokeStatusFixture(
+  middleware: StatusFixtureMiddleware,
+  url: string,
+  { method = 'GET', referer }: { method?: string; referer?: string } = {},
+): Promise<StatusFixtureResult> {
+  return new Promise((settle) => {
+    const headers = new Map<string, string>();
+    const response = {
+      statusCode: 200,
+      setHeader(name: string, value: string) {
+        headers.set(name.toLowerCase(), value);
+      },
+      end(body?: string) {
+        settle({ body, headers, passedOn: false, statusCode: response.statusCode });
+      },
+    };
+    middleware({ method, url, headers: referer === undefined ? {} : { referer } }, response, () =>
+      settle({ body: undefined, headers, passedOn: true, statusCode: response.statusCode }),
+    );
+  });
+}
+
 describe('Vite local API safety', () => {
   it('embeds the canonical app and cache identities in the executing client build', async () => {
     const manifest = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as {
@@ -87,7 +158,7 @@ describe('Vite local API safety', () => {
     });
   });
 
-  it.each(['privacy', 'terms', 'faq', 'developers', 'sitemap'])(
+  it.each(['privacy', 'terms', 'faq', 'developers', 'sitemap', 'status'])(
     'serves flattened %s output through the actual preview alias middleware',
     (page) => {
       const plugins = createViteConfig({}).plugins || [];
@@ -351,6 +422,103 @@ describe('Vite local API safety', () => {
     const localOnly = invoke(middleware!, '/api/announcement/current');
     expect(localOnly.next).not.toHaveBeenCalled();
     expect(localOnly.response.statusCode).toBe(503);
+  });
+});
+
+describe('Vite dev status fixtures', () => {
+  const FLAG = 'MXQR_DEV_STATUS_FIXTURES';
+  const STATUS_PAGE = 'http://localhost:5173/status';
+
+  it.each([{}, { [FLAG]: 'false' }, { [FLAG]: '1' }, { [FLAG]: 'TRUE' }])(
+    'keeps /api/status failing closed unless the flag is exactly true (%j)',
+    (env) => {
+      expect(statusFixtureMiddleware(env)).toBeNull();
+
+      const middleware = failClosedMiddleware(env);
+      expect(middleware).not.toBeNull();
+      const result = invoke(middleware!, '/api/status');
+      expect(result.next).not.toHaveBeenCalled();
+      expect(result.response.statusCode).toBe(503);
+      expect(result.headers.get('cache-control')).toBe('no-store');
+      expect(JSON.parse(result.body || '{}')).toMatchObject({
+        error: 'LOCAL_API_NOT_CONFIGURED',
+      });
+    },
+  );
+
+  it('answers /api/status from the fixture the page named, with no-store', async () => {
+    const middleware = statusFixtureMiddleware({ [FLAG]: 'true' });
+    expect(middleware).not.toBeNull();
+    const fixture = await readFile(resolve('e2e/fixtures/status/ok.json'), 'utf8');
+
+    const result = await invokeStatusFixture(middleware!, '/api/status', {
+      referer: `${STATUS_PAGE}?fixture=ok`,
+    });
+    expect(result.passedOn).toBe(false);
+    expect(result.statusCode).toBe(200);
+    expect(result.headers.get('content-type')).toBe('application/json; charset=utf-8');
+    expect(result.headers.get('cache-control')).toBe('no-store');
+    expect(result.body).toBe(fixture);
+    expect(JSON.parse(result.body || '{}')).toMatchObject({ schemaVersion: 1 });
+
+    const head = await invokeStatusFixture(middleware!, '/api/status?refresh=1', {
+      method: 'HEAD',
+      referer: `${STATUS_PAGE}?fixture=problem`,
+    });
+    expect(head.passedOn).toBe(false);
+    expect(head.statusCode).toBe(200);
+    expect(head.headers.get('cache-control')).toBe('no-store');
+    expect(head.body).toBeUndefined();
+  });
+
+  it.each([
+    ['no Referer', '/api/status', undefined, 'GET'],
+    ['a page without a fixture', '/api/status', STATUS_PAGE, 'GET'],
+    ['a fixture named only in the API query', '/api/status?fixture=ok', undefined, 'GET'],
+    ['a path outside the fixture folder', '/api/status', `${STATUS_PAGE}?fixture=../ok`, 'GET'],
+    ['an upper-case name', '/api/status', `${STATUS_PAGE}?fixture=OK`, 'GET'],
+    ['a name over 40 characters', '/api/status', `${STATUS_PAGE}?fixture=${'a'.repeat(41)}`, 'GET'],
+    ['a valid name with no file', '/api/status', `${STATUS_PAGE}?fixture=missing`, 'GET'],
+    ['a write method', '/api/status', `${STATUS_PAGE}?fixture=ok`, 'POST'],
+    ['another API route', '/api/statuses', `${STATUS_PAGE}?fixture=ok`, 'GET'],
+    ['a longer path', '/api/status/ok', `${STATUS_PAGE}?fixture=ok`, 'GET'],
+  ] as const)(
+    'passes %s on to the fail-closed API boundary',
+    async (_case, url, referer, method) => {
+      const middleware = statusFixtureMiddleware({ [FLAG]: 'true' });
+      expect(middleware).not.toBeNull();
+      const result = await invokeStatusFixture(middleware!, url, {
+        method,
+        ...(referer === undefined ? {} : { referer }),
+      });
+      expect(result.passedOn).toBe(true);
+      expect(result.body).toBeUndefined();
+      expect(result.headers.size).toBe(0);
+    },
+  );
+
+  it('runs before the fail-closed API boundary on the dev server and never on preview', () => {
+    const env = { [FLAG]: 'true' };
+    const names = (createViteConfig(env).plugins || []).map((candidate) =>
+      candidate && typeof candidate === 'object' && !Array.isArray(candidate) && 'name' in candidate
+        ? candidate.name
+        : null,
+    );
+    expect(names.indexOf('dev-status-fixtures')).toBeGreaterThan(-1);
+    expect(names.indexOf('dev-status-fixtures')).toBeLessThan(names.indexOf('fail-closed-dev-api'));
+
+    const plugin = statusFixturePlugin(env);
+    expect(plugin.apply).toBe('serve');
+    expect(plugin.configurePreviewServer).toBeUndefined();
+
+    const preview = failClosedMiddleware(env, 'preview');
+    expect(preview).not.toBeNull();
+    const result = invoke(preview!, '/api/status');
+    expect(result.next).not.toHaveBeenCalled();
+    expect(result.response.statusCode).toBe(503);
+    expect(JSON.parse(result.body || '{}')).toMatchObject({
+      error: 'LOCAL_API_NOT_CONFIGURED',
+    });
   });
 });
 

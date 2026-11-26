@@ -182,6 +182,7 @@ function isPublicWorkshopPath(filePath: string): boolean {
     filePath.startsWith('.workshop/terms/') ||
     filePath.startsWith('.workshop/faq/') ||
     filePath.startsWith('.workshop/sitemap/') ||
+    filePath.startsWith('.workshop/status/') ||
     filePath.startsWith('.workshop/developers/')
   ) {
     return true;

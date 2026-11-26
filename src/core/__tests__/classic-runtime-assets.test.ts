@@ -167,6 +167,10 @@ describe('strict TypeScript classic browser runtimes', () => {
         outputPath: 'static-language.js',
       },
       {
+        sourcePath: 'browser/classic-runtime/status-page.ts',
+        outputPath: 'status-page.js',
+      },
+      {
         sourcePath: 'browser/classic-runtime/wordmark-anim.ts',
         outputPath: 'wordmark-anim.js',
         minify: true,
@@ -240,6 +244,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       'landing-i18n.js': '__landingT',
       'policy-accordion.js': 'details.policy-accordion',
       'static-language.js': 'MXQRStaticLang',
+      'status-page.js': 'installStatusPage',
       'wordmark-anim.js': '[data-wt]',
     };
 
@@ -1506,6 +1511,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       blogHtml,
       designSystemHtml,
       loadingPreviewHtml,
+      statusHtml,
       serviceWorker,
     ] = await Promise.all([
       readFile(resolve(REPO_ROOT, 'public/events/index.html'), 'utf8'),
@@ -1516,6 +1522,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       readFile(resolve(REPO_ROOT, 'public/blog/index.html'), 'utf8'),
       readFile(resolve(REPO_ROOT, 'public/designsystem/index.html'), 'utf8'),
       readFile(resolve(REPO_ROOT, 'public/designsystem/loading.html'), 'utf8'),
+      readFile(resolve(REPO_ROOT, '.workshop/status/status.html'), 'utf8'),
       compileServiceWorkerAsset(REPO_ROOT).then(({ code }) => code),
     ]);
 
@@ -1540,6 +1547,10 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(designSystemHtml).toContain('<script src="/boot-splash-loop.js" defer></script>');
     expect(loadingPreviewHtml).toContain('<script src="/boot-splash-loop.js" defer></script>');
     expect(loadingPreviewHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/iu);
+    expect(statusHtml).toContain('<script defer src="/status-page.js"></script>');
+    expect(statusHtml).toContain('<script defer src="/analytics-bootstrap.js"></script>');
+    expect(statusHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/iu);
+    expect(statusHtml).not.toContain('type="module" src="/status-page.js"');
     expect(eventHtml).not.toContain('type="module" src="/events/theme.js"');
     expect(eventHtml).not.toContain('type="module" src="/clearable-editors.js"');
     expect(eventHtml).not.toContain('type="module" src="/events/event.js"');

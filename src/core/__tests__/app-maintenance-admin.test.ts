@@ -13,8 +13,15 @@ import {
   SERVICE_CONTROL_STATUS_REVISION_HEADER,
   SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_VERSION_HEADER,
+  STATUS_NOTE_CONTROL_OBJECT_NAME,
   clearServiceMaintenanceCacheForTests,
 } from '../../../cloudflare/service-maintenance.ts';
+import {
+  STATUS_CLAIM_PATH,
+  STATUS_PUBLIC_PATH,
+  STATUS_REPORT_PATH,
+} from '../../../cloudflare/status-contract.ts';
+import { STATUS_NOTE_MESSAGE_MAX_LENGTH } from '../../../cloudflare/status-note-text.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 
 interface ControlState {
@@ -591,6 +598,39 @@ describe('app maintenance administration', () => {
     expect(adminBody).toContain('data-service-status-preview');
     expect(adminBody).not.toContain('Global service status');
     expect(adminBody).toContain('data-admin-tab="operations">Analytics');
+    // The status page note is edited in the Maintenance view, the one view that
+    // keeps working during maintenance, between the overview and the history.
+    const maintenanceView =
+      /<section class="admin-view" data-admin-view="maintenance" hidden>[\s\S]*?(?=<section class="admin-view[^"]*" data-admin-view="operations")/u.exec(
+        adminBody,
+      )?.[0] ?? '';
+    expect(maintenanceView).toContain('data-status-note-panel');
+    expect(adminBody.match(/data-status-note-panel/gu)).toHaveLength(1);
+    expect(maintenanceView.indexOf('class="maintenance-overview"')).toBeLessThan(
+      maintenanceView.indexOf('data-status-note-panel'),
+    );
+    expect(maintenanceView.indexOf('data-status-note-panel')).toBeLessThan(
+      maintenanceView.indexOf('service-history-panel'),
+    );
+    for (const hook of [
+      'data-status-note-form',
+      'data-status-note-message',
+      'data-status-note-expires',
+      'data-status-note-publish',
+      'data-status-note-clear',
+      'data-status-note-status',
+      'data-status-note-error',
+      'data-status-note-preview',
+      'data-status-note-history-status',
+      'data-status-note-history-list',
+    ]) {
+      expect(maintenanceView, hook).toContain(hook);
+    }
+    expect(maintenanceView).toContain(`maxlength="${STATUS_NOTE_MESSAGE_MAX_LENGTH}"`);
+    expect(maintenanceView).toContain('Write it in English.');
+    expect(maintenanceView).toContain(
+      'The status page keeps recording maintenance while maintenance mode is on.',
+    );
 
     const clearableAsset = await appWorker.fetch(
       new Request('https://musixquare.com/clearable-editors.js?v=8.3.72'),
@@ -642,5 +682,143 @@ describe('app maintenance administration', () => {
     expect(delayed.read).toHaveBeenCalledOnce();
     expect(waitUntil).toHaveBeenCalledOnce();
     expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('keeps the status page, its API, the monitor report and the note editor up during maintenance', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-26T05:31:00.000Z'));
+    const control = createServiceControl(true);
+    // The status note is its own named object of the real service-control class.
+    const noteControl = createAtomicRateControlBinding();
+    const assetFetch = vi.fn(
+      async (request: Request) => new Response(`asset ${new URL(request.url).pathname}`),
+    );
+    const env = {
+      ASSETS: { fetch: assetFetch },
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_SERVICE_CONTROL: {
+        idFromName: (name: string) => name,
+        get: (id: string) =>
+          id === STATUS_NOTE_CONTROL_OBJECT_NAME
+            ? noteControl.binding.get(id)
+            : control.binding.get(id),
+      },
+    };
+    const cookie = await login(env);
+    const serviceStatus = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/service-status', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    await expect(serviceStatus.json()).resolves.toMatchObject({
+      serviceStatus: { enabled: true },
+    });
+    const sitemap = await appWorker.fetch(
+      new Request('https://musixquare.com/sitemap', { headers: { Accept: 'text/html' } }),
+      env,
+    );
+    expect(sitemap.status).toBe(503);
+    const security = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config'),
+      env,
+    );
+    expect(security.status).toBe(503);
+
+    for (const [path, asset] of [
+      ['/status', '/status.html'],
+      ['/status-page.js', '/status-page.js'],
+      ['/legal-pages.css', '/legal-pages.css'],
+      ['/analytics-bootstrap.js', '/analytics-bootstrap.js'],
+      ['/og-status.png', '/og-status.png'],
+    ] as const) {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
+      expect(response.status, path).toBe(200);
+      expect(await response.text(), path).toBe(`asset ${asset}`);
+    }
+    for (const path of ['/status/', '/status.html']) {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
+      expect(response.status, path).toBe(301);
+      expect(response.headers.get('Location'), path).toBe('https://musixquare.com/status');
+    }
+
+    // The status API reads maintenance itself, since the bypass skips the
+    // gate's refresh, and shows it; without the ledger it still answers 200.
+    const api = await appWorker.fetch(
+      new Request(`https://musixquare.com${STATUS_PUBLIC_PATH}`),
+      env,
+    );
+    expect(api.status).toBe(200);
+    expect(api.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    await expect(api.json()).resolves.toMatchObject({
+      schemaVersion: 1,
+      overall: { state: 'maintenance', reason: 'maintenance', since: '2026-11-26T05:31:00.000Z' },
+      maintenance: { active: true, since: '2026-11-26T05:31:00.000Z' },
+      announcement: null,
+    });
+
+    // The report route reaches its own checks (here the missing token), while
+    // the claim route stays behind the gate: no check opens a room now.
+    const reportHeaders = {
+      'Content-Type': 'application/json',
+      'CF-Connecting-IP': '203.0.113.71',
+    };
+    const report = await appWorker.fetch(
+      new Request(`https://musixquare.com${STATUS_REPORT_PATH}`, {
+        method: 'POST',
+        headers: reportHeaders,
+        body: '{}',
+      }),
+      env,
+    );
+    expect(report.status).toBe(401);
+    await expect(report.json()).resolves.toEqual({ error: 'OIDC_TOKEN_INVALID' });
+    const claim = await appWorker.fetch(
+      new Request(`https://musixquare.com${STATUS_CLAIM_PATH}`, {
+        method: 'POST',
+        headers: reportHeaders,
+        body: '{}',
+      }),
+      env,
+    );
+    expect(claim.status).toBe(503);
+    await expect(claim.json()).resolves.toMatchObject({ error: 'SERVICE_MAINTENANCE' });
+
+    const unauthorizedNote = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/status-note'),
+      env,
+    );
+    expect(unauthorizedNote.status).toBe(401);
+    const message = 'Checks show maintenance until the work ends.';
+    const published = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/status-note', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: JSON.stringify({
+          message,
+          expiresAt: null,
+          expectedRevision: 0,
+          requestId: '123e4567-e89b-42d3-a456-426614174090',
+        }),
+      }),
+      env,
+    );
+    expect(published.status).toBe(200);
+    await expect(published.json()).resolves.toMatchObject({
+      ok: true,
+      revision: 1,
+      active: true,
+      note: { message, enabled: true, expiresAt: null },
+    });
+    const withNote = await appWorker.fetch(
+      new Request(`https://musixquare.com${STATUS_PUBLIC_PATH}`),
+      env,
+    );
+    await expect(withNote.json()).resolves.toMatchObject({
+      overall: { state: 'maintenance' },
+      announcement: { message, postedAt: '2026-11-26T05:31:00.000Z', expiresAt: null },
+    });
+    expect(control.state().enabled).toBe(true);
   });
 });

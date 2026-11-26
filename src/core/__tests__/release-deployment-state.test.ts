@@ -1671,6 +1671,7 @@ describe('release deployment rollback state', () => {
         expect(paths).toContain('.workshop/privacy');
         expect(paths).toContain('.workshop/translate');
         expect(paths).toContain('.workshop/sitemap');
+        expect(paths).toContain('.workshop/status');
         expect(paths).toContain('cloudflare/app-static-assets/_headers');
         expect(paths).toContain('scripts/classic-runtime-assets.ts');
         expect(paths).toContain('scripts/browser-target.ts');
@@ -3450,6 +3451,7 @@ describe('release deployment rollback state', () => {
       'owner-transfer-intent-admission',
       'mxqr_pro_room_owner_transfer_intent_admissions',
     ],
+    ['status checks', 'status-checks', 'mxqr_status_checks'],
   ])('installs the %s D1 contract before every app rollout', (name, migration, table) => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const migrationStep = workflow.indexOf(`Apply and verify ${name} D1 contract`);

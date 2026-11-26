@@ -5824,6 +5824,11 @@ describe('Cloudflare app worker admin dashboard', () => {
       if (fallback) {
         const footer = html.match(/<footer>[\s\S]*?<\/footer>/)?.[0];
         expect(footer).toContain('<a href="/sitemap">Sitemap</a>');
+        // The same Status link as the static blog index footer, right after Sitemap.
+        expect(footer).toMatch(
+          /<a href="\/sitemap">Sitemap<\/a>\s*<a href="\/status">Status<\/a>\s*<a href="\/translate">/u,
+        );
+        expect(footer?.match(/href="\/status"/gu)).toHaveLength(1);
         expect(footer).not.toContain('>App</a>');
       }
       const serialized = html.match(
@@ -13385,6 +13390,17 @@ describe('Cloudflare app worker invite route', () => {
               },
             );
           }
+          if (url.pathname === '/status.html') {
+            return new Response(
+              request.method === 'HEAD'
+                ? null
+                : '<!doctype html><title>Status · MUSIXQUARE</title>',
+              {
+                status: 200,
+                headers: { 'Content-Type': 'text/html; charset=utf-8' },
+              },
+            );
+          }
           if (url.pathname === '/sitemap.xml') {
             return new Response(request.method === 'HEAD' ? null : '<urlset></urlset>', {
               status: 200,
@@ -13660,6 +13676,7 @@ describe('Cloudflare app worker invite route', () => {
     ['/terms/', '/terms'],
     ['/faq/', '/faq'],
     ['/developers/', '/developers'],
+    ['/status/', '/status'],
     ['/designsystem/', '/designsystem'],
     ['/in/', '/id/'],
     ['/iw/', '/he/'],
@@ -14034,6 +14051,57 @@ describe('Cloudflare app worker invite route', () => {
       expect(response.status).toBe(301);
       expect(response.headers.get('Location')).toBe(
         'https://musixquare.com/sitemap?from=footer#languages',
+      );
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['GET', 'HEAD'])(
+    'serves the status page for %s as a public secure document without article lookup',
+    async (method) => {
+      const env = createAssetEnv();
+      // A Soro lookup would read the feed over the network.
+      const network = vi.fn(async () => new Response('unexpected', { status: 500 }));
+      vi.stubGlobal('fetch', network);
+      const [response, sitemap] = await Promise.all(
+        ['/status', '/sitemap'].map((path) =>
+          appWorker.fetch(new Request(`https://musixquare.com${path}`, { method }), env),
+        ),
+      );
+      expect(response!.status).toBe(200);
+      expect(response!.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+      expect(response!.headers.get('X-Robots-Tag')).toBeNull();
+      // The same document policy as the other public pages.
+      expect(response!.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+      expect(response!.headers.get('Content-Security-Policy')).toBe(
+        sitemap!.headers.get('Content-Security-Policy'),
+      );
+      expect(response!.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response!.headers.get('Cache-Control')).toBe(
+        'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+      );
+      expect(await response!.text()).toBe(
+        method === 'HEAD' ? '' : '<!doctype html><title>Status · MUSIXQUARE</title>',
+      );
+      const assetPaths = env.ASSETS.fetch.mock.calls.map(
+        ([request]) => new URL((request as Request).url).pathname,
+      );
+      expect(assetPaths.sort()).toEqual(['/sitemap.html', '/status.html']);
+      expect(network).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['/status/', '/Status', '/STATUS.HTML', '/status.html', '/status.html/', '/status//'])(
+    'canonicalizes status page %s without discarding query or fragment',
+    async (pathname) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request(`https://musixquare.com${pathname}?fixture=ok#rooms`),
+        env,
+      );
+      expect(response.status).toBe(301);
+      expect(response.headers.get('Location')).toBe(
+        'https://musixquare.com/status?fixture=ok#rooms',
       );
       expect(env.ASSETS.fetch).not.toHaveBeenCalled();
     },

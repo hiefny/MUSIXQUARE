@@ -50,6 +50,7 @@ import {
   readCachedServiceMaintenance,
   readServiceMaintenance,
   readServiceMaintenanceHistory,
+  readStatusNoteControl,
   reportLiveAppBuild,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
@@ -57,6 +58,8 @@ import {
   updateAdminAnnouncementControl,
   updateAppBuildFloor,
   updateServiceMaintenance,
+  updateStatusNoteControl,
+  type AdminAnnouncementControlResult,
   type AppBuildFloorRead,
   type AppBuildFloorUpdateResult,
 } from './service-maintenance.ts';
@@ -66,6 +69,7 @@ import {
   APP_BUILD_FLOOR_OPS_AUDIENCE,
   APP_BUILD_FLOOR_OPS_PATH,
   APP_BUILD_FLOOR_PUBLIC_STATUS_PATH,
+  APP_BUILD_HEADER,
   parseAppBuild,
 } from './app-build-floor-contract.ts';
 import {
@@ -73,6 +77,25 @@ import {
   verifyGitHubActionsOidcToken,
   type GitHubActionsOidcPolicy,
 } from './github-actions-oidc.ts';
+import {
+  STATUS_CLAIM_PATH,
+  STATUS_PRO_PROBE_ROOM_CODE,
+  STATUS_PUBLIC_PATH,
+  STATUS_REPORT_PATH,
+  STATUS_SERVER_CRON,
+  type StatusCheckRow,
+  type StatusProbeClaimOutcome,
+} from './status-contract.ts';
+import { pruneStatusChecks, recordStatusChecks } from './status-store.ts';
+import { handleStatusApi, type StatusApiDependencies, type StatusNoteRead } from './status-api.ts';
+import { handleStatusClaim, handleStatusReport, type StatusOpsDeps } from './status-ops.ts';
+import {
+  runStatusServerChecks,
+  type StatusProBootstrapAnswer,
+  type StatusServerCheckDeps,
+} from './status-checks.ts';
+import { claimStatusProbeRoom, STATUS_PROBE_CLAIM_REPLY_MAX_BYTES } from './status-probe-claim.ts';
+import { canonicalStatusNoteMessage, STATUS_NOTE_MESSAGE_MAX_LENGTH } from './status-note-text.ts';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.ts';
 import {
   LANGUAGE_OPTIONS,
@@ -357,6 +380,11 @@ const STANDARD_SIGNALING_BRIDGE_SESSION_REQUEST_LIMIT = 240;
 const STANDARD_SIGNALING_BRIDGE_SESSION_TTL_SECONDS = 12 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 const STANDARD_SIGNALING_BRIDGE_TOKEN_MAX_LENGTH = 1_024;
 const STANDARD_SIGNALING_BRIDGE_BODY_MAX_BYTES = 96 * 1024;
+// Bounds of one internal bridge call: open, send and close, and a poll, which
+// the bridge object may hold for its waitMs. The public bridge route and the
+// status cron's rooms check both pass these, so they have one home.
+const STANDARD_SIGNALING_BRIDGE_CALL_TIMEOUT_MS = 5_000;
+const STANDARD_SIGNALING_BRIDGE_POLL_TIMEOUT_MS = 18_000;
 const STANDARD_SIGNALING_BRIDGE_PREFIX = '/api/standard-signaling/v1/bridge';
 const STANDARD_SIGNALING_BRIDGE_OBJECT_PREFIX = 'mxqr-standard-http-bridge-v1:';
 const STANDARD_SIGNALING_BRIDGE_INTERNAL_PREFIX = '/internal/standard-http-bridge/v1';
@@ -380,7 +408,8 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '9.0.844';
+const ADMIN_STATUS_NOTE_PATH = '/api/admin/status-note';
+const ADMIN_ASSET_VERSION = '9.0.845';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -554,6 +583,11 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'ws_message_rate_limited', label: 'Rate-limited signaling messages' },
   // The Signaling Worker refused a host or guest entry below the App build floor.
   { key: 'app_update_required', label: 'App update required refusals' },
+  // Rooms the /status checks open after claiming the code (resource record
+  // RO-57). Signaling records these instead of room_opened and guest_joined,
+  // so they never reach the lifetime totals or the /about room count.
+  { key: 'status_probe_room_opened', label: 'Status check rooms (not counted)' },
+  { key: 'status_probe_guest_joined', label: 'Status check guest joins (not counted)' },
 ];
 // App build floor (forced update; resource record RO-50). The client read is
 // edge-cached under this synthetic key; the setters and the cron report write
@@ -11528,7 +11562,16 @@ function isServiceMaintenanceAdminBypass(request: Request, url: URL) {
       pathname === PUBLIC_FONT_SHEET_URLS.first ||
       pathname === PUBLIC_FONT_SHEET_URLS.stacks ||
       pathname === PUBLIC_FONT_SHEET_URLS.rest ||
-      pathname === PUBLIC_HAN_ORDER_SCRIPT_URL)
+      pathname === PUBLIC_HAN_ORDER_SCRIPT_URL ||
+      // The public status page shows maintenance itself, so the page and its
+      // stable assets stay up (its hashed stylesheet never reaches the Worker).
+      pathname === '/status' ||
+      pathname === '/status/' ||
+      pathname === '/status.html' ||
+      pathname === '/status-page.js' ||
+      pathname === '/legal-pages.css' ||
+      pathname === '/analytics-bootstrap.js' ||
+      pathname === '/og-status.png')
   ) {
     return true;
   }
@@ -11544,7 +11587,14 @@ function isServiceMaintenanceAdminBypass(request: Request, url: URL) {
     // maintenance answer, which the page treats as a failed read.
     pathname === APP_BUILD_FLOOR_PUBLIC_STATUS_PATH ||
     pathname === APP_BUILD_FLOOR_ADMIN_PATH ||
-    pathname === APP_BUILD_FLOOR_OPS_PATH
+    pathname === APP_BUILD_FLOOR_OPS_PATH ||
+    // The status API and the browser monitor's report record and show
+    // maintenance; they read the state themselves, since a bypassed route gets
+    // no background refresh. The status note stays editable. The monitor's
+    // claim route is not here: during maintenance no check opens a room.
+    pathname === STATUS_PUBLIC_PATH ||
+    pathname === STATUS_REPORT_PATH ||
+    pathname === ADMIN_STATUS_NOTE_PATH
   ) {
     return true;
   }
@@ -11946,23 +11996,29 @@ async function handleAdminAnnouncement(
       409,
     );
   }
-  if (updated.status === 'rejected') {
-    const error = String(isJsonObject(updated.payload) ? updated.payload.error || '' : '');
-    const rejectedStatus: Readonly<Record<string, number>> = {
-      EXPIRES_AT_IN_PAST: 400,
-      INVALID_REQUEST: 400,
-      INVALID_JSON: 400,
-      REQUEST_TOO_LARGE: 413,
-      JSON_REQUIRED: 415,
-    };
-    if (Object.hasOwn(rejectedStatus, error)) {
-      return json({ error }, rejectedStatus[error]);
-    }
-  }
+  const rejection = announcementControlRejection(updated);
+  if (rejection) return rejection;
   if (updated.status !== 'ok' || !state) {
     return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
   }
   return json({ ok: true, ...adminAnnouncementPayload(state) });
+}
+
+// Refusals of the announcement wire contract an admin editor shows as they are.
+const ANNOUNCEMENT_CONTROL_REJECTED_STATUS: Readonly<Record<string, number>> = Object.freeze({
+  EXPIRES_AT_IN_PAST: 400,
+  INVALID_REQUEST: 400,
+  INVALID_JSON: 400,
+  REQUEST_TOO_LARGE: 413,
+  JSON_REQUIRED: 415,
+});
+
+function announcementControlRejection(updated: AdminAnnouncementControlResult): Response | null {
+  if (updated.status !== 'rejected') return null;
+  const error = String(isJsonObject(updated.payload) ? updated.payload.error || '' : '');
+  return Object.hasOwn(ANNOUNCEMENT_CONTROL_REJECTED_STATUS, error)
+    ? json({ error }, ANNOUNCEMENT_CONTROL_REJECTED_STATUS[error])
+    : null;
 }
 
 async function handlePublicAnnouncement(
@@ -11986,6 +12042,104 @@ async function handlePublicAnnouncement(
     200,
     { 'Cache-Control': 'public, max-age=30' },
   );
+}
+
+// ── Status page note (musixquare.com/status) ────────────────────────────────
+// A third named service-control object with the in-room announcement's wire
+// contract (revision fence, request-id replay, history), addressed only by its
+// own name, so neither text can ever show in place of the other. The admin
+// Maintenance view edits it, also during maintenance, and /api/status shows the
+// active note. One plain-text line: cloudflare/status-note-text.ts.
+
+async function readStatusNoteState(env: AppEnv) {
+  const current = await readStatusNoteControl(env);
+  return current.status === 'ok' ? normalizeAnnouncementControlState(current.payload) : null;
+}
+
+function adminStatusNotePayload(
+  state: NonNullable<ReturnType<typeof normalizeAnnouncementControlState>>,
+) {
+  return {
+    generatedAt: new Date().toISOString(),
+    revision: state.revision,
+    note: state.announcement,
+    active: isAnnouncementActive(state.announcement),
+    history: state.history,
+  };
+}
+
+async function handleAdminStatusNote(request: Request, env: AppEnv) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    const state = await readStatusNoteState(env);
+    if (!state) return json({ error: 'STATUS_NOTE_CONTROL_UNAVAILABLE' }, 503);
+    return withoutBodyForHead(request, json(adminStatusNotePayload(state)));
+  }
+
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  if (!isJsonObject(parsedBody.value)) return json({ error: 'INVALID_REQUEST' }, 400);
+  const body = parsedBody.value;
+  const keys = Object.keys(body);
+  // Publish and Remove send the same four fields; an empty message removes.
+  if (
+    keys.length !== 4 ||
+    !keys.includes('message') ||
+    !keys.includes('expiresAt') ||
+    !keys.includes('expectedRevision') ||
+    !keys.includes('requestId') ||
+    typeof body.message !== 'string' ||
+    typeof body.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(body.expectedRevision) ||
+    body.expectedRevision < 0 ||
+    typeof body.requestId !== 'string' ||
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+  // The canonical text is what the object stores, so an exact retry replays.
+  const text = canonicalStatusNoteMessage(body.message);
+  if (!text.ok) return json({ error: text.error }, 400);
+  const canonicalExpiresAt = parseAnnouncementExpiry(body.expiresAt);
+  if (canonicalExpiresAt === undefined) return json({ error: 'INVALID_EXPIRES_AT' }, 400);
+  const enabled = text.message !== '';
+  const updated = await updateStatusNoteControl(env, {
+    message: text.message,
+    enabled,
+    expiresAt: enabled ? canonicalExpiresAt : null,
+    expectedRevision: body.expectedRevision,
+    requestId: body.requestId,
+  });
+  const state = normalizeAnnouncementControlState(updated.payload);
+  if (updated.status === 'conflict' && state) {
+    return json({ error: 'STATUS_NOTE_CONFLICT', ...adminStatusNotePayload(state) }, 409);
+  }
+  const rejection = announcementControlRejection(updated);
+  if (rejection) return rejection;
+  if (updated.status !== 'ok' || !state) {
+    return json({ error: 'STATUS_NOTE_CONTROL_UNAVAILABLE' }, 503);
+  }
+  return json({ ok: true, ...adminStatusNotePayload(state) });
+}
+
+/** The /api/status note: the active note, none, or a failed read (never cached). */
+async function readPublicStatusNote(env: AppEnv): Promise<StatusNoteRead> {
+  const state = await readStatusNoteState(env);
+  if (!state) return { status: 'unavailable' };
+  const note = state.announcement;
+  if (!isAnnouncementActive(note)) return { status: 'ok', note: null };
+  return {
+    status: 'ok',
+    note: {
+      id: note.id,
+      message: note.message,
+      postedAt: note.updatedAt,
+      expiresAt: note.expiresAt,
+    },
+  };
 }
 
 // ── App build floor (forced update; resource record RO-50) ──────────────────
@@ -12550,7 +12704,7 @@ function renderAdminPage(request: Request, env: AppEnv) {
             <details class="service-status-details">
               <summary>How maintenance works</summary>
               <p class="service-status-warning">
-                Maintenance mode asks public App, API, realtime, and scheduled work to stop. The App refreshes this state in the background so a broken control binding cannot stall users; a cold edge isolate can briefly admit traffic before its first refresh. Direct R2 uploads authorized before activation can also finish. Use a pre-Worker edge/deployment control plus a storage drain or credential rotation for a strict traffic or write freeze. This dashboard remains available so you can safely end maintenance.
+                Maintenance mode asks public App, API, realtime, and scheduled work to stop. The status page keeps recording maintenance while maintenance mode is on. The App refreshes this state in the background so a broken control binding cannot stall users; a cold edge isolate can briefly admit traffic before its first refresh. Direct R2 uploads authorized before activation can also finish. Use a pre-Worker edge/deployment control plus a storage drain or credential rotation for a strict traffic or write freeze. This dashboard remains available so you can safely end maintenance.
               </p>
             </details>
           </section>
@@ -12566,6 +12720,36 @@ function renderAdminPage(request: Request, env: AppEnv) {
             </div>
           </section>
         </div>
+        <section class="panel status-note-panel" aria-labelledby="status-note-title" data-status-note-panel>
+          <div class="panel-head">
+            <h2 id="status-note-title">Status page note</h2>
+          </div>
+          <p class="status-note-summary">Shown on musixquare.com/status. Write it in English. It is separate from the in-room announcement.</p>
+          <form class="announcement-form" data-status-note-form>
+            <label class="announcement-field">
+              <span>Message</span>
+              <textarea name="message" rows="3" maxlength="${STATUS_NOTE_MESSAGE_MAX_LENGTH}" placeholder="Write a short note in English" data-status-note-message></textarea>
+            </label>
+            <label class="announcement-field announcement-expires">
+              <span>Expires (optional)</span>
+              <input type="text" name="expiresAt" inputmode="numeric" autocomplete="off" placeholder="YYYY-MM-DD HH:MM" data-status-note-expires>
+            </label>
+            <div class="announcement-actions">
+              <button type="submit" data-status-note-publish>Publish</button>
+              <button type="button" data-status-note-clear>Remove</button>
+            </div>
+            <p class="announcement-status" role="status" data-status-note-status></p>
+            <p role="alert" data-status-note-error hidden></p>
+          </form>
+          <article class="announcement-preview" data-status-note-preview hidden></article>
+          <section class="announcement-history" aria-label="Status page note history">
+            <div class="announcement-history-head">
+              <span>History</span>
+              <small data-status-note-history-status></small>
+            </div>
+            <div class="announcement-history-list" data-status-note-history-list></div>
+          </section>
+        </section>
         <section class="panel service-history-panel" aria-labelledby="maintenance-history-title">
           <div class="panel-head">
             <h2 id="maintenance-history-title">History</h2>
@@ -13820,7 +14004,7 @@ async function handleStandardSignalingBridge(request: Request, env: AppEnv, url:
         role: body.role,
         peerId: body.peerId,
       },
-      5_000,
+      STANDARD_SIGNALING_BRIDGE_CALL_TIMEOUT_MS,
     );
     const payload = call.upstream ? parseServiceJsonBytes(call.upstream.bytes) : null;
     if (!call.upstream?.response.ok || !isJsonObject(payload) || payload.ok !== true) {
@@ -13877,9 +14061,145 @@ async function handleStandardSignalingBridge(request: Request, env: AppEnv, url:
       peerId: capability.peerId,
       ...(operation === 'send' || operation === 'poll' ? { request: clientBody } : {}),
     },
-    operation === 'poll' ? 18_000 : 5_000,
+    operation === 'poll'
+      ? STANDARD_SIGNALING_BRIDGE_POLL_TIMEOUT_MS
+      : STANDARD_SIGNALING_BRIDGE_CALL_TIMEOUT_MS,
   );
   return standardSignalingBridgeUpstreamResponse(request, call, trust.headers);
+}
+
+// ── Public status page (musixquare.com/status; resource record RO-57) ───────
+// The status modules are pure and get this Worker's private helpers here, as
+// scheduled() passes them to its other jobs. The ledger's only writer is
+// cloudflare/status-store.ts; its two entry points are the status cron (rooms
+// and pro rows) and the browser monitor's OIDC report (website and connection
+// rows). Paths, schedules and timing come from cloudflare/status-contract.ts.
+
+function statusApiDeps(env: AppEnv, ctx: AppExecutionContext | undefined): StatusApiDependencies {
+  return {
+    json,
+    withoutBodyForHead,
+    methodAllowed: adminApiMethodAllowed,
+    adminDb: () => getAdminDb(env),
+    // The route is on the maintenance bypass, which skips the gate's refresh.
+    readMaintenance: () => readServiceMaintenance(env, { context: ctx }),
+    readStatusNote: () => readPublicStatusNote(env),
+    edgeCache: getAppDefaultCache,
+    waitUntil: ctx ? (promise) => ctx.waitUntil(promise) : undefined,
+  };
+}
+
+function statusOpsDeps(env: AppEnv): StatusOpsDeps {
+  return {
+    json,
+    checkPaidRateLimit: (request, endpoint, limit, windowSec) =>
+      checkPaidRateLimit(request, env, endpoint, limit, windowSec),
+    rateLimitResponse: (retryAfterSeconds) => rateLimitResponse({}, retryAfterSeconds),
+    rateLimitUnavailableResponse: () => rateLimitUnavailableResponse(),
+    readJsonBodyLimited,
+    jsonBodyError: (result) => jsonBodyError(result),
+    nowMs: () => Date.now(),
+  };
+}
+
+/** A report write; it rejects without the ledger, so the route answers 503. */
+async function recordStatusReport(env: AppEnv, rows: readonly StatusCheckRow[]) {
+  const db = getAdminDb(env);
+  if (!db) throw new Error('Status check ledger unavailable');
+  await recordStatusChecks(db, rows);
+}
+
+/** The binding-only claim on the code's signaling room object (never counted). */
+function claimStatusProbe(env: AppEnv, roomId: string): Promise<StatusProbeClaimOutcome> {
+  return claimStatusProbeRoom({
+    namespace: standardSignalingBridgeNamespace(env),
+    roomId,
+    fetchBounded: (stub, request) =>
+      fetchServiceBindingResponse(
+        (input) => stub.fetch(input),
+        request,
+        STATUS_PROBE_CLAIM_REPLY_MAX_BYTES,
+      ),
+  });
+}
+
+/** A random Standard room code (100000 to 999999) for one rooms check. */
+function randomStatusProbeRoomId(): string {
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  // The modulo bias over 900,000 codes is negligible for a probe code.
+  return String(100_000 + ((values[0] ?? 0) % 900_000));
+}
+
+/**
+ * The pro check: a read-only bootstrap of the built-in canary room through the
+ * PRO front door, as the App build it serves (a PRO entry below the floor
+ * answers 426). It creates no session, presence or room.
+ */
+async function fetchStatusProBootstrap(
+  env: AppEnv,
+  appBuild: number,
+): Promise<StatusProBootstrapAnswer | null> {
+  const proRoomPublicApi = env.PRO_ROOM_PUBLIC_API;
+  if (!proRoomPublicApi || typeof proRoomPublicApi.fetch !== 'function') return null;
+  const upstream = await fetchServiceBindingResponse(
+    (input) => proRoomPublicApi.fetch(input),
+    new Request(
+      new URL(`/v1/rooms/${STATUS_PRO_PROBE_ROOM_CODE}/bootstrap`, PRO_ROOM_UPSTREAM_ORIGIN),
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Origin: 'https://musixquare.com',
+          [APP_BUILD_HEADER]: String(appBuild),
+          'X-MXQR-Pro-Entry-Policy': 'optional-v1',
+        },
+        redirect: 'manual',
+      },
+    ),
+    PRO_ROOM_SERVICE_CONTROL_RESPONSE_MAX_BYTES,
+  );
+  return upstream ? { status: upstream.response.status, bytes: upstream.bytes } : null;
+}
+
+function statusServerCheckDeps(
+  env: AppEnv,
+  ctx: AppExecutionContext,
+  maintenance: ServiceMaintenanceState,
+  scheduledTime: unknown,
+): StatusServerCheckDeps<AppDurableObjectNamespace, AppDurableObjectStub> {
+  const adminDb = getAdminDb(env);
+  const namespace = standardSignalingBridgeNamespace(env);
+  return {
+    nowMs: () => Date.now(),
+    scheduledTimeMs: typeof scheduledTime === 'number' ? scheduledTime : Date.now(),
+    maintenance,
+    record: adminDb ? (rows) => recordStatusChecks(adminDb, rows) : null,
+    prune: adminDb ? (beforeMs) => pruneStatusChecks(adminDb, beforeMs) : null,
+    readServedAppBuild: () => readServedAppBuild(env),
+    claim: (roomId) => claimStatusProbe(env, roomId),
+    bridge: namespace
+      ? {
+          namespace,
+          stub: standardSignalingBridgeStub,
+          call: (stub, operation, body, timeoutMs) => {
+            const call = callStandardSignalingBridge(stub, operation, body, timeoutMs);
+            // A close the run's deadline no longer awaits still reaches the
+            // bridge after scheduled() returns.
+            if (operation === 'close') ctx.waitUntil(call);
+            return call;
+          },
+          callTimeoutMs: STANDARD_SIGNALING_BRIDGE_CALL_TIMEOUT_MS,
+          pollTimeoutMs: STANDARD_SIGNALING_BRIDGE_POLL_TIMEOUT_MS,
+        }
+      : null,
+    randomNonce,
+    randomRoomId: randomStatusProbeRoomId,
+    fetchProBootstrap: (appBuild) => fetchStatusProBootstrap(env, appBuild),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    // Fixed event names and reason codes only: never a room code or a body.
+    warn: (event, fields) => console.warn({ diagnostic: 'status_checks', event, ...fields }),
+  };
 }
 
 function getRealtimeEnv(env: AppEnv) {
@@ -15516,6 +15836,7 @@ function isPotentialSoroArticlePath(pathname: string) {
     'index',
     'robots',
     'sitemap',
+    'status',
   ]);
   return slug && !reserved.has(slug) ? slug : '';
 }
@@ -15784,6 +16105,7 @@ function renderSoroArticleHtml(
   </span>
   <span>
     <a href="/sitemap">Sitemap</a>
+    <a href="/status">Status</a>
     <a href="/translate">Translate</a>
     <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">GitHub</a>
     <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer">Discord</a>
@@ -16205,6 +16527,7 @@ function redirectTarget(pathname: string) {
   if (['/landing', '/landing/'].includes(lower)) return '/about';
   if (/^\/translate(?:\.html)?\/*$/.test(lower) && pathname !== '/translate') return '/translate';
   if (/^\/sitemap(?:\.html)?\/*$/.test(lower) && pathname !== '/sitemap') return '/sitemap';
+  if (/^\/status(?:\.html)?\/*$/.test(lower) && pathname !== '/status') return '/status';
   if (
     /^\/designsystem\/loading(?:\.html)?\/*$/.test(lower) &&
     pathname !== '/designsystem/loading'
@@ -16221,6 +16544,7 @@ function redirectTarget(pathname: string) {
     ['/developers', '/developers'],
     ['/translate', '/translate'],
     ['/sitemap', '/sitemap'],
+    ['/status', '/status'],
     ['/history', '/history'],
     ['/designsystem', '/designsystem'],
   ]);
@@ -16275,6 +16599,7 @@ function routeStaticPath(pathname: string) {
   if (path === '/developers' || path === '/developers/') return '/developers.html';
   if (path === '/translate' || path === '/translate/') return '/translate.html';
   if (path === '/sitemap' || path === '/sitemap/') return '/sitemap.html';
+  if (path === '/status' || path === '/status/') return '/status.html';
   if (path === '/history' || path === '/history/') return '/history/index.html';
   if (path === '/designsystem' || path === '/designsystem/') return '/designsystem/index.html';
   if (path === '/designsystem/loading' || path === '/designsystem/loading/') {
@@ -16337,6 +16662,7 @@ function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record
       '/developers',
       '/translate',
       '/sitemap',
+      '/status',
       '/history',
       '/designsystem',
     ].includes(pathname.toLowerCase().replace(/\/$/, ''))
@@ -16430,7 +16756,7 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
     const preserveUrlState =
       localizedRoute !== null ||
       legacyLocalePathRedirect(url.pathname) !== null ||
-      /^\/(?:about(?:\.html)?|translate(?:\.html)?|sitemap(?:\.html)?|blog|privacy|terms|faq|developers|history|designsystem(?:\/loading(?:\.html)?)?)\/*$/iu.test(
+      /^\/(?:about(?:\.html)?|translate(?:\.html)?|sitemap(?:\.html)?|status(?:\.html)?|blog|privacy|terms|faq|developers|history|designsystem(?:\/loading(?:\.html)?)?)\/*$/iu.test(
         url.pathname,
       );
     const target = new URL(redirect, url);
@@ -16612,7 +16938,11 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
 }
 
 export default {
-  async scheduled(event: { cron?: unknown }, env: unknown, ctx: AppExecutionContext) {
+  async scheduled(
+    event: { cron?: unknown; scheduledTime?: unknown },
+    env: unknown,
+    ctx: AppExecutionContext,
+  ) {
     if (!isAppEnv(env)) throw new TypeError('App Worker environment unavailable');
     const cron = typeof event?.cron === 'string' ? event.cron : null;
     // The live-App report runs before the maintenance return: the effective
@@ -16621,6 +16951,16 @@ export default {
       ctx.waitUntil(reportServedAppBuild(env));
     }
     const serviceStatus = await readServiceMaintenance(env, { context: ctx });
+    // The /status server checks also run before the maintenance return: during
+    // maintenance they record maintenance marks and open nothing. The run is
+    // awaited, not deferred: a Cron Trigger invocation may run for 15 minutes
+    // of wall time, and the run settles within its own deadline.
+    if (cron === STATUS_SERVER_CRON) {
+      await runStatusServerChecks(
+        statusServerCheckDeps(env, ctx, serviceStatus, event?.scheduledTime),
+      );
+      return;
+    }
     if (serviceStatus.enabled) return;
 
     if (cron === null || cron === '0 */6 * * *') {
@@ -16923,6 +17263,8 @@ export default {
         return handleRealtime(request, env);
       case '/api/announcement/current':
         return handlePublicAnnouncement(request, env, ctx);
+      case STATUS_PUBLIC_PATH:
+        return handleStatusApi(request, statusApiDeps(env, ctx));
       case APP_BUILD_FLOOR_CLIENT_PATH:
         return handleAppBuildFloorClientRead(request, env, ctx);
       case APP_BUILD_FLOOR_PUBLIC_STATUS_PATH:
@@ -16931,6 +17273,17 @@ export default {
         return handleAdminAppBuildFloor(request, env, ctx);
       case APP_BUILD_FLOOR_OPS_PATH:
         return handleAppBuildFloorOps(request, env, ctx);
+      case STATUS_REPORT_PATH:
+        return handleStatusReport(request, {
+          ...statusOpsDeps(env),
+          readMaintenance: () => readServiceMaintenance(env, { context: ctx }),
+          record: (rows) => recordStatusReport(env, rows),
+        });
+      case STATUS_CLAIM_PATH:
+        return handleStatusClaim(request, {
+          ...statusOpsDeps(env),
+          claim: (roomId) => claimStatusProbe(env, roomId),
+        });
       case '/api/admin/login':
         return handleAdminLogin(request, env);
       case '/api/admin/logout':
@@ -16951,6 +17304,8 @@ export default {
         return withSoroVisibilityFailureResponse(handleAdminArticleVisibility(request, env));
       case '/api/admin/announcement':
         return handleAdminAnnouncement(request, env, ctx);
+      case ADMIN_STATUS_NOTE_PATH:
+        return handleAdminStatusNote(request, env);
       default:
         return withSoroVisibilityFailureResponse(serveStatic(request, env, ctx));
     }

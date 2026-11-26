@@ -175,6 +175,10 @@ const CARDS: readonly StaticCardDefinition[] = [
     props: { headline: 'Sitemap', tagline: 'Explore MUSIXQUARE', theme: 'yellow' },
   },
   {
+    outFile: 'public/og-status.png',
+    props: { headline: 'Status', tagline: 'Checked every 15 minutes', theme: 'yellow' },
+  },
+  {
     outFile: 'public/og-events.png',
     props: { headline: 'Events', tagline: 'MUSIXQUARE PRO events' },
   },

@@ -520,6 +520,8 @@ describe('service-worker CACHE_VERSION guard', () => {
     '.workshop/sitemap/sitemap.html',
     '.workshop/sitemap/main.ts',
     '.workshop/sitemap/sitemap.css',
+    '.workshop/status/status.html',
+    '.workshop/status/status.css',
     '.workshop/translate/translate.html',
     '.workshop/translate/catalog-client.ts',
     'scripts/translation-catalog.ts',

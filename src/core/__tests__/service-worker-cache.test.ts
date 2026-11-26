@@ -58,6 +58,7 @@ const PUBLIC_DOCUMENT_PATHS = [
   '/terms',
   '/faq',
   '/developers',
+  '/status',
   '/events/asamo/0/',
   '/404.html',
   '/zz/',

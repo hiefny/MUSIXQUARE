@@ -2,6 +2,7 @@ import { parseAppBuild } from './app-build-floor-contract.ts';
 
 export const SERVICE_CONTROL_OBJECT_NAME = 'musixquare-global-service-control-v1';
 export const ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME = 'musixquare-global-admin-announcement-v1';
+export const STATUS_NOTE_CONTROL_OBJECT_NAME = 'musixquare-global-status-note-v1';
 export const SERVICE_CONTROL_STATUS_PATH = '/internal/service-maintenance/v1/status';
 export const SERVICE_CONTROL_STATE_PATH = '/internal/service-maintenance/v1/state';
 export const SERVICE_CONTROL_HISTORY_PATH = '/internal/service-maintenance/v1/history';
@@ -201,6 +202,9 @@ export interface AdminAnnouncementUpdateInput {
   requestId: string;
   baseHistory?: Array<Record<string, unknown>>;
 }
+
+/** The status note never inherits history: it has no legacy copy to migrate. */
+export type StatusNoteUpdateInput = Omit<AdminAnnouncementUpdateInput, 'baseHistory'>;
 
 interface ServiceMaintenanceReadOptions {
   fresh?: boolean;
@@ -2151,6 +2155,40 @@ export async function updateAdminAnnouncementControl(
     }
   }
   return result;
+}
+
+// The public status note (/status) is a third named object with the in-room
+// announcement's wire contract and storage keys. It is addressed only by its
+// own name: no fallback to the main object or KV, so the in-room announcement
+// can never appear on the status page, and no migration header. It keeps no
+// isolate cache either; the /api/status edge cache bounds the public reads.
+export async function readStatusNoteControl(
+  env: ServiceMaintenanceEnvironment,
+): Promise<AdminAnnouncementControlResult> {
+  return readAdminAnnouncementStore(env, STATUS_NOTE_CONTROL_OBJECT_NAME);
+}
+
+export async function updateStatusNoteControl(
+  env: ServiceMaintenanceEnvironment,
+  input: StatusNoteUpdateInput,
+): Promise<AdminAnnouncementControlResult> {
+  return callAdminAnnouncementControl(
+    env,
+    ADMIN_ANNOUNCEMENT_STATE_PATH,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: input?.message,
+        enabled: input?.enabled,
+        expiresAt: input?.expiresAt,
+        expectedRevision: input?.expectedRevision,
+        requestId: input?.requestId,
+        baseHistory: [],
+      }),
+    },
+    STATUS_NOTE_CONTROL_OBJECT_NAME,
+  );
 }
 
 function normalizedLanguageTag(value: unknown): string {

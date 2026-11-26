@@ -29,6 +29,7 @@ import {
   SERVICE_CONTROL_STATUS_REVISION_HEADER,
   SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_VERSION_HEADER,
+  STATUS_NOTE_CONTROL_OBJECT_NAME,
   normalizeServiceMaintenanceState,
   type ServiceMaintenanceHistoryEntry,
 } from './service-maintenance.ts';
@@ -36,8 +37,9 @@ import {
 /**
  * Global service-control Durable Object.
  *
- * Object-name prefixes isolate maintenance, admin-announcement, and abuse-rate
- * records while preserving the single Cloudflare class binding and migration.
+ * Object-name prefixes isolate maintenance, admin-announcement, status-note
+ * and abuse-rate records while preserving the single Cloudflare class binding
+ * and migration.
  */
 
 const INTERNAL_REQUEST_BODY_TIMEOUT_MS = 2_000;
@@ -1044,6 +1046,7 @@ function parseAdminAnnouncementMutationBody(value: unknown): AdminAnnouncementMu
 export class MusixquareServiceControl {
   private readonly storage: object;
   private readonly announcementOnly: boolean;
+  private readonly announcementMigrationAllowed: boolean;
   private readonly abuseRatePairOnly: boolean;
   private readonly abuseRateOnly: boolean;
   private serviceStatus: StoredServiceControlState;
@@ -1065,7 +1068,11 @@ export class MusixquareServiceControl {
 
   constructor(state: ServiceControlStatePort) {
     this.storage = state.storage;
-    this.announcementOnly = state?.id?.name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME;
+    // The status note shares the announcement records but has no legacy copy,
+    // so only the in-room announcement object may inherit a revision.
+    this.announcementMigrationAllowed = state?.id?.name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME;
+    this.announcementOnly =
+      this.announcementMigrationAllowed || state?.id?.name === STATUS_NOTE_CONTROL_OBJECT_NAME;
     this.abuseRatePairOnly =
       typeof state?.id?.name === 'string' &&
       state.id.name.startsWith(ABUSE_RATE_PAIR_OBJECT_NAME_PREFIX);
@@ -1555,7 +1562,8 @@ export class MusixquareServiceControl {
     if ('error' in parsed) return serviceControlJson({ error: parsed.error }, parsed.status);
     const body = parseAdminAnnouncementMutationBody(parsed.value);
     const legacyMigration =
-      this.announcementOnly && request.headers.get(ADMIN_ANNOUNCEMENT_MIGRATION_HEADER) === '1';
+      this.announcementMigrationAllowed &&
+      request.headers.get(ADMIN_ANNOUNCEMENT_MIGRATION_HEADER) === '1';
     if (!body) {
       return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
     }

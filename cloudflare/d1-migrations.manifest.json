@@ -4,9 +4,9 @@
     {
       "database": "musixquare-admin-metrics",
       "baseline": "cloudflare/admin-metrics.schema.sql",
-      "baselineRevision": 7,
-      "baselineSha256": "6cba01fa7888098a90d003c9b81567119cb7547ee54bca00f59dc7a6483cb504",
-      "baselineMigration": "admin-pro-room-retirement-cursor-v1",
+      "baselineRevision": 8,
+      "baselineSha256": "e6f415c8c9ac2bc6d75449d5311caeb31ee89a7dc913cc585977af545429cb62",
+      "baselineMigration": "admin-status-checks-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/admin-dashboard-ops.md",
@@ -128,6 +128,19 @@
             "strategy": "roll-forward-or-provider-restore",
             "runbook": "cloudflare/admin-dashboard-ops.md",
             "note": "The additive singleton contains only cyclic cleanup progress. Preserve it on forward recovery; older App code ignores it but restores the latest-5000 history starvation defect. It is not an authorization or permanent completion receipt."
+          }
+        },
+        {
+          "id": "admin-status-checks-v1",
+          "forward": "cloudflare/admin-metrics.status-checks.migration.sql",
+          "forwardSha256": "d9114b4c2147b58e27687c9e6168279e7c560a3854706367acf21d1b393960b4",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "Additive table of public /status check results (no room code, account or network identifier), kept 48 hours. Older App code ignores it; preserve it on forward recovery."
           }
         }
       ]

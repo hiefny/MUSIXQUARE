@@ -573,6 +573,7 @@ describe('the document pages, translate and the sitemap', () => {
     '.workshop/developers/developers.html',
     '.workshop/translate/translate.html',
     '.workshop/sitemap/sitemap.html',
+    '.workshop/status/status.html',
   ] as const;
 
   it.each(PAGES)(
@@ -639,7 +640,11 @@ describe('the document pages, translate and the sitemap', () => {
   });
 
   it('loads no font from a page script, and the app font owner is the only stylesheet loader', () => {
-    for (const file of ['.workshop/sitemap/main.ts', '.workshop/translate/main.ts']) {
+    for (const file of [
+      '.workshop/sitemap/main.ts',
+      '.workshop/translate/main.ts',
+      'browser/classic-runtime/status-page.ts',
+    ]) {
       expect(read(file), file).not.toMatch(
         /static-page-fonts|locale-font-contract|loadLocaleFont|document\.fonts|new FontFace|createElement\(\s*['"]link['"]\s*\)/u,
       );

@@ -18,6 +18,7 @@
     "scripts/ui-kit-asset.ts",
     "scripts/live-app-session-smoke.ts",
     "scripts/live-remote-share-smoke.ts",
+    "scripts/status-browser-monitor.ts",
     "eslint.config.ts",
     "eslint.tooling.config.ts",
     "vite.config.ts",

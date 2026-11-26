@@ -12,6 +12,7 @@ describe('workshop output assets', () => {
       ['.workshop/developers/developers.html', 'developers.html'],
       ['.workshop/translate/translate.html', 'translate.html'],
       ['.workshop/sitemap/sitemap.html', 'sitemap.html'],
+      ['.workshop/status/status.html', 'status.html'],
     ]);
     const flatten = createViteConfig({}).plugins?.find(
       (plugin): plugin is Plugin =>

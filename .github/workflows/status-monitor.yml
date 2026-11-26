@@ -1,0 +1,82 @@
+name: Status monitor
+
+# The browser half of the public musixquare.com/status checks (resource record
+# RO-57). Every 15 minutes a Playwright script opens the live site (the
+# "Website and app" row), then makes a test room in one browser context, joins
+# it from a second one and sends a chat message each way (the "Device
+# connections" row). It reports both results to the App Worker with a GitHub
+# OIDC token, so no repository secret is used. The App Worker's own cron checks
+# the rooms and PRO rows.
+#
+# - Before the status routes exist, or after a rollback without them, GET
+#   /api/status does not answer schema 1 and the job ends successfully without
+#   opening a browser. During maintenance it reports maintenance and opens
+#   nothing.
+# - The test room's code is claimed before the host connects, so signaling
+#   records a status probe and the /about room count stays unchanged. Without a
+#   granted claim no room opens and the connection check is skipped.
+# - The job fails only when the routes refuse its identity (401 or 403), when
+#   the report cannot be delivered, or when the script crashes. Failed checks
+#   show on /status, not as failed runs.
+# - Logs of this public repository are public: the script prints no room code,
+#   peer id, token, IP address or full URL, and the job uploads no artifacts.
+# - Disable this workflow in the GitHub UI to stop the browser checks.
+
+on:
+  schedule:
+    # UTC; the same minutes as STATUS_BROWSER_CRON in
+    # cloudflare/status-contract.ts. GitHub may start a run late or drop it.
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Its own group: a monitor run never waits for, or cancels a pending run
+  # of, the production release group.
+  group: musixquare-status-monitor
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Status browser checks
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Same Playwright image as e2e.yml (tag = locked @playwright/test version).
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
+      options: --user 1001 --ipc=host
+    env:
+      TZ: Etc/UTC
+    # STATUS_BROWSER_JOB_TIMEOUT_MINUTES: a run ends before the next is due.
+    timeout-minutes: 10
+    # No GitHub environment: the status routes accept only a token without an
+    # environment claim, and production secrets stay out of this job's reach.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        timeout-minutes: 3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        timeout-minutes: 3
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        timeout-minutes: 4
+        run: corepack npm ci
+
+      - name: Install Chromium
+        timeout-minutes: 3
+        run: npx playwright install chromium
+
+      - name: Run status browser checks
+        timeout-minutes: 4
+        run: npx tsx scripts/status-browser-monitor.ts

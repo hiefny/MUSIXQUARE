@@ -498,17 +498,23 @@
     window.clearTimeout(refreshTimer);
     if (document.visibilityState !== 'visible') return;
     refreshTimer = window.setTimeout(() => {
-      void refresh().finally(schedule);
+      refresh()
+        .finally(schedule)
+        .catch(() => {});
     }, STATUS_REFRESH_MS);
   }
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      void refresh().finally(schedule);
+      refresh()
+        .finally(schedule)
+        .catch(() => {});
     } else {
       window.clearTimeout(refreshTimer);
     }
   });
 
-  void refresh().finally(schedule);
+  refresh()
+    .finally(schedule)
+    .catch(() => {});
 })();

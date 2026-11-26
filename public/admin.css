@@ -2263,6 +2263,30 @@ p {
   margin-bottom: 0;
 }
 
+/* The status page note reuses the announcement editor rules. Inside a panel
+   its fields and cards step up one surface so they stay visible. */
+.status-note-panel {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+
+.status-note-panel .panel-head {
+  margin-bottom: 0;
+}
+
+.status-note-panel .announcement-field textarea,
+.status-note-panel .announcement-field input,
+.status-note-panel .announcement-preview,
+.status-note-panel .announcement-history-item {
+  background: var(--surface-2);
+}
+
+/* A short note: the textarea's rows attribute sets its height. */
+.status-note-panel .announcement-field textarea {
+  min-height: 0;
+}
+
 [data-app-build-floor-state] {
   color: var(--text-main);
   font-size: 15px;
@@ -2273,7 +2297,8 @@ p {
   color: var(--warn);
 }
 
-[data-app-build-floor-summary] {
+[data-app-build-floor-summary],
+.status-note-summary {
   color: var(--text-sub);
   font-size: 13px;
   line-height: 1.6;
@@ -2312,7 +2337,8 @@ p {
   width: min(220px, 100%);
 }
 
-[data-app-build-floor-error] {
+[data-app-build-floor-error],
+[data-status-note-error] {
   color: var(--fail);
   font-size: 12px;
   line-height: 1.45;

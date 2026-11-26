@@ -11,15 +11,20 @@ history projections for its room lifecycle.
 
 The checked-in database identity, schema and binding consumers were last
 reconciled with the current Worker sources on 2026-08-17. The event inventory
-is the 23 events in the table below (`ADMIN_METRIC_EVENTS` in the App Worker).
+is the 24 events in the table below (`ADMIN_METRIC_EVENTS` in the App Worker).
 App 8.10.0 added `guest_auth_rate_limited`, which the Operations view shows as
 "Password lockouts" in its Signals panel. App 9.0.5 adds the three
 `guest_host_unavailable_*` state details and `standard_room_expired`; the
 Operations view does not show these four, and its Signals panel keeps the "Host
 missing" total. App 9.0.14 adds `app_update_required`, which the Operations
-view does not show either. Read them from the `summary` object of the
-`/api/admin/metrics` JSON (`last24`, `previous24`, `last7`, `hourly`, `daily`,
-`daily30`) or from `mxqr_metric_buckets` rows in D1.
+view does not show either. App 9.0.845 adds `status_probe_room_opened` and
+`status_probe_guest_joined`, which signaling records for the status checks'
+own test rooms in place of `room_opened` and `guest_joined` (see
+[Status page](#status-page)); the Operations view does not show them, and they
+never reach the lifetime totals or the public /about count. Read them from the
+`summary` object of the `/api/admin/metrics` JSON (`last24`, `previous24`,
+`last7`, `hourly`, `daily`, `daily30`) or from `mxqr_metric_buckets` rows in
+D1.
 That source review is not proof of the live D1 table set; use the read-only drift
 query below before production schema maintenance.
 
@@ -137,6 +142,8 @@ Events:
 | `ws_message_oversized`                     | A WebSocket frame or validated signaling payload exceeded its size limit.                                                             |
 | `ws_message_rate_limited`                  | A guest exceeded the per-connection signaling message rate.                                                                           |
 | `app_update_required`                      | A host or guest entry was refused before admission because its App build was below the effective App build floor.                     |
+| `status_probe_room_opened`                 | A status check opened its own test room on a claimed code. Admin-only: never in Rooms opened, the lifetime totals or /about.          |
+| `status_probe_guest_joined`                | The status check's test guest joined that test room. Admin-only: never in Guest joins or the lifetime totals.                         |
 
 Metric writes are deferred with the Worker execution context, so D1 latency is
 not part of the room admission path. They are operational counters rather than
@@ -244,6 +251,124 @@ The public `GET /api/app-build-floor` answers the same state uncached for
 scripts and audits; `GET /api/app-build-floor/effective` is the App's own read
 at start and on return to the foreground, edge-cached for 30 seconds and never
 above the build the answering App serves.
+
+The App Worker reads the build it serves from its own `/service-worker.js` once
+per isolate, and requests share a read that is still running. A request that
+finds that read rejected because the request that started it ended (a page
+that dropped its floor read, or a client that disconnected) logs the warning
+`served_app_build_shared_read_rejected`, which carries only `event`, and reads
+again itself.
+
+## Status page
+
+App 9.0.845 adds the public page `musixquare.com/status` (resource record RO-57
+in `docs/design/resource-ownership-registry.md`; its timing values live in
+`cloudflare/status-contract.ts`). It has four rows, each checked every 15
+minutes:
+
+- Website and app (`website`) and Device connections (`connection`): the
+  GitHub Actions workflow `.github/workflows/status-monitor.yml` runs at :07,
+  :22, :37 and :52 UTC and on manual dispatch. A fresh Chromium context opens
+  the home page; then a host context makes a room, a guest context joins it,
+  and each sends a chat message. The job reports both results to
+  `POST /api/ops/status-report`.
+- Creating and joining rooms (`rooms`) and PRO rooms (`pro`): the App Worker's
+  third cron trigger, `0,15,30,45 * * * *`, runs a test host and a test guest
+  through the internal signaling HTTP bridge, and reads, without changing
+  anything, the bootstrap of the built-in PRO canary room `000000`.
+
+Results go to `mxqr_status_checks` in this database, one row per component and
+slot: `o` passed, `p` failed or `m` recorded during maintenance, with a short
+reason code, the check time, the source (`cron` or `browser`) and, for a
+browser report, its GitHub run id. A slot without a row reads as no check and
+is never stored. When two checks report the same slot, the newest check time
+wins. Every cron run deletes rows older than 48 hours. The table holds no room
+code, account, IP or other user identifier.
+
+`GET /api/status` builds the page's JSON from the last 48 hours of rows, the
+maintenance state and the status note. It is edge-cached for 30 seconds when
+the results, the maintenance state and the note were all read, and for 10
+seconds (`STATUS_EDGE_CACHE_DEGRADED_TTL_S`) when one of those reads failed, so
+a struggling database or note object is not asked again by every visitor. A
+row shows Problem after two failed checks in a row (missed slots and
+maintenance marks are skipped) and Not checked once its newest passed or failed
+check is more than 30 minutes old. If the D1 read fails, or has not answered
+within 5 seconds (`STATUS_API_READ_TIMEOUT_MS`), every row reads
+`results_unavailable` and the answer is cached for those 10 seconds only: the
+page says that status is unavailable and still shows the note. The maintenance
+and note reads are bounded by the service-control read timeout, so
+`/api/status` answers well before the page's own 15-second fetch timeout.
+
+While maintenance is on, the checks open no room and record `m` for every row.
+A control-plane outage is not maintenance: the checks run and record what
+users see. After maintenance ends, rows read Not checked until their next real
+check.
+
+Test rooms stay out of the room count. Before its test host connects, a check
+claims the room code on the signaling room object
+(`POST /internal/status-probe/v1/claim`, which only the Durable Object binding
+reaches; the browser job asks through `POST /api/ops/status-claim`). Signaling
+then records `status_probe_room_opened` and `status_probe_guest_joined` instead
+of `room_opened` and `guest_joined`. A claim is refused while the room is in
+use: the cron then tries another code, and the browser job records no
+`connection` result for that run.
+
+`/status` and its page assets, `GET /api/status`, `POST /api/ops/status-report`
+and `POST /api/ops/status-claim` are outside Access. The page, its assets,
+`/api/status` and the report route keep answering during maintenance; the claim
+route answers 503 then. The two `/api/ops/` routes take only a GitHub Actions
+OIDC token for audience `https://musixquare.com/api/ops/status-report` or
+`https://musixquare.com/api/ops/status-claim`, repository `hiefny/MUSIXQUARE`,
+workflow `status-monitor.yml` on `refs/heads/main`, event `schedule` or
+`workflow_dispatch`, a GitHub-hosted runner and no `environment` claim. Each
+accepts 60 requests per 10 minutes. The workflow uses no GitHub environment,
+and no repository or Worker secret is involved. The App keeps GitHub's key set
+per isolate and downloads it at most once a minute. A download whose request
+ended before it finished (a client that disconnected) is dropped by the next
+request, which logs the warning `github_oidc_jwks_shared_fetch_rejected`
+(carrying only `event`); until the next download is allowed, a token whose key
+is not cached gets 503 `OIDC_JWKS_UNAVAILABLE`, which the monitor treats as
+unavailable. The App build floor's ops route uses the same verifier.
+
+The Maintenance view's "Status page note" panel publishes one message of up to
+280 characters, written in English, with an optional expiry; Remove clears it.
+The note is stored in its own service-control object,
+`musixquare-global-status-note-v1`, separate from the in-room announcement.
+Its route, `/api/admin/status-note`, inherits Access like the rest of
+`/api/admin`, and the panel keeps working during maintenance.
+
+Troubleshooting:
+
+- `rooms` or `pro` reads Not checked: the App cron did not record a result.
+  Check the App Worker's cron triggers and logs. App code older than 9.0.845
+  ignores the status cron, so after an App rollback these rows stay Not
+  checked.
+- `website` or `connection` reads Not checked: the GitHub schedule did not run,
+  or the job could not report. GitHub can start a scheduled run late or drop
+  it, and it disables the schedule after 60 days without repository activity.
+  Read the latest Status monitor run. A run succeeds after a delivered report
+  (failed checks included), when production has no `/api/status` yet, and
+  when the report still could not be delivered after its retries because of a
+  429, a 5xx or no answer: that run shows a warning, and `website` and
+  `connection` age to Not checked. A run also succeeds with a warning, having
+  opened nothing, when GitHub's OIDC token service gave no token at its start
+  (a 429, a 5xx or no answer). A run fails when the report or claim route
+  answers 401 or 403 (it refused the job's identity) or any other 4xx outside
+  the route's contract (a contract mismatch), when the job has no OIDC
+  permission or the token service refuses it with a 4xx, or when the script
+  crashes.
+- The run log shows `skipped (app_build_mismatch)` for `website` or
+  `connection`: production served another App build than the monitor's
+  checkout of main (the log names both builds), between merging an App train
+  and releasing it, or after an App rollback. The checks follow main's App and
+  may expect what the served build lacks, so a failed check is reported as
+  skipped and its row reads Not checked until production serves main's build
+  again. A passed check is still recorded.
+- The claim answers 424 `STATUS_PROBE_UNSUPPORTED`, or the cron logs
+  `status_probe_unsupported`: signaling runs a build without the claim route,
+  for example after a signaling rollback. The checks then open no room, and
+  `rooms` and `connection` read Not checked until signaling is current again.
+- To stop the browser checks, disable `status-monitor.yml` in the GitHub UI.
 
 ## Cloudflare Setup
 
@@ -422,12 +547,28 @@ https://musixquare.com/admin
 
 ### Runtime schema-initialization measurement
 
-The App Worker emits one sampled custom-log event per isolate and bound Admin
-D1 instance when `ensureAdminProRoomRegistry` initializes. The event name is
+The App Worker emits one sampled custom-log event each time an
+`ensureAdminProRoomRegistry` check completes. The event name is
 `admin_pro_room_registry_schema_ensure`; it contains only `outcome`,
-`durationMs`, the total statement count, and aggregate read/write/DDL/other
-counts. It contains no SQL text, room code, actor, account, request, or binding
-identifier. Cloudflare's configured custom-log sampling applies to this event.
+`durationMs`, the total statement count, aggregate read/write/DDL/other counts
+and, for an `error` outcome, an `errorClass`: a fixed class of the failure,
+never its message. It contains no SQL text, room code, actor, account, request,
+or binding identifier. Cloudflare's configured custom-log sampling applies to
+this event.
+
+The requests of one isolate and bound Admin D1 instance share a check that is
+still running, so a successful check logs once for all of them. After a failed
+check, the next request runs and logs a new one. A check whose request was
+cancelled never completes and logs nothing, so its statements are in no event.
+Since App 9.0.845, each request that finds another request's in-flight check
+rejected (for example after that request was cancelled) drops it, logs the
+warning `admin_pro_room_registry_shared_check_rejected`, and runs its own check
+instead of failing with it. The warning contains only `event` and an
+`errorClass`: `cross_request` when the Workers runtime rejected a check whose
+request had ended, otherwise `other` (the failed check's own `error` event
+carries its full class). One isolate can therefore log several schema-ensure
+events and warnings; for the measurement below, aggregate `durationMs` and
+`statementCount` over every schema-ensure event, not per isolate.
 
 Review a continuous 14-day window before changing the initializer. Implement a
 read-only readiness fast path only when at least one of these measured
@@ -450,12 +591,13 @@ Inspect table names and aggregate row ages without exposing user data:
 npm run wrangler -- d1 execute musixquare-admin-metrics --remote --json --command "SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name; SELECT MIN(bucket_minute) AS oldest_minute, MAX(bucket_minute) AS newest_minute, COUNT(*) AS rows FROM mxqr_metric_buckets;"
 ```
 
-The declarative baseline currently defines these 22 application tables; `_cf_KV`
+The declarative baseline currently defines these 23 application tables; `_cf_KV`
 is managed by Cloudflare:
 
 - metrics: `mxqr_metric_buckets`, `mxqr_lifetime_metric_totals`,
   `mxqr_lifetime_metric_days`;
 - editorial visibility: `mxqr_soro_article_visibility`;
+- status page: `mxqr_status_checks`;
 - registry and generation: `mxqr_pro_room_registry`,
   `mxqr_pro_room_generation_history`,
   `mxqr_pro_room_generation_allocations`,
@@ -493,6 +635,14 @@ Reapplying the migration preserves progress. During recovery, retain this
 additive table and roll forward or restore the provider database; resetting the
 cursor merely repeats idempotent cleanup, while older App code reintroduces the
 latest-5,000-history starvation defect.
+
+The additive `admin-metrics.status-checks.migration.sql` migration creates
+`mxqr_status_checks` (see [Status page](#status-page)). The release workflow
+applies and verifies it for App/all releases before any Worker deploys. It is
+forward-only and has no rollback SQL: older App code ignores the table, so
+recovery keeps it and rolls forward or restores the provider database. Its rows
+are check results kept at most about 48 hours; losing them only shortens the
+page's 24-hour record.
 
 The runtime retention cutoff is 90 days. To audit what the next scheduled
 cleanup would remove, preview the affected row count with:

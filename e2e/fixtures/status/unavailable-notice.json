@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-26T05:48:20.000Z",
+  "timeZone": "UTC",
+  "policy": {
+    "checkIntervalMinutes": 15,
+    "problemAfterFailures": 2,
+    "staleAfterMinutes": 30,
+    "recentSlots": 96,
+    "schedule": {
+      "server": [0, 15, 30, 45],
+      "browser": [7, 22, 37, 52]
+    }
+  },
+  "overall": {
+    "state": "stale",
+    "reason": "results_unavailable",
+    "lastCheckedAt": null,
+    "since": null
+  },
+  "maintenance": {
+    "active": false,
+    "since": null
+  },
+  "announcement": {
+    "id": "demo-outage",
+    "message": "We're looking into connection problems.",
+    "postedAt": "2026-11-26T05:35:00.000Z",
+    "expiresAt": "2026-11-26T09:00:00.000Z"
+  },
+  "components": [
+    {
+      "id": "website",
+      "state": "stale",
+      "reason": "results_unavailable",
+      "lastCheckedAt": null,
+      "lastOkAt": null,
+      "problemSince": null,
+      "recent": null
+    },
+    {
+      "id": "rooms",
+      "state": "stale",
+      "reason": "results_unavailable",
+      "lastCheckedAt": null,
+      "lastOkAt": null,
+      "problemSince": null,
+      "recent": null
+    },
+    {
+      "id": "connection",
+      "state": "stale",
+      "reason": "results_unavailable",
+      "lastCheckedAt": null,
+      "lastOkAt": null,
+      "problemSince": null,
+      "recent": null
+    },
+    {
+      "id": "pro",
+      "state": "stale",
+      "reason": "results_unavailable",
+      "lastCheckedAt": null,
+      "lastOkAt": null,
+      "problemSince": null,
+      "recent": null
+    }
+  ]
+}

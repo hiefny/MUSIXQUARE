@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-26T07:20:00.000Z",
+  "timeZone": "UTC",
+  "policy": {
+    "checkIntervalMinutes": 15,
+    "problemAfterFailures": 2,
+    "staleAfterMinutes": 30,
+    "recentSlots": 96,
+    "schedule": {
+      "server": [0, 15, 30, 45],
+      "browser": [7, 22, 37, 52]
+    }
+  },
+  "overall": {
+    "state": "stale",
+    "reason": "not_checked_recently",
+    "lastCheckedAt": "2026-11-26T07:15:07.000Z",
+    "since": null
+  },
+  "maintenance": {
+    "active": false,
+    "since": null
+  },
+  "announcement": null,
+  "components": [
+    {
+      "id": "website",
+      "state": "stale",
+      "reason": "not_checked_recently",
+      "lastCheckedAt": "2026-11-26T06:37:30.000Z",
+      "lastOkAt": "2026-11-26T06:37:30.000Z",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T07:07:00.000Z",
+        "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonn"
+      }
+    },
+    {
+      "id": "rooms",
+      "state": "ok",
+      "reason": "passing",
+      "lastCheckedAt": "2026-11-26T07:15:07.000Z",
+      "lastOkAt": "2026-11-26T07:15:07.000Z",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T07:15:00.000Z",
+        "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
+      }
+    },
+    {
+      "id": "connection",
+      "state": "stale",
+      "reason": "not_checked_recently",
+      "lastCheckedAt": "2026-11-26T06:37:30.000Z",
+      "lastOkAt": "2026-11-26T06:37:30.000Z",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T07:07:00.000Z",
+        "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonn"
+      }
+    },
+    {
+      "id": "pro",
+      "state": "ok",
+      "reason": "passing",
+      "lastCheckedAt": "2026-11-26T07:15:07.000Z",
+      "lastOkAt": "2026-11-26T07:15:07.000Z",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T07:15:00.000Z",
+        "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
+      }
+    }
+  ]
+}

@@ -13,6 +13,7 @@ const PAGE_IMAGES = [
   ['.workshop/developers/developers.html', 'og-developers.png'],
   ['.workshop/translate/translate.html', 'og-translate.png'],
   ['.workshop/sitemap/sitemap.html', 'og-sitemap.png'],
+  ['.workshop/status/status.html', 'og-status.png'],
   ['public/history/index.html', 'og-history.png'],
   ['public/designsystem/index.html', 'og-designsystem.png'],
   ['public/designsystem/loading.html', 'og-designsystem.png'],

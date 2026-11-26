@@ -1,0 +1,287 @@
+/* MUSIXQUARE status page: one more document page on public/legal-pages.css.
+   The three state colors are the design system's dark values
+   (public/designsystem/colors_and_type.css: --success-filled,
+   --danger-foreground, --warning-foreground). Every state also has a word,
+   and every row of bars a sentence, so color is never the only signal. */
+
+.status-shell {
+  --status-ok: #20a45a;
+  --status-problem: #ff3b30;
+  --status-maintenance: #f59e0b;
+}
+
+/* The overall line is the page's answer; the first row's rule opens the
+   list below it, so the hero draws none of its own. */
+.status-shell > .policy-hero {
+  padding-bottom: 48px;
+  border-bottom: 0;
+}
+
+.policy-hero p.status-overall {
+  margin-top: 28px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.status-overall .status-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: calc(0.8em - 5px);
+}
+
+.policy-hero p.status-overall[data-state='loading'] {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.status-overall[data-state='loading'] .status-dot {
+  display: none;
+}
+
+.policy-hero p.status-meta {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An operator note, drawn like the Developer API page's note. */
+.status-note {
+  margin-top: 28px;
+  padding: 16px 18px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+}
+
+.policy-hero .status-note p {
+  margin: 0;
+  max-width: none;
+  color: var(--text-sub);
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.policy-hero .status-note p.status-note__message {
+  color: var(--text-main);
+  white-space: pre-line;
+}
+
+.policy-hero .status-note p.status-note__posted {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Service rows: hairlines like the FAQ list, the state on the right. */
+.policy-doc:has(> .status-list) {
+  padding-top: 0;
+}
+
+.status-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.status-row {
+  min-height: 64px;
+  padding: 20px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 14px;
+  border-top: 1px solid var(--divider);
+}
+
+.status-row:last-child {
+  border-bottom: 1px solid var(--divider);
+}
+
+.status-name {
+  flex: 1 1 12em;
+  min-width: 0;
+  color: var(--text-main);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.status-state {
+  flex: none;
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-sub);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.status-row[data-state='loading'] .status-state,
+.status-row[data-state='empty'] .status-state {
+  visibility: hidden;
+}
+
+.status-dot {
+  display: block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+[data-state='ok'] .status-dot {
+  background: var(--status-ok);
+}
+
+[data-state='problem'] .status-dot {
+  background: var(--status-problem);
+}
+
+[data-state='problem'] .status-word {
+  color: var(--status-problem);
+}
+
+[data-state='maintenance'] .status-dot {
+  background: var(--status-maintenance);
+}
+
+[data-state='maintenance'] .status-word {
+  color: var(--status-maintenance);
+}
+
+[data-state='stale'] .status-word {
+  color: var(--text-muted);
+}
+
+/* Recent checks: one bar per check, oldest on the left, the last 24 hours
+   (SHOWN_SLOTS in browser/classic-runtime/status-page.ts). Failed and
+   maintenance checks stand full height and missed ones low, so the shape
+   carries them as well as the color, and the sentence under the bars says
+   it in words. */
+.status-checks {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.status-checks__cells {
+  height: 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.status-checks__cell {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 65%;
+  border-radius: 1px;
+  background: var(--status-ok);
+}
+
+.status-checks__cell[data-result='p'] {
+  height: 100%;
+  background: var(--status-problem);
+}
+
+.status-checks__cell[data-result='m'] {
+  height: 100%;
+  background: var(--status-maintenance);
+}
+
+.status-checks__cell[data-result='n'] {
+  height: 35%;
+  background: var(--text-muted);
+}
+
+.status-checks__cell[data-result='x'] {
+  height: 35%;
+  background: var(--divider);
+}
+
+.policy-doc p.status-checks__axis {
+  margin: 8px 0 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* The legend under "How we check": one small bar per kind. */
+.policy-doc .status-legend {
+  margin: 20px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  list-style: none;
+  color: var(--text-sub);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.status-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-legend__swatch {
+  width: 6px;
+  height: 16px;
+  display: inline-flex;
+  flex: none;
+  align-items: flex-end;
+}
+
+.status-legend__swatch > .status-checks__cell {
+  flex: 1 1 auto;
+}
+
+.status-list + .status-how {
+  margin-top: 72px;
+}
+
+@media (max-width: 640px) {
+  .status-shell > .policy-hero {
+    padding-bottom: 40px;
+  }
+
+  .status-row {
+    min-height: 58px;
+    padding: 16px 0;
+    row-gap: 12px;
+  }
+
+  .status-name {
+    font-size: 16px;
+  }
+
+  .status-checks__cells {
+    height: 16px;
+    gap: 1px;
+  }
+
+  .status-list + .status-how {
+    margin-top: 56px;
+  }
+}
+
+/* Contrast themes drop fills; keep the bars and dots readable. */
+@media (forced-colors: active) {
+  .status-checks__cell,
+  .status-dot {
+    forced-color-adjust: none;
+  }
+}

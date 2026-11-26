@@ -25,6 +25,7 @@ import {
   SERVICE_CONTROL_STATUS_REVISION_HEADER,
   SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_VERSION_HEADER,
+  STATUS_NOTE_CONTROL_OBJECT_NAME,
 } from '../../../cloudflare/service-maintenance.ts';
 
 class ServiceControlStorage {
@@ -406,6 +407,86 @@ describe('MusixquareServiceControl', () => {
         history: [{ message: 'Separated notice' }, legacy],
       },
     });
+  });
+
+  it('loads only announcement keys and exposes only announcement routes for the status note object', async () => {
+    const { control, storage } = setup(
+      new ServiceControlStorage(),
+      STATUS_NOTE_CONTROL_OBJECT_NAME,
+    );
+
+    const empty = await control.fetch(
+      new Request(`https://service-control.internal${ADMIN_ANNOUNCEMENT_STATUS_PATH}`),
+    );
+    expect(empty.status).toBe(200);
+    await expect(payload(empty)).resolves.toMatchObject({
+      announcementState: { revision: 0, announcement: { id: '', message: '' }, history: [] },
+    });
+    expect(storage.getKeys).toEqual(['admin-announcement-state', 'admin-announcement-requests']);
+
+    const unrelated = [
+      new Request(`https://service-control.internal${SERVICE_CONTROL_STATUS_PATH}`),
+      new Request(`https://service-control.internal${SERVICE_CONTROL_STATUS_PATH}`, {
+        method: 'HEAD',
+      }),
+      stateRequest(true, 0, '123e4567-e89b-42d3-a456-426614174096'),
+      new Request(`https://service-control.internal${SERVICE_CONTROL_HISTORY_PATH}`),
+      new Request(`https://service-control.internal${APP_BUILD_FLOOR_STATUS_PATH}`),
+      rateRequest(ABUSE_RATE_CONSUME_PATH),
+      rateRequest(ABUSE_RATE_IDEMPOTENT_CONSUME_PATH, 'status-note-operation'),
+      rateRequest(ABUSE_RATE_PAIR_CONSUME_PATH),
+    ];
+    for (const request of unrelated) {
+      expect((await control.fetch(request)).status).toBe(404);
+    }
+
+    const published = await control.fetch(
+      announcementRequest('Checks are delayed', 0, '123e4567-e89b-42d3-a456-426614174095'),
+    );
+    expect(published.status).toBe(200);
+    await expect(payload(published)).resolves.toMatchObject({
+      ok: true,
+      announcementState: {
+        revision: 1,
+        announcement: { message: 'Checks are delayed', enabled: true },
+        history: [{ message: 'Checks are delayed', action: 'published' }],
+      },
+    });
+    // The note keeps the announcement records only; maintenance, floor and
+    // counter records never appear on its object.
+    expect([...storage.data.keys()].sort()).toEqual([
+      'admin-announcement-requests',
+      'admin-announcement-state',
+    ]);
+    expect(storage.getKeys).toEqual(['admin-announcement-state', 'admin-announcement-requests']);
+  });
+
+  it('refuses revision inheritance on the status note object', async () => {
+    const legacy = {
+      id: 'legacy-current',
+      message: 'Legacy current notice',
+      enabled: true,
+      expiresAt: null,
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      action: 'published',
+    };
+    const request = announcementRequest('Status note', 7, '123e4567-e89b-42d3-a456-426614174094', [
+      legacy,
+    ]);
+    request.headers.set(ADMIN_ANNOUNCEMENT_MIGRATION_HEADER, '1');
+    const { control, storage } = setup(
+      new ServiceControlStorage(),
+      STATUS_NOTE_CONTROL_OBJECT_NAME,
+    );
+
+    const refused = await control.fetch(request);
+
+    expect(refused.status).toBe(409);
+    await expect(payload(refused)).resolves.toMatchObject({
+      error: 'ADMIN_ANNOUNCEMENT_REVISION_CONFLICT',
+      announcementState: { revision: 0, history: [] },
+    });
+    expect(storage.data.size).toBe(0);
   });
   it('loads only the owned counter for a named abuse-rate object', async () => {
     const storage = new ServiceControlStorage();

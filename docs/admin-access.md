@@ -26,12 +26,18 @@ Access path inheritance protects each parent path and all descendants, so
 separate `/*` destinations are unnecessary.
 
 Do not replace these path entries with a site-wide wildcard. In particular,
-the public app shell, static assets, blog, `/api/announcement/current`,
-`/api/security-config`, `/api/capability-*`, media-service APIs, signaling, and
-the remote-share `/session` endpoint must remain outside this Access
-application. The public `admin.js` and `admin.css` assets do not contain
-credentials and do not need a separate Access path; the protected page and API
-are the security boundary.
+the public app shell, static assets, blog, the public status page `/status` and
+its `/api/status`, `/api/announcement/current`, `/api/security-config`,
+`/api/capability-*`, media-service APIs, signaling, the remote-share `/session`
+endpoint, and the status monitor's GitHub Actions routes
+`/api/ops/status-report` and `/api/ops/status-claim` must remain outside this
+Access application. A scheduled GitHub job cannot pass Access; those two
+routes accept only a GitHub Actions OIDC token pinned to `status-monitor.yml`
+on `main` instead. The status page note's admin route, `/api/admin/status-note`,
+sits under `/api/admin` and inherits Access like the rest of the admin API. The
+public `admin.js` and `admin.css` assets do not contain credentials and do not
+need a separate Access path; the protected page and API are the security
+boundary.
 
 Keep the Access `Cookie Path` attribute disabled so one host-scoped
 `CF_Authorization` cookie is sent to both `/admin` and `/api/admin`. Enable the
@@ -78,8 +84,9 @@ Verify in a private browser session before considering the change complete:
    `/api/admin/metrics` still returns the app's unauthorized response.
 4. After entering the MUSIXQUARE password, the dashboard and its admin APIs
    work normally.
-5. `/`, `/blog`, `/api/announcement/current`, capability/session creation,
-   signaling, and remote sharing remain usable without an Access login.
+5. `/`, `/blog`, `/status`, `/api/status`, `/api/announcement/current`,
+   capability/session creation, signaling, and remote sharing remain usable
+   without an Access login.
 6. Repeat the administrator and public-route checks on both the apex and
    `www` hostnames.
 

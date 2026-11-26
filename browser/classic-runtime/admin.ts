@@ -178,6 +178,7 @@ interface AdminApiPayload {
   readonly mappings?: readonly ProGrantVoucherMapping[];
   readonly message?: string;
   readonly maxActiveKeys?: number;
+  readonly note?: AdminAnnouncement;
   readonly ok?: boolean;
   readonly ownerAccountLinked?: boolean;
   readonly recoveryUrl?: string;
@@ -346,7 +347,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '9.0.844';
+const ADMIN_SCRIPT_VERSION = '9.0.845';
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
   console.error('[admin] Unexpected asynchronous action failure.', error);
@@ -485,6 +486,27 @@ const appBuildFloorHistoryStatusEl = document.querySelector<HTMLElement>(
 const appBuildFloorHistoryListEl = document.querySelector<HTMLElement>(
   '[data-app-build-floor-history-list]',
 );
+// The status page note panel lives in the Maintenance view. An older shell
+// paired with this script has none of these hooks, and the note stays idle.
+const statusNotePanel = document.querySelector<HTMLElement>('[data-status-note-panel]');
+const statusNoteForm = document.querySelector<HTMLFormElement>('[data-status-note-form]');
+const statusNoteMessageEl = document.querySelector<HTMLTextAreaElement>(
+  '[data-status-note-message]',
+);
+const statusNoteExpiresEl = document.querySelector<HTMLInputElement>('[data-status-note-expires]');
+const statusNotePublishBtn = document.querySelector<HTMLButtonElement>(
+  '[data-status-note-publish]',
+);
+const statusNoteClearBtn = document.querySelector<HTMLButtonElement>('[data-status-note-clear]');
+const statusNoteStatusEl = document.querySelector<HTMLElement>('[data-status-note-status]');
+const statusNoteErrorEl = document.querySelector<HTMLElement>('[data-status-note-error]');
+const statusNotePreviewEl = document.querySelector<HTMLElement>('[data-status-note-preview]');
+const statusNoteHistoryStatusEl = document.querySelector<HTMLElement>(
+  '[data-status-note-history-status]',
+);
+const statusNoteHistoryListEl = document.querySelector<HTMLElement>(
+  '[data-status-note-history-list]',
+);
 const updatedAtEl = document.querySelector<HTMLElement>('[data-updated-at]');
 const refreshBtn = document.querySelector<HTMLButtonElement>('[data-refresh]');
 const logoutBtn = document.querySelector<HTMLButtonElement>('[data-logout]');
@@ -515,6 +537,17 @@ let appBuildFloorBusy = false;
 // Kept across an unknown outcome so a retry of the same lower replays it.
 let pendingAppBuildFloorLower: AppBuildFloorLowerRequest | null = null;
 let announcementExpiryTimer: number | null = null;
+let statusNoteLoaded = false;
+let currentStatusNoteRevision: number | null = null;
+let statusNoteDraftBaseline: string | null = null;
+let statusNotePersistedExpiresAt: string | null = null;
+let statusNotePersistedExpiresValue = '';
+let statusNoteStoredMessage = '';
+let statusNoteStateText = '';
+// Kept after a 5xx or an unknown outcome so a retry of the same change replays.
+let pendingStatusNoteMutation: PendingAnnouncementMutation | null = null;
+let statusNoteMutationBusy = false;
+let statusNoteExpiryTimer: number | null = null;
 let adminSessionEpoch = 0;
 let adminLogoutInFlight: Promise<AdminApiPayload | void> | null = null;
 const adminRequestControllers = new Set<AbortController>();
@@ -1610,6 +1643,7 @@ function showLogin(
   announcementPersistedExpiresValue = '';
   pendingAnnouncementMutation = null;
   setAnnouncementMutationBusy(false);
+  resetStatusNote();
   serviceStatusLoaded = false;
   currentServiceStatus = null;
   serviceStatusRequestId = null;
@@ -2532,6 +2566,16 @@ function adminErrorMessage(error: unknown, fallback: string): string {
   if (message === 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE') {
     return 'The announcement control is temporarily unavailable. If this followed a save, keep the page open and retry the same save; retrying is safe.';
   }
+  if (message === 'STATUS_NOTE_CONFLICT') {
+    return 'The status page note changed in another session. The latest note has been loaded.';
+  }
+  if (message === 'STATUS_NOTE_CONTROL_UNAVAILABLE') {
+    return 'The status page note is temporarily unavailable. If this followed Publish or Remove, keep the page open and retry the same change; retrying is safe.';
+  }
+  if (message === 'STATUS_NOTE_INVALID') {
+    return 'Use plain text without control or text-direction characters.';
+  }
+  if (message === 'STATUS_NOTE_TOO_LONG') return 'Keep the note to 280 characters or fewer.';
   if (message === 'PRO_ROOM_PROVISIONING_INCOMPLETE') {
     return 'Provisioning is incomplete. Retry from the room list.';
   }
@@ -6528,6 +6572,350 @@ async function saveAnnouncement({ clear = false }: { readonly clear?: boolean } 
   }
 }
 
+// Status page note: one plain-text line on musixquare.com/status, stored in
+// its own service-control object and edited from the Maintenance view, the
+// only view that keeps working during maintenance. It follows the announcement
+// editor: a revision fence, a replay key and a draft baseline.
+function canonicalStatusNoteDraft(value: unknown): string {
+  // The collapse canonicalStatusNoteMessage applies on the server
+  // (cloudflare/status-note-text.ts, pinned by status-note-text.test.ts), so a
+  // retried change carries the stored text and replays.
+  return String(value ?? '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
+function statusNoteDraftSignature(): string {
+  return JSON.stringify([statusNoteMessageEl?.value || '', statusNoteExpiresEl?.value || '']);
+}
+
+function isMaintenanceViewVisible(): boolean {
+  return document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')?.hidden === false;
+}
+
+function setStatusNoteStatus(text: string): void {
+  if (statusNoteStatusEl) statusNoteStatusEl.textContent = text;
+}
+
+function showStatusNoteState(text: string): void {
+  statusNoteStateText = text;
+  setStatusNoteStatus(text);
+}
+
+function setStatusNoteError(message: string): void {
+  if (!statusNoteErrorEl) return;
+  statusNoteErrorEl.textContent = message;
+  statusNoteErrorEl.hidden = !message;
+}
+
+function clearStatusNoteExpiryTimer(): void {
+  if (statusNoteExpiryTimer !== null) {
+    window.clearTimeout(statusNoteExpiryTimer);
+    statusNoteExpiryTimer = null;
+  }
+}
+
+function scheduleStatusNoteExpiry(expiresAt: AdminTimestamp, onExpire: () => void): void {
+  clearStatusNoteExpiryTimer();
+  const expiryMs = expiresAt ? new Date(expiresAt).getTime() : Number.NaN;
+  if (!Number.isFinite(expiryMs)) return;
+  const check = () => {
+    const remainingMs = expiryMs - Date.now();
+    if (remainingMs > 0) {
+      statusNoteExpiryTimer = window.setTimeout(check, Math.min(remainingMs + 50, 2_147_000_000));
+      return;
+    }
+    statusNoteExpiryTimer = null;
+    onExpire();
+  };
+  check();
+}
+
+function statusNoteStateLabel(note: AdminAnnouncement, active: boolean): string {
+  const expiryMs = note.expiresAt ? new Date(note.expiresAt).getTime() : Number.NaN;
+  const expired = Number.isFinite(expiryMs) && expiryMs <= Date.now();
+  const parts = [
+    active
+      ? 'Shown on the status page'
+      : !note.message
+        ? 'No note'
+        : expired
+          ? 'Expired'
+          : 'Not shown',
+  ];
+  if (note.message && note.expiresAt) {
+    parts.push(`${expired ? 'expired' : 'expires'} ${formatAdminDateTime(note.expiresAt)}`);
+  }
+  if (note.updatedAt) parts.push(`updated ${formatAdminDateTime(note.updatedAt)}`);
+  return parts.join(' - ');
+}
+
+function renderStatusNotePreview(message: string): void {
+  if (!statusNotePreviewEl) return;
+  if (!message) {
+    statusNotePreviewEl.hidden = true;
+    statusNotePreviewEl.replaceChildren();
+    return;
+  }
+  // Text nodes only: the note is operator text, never markup.
+  const source = document.createElement('span');
+  source.textContent = 'musixquare.com/status';
+  const text = document.createElement('p');
+  text.textContent = message;
+  statusNotePreviewEl.replaceChildren(source, text);
+  statusNotePreviewEl.hidden = false;
+}
+
+function renderStatusNoteHistory(payload: AdminApiPayload): void {
+  const history = Array.isArray(payload.history) ? payload.history : [];
+  if (statusNoteHistoryStatusEl) {
+    statusNoteHistoryStatusEl.textContent = history.length
+      ? `${formatter.format(history.length)} ${history.length === 1 ? 'record' : 'records'}`
+      : 'No records';
+  }
+  if (!statusNoteHistoryListEl) return;
+  if (!history.length) {
+    const empty = document.createElement('p');
+    empty.className = 'announcement-history-empty';
+    empty.textContent = 'No status page notes yet.';
+    statusNoteHistoryListEl.replaceChildren(empty);
+    return;
+  }
+  statusNoteHistoryListEl.replaceChildren(
+    ...history.map((entry) => {
+      const action =
+        entry.action === 'published' || entry.action === 'cleared' ? entry.action : 'updated';
+      const item = document.createElement('article');
+      item.className = `announcement-history-item action-${action}`;
+      const meta = document.createElement('div');
+      meta.className = 'announcement-history-meta';
+      const actionEl = document.createElement('strong');
+      actionEl.textContent = action === 'cleared' ? 'Removed' : formatAnnouncementAction(action);
+      const timeEl = document.createElement('span');
+      timeEl.textContent = formatAdminDateTime(entry.updatedAt);
+      meta.append(actionEl, timeEl);
+      if (entry.expiresAt) {
+        const expiresEl = document.createElement('small');
+        expiresEl.textContent = `expires ${formatAdminDateTime(entry.expiresAt)}`;
+        meta.append(expiresEl);
+      }
+      const body = document.createElement('p');
+      body.textContent = entry.message || 'No message';
+      item.append(meta, body);
+      return item;
+    }),
+  );
+}
+
+function renderStatusNote(payload: AdminApiPayload, preserveDraft = false): void {
+  const note = payload.note || {};
+  const message = typeof note.message === 'string' ? note.message : '';
+  const active = isAnnouncementActiveForAdmin(payload, note);
+  statusNoteStoredMessage = message;
+  showStatusNoteState(statusNoteStateLabel(note, active));
+  renderStatusNotePreview(active ? message : '');
+  if (active) {
+    scheduleStatusNoteExpiry(note.expiresAt, () => {
+      // Only the stored note expires: a running change keeps its own feedback.
+      const expired = statusNoteStateLabel(note, false);
+      if (statusNoteStatusEl?.textContent === statusNoteStateText) setStatusNoteStatus(expired);
+      statusNoteStateText = expired;
+      renderStatusNotePreview('');
+    });
+  } else {
+    clearStatusNoteExpiryTimer();
+  }
+  if (!preserveDraft) {
+    if (statusNoteMessageEl) statusNoteMessageEl.value = message;
+    statusNotePersistedExpiresValue = toDatetimeLocalValue(note.expiresAt);
+    statusNotePersistedExpiresAt =
+      statusNotePersistedExpiresValue && note.expiresAt
+        ? new Date(note.expiresAt).toISOString()
+        : null;
+    if (statusNoteExpiresEl) statusNoteExpiresEl.value = statusNotePersistedExpiresValue;
+    statusNoteDraftBaseline = statusNoteDraftSignature();
+  }
+  renderStatusNoteHistory(payload);
+}
+
+function setStatusNoteMutationBusy(busy: boolean): void {
+  statusNoteMutationBusy = busy;
+  for (const control of [
+    statusNoteMessageEl,
+    statusNoteExpiresEl,
+    statusNotePublishBtn,
+    statusNoteClearBtn,
+  ]) {
+    if (control) control.disabled = busy;
+  }
+  if (busy) statusNoteForm?.setAttribute('aria-busy', 'true');
+  else statusNoteForm?.removeAttribute('aria-busy');
+}
+
+function resetStatusNote(): void {
+  statusNoteLoaded = false;
+  currentStatusNoteRevision = null;
+  statusNoteDraftBaseline = null;
+  statusNotePersistedExpiresAt = null;
+  statusNotePersistedExpiresValue = '';
+  statusNoteStoredMessage = '';
+  pendingStatusNoteMutation = null;
+  clearStatusNoteExpiryTimer();
+  setStatusNoteMutationBusy(false);
+  if (statusNoteMessageEl) statusNoteMessageEl.value = '';
+  if (statusNoteExpiresEl) statusNoteExpiresEl.value = '';
+  showStatusNoteState('');
+  setStatusNoteError('');
+  renderStatusNotePreview('');
+  statusNoteHistoryListEl?.replaceChildren();
+  if (statusNoteHistoryStatusEl) statusNoteHistoryStatusEl.textContent = '';
+}
+
+function statusNoteRevision(payload: AdminApiPayload, minimum: number): number {
+  const { revision } = payload;
+  if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < minimum) {
+    throw adminRequestError(
+      'ADMIN_RESPONSE_INVALID',
+      'The server returned an invalid status page note.',
+    );
+  }
+  return revision;
+}
+
+async function loadStatusNote(options: { readonly replaceDraft?: boolean } = {}): Promise<void> {
+  if (!statusNotePanel || statusNoteMutationBusy) return;
+  const initialDraft = statusNoteDraftSignature();
+  // The pre-read form stays the baseline even if the first read fails, so a
+  // later incidental read never treats a preserved draft as clean.
+  statusNoteDraftBaseline ??= initialDraft;
+  if (!options.replaceDraft && initialDraft !== statusNoteDraftBaseline) return;
+  const load = beginLatestAdminLoad('status-note');
+  if (!statusNoteLoaded) setStatusNoteStatus('Loading the note...');
+  try {
+    const payload = await fetchJson('/api/admin/status-note', {
+      signal: load.controller.signal,
+    });
+    throwIfAdminLoadStale(load);
+    const revision = statusNoteRevision(payload, 0);
+    // An incidental read never moves a draft's write fence: a draft typed
+    // while it ran still conflicts if another session changed the note.
+    const preserveDraft = statusNoteDraftSignature() !== initialDraft;
+    if (!preserveDraft) {
+      currentStatusNoteRevision = revision;
+      pendingStatusNoteMutation = null;
+    }
+    renderStatusNote(payload, preserveDraft);
+    statusNoteLoaded = true;
+    setStatusNoteError('');
+  } catch (error) {
+    if (!isLatestAdminLoad(load)) return;
+    setStatusNoteStatus(statusNoteStateText);
+    setStatusNoteError(adminErrorMessage(error, 'The status page note could not be loaded.'));
+  } finally {
+    finishLatestAdminLoad(load);
+  }
+}
+
+async function saveStatusNote({ clear = false }: { readonly clear?: boolean } = {}): Promise<void> {
+  if (!statusNotePanel || statusNoteMutationBusy) return;
+  const expectedRevision = currentStatusNoteRevision;
+  if (expectedRevision === null) {
+    setStatusNoteError('Refresh to load the current note before changing it.');
+    return;
+  }
+  const message = clear ? '' : canonicalStatusNoteDraft(statusNoteMessageEl?.value);
+  if (!message && !clear) {
+    setStatusNoteError('Write a message to publish, or use Remove.');
+    return;
+  }
+  if (clear && !statusNoteStoredMessage) {
+    setStatusNoteError('There is no note to remove.');
+    return;
+  }
+  let expiresAt: string | null = null;
+  if (message) {
+    const expiresValue = String(statusNoteExpiresEl?.value || '').trim();
+    try {
+      expiresAt =
+        expiresValue === statusNotePersistedExpiresValue
+          ? statusNotePersistedExpiresAt
+          : parseAnnouncementExpiresValue(expiresValue);
+    } catch (error) {
+      setStatusNoteError(adminErrorMessage(error, 'Use YYYY-MM-DD HH:MM for Expires.'));
+      return;
+    }
+  }
+  const signature = JSON.stringify({ message, expiresAt, expectedRevision });
+  const mutation: PendingAnnouncementMutation =
+    pendingStatusNoteMutation?.signature === signature
+      ? pendingStatusNoteMutation
+      : { signature, requestId: createAdminRequestId() };
+  // A retry of the same uncertain change keeps its replay key even after its
+  // expiry passes; a new change must expire in the future.
+  if (
+    mutation !== pendingStatusNoteMutation &&
+    expiresAt &&
+    new Date(expiresAt).getTime() <= Date.now()
+  ) {
+    setStatusNoteError('Expires must be in the future.');
+    return;
+  }
+  pendingStatusNoteMutation = mutation;
+  const sessionEpoch = adminSessionEpoch;
+  adminLatestLoads.get('status-note')?.abort();
+  setStatusNoteMutationBusy(true);
+  setStatusNoteError('');
+  setStatusNoteStatus(clear ? 'Removing...' : 'Publishing...');
+  try {
+    const payload = await fetchJson('/api/admin/status-note', {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        expiresAt,
+        expectedRevision,
+        requestId: mutation.requestId,
+      }),
+    });
+    currentStatusNoteRevision = statusNoteRevision(payload, 1);
+    if (pendingStatusNoteMutation === mutation) pendingStatusNoteMutation = null;
+    renderStatusNote(payload);
+    statusNoteLoaded = true;
+  } catch (error) {
+    if (sessionEpoch !== adminSessionEpoch) {
+      setStatusNoteStatus(statusNoteStateText);
+      return;
+    }
+    const failure = isAdminRequestFailure(error) ? error : null;
+    const conflict = failure?.message === 'STATUS_NOTE_CONFLICT' ? failure.payload : undefined;
+    const conflictRevision = conflict?.revision;
+    if (
+      conflict &&
+      typeof conflictRevision === 'number' &&
+      Number.isSafeInteger(conflictRevision) &&
+      conflictRevision >= expectedRevision
+    ) {
+      // Another session changed the note: show it and fence the next change on it.
+      currentStatusNoteRevision = conflictRevision;
+      if (pendingStatusNoteMutation === mutation) pendingStatusNoteMutation = null;
+      renderStatusNote(conflict);
+      statusNoteLoaded = true;
+    } else {
+      // A refusal is final. A 5xx answer or none at all (a timeout or a network
+      // failure) may hide a stored change, so the same retry keeps its key.
+      const status = failure?.status;
+      if (typeof status === 'number' && status < 500 && pendingStatusNoteMutation === mutation) {
+        pendingStatusNoteMutation = null;
+      }
+      setStatusNoteStatus(statusNoteStateText);
+    }
+    setStatusNoteError(
+      adminErrorMessage(error, clear ? 'The note was not removed.' : 'The note was not published.'),
+    );
+  } finally {
+    setStatusNoteMutationBusy(false);
+  }
+}
+
 async function loadAuthenticatedDashboard({
   activateAnalytics = true,
 }: { readonly activateAnalytics?: boolean } = {}): Promise<ServiceStatusState | null> {
@@ -6585,11 +6973,21 @@ async function loadAuthenticatedDashboard({
 
 async function refreshAllDashboardData({
   replaceAnnouncementDraft,
-}: { readonly replaceAnnouncementDraft?: string | undefined } = {}): Promise<void> {
+  replaceStatusNoteDraft,
+}: {
+  readonly replaceAnnouncementDraft?: string | undefined;
+  readonly replaceStatusNoteDraft?: string | undefined;
+} = {}): Promise<void> {
   const refreshEpoch = adminSessionEpoch;
-  if (document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')?.hidden === false) {
+  if (isMaintenanceViewVisible()) {
     loadServiceStatusHistory().catch(() => {});
     loadAppBuildFloor().catch(() => {});
+    // Like the announcement, consent covers only the draft shown at the click.
+    loadStatusNote({
+      replaceDraft:
+        replaceStatusNoteDraft !== undefined &&
+        replaceStatusNoteDraft === statusNoteDraftSignature(),
+    }).catch(reportUnexpectedAdminActionFailure);
   }
   // Refresh data without replaying the tab selected before the requests began.
   if (serviceStatusTrigger) {
@@ -6738,7 +7136,16 @@ refreshBtn?.addEventListener('click', () => {
     window.confirm('Discard your unsaved announcement changes and load the current announcement?')
       ? draft
       : undefined;
-  refreshAllDashboardData({ replaceAnnouncementDraft }).catch((error) => {
+  // Refresh reloads the status page note only while the Maintenance view shows.
+  const statusNoteDraft = statusNoteDraftSignature();
+  const replaceStatusNoteDraft =
+    isMaintenanceViewVisible() &&
+    statusNoteDraftBaseline !== null &&
+    statusNoteDraft !== statusNoteDraftBaseline &&
+    window.confirm('Discard your unsaved status page note and load the current note?')
+      ? statusNoteDraft
+      : undefined;
+  refreshAllDashboardData({ replaceAnnouncementDraft, replaceStatusNoteDraft }).catch((error) => {
     if (updatedAtEl) updatedAtEl.textContent = adminErrorMessage(error, 'Refresh failed.');
   });
 });
@@ -6751,6 +7158,7 @@ adminTabs.forEach((button) => {
       loadServiceStatusHistory().catch(() => {});
       loadServiceStatus({ updateTimestamp: false }).catch(() => {});
       loadAppBuildFloor().catch(() => {});
+      loadStatusNote().catch(reportUnexpectedAdminActionFailure);
     }
     if (tab === 'pro-rooms' && !proRoomsLoaded) {
       loadProRooms().catch((error) => {
@@ -6988,6 +7396,7 @@ window.addEventListener('pagehide', () => {
   invalidateAdminSession();
   if (proRoomSearchTimer !== null) window.clearTimeout(proRoomSearchTimer);
   clearAnnouncementExpiryTimer();
+  clearStatusNoteExpiryTimer();
   clearServiceStatusSettleTimer();
   closeProRoomDestroyDialog({ restoreFocus: false });
   closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
@@ -7009,6 +7418,7 @@ window.addEventListener('beforeunload', (event) => {
     return;
   }
   clearAnnouncementExpiryTimer();
+  clearStatusNoteExpiryTimer();
   clearServiceStatusSettleTimer();
   closeProRoomDestroyDialog({ restoreFocus: false });
   closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
@@ -7029,6 +7439,15 @@ announcementClearBtn?.addEventListener('click', () => {
     if (announcementStatusEl)
       announcementStatusEl.textContent = adminErrorMessage(error, 'Clear failed.');
   });
+});
+
+statusNoteForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveStatusNote().catch(reportUnexpectedAdminActionFailure);
+});
+
+statusNoteClearBtn?.addEventListener('click', () => {
+  saveStatusNote({ clear: true }).catch(reportUnexpectedAdminActionFailure);
 });
 
 addAsyncAdminEventListener(logoutBtn, 'click', async () => {

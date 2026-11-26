@@ -64,6 +64,7 @@ describe('tooling reproducibility contracts', () => {
         'scripts/live-remote-share-smoke.ts',
         'scripts/locale-recovery-assets.ts',
         'scripts/service-worker-asset.ts',
+        'scripts/status-browser-monitor.ts',
         'scripts/translation-catalog-assets.ts',
         'scripts/translation-catalog.ts',
         'scripts/ui-kit-asset.ts',
@@ -106,11 +107,12 @@ describe('tooling reproducibility contracts', () => {
     const schema = readFileSync('cloudflare/admin-metrics.schema.sql', 'utf8');
     const tableCount = schema.match(/^CREATE TABLE IF NOT EXISTS\b/gmu)?.length ?? 0;
 
-    expect(tableCount).toBe(22);
+    expect(tableCount).toBe(23);
     for (const table of [
       'mxqr_soro_article_visibility',
       'mxqr_pro_room_owner_transfer_intent_admissions',
       'mxqr_pro_room_retirement_cursor',
+      'mxqr_status_checks',
     ]) {
       expect(schema).toContain(`CREATE TABLE IF NOT EXISTS ${table} (`);
       expect(readFileSync('cloudflare/admin-dashboard-ops.md', 'utf8')).toContain(`\`${table}\``);
@@ -124,6 +126,23 @@ describe('tooling reproducibility contracts', () => {
         new RegExp(`\\b${tableCount} application tables\\b`, 'u'),
       );
     }
+  });
+
+  it('documents every PRO registry log event the App Worker emits', () => {
+    const appWorker = readFileSync('cloudflare/app-worker.ts', 'utf8');
+    const events = [
+      ...new Set(
+        [...appWorker.matchAll(/event: '(admin_pro_room_registry_[a-z_]+)'/gu)].map(
+          (match) => match[1],
+        ),
+      ),
+    ].sort();
+    expect(events).toEqual([
+      'admin_pro_room_registry_schema_ensure',
+      'admin_pro_room_registry_shared_check_rejected',
+    ]);
+    const runbook = readFileSync('cloudflare/admin-dashboard-ops.md', 'utf8');
+    for (const event of events) expect(runbook, event).toContain(`\`${event}\``);
   });
 
   it('runs the report viewer from the exact lockfile dependency', () => {

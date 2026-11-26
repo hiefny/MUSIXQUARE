@@ -96,6 +96,27 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.845 / v845 train: public `/status` page with 15-minute room, PRO and browser checks, three-column sitemap, Status footer links, admin status note, and the admin PRO registry fix (2026-11-26)](design/app-9-0-845-train-2026-11-26.md):
+  before deploy, awaiting PR CI on `agent/status-page` over main `b92c1083` (#645, 9.0.844 release record). Adds the
+  English document page `/status` (four rows: Website and app, Creating and joining rooms, Device connections and PRO
+  rooms, each with a 24-hour bar of 96 fifteen-minute checks; Problem after two failed checks in a row, Not checked
+  after 30 minutes without a finished check) and its public `GET /api/status`; a third App cron (`0,15,30,45 * * * *`)
+  that opens a test room over the internal signaling bridge and reads PRO canary `000000` without changing it; the
+  GitHub workflow `status-monitor.yml` (`7,22,37,52 * * * *`) that opens the live site and connects two browsers,
+  reporting through GitHub OIDC with no stored secret; the forward-only admin D1 table `mxqr_status_checks` (48 hours,
+  registry RO-57); a binding-only signaling claim so that monitor rooms record `status_probe_*` events and stay out of
+  the `/about` room count; an English status note in the admin Maintenance view; the three-column HTML sitemap and
+  Status in nine static public footers and the Worker-rendered blog article footer; and the fix for admin PRO pages
+  stuck on `PRO_ROOM_REGISTRY_UNAVAILABLE` after a cancelled first load, with the same guard in the served App build
+  read and the GitHub OIDC key-set download. Target `all` (changed runtime paths: App 36, PRO room 3, signaling 2, and
+  remote-share, Developer API facade and Developer API 1 each through the shared `cloudflare/service-maintenance.ts`),
+  one update dialog, App build floor stays 795; open Standard rooms reconnect once. Local verification at `1cc67be4`:
+  source/architecture/worker guards (`OK: 52 registry records, 474 production files`), `typecheck`, `lint`,
+  `format:check`, the full unit suite (821 files, 20,251 passed, 1 skipped), Worker coverage (functions 94.58%), the
+  production build and guards, the deploy-scope check (target `app`, `pro-room` and `signaling` refused), 29
+  Chromium E2E specs (374 passed, 3 skipped), the WebKit lane (239 passed, 24 skipped), the WebKit service-worker smoke
+  (1 passed), the `candidate` lane (20 passed, 11 skipped), the critical paths (101 passed) and the local workerd and
+  Edge rehearsals of the claim, the bridge path, the cron rooms check and the monitor's frame hold.
 - [App 9.0.844 / v844 train: clickable boot splash preview under Design System Loading states and standalone full-screen `/designsystem/loading` page (2026-11-26)](design/app-9-0-844-train-2026-11-26.md):
   released on 2026-11-26 03:33 KST in Release 45676025961 (PR #644, squash `92d87503`, exact-main CI 45673507783
   attempt 3 after transient npm attestation `"OK"` responses on attempts 1–2; Release used attempt 1's candidate

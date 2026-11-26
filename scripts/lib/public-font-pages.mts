@@ -380,6 +380,13 @@ export const PUBLIC_FONT_PAGES: readonly PublicFontPage[] = [
     htmlLangs: ['en'],
   },
   {
+    html: '.workshop/status/status.html',
+    dist: 'status.html',
+    rest: 'body',
+    sheets: [DOCUMENT, '.workshop/status/status.css'],
+    htmlLangs: ['en'],
+  },
+  {
     html: 'public/blog/index.html',
     dist: 'blog/index.html',
     rest: 'body',

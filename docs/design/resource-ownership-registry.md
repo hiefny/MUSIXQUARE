@@ -1,12 +1,12 @@
 # Resource Ownership Registry
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Maintained contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Last source review | 2026-11-21 (RO-56 added and RO-27's custom scrollbar flows re-checked against `main` `884015a0`, App 9.0.833, with the hold of a pressed custom scrollbar on its scroller); 2026-11-18 (RO-21 re-checked and extended against `main` `eae02e897`, App 9.0.830: the hold for this device's own PRO share, its requesters and anchor tests); 2026-11-11 (the names RO-01, RO-10 and RO-36 cite re-checked against the App 9.0.44 / v819 train's code after the audio recovery owner's rename, branched from `main` `c4a3d6f0`: every cited identifier exists, no owner or flow changed); 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1) |
-| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | Maintained contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Last source review | 2026-11-26 (RO-57 added against the App 9.0.845 / v845 train's code, branched from `main` `b92c1083`: the public status check ledger, its two writers and its reader, and the status probe claim on the signaling room object); 2026-11-21 (RO-56 added and RO-27's custom scrollbar flows re-checked against `main` `884015a0`, App 9.0.833, with the hold of a pressed custom scrollbar on its scroller); 2026-11-18 (RO-21 re-checked and extended against `main` `eae02e897`, App 9.0.830: the hold for this device's own PRO share, its requesters and anchor tests); 2026-11-11 (the names RO-01, RO-10 and RO-36 cite re-checked against the App 9.0.44 / v819 train's code after the audio recovery owner's rename, branched from `main` `c4a3d6f0`: every cited identifier exists, no owner or flow changed); 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1) |
+| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 This registry names one owner for each shared runtime resource and records where that is not
 yet true. A 2026-10-22 survey of `1bd9cd6f` found 9 resources where the same protocol is
@@ -147,6 +147,7 @@ each record also states the step in words.
 | RO-54 | Sign-in completion window text wait                   | UI             | accepted-exception | None (by design)               |
 | RO-55 | Boot splash wordmark and loader                       | UI             | accepted-exception | None (by design)               |
 | RO-56 | Custom-scroll container user scrolling                | UI             | accepted-exception | None (by design)               |
+| RO-57 | Public status check ledger                            | Workers        | owner-in-place     | None                           |
 
 ## Machine-readable ID list
 
@@ -215,6 +216,7 @@ RO-53 owner-in-place
 RO-54 accepted-exception
 RO-55 accepted-exception
 RO-56 accepted-exception
+RO-57 owner-in-place
 ```
 
 ## Resource records
@@ -4381,7 +4383,10 @@ entry needs the owner's acceptance and is not implied by this registry.
   (one isolate cache, fail-open), the public status (`APP_BUILD_FLOOR_PUBLIC_STATUS_PATH`) and the
   page's client read (`APP_BUILD_FLOOR_CLIENT_PATH`). The client read publishes 0 unless the floor
   was read live, keeps a live value in the colo's edge cache, and clamps the answer to the build
-  its own assets serve on every request. The edge cache is a reader's cache with one lifetime,
+  its own assets serve on every request. That served build (`readServedAppBuild`, which the
+  status cron of RO-57 also reads) is kept per isolate and assets binding once read; callers
+  share a read that is still running, and one that finds it rejected because the request that
+  started it ended drops it and reads again. The edge cache is a reader's cache with one lifetime,
   not a writer. A setter's or reporter's answer refreshes its own isolate's cached view. Since
   forced update Inc 7 the client read's one product caller is the page's start and resume check
   (RO-22), at most two reads per page per minute.
@@ -4414,11 +4419,17 @@ entry needs the owner's acceptance and is not implied by this registry.
   - Teardown: `app-build-floor-app-worker.test.ts` "publishes 0 while the floor is off or once the
     live report is stale" and "publishes 0 for an object without the floor routes, no binding or
     a failed read"; `src/core/__tests__/service-maintenance.test.ts` "keeps the last canonical
-    floor as stale when a later read fails, and 0 before any".
+    floor as stale when a later read fails, and 0 before any";
+    `src/core/__tests__/served-app-build-request-lifetime.test.ts` "lets the status cron that
+    comes next, and every later caller, read again after the first read is cancelled" and
+    "recovers a caller that was awaiting the shared read when its creator was cancelled".
   - Visibility: n/a.
   - Setters: `src/core/__tests__/app-build-floor-ops.test.ts` (the abuse limit before any token
     parse or key fetch, each pinned claim, `set` above the live build refused, `lower` refusing a
-    raise) and the admin rows of `app-build-floor-app-worker.test.ts`.
+    raise) and the admin rows of `app-build-floor-app-worker.test.ts`. The verifier's key-set
+    download, which a cancelled request must not strand for the isolate:
+    `src/core/__tests__/github-actions-oidc-request-lifetime.test.ts` "answers 503, not a thrown
+    error, after a forged report is cancelled mid-download in a cold isolate".
 - **Status:** `owner-in-place`. Added with forced update Inc 3 (train 9.0.14), when the cron
   report became a second machine on the floor beside the setters.
 
@@ -5036,6 +5047,178 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Revisit when:** a third machine needs to stop user scrolling, either machine moves onto the
   other's channel, or any code writes an inline `!important` overflow on a custom-scroll container,
   which would outrank the hold.
+
+### RO-57 Public status check ledger
+
+- **Resource:** the status check ledger, the `mxqr_status_checks` table in the admin metrics D1
+  database (`cloudflare/admin-metrics.status-checks.migration.sql`, also at the end of the schema
+  baseline): one row per status row (`website`, `rooms`, `connection`, `pro`) and 15-minute
+  slot, with the result (`o` passed, `p` failed, `m` during maintenance; a slot without a row
+  reads `n` and is never stored), its reason, `checked_at`, the source (`cron` or `browser`) and
+  the GitHub run id; and the public `/api/status` answer derived from it, which the `/status`
+  page (`browser/classic-runtime/status-page.ts`) polls. Public status page, App 9.0.845.
+- **Current owners/flows:** `recordStatusChecks` and `pruneStatusChecks` in
+  `cloudflare/status-store.ts` are the single writer. The upsert keeps the newer `checked_at` of
+  two results for one slot inside the statement, so a late cron run, a browser report and a run
+  delivered again converge in any order, and every row is checked against
+  `cloudflare/status-contract.ts` before it is bound and again when it is read back. Two
+  machines write through it, each its own rows (`STATUS_COMPONENT_SCHEDULE`) in its own slots
+  (`statusSlotAt`):
+  - the App cron: `scheduled()` in `cloudflare/app-worker.ts` awaits `runStatusServerChecks`
+    (`cloudflare/status-checks.ts`) on exactly `STATUS_SERVER_CRON`, after the maintenance read
+    and before the maintenance return, with the helpers `statusServerCheckDeps` passes in. It
+    checks `rooms` with two internal signaling bridge sessions through the release smoke's
+    sequence, on a room code it claimed first, and `pro` with a read-only bootstrap of the
+    built-in canary room through the PRO front door. It records each row as soon as its check
+    finishes, then prunes rows older than `STATUS_RESULT_RETENTION_MS`. While maintenance is on
+    (enabled, and the control plane answered) it records both rows as `m` in one write, prunes,
+    and claims, opens and reads nothing; a control-plane outage runs the checks. Without the
+    admin database it does nothing;
+  - the browser monitor's report: `.github/workflows/status-monitor.yml` runs
+    `scripts/status-browser-monitor.ts` on `STATUS_BROWSER_CRON`, and the script posts its
+    `website` and `connection` results to `handleStatusReport` (`cloudflare/status-ops.ts`, on
+    `STATUS_REPORT_PATH`) with a GitHub Actions OIDC token that `STATUS_REPORT_POLICY` pins to
+    that workflow on main, without an environment claim. The route records in the browser slot
+    the run started in, with `checked_at` from the App Worker's clock, records both rows as `m`
+    while maintenance is active, and records no row for a skipped check. The App binds it to
+    `recordStatusReport`, which rejects without the ledger, so the route answers 503.
+
+  The reader is `handleStatusApi` (`cloudflare/status-api.ts`). It reads the retained rows
+  through `readStatusChecks`, the maintenance state itself (the route is on the maintenance
+  bypass, which skips the gate's refresh) and the status note, and builds the answer with
+  `buildStatusPayload` (`cloudflare/status-payload.ts`), which decides from its `nowMs` which
+  slots show, when a row has a problem and when it reads Not checked; no writer stores `n` marks
+  or failure counts. The colo edge cache keeps an answer for `STATUS_EDGE_CACHE_TTL_S` when all
+  three reads succeeded, and for `STATUS_EDGE_CACHE_DEGRADED_TTL_S` otherwise, never over a body
+  already cached; it is a reader's cache, not a writer. The note has its own single
+  writer (`handleAdminStatusNote` through `updateStatusNoteControl`, on its own named
+  service-control object, `STATUS_NOTE_CONTROL_OBJECT_NAME`, with its expiry checked when read)
+  and needs no record.
+
+  The rooms checks open real Standard rooms. The signaling room object (`MusixquareRoom` in
+  `cloudflare/signaling-worker.ts`) is the single owner of the status probe claim and flag that
+  keep those rooms out of the public room count. `handleInternalStatusProbeClaim`, on the
+  binding-only route `STATUS_PROBE_CLAIM_INTERNAL_PATH`, stores a claim inside the Standard
+  admission queue and only for an idle room: it first ends an epoch whose reclaim grace has
+  passed, then refuses a room with a secret (live or in its reclaim grace), with a live or
+  pending host, or in quarantine. `consumeStatusProbeClaim`, which `completeHostAccept` calls for
+  a new room, turns a valid claim into the epoch's probe flag and drops an expired or malformed
+  one; `completeGuestAccept` reads the flag, and `clearRoomMeta` deletes it with the epoch. A
+  probe room records `status_probe_room_opened` and `status_probe_guest_joined` instead of the
+  counted `room_opened` and `guest_joined`, and no `standard_room_expired`. The claim and the
+  flag have their own storage keys, so `RoomMeta` keeps its exact keys; an older signaling Worker
+  ignores those keys and answers the claim with 404, and then no check opens a room. Requesters
+  go through `claimStatusProbeRoom` (`cloudflare/status-probe-claim.ts`), which the App binds in
+  `claimStatusProbe` for the cron and for the monitor's claim route `handleStatusClaim`
+  (`STATUS_CLAIM_PATH`, behind the maintenance gate). The monitor's `ClaimGate`
+  (`scripts/lib/status-browser-monitor-lib.mts`) holds every host transport of its test room
+  until that route granted the code.
+
+- **Target single owner:** reached. A new writer goes through `recordStatusChecks`, and retention
+  through `pruneStatusChecks`; nothing else writes the table. A new claim goes through
+  `claimStatusProbeRoom`.
+- **Allowed requesters:** writes from `runStatusServerChecks` (bound in `statusServerCheckDeps`)
+  and `handleStatusReport` (bound to `recordStatusReport`), both in `cloudflare/app-worker.ts`;
+  the prune only from the cron; reads through `handleStatusApi` (bound in `statusApiDeps`).
+  Readers of the answer: the `/status` page and the monitor's preflight
+  (`classifyStatusPreflight`): without an answer of schema `STATUS_SCHEMA_VERSION` the monitor
+  opens no browser, and during maintenance it only reports maintenance. Beside that read the
+  preflight reads the App build production serves; while it differs from the checkout's
+  (`compareServedAppBuild`), the monitor reports a failed check as skipped
+  (`resultForServedBuild`), since its checks follow main's App. Claims from the cron's rooms
+  check and from `handleStatusClaim`.
+- **Lifecycle operations:** record a result in its slot (the newer `checked_at` wins), mark
+  maintenance, prune at 48 hours, read the retained window, derive each row's state when read;
+  claim a code, consume a claim into the epoch's flag, drop an expired or malformed claim, clear
+  the flag with the epoch.
+- **Deadline owner:** none of its own: a row turns stale when it is read. `runStatusServerChecks`
+  owns one deadline per cron run, `STATUS_ROOMS_CHECK_DEADLINE_MS` from its start, which every
+  awaited step races; a check it cuts records no row. The App hands each bridge close of the
+  status cron to `ctx.waitUntil`, so a close the deadline no longer awaits still reaches the
+  bridge, whose lease is the backstop. The browser job is bounded by its `timeout-minutes`
+  (`STATUS_BROWSER_JOB_TIMEOUT_MINUTES`) and each claim by `STATUS_BROWSER_CLAIM_TIMEOUT_MS`; the
+  report route refuses a run that started more than `STATUS_REPORT_MAX_AGE_MS` before its clock
+  or more than `STATUS_REPORT_MAX_FUTURE_SKEW_MS` after it. The reader, `handleStatusApi`, owns
+  the deadline of its ledger read: it races `readStatusChecks` against
+  `STATUS_API_READ_TIMEOUT_MS`, clears that timer on every path and drops a read that ends
+  later; a read still running at the bound counts as failed (every row `results_unavailable`).
+  Its maintenance and note reads are service-control calls, each bounded by
+  `SERVICE_CONTROL_READ_TIMEOUT_MS` in `cloudflare/service-maintenance.ts` (the maintenance read
+  makes at most two), so the answer comes before the page's own fetch timeout
+  (`STATUS_FETCH_TIMEOUT_MS` in `status-page.ts`) ends. The report route's write has no bound of
+  its own beyond D1's, and an answer built around a failed read is cached only for
+  `STATUS_EDGE_CACHE_DEGRADED_TTL_S`. The probe claim and flag have no timer or alarm: their
+  expiry is checked when they are read.
+- **Timing-constant home:** `cloudflare/status-contract.ts`: the schedule
+  (`STATUS_CHECK_INTERVAL_MINUTES`, `STATUS_SERVER_CHECK_MINUTES`, `STATUS_BROWSER_CHECK_MINUTES`,
+  `STATUS_SERVER_CRON`, `STATUS_BROWSER_CRON` and `statusSlotAt`), the result policy
+  (`STATUS_PROBLEM_AFTER_FAILURES`, `STATUS_STALE_AFTER_MINUTES`, `STATUS_RECENT_SLOTS`),
+  `STATUS_RESULT_RETENTION_MS`, `STATUS_EDGE_CACHE_TTL_S`, `STATUS_EDGE_CACHE_DEGRADED_TTL_S`, the
+  reader's ledger read bound `STATUS_API_READ_TIMEOUT_MS` (5 s), the report window and the
+  budgets of the server checks and the browser job. Beside the code they bound: the bridge call
+  bounds `STANDARD_SIGNALING_BRIDGE_CALL_TIMEOUT_MS` (5 s) and
+  `STANDARD_SIGNALING_BRIDGE_POLL_TIMEOUT_MS` (18 s) in `cloudflare/app-worker.ts`, shared with
+  the public bridge route; the claim and flag lifetimes `STATUS_PROBE_CLAIM_TTL_MS` (120 s) and
+  `STATUS_PROBE_ROOM_TTL_MS` (30 min) in `cloudflare/signaling-worker.ts`; the monitor's own
+  `STATUS_MONITOR_REQUEST_TIMEOUT_MS`, `STATUS_MONITOR_REPORT_RETRY_DELAY_MS`,
+  `STATUS_MONITOR_CONNECTION_BUDGET_MS`, `STATUS_MONITOR_DIALOG_WAIT_MS`, the chat step's
+  `STATUS_MONITOR_CHAT_SEND_ATTEMPTS` and `STATUS_MONITOR_CHAT_RESEND_AFTER_MS`, and
+  `STATUS_MONITOR_TOKEN_REFRESH_MARGIN_MS` in `scripts/lib/status-browser-monitor-lib.mts`; the
+  bound of every service-control call, `SERVICE_CONTROL_READ_TIMEOUT_MS` (2 s), in
+  `cloudflare/service-maintenance.ts`; the page's own refresh and fetch timeout
+  (`STATUS_FETCH_TIMEOUT_MS`, 15 s) in `status-page.ts`. Copies that cannot import the
+  contract are pinned by `src/core/__tests__/status-policy-parity.test.ts`: "keeps the App cron
+  trigger and the monitor workflow on the contract schedule" (the cron in
+  `cloudflare/wrangler.app.toml`, the workflow cron and job timeout), "keeps the page runtime and
+  the dev server fixture route on the contract and the API" (the page's path, schema, slot
+  count, rows, states and marks, against what `buildStatusPayload` sends), "keeps the page copy
+  and the share card on the contract policy" (`.workshop/status/status.html` and the
+  `og-status.png` tagline), "keeps every page fixture on the contract policy and the API shape"
+  (`e2e/fixtures/status/`, with the API's UTC times in `toISOString` form) and "keeps
+  signaling's claim route and status probe events on the contract and the admin metrics". The
+  same suite pins the monitor's report and claim bodies to `cloudflare/status-ops.ts` ("keeps the
+  browser monitor's report and claim bodies on the ops routes' wire contract"), the order
+  between the contract's budgets and the bridge, claim and flag bounds ("fits the rooms check
+  inside the bridge bounds and the probe claim and flag lifetimes"), and the reader's bounds
+  below the page's fetch timeout ("bounds every read behind /api/status below the page's fetch
+  timeout": `STATUS_API_READ_TIMEOUT_MS` and two `SERVICE_CONTROL_READ_TIMEOUT_MS` calls).
+  `src/core/__tests__/status-browser-monitor.test.ts` pins the chat step's values ("fits every
+  send and its wait in one step, apart by more than the App double-send guard"): the attempts
+  times the resend wait within `STATUS_BROWSER_STEP_TIMEOUT_MS`, the resend wait above the
+  double-send guard of `sendChatMessage` (`src/ui/chat.ts`), and the attempts within the host's
+  `CHAT_RATE_BURST` (`src/chat/protocol.ts`).
+- **Anchor tests:**
+  - Supersession: `src/core/__tests__/status-store-sqlite.test.ts` "keeps the newest checked_at
+    for a slot in every arrival order".
+  - User pause/stop: n/a (server). Maintenance is the operator's pause:
+    `src/core/__tests__/status-checks.test.ts` "marks both rows maintenance and claims, opens and
+    reads nothing while maintenance is %s", `src/core/__tests__/status-worker-routes.test.ts`
+    "records maintenance marks and claims, opens and reads nothing while maintenance is on" and
+    `src/core/__tests__/status-ops.test.ts` "records maintenance marks for both rows while
+    maintenance is %s".
+  - Teardown: `src/core/__tests__/status-payload.test.ts` "turns a row stale once its newest
+    passed or failed check is older than 30 minutes"; `status-checks.test.ts` "settles by the
+    deadline when every dependency hangs, and an interrupted check records no row";
+    `src/core/__tests__/status-api.test.ts` "answers results_unavailable at the bound when the
+    ledger read hangs, and caches it only briefly" and "drops a ledger read that %s after the
+    bound";
+    `status-store-sqlite.test.ts` "prunes rows before the boundary and keeps the boundary slot";
+    for the flag, `src/network/transport/__tests__/cloudflare-signaling-worker.test.ts` "skips
+    the expiry of a status probe room at its %s and counts the next real room".
+  - Visibility: n/a for the server; the page's aging in `src/core/__tests__/status-page.test.ts`
+    "ages an open page toward not checked and never back to normal".
+  - Interleaving, with the real sibling: `status-worker-routes.test.ts` "interleaves cron results
+    and browser reports, keeping the newest result of each slot" (the real cron and report route
+    on one ledger, with a write held on each side).
+  - Never counted: `cloudflare-signaling-worker.test.ts` "records a pre-claimed room and its guest
+    as status probe events, never as counted ones" and "refuses a status probe claim while a
+    host is pending, live or in its reclaim grace";
+    `src/core/__tests__/lifetime-room-metrics-sqlite.test.ts` "keeps status probe rooms and
+    guests out of the lifetime totals and daily increments";
+    `src/core/__tests__/status-browser-monitor.test.ts` "holds a host socket, with no server
+    connection, until the claim answers".
+- **Status:** `owner-in-place`. Added with App 9.0.845 / v845, when the browser monitor's report
+  route became a second writer on the ledger beside the App cron.
 
 ## Checked side flows without a record
 

@@ -132,16 +132,18 @@ describe('local E2E report contract', () => {
         ]),
       );
     };
-    const browserJobs = [
-      ...[...jobsOf('.github/workflows/ci.yml')].map(([name, job]) => [`ci.yml ${name}`, job]),
-      ...[...jobsOf('.github/workflows/e2e.yml')].map(([name, job]) => [`e2e.yml ${name}`, job]),
-    ].filter(([, job]) => job.includes('npx playwright install'));
+    const browserJobs = ['ci.yml', 'e2e.yml', 'status-monitor.yml']
+      .flatMap((file) =>
+        [...jobsOf(`.github/workflows/${file}`)].map(([name, job]) => [`${file} ${name}`, job]),
+      )
+      .filter(([, job]) => job.includes('npx playwright install'));
 
     expect(browserJobs.map(([name]) => name)).toEqual([
       'ci.yml browser-gate',
       'e2e.yml e2e',
       'e2e.yml webkit-mobile',
       'e2e.yml production-large-room',
+      'status-monitor.yml probe',
     ]);
     for (const [name, job] of browserJobs) {
       const image = job.match(

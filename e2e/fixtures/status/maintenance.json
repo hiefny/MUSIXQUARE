@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-26T06:04:20.000Z",
+  "timeZone": "UTC",
+  "policy": {
+    "checkIntervalMinutes": 15,
+    "problemAfterFailures": 2,
+    "staleAfterMinutes": 30,
+    "recentSlots": 96,
+    "schedule": {
+      "server": [0, 15, 30, 45],
+      "browser": [7, 22, 37, 52]
+    }
+  },
+  "overall": {
+    "state": "maintenance",
+    "reason": "maintenance",
+    "lastCheckedAt": "2026-11-26T05:45:06.000Z",
+    "since": "2026-11-26T05:52:03.000Z"
+  },
+  "maintenance": {
+    "active": true,
+    "since": "2026-11-26T05:52:03.000Z"
+  },
+  "announcement": {
+    "id": "demo-maintenance",
+    "message": "We're updating our servers. This should take about 30 minutes.",
+    "postedAt": "2026-11-26T05:50:05.000Z",
+    "expiresAt": "2026-11-26T06:30:00.000Z"
+  },
+  "components": [
+    {
+      "id": "website",
+      "state": "maintenance",
+      "reason": "maintenance",
+      "lastCheckedAt": "2026-11-26T05:37:41.000Z",
+      "lastOkAt": "2026-11-26T05:37:41.000Z",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T05:52:00.000Z",
+        "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooom"
+      }
+    },
+    {
+      "id": "rooms",
+      "state": "maintenance",
+      "reason": "maintenance",
+      "lastCheckedAt": "2026-11-26T05:45:06.000Z",
+      "lastOkAt": "2026-11-26T05:45:06.000Z",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T06:00:00.000Z",
+        "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooom"
+      }
+    },
+    {
+      "id": "connection",
+      "state": "maintenance",
+      "reason": "maintenance",
+      "lastCheckedAt": "2026-11-26T05:37:41.000Z",
+      "lastOkAt": "2026-11-26T05:37:41.000Z",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T05:52:00.000Z",
+        "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooom"
+      }
+    },
+    {
+      "id": "pro",
+      "state": "maintenance",
+      "reason": "maintenance",
+      "lastCheckedAt": "2026-11-26T05:45:06.000Z",
+      "lastOkAt": "2026-11-26T05:45:06.000Z",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T06:00:00.000Z",
+        "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooom"
+      }
+    }
+  ]
+}

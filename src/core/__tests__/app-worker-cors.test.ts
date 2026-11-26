@@ -1252,10 +1252,13 @@ describe('app worker bulk-test harness', () => {
   });
 });
 
-function createAdminRegistryTelemetryDb(options: { failFirstRun?: boolean } = {}) {
+function createAdminRegistryTelemetryDb(
+  options: { failFirstRun?: boolean; failedRuns?: number; failureMessage?: string } = {},
+) {
   const database = new sqlite.DatabaseSync(':memory:');
   centralEntitlementDatabases.add(database);
-  let failFirstRun = options.failFirstRun === true;
+  // The first failedRuns run() calls throw, whichever check issues them.
+  let failedRuns = options.failedRuns ?? (options.failFirstRun === true ? 1 : 0);
 
   const observeFailure = (statement: CentralEntitlementStatement) => ({
     bind(...values: CentralSqlValue[]) {
@@ -1264,9 +1267,9 @@ function createAdminRegistryTelemetryDb(options: { failFirstRun?: boolean } = {}
     all: () => statement.all(),
     first: () => statement.first(),
     async run() {
-      if (failFirstRun) {
-        failFirstRun = false;
-        throw new Error('synthetic registry initialization failure');
+      if (failedRuns > 0) {
+        failedRuns -= 1;
+        throw new Error(options.failureMessage ?? 'synthetic registry initialization failure');
       }
       return statement.run();
     },
@@ -1280,8 +1283,21 @@ function createAdminRegistryTelemetryDb(options: { failFirstRun?: boolean } = {}
 }
 
 describe('Cloudflare app Worker admin registry schema telemetry', () => {
-  it('records one aggregate, identifier-free event for concurrent successful initialization', async () => {
+  const logSpies: Array<{ mockRestore(): void }> = [];
+  afterEach(() => {
+    for (const spy of logSpies.splice(0)) spy.mockRestore();
+  });
+  // Silences and records the registry's console events for one test, and is
+  // restored even when an assertion fails.
+  function captureRegistryLogs() {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    logSpies.push(info, warn);
+    return { info, warn };
+  }
+
+  it('records one aggregate, identifier-free event for concurrent successful initialization', async () => {
+    const { info, warn } = captureRegistryLogs();
     const db = createAdminRegistryTelemetryDb();
 
     await expect(
@@ -1289,6 +1305,8 @@ describe('Cloudflare app Worker admin registry schema telemetry', () => {
     ).resolves.toEqual([true, true]);
     await expect(ensureAdminProRoomRegistryForTests(db)).resolves.toBe(true);
 
+    // One shared run: the concurrent caller awaited it and saw no rejection.
+    expect(warn).not.toHaveBeenCalled();
     expect(info).toHaveBeenCalledTimes(1);
     const [message, details] = info.mock.calls[0] as [string, Record<string, unknown>];
     expect(message).toBe('[PRO registry] schema ensure');
@@ -1314,11 +1332,10 @@ describe('Cloudflare app Worker admin registry schema telemetry', () => {
     expect(JSON.stringify([message, details])).not.toMatch(
       /CREATE\s+TABLE|ALTER\s+TABLE|room_code|account_id|\b\d{6}\b/iu,
     );
-    info.mockRestore();
   });
 
   it('records a failed attempt once and retries the same database cleanly', async () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const { info } = captureRegistryLogs();
     const db = createAdminRegistryTelemetryDb({ failFirstRun: true });
 
     await expect(ensureAdminProRoomRegistryForTests(db)).rejects.toThrow(
@@ -1331,12 +1348,115 @@ describe('Cloudflare app Worker admin registry schema telemetry', () => {
       'error',
       'ready',
     ]);
+    const [failure, success] = info.mock.calls.map(
+      ([, details]) => details as Record<string, unknown>,
+    );
+    // Only the error outcome adds the bounded error class.
+    expect(Object.keys(failure!).sort()).toEqual([
+      'durationMs',
+      'errorClass',
+      'event',
+      'outcome',
+      'statementCount',
+      'statementKinds',
+    ]);
+    expect(failure).toMatchObject({ errorClass: 'other', statementCount: 1 });
+    expect(success).not.toHaveProperty('errorClass');
     for (const [message, details] of info.mock.calls) {
       expect(JSON.stringify([message, details])).not.toContain(
         'synthetic registry initialization failure',
       );
     }
-    info.mockRestore();
+  });
+
+  it.each([
+    ['D1_ERROR: Network connection lost.', 'd1_network'],
+    ['D1_ERROR: D1 DB is overloaded. Too many requests queued.', 'd1_overloaded'],
+    ['D1_ERROR: Exceeded maximum DB size.', 'd1_other'],
+    [
+      'This promise was created by a request that has since ended, so it can never settle.',
+      'cross_request',
+    ],
+    ['synthetic registry initialization failure', 'other'],
+  ])(
+    'classifies the failed check %j as %s without logging its message',
+    async (text, errorClass) => {
+      const { info } = captureRegistryLogs();
+      const db = createAdminRegistryTelemetryDb({ failFirstRun: true, failureMessage: text });
+
+      await expect(ensureAdminProRoomRegistryForTests(db)).rejects.toThrow(text);
+
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(info.mock.calls[0]![1]).toMatchObject({ outcome: 'error', errorClass });
+      expect(JSON.stringify(info.mock.calls)).not.toContain(text);
+    },
+  );
+
+  // The shared-check warning tells only workerd's cross-request rejection
+  // apart; the failed check's own error event carries the full class.
+  it.each([
+    ['synthetic registry initialization failure', 'other', 'other'],
+    ['D1_ERROR: Network connection lost.', 'd1_network', 'other'],
+    [
+      'This promise was created by a request that has since ended, so it can never settle.',
+      'cross_request',
+      'cross_request',
+    ],
+  ])(
+    'runs its own check after a shared check it awaited rejects with %j',
+    async (text, errorClass, sharedClass) => {
+      const { info, warn } = captureRegistryLogs();
+      const db = createAdminRegistryTelemetryDb({ failFirstRun: true, failureMessage: text });
+
+      const [creator, waiter] = await Promise.allSettled([
+        ensureAdminProRoomRegistryForTests(db),
+        ensureAdminProRoomRegistryForTests(db),
+      ]);
+      expect(creator).toMatchObject({ status: 'rejected', reason: { message: text } });
+      expect(waiter).toEqual({ status: 'fulfilled', value: true });
+      // The waiter's check is cached for later callers.
+      await expect(ensureAdminProRoomRegistryForTests(db)).resolves.toBe(true);
+
+      expect(
+        info.mock.calls.map(([, details]) => {
+          const { outcome, errorClass: logged } = details as Record<string, unknown>;
+          return [outcome, logged];
+        }),
+      ).toEqual([
+        ['error', errorClass],
+        ['ready', undefined],
+      ]);
+      expect(warn.mock.calls).toEqual([
+        [
+          '[PRO registry] shared schema check rejected',
+          { event: 'admin_pro_room_registry_shared_check_rejected', errorClass: sharedClass },
+        ],
+      ]);
+      expect(JSON.stringify([info.mock.calls, warn.mock.calls])).not.toContain(text);
+    },
+  );
+
+  it('keeps a newer cached check when an older check of the same database fails', async () => {
+    const { info, warn } = captureRegistryLogs();
+    // The creator's check fails, so both waiters run their own: the first
+    // waiter's check fails too, after the second waiter's check replaced it.
+    const db = createAdminRegistryTelemetryDb({ failedRuns: 2 });
+
+    const outcomes = await Promise.allSettled([
+      ensureAdminProRoomRegistryForTests(db),
+      ensureAdminProRoomRegistryForTests(db),
+      ensureAdminProRoomRegistryForTests(db),
+    ]);
+    expect(outcomes.map(({ status }) => status)).toEqual(['rejected', 'rejected', 'fulfilled']);
+    // The failed older check did not evict the newer one, so no fourth check runs.
+    await expect(ensureAdminProRoomRegistryForTests(db)).resolves.toBe(true);
+
+    expect(info.mock.calls.map(([, details]) => (details as { outcome: string }).outcome)).toEqual([
+      'error',
+      'error',
+      'ready',
+    ]);
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -5824,6 +5944,11 @@ describe('Cloudflare app worker admin dashboard', () => {
       if (fallback) {
         const footer = html.match(/<footer>[\s\S]*?<\/footer>/)?.[0];
         expect(footer).toContain('<a href="/sitemap">Sitemap</a>');
+        // The same Status link as the static blog index footer, right after Sitemap.
+        expect(footer).toMatch(
+          /<a href="\/sitemap">Sitemap<\/a>\s*<a href="\/status">Status<\/a>\s*<a href="\/translate">/u,
+        );
+        expect(footer?.match(/href="\/status"/gu)).toHaveLength(1);
         expect(footer).not.toContain('>App</a>');
       }
       const serialized = html.match(
@@ -13385,6 +13510,17 @@ describe('Cloudflare app worker invite route', () => {
               },
             );
           }
+          if (url.pathname === '/status.html') {
+            return new Response(
+              request.method === 'HEAD'
+                ? null
+                : '<!doctype html><title>Status · MUSIXQUARE</title>',
+              {
+                status: 200,
+                headers: { 'Content-Type': 'text/html; charset=utf-8' },
+              },
+            );
+          }
           if (url.pathname === '/sitemap.xml') {
             return new Response(request.method === 'HEAD' ? null : '<urlset></urlset>', {
               status: 200,
@@ -13660,6 +13796,7 @@ describe('Cloudflare app worker invite route', () => {
     ['/terms/', '/terms'],
     ['/faq/', '/faq'],
     ['/developers/', '/developers'],
+    ['/status/', '/status'],
     ['/designsystem/', '/designsystem'],
     ['/in/', '/id/'],
     ['/iw/', '/he/'],
@@ -14034,6 +14171,57 @@ describe('Cloudflare app worker invite route', () => {
       expect(response.status).toBe(301);
       expect(response.headers.get('Location')).toBe(
         'https://musixquare.com/sitemap?from=footer#languages',
+      );
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['GET', 'HEAD'])(
+    'serves the status page for %s as a public secure document without article lookup',
+    async (method) => {
+      const env = createAssetEnv();
+      // A Soro lookup would read the feed over the network.
+      const network = vi.fn(async () => new Response('unexpected', { status: 500 }));
+      vi.stubGlobal('fetch', network);
+      const [response, sitemap] = await Promise.all(
+        ['/status', '/sitemap'].map((path) =>
+          appWorker.fetch(new Request(`https://musixquare.com${path}`, { method }), env),
+        ),
+      );
+      expect(response!.status).toBe(200);
+      expect(response!.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+      expect(response!.headers.get('X-Robots-Tag')).toBeNull();
+      // The same document policy as the other public pages.
+      expect(response!.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+      expect(response!.headers.get('Content-Security-Policy')).toBe(
+        sitemap!.headers.get('Content-Security-Policy'),
+      );
+      expect(response!.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response!.headers.get('Cache-Control')).toBe(
+        'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+      );
+      expect(await response!.text()).toBe(
+        method === 'HEAD' ? '' : '<!doctype html><title>Status · MUSIXQUARE</title>',
+      );
+      const assetPaths = env.ASSETS.fetch.mock.calls.map(
+        ([request]) => new URL((request as Request).url).pathname,
+      );
+      expect(assetPaths.sort()).toEqual(['/sitemap.html', '/status.html']);
+      expect(network).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['/status/', '/Status', '/STATUS.HTML', '/status.html', '/status.html/', '/status//'])(
+    'canonicalizes status page %s without discarding query or fragment',
+    async (pathname) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request(`https://musixquare.com${pathname}?fixture=ok#rooms`),
+        env,
+      );
+      expect(response.status).toBe(301);
+      expect(response.headers.get('Location')).toBe(
+        'https://musixquare.com/status?fixture=ok#rooms',
       );
       expect(env.ASSETS.fetch).not.toHaveBeenCalled();
     },

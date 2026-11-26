@@ -98,6 +98,66 @@ function incrementBucket(db: DatabaseSync, minute: number, event: string, count 
     }
   });
 
+  it('keeps status probe rooms and guests out of the lifetime totals and daily increments', () => {
+    const db = openDatabase();
+    try {
+      db.exec(ADMIN_SCHEMA);
+      incrementBucket(db, 300 * 1440 + 5, 'room_opened', 2);
+      incrementBucket(db, 300 * 1440 + 6, 'guest_joined', 3);
+      const lifetimeState = () => ({
+        totals: db
+          .prepare('SELECT event, count FROM mxqr_lifetime_metric_totals ORDER BY event')
+          .all(),
+        days: db
+          .prepare(
+            `SELECT day_epoch, event, count
+               FROM mxqr_lifetime_metric_days
+              ORDER BY day_epoch, event`,
+          )
+          .all(),
+      });
+      const before = lifetimeState();
+      expect(before).toEqual({
+        totals: [
+          { event: 'guest_joined', count: 3 },
+          { event: 'room_opened', count: 2 },
+        ],
+        days: [
+          { day_epoch: 300, event: 'guest_joined', count: 3 },
+          { day_epoch: 300, event: 'room_opened', count: 2 },
+        ],
+      });
+
+      // Both trigger paths (a new bucket row and an increment), then the
+      // idempotent baseline and backfill migrations reapplied over them.
+      for (const event of ['status_probe_room_opened', 'status_probe_guest_joined']) {
+        incrementBucket(db, 300 * 1440 + 5, event);
+        incrementBucket(db, 300 * 1440 + 5, event, 4);
+        incrementBucket(db, 301 * 1440, event);
+      }
+      db.exec(LIFETIME_ROOM_COUNT_MIGRATION);
+      db.exec(LIFETIME_ANALYTICS_MIGRATION);
+
+      expect(lifetimeState()).toEqual(before);
+      expect(
+        db
+          .prepare(
+            `SELECT event, SUM(count) AS count
+               FROM mxqr_metric_buckets
+              WHERE event LIKE 'status_probe_%'
+              GROUP BY event
+              ORDER BY event`,
+          )
+          .all(),
+      ).toEqual([
+        { event: 'status_probe_guest_joined', count: 6 },
+        { event: 'status_probe_room_opened', count: 6 },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   it('backfills complete retained daily room and guest history and remains monotonic', () => {
     const db = openDatabase();
     try {

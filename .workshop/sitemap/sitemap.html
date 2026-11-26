@@ -81,7 +81,7 @@
       </div>
       <p class="sr-only" id="search-status" role="status" aria-live="polite"></p>
       <div id="pages" class="page-groups" data-section="">
-        <section class="page-group" data-group="">
+        <section class="page-group page-group--explore" data-group="">
           <h2>Explore</h2>
           <ul class="page-list">
             <li data-item="" data-search="App / 메인 앱 홈 음악 방 만들기 home room listen player">
@@ -154,8 +154,8 @@
             </li>
           </ul>
         </section>
-        <section class="page-group" data-group="">
-          <h2>Resources</h2>
+        <section class="page-group page-group--help" data-group="">
+          <h2>Help</h2>
           <ul class="page-list">
             <li data-item="" data-search="FAQ /faq 자주 묻는 질문 도움말 문제 해결 help questions">
               <a class="page-link" href="/faq"
@@ -170,6 +170,58 @@
                   ></path></svg
               ></a>
             </li>
+            <li
+              data-item=""
+              data-search="Status /status 상태 서비스 상태 장애 점검 확인 uptime outage incident health monitoring"
+            >
+              <a class="page-link" href="/status"
+                ><span><strong>Status</strong><span class="path">/status</span></span
+                ><svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M5 12h14m-6-6 6 6-6 6"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path></svg
+              ></a>
+            </li>
+          </ul>
+        </section>
+        <section class="page-group page-group--policies" data-group="">
+          <h2>Policies</h2>
+          <ul class="page-list">
+            <li data-item="" data-search="Privacy Policy /privacy 개인정보 처리방침 프라이버시">
+              <a class="page-link" href="/privacy"
+                ><span><strong>Privacy Policy</strong><span class="path">/privacy</span></span
+                ><svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M5 12h14m-6-6 6 6-6 6"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path></svg
+              ></a>
+            </li>
+            <li data-item="" data-search="Terms of Service /terms 이용약관 서비스 약관">
+              <a class="page-link" href="/terms"
+                ><span><strong>Terms of Service</strong><span class="path">/terms</span></span
+                ><svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M5 12h14m-6-6 6 6-6 6"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path></svg
+              ></a>
+            </li>
+          </ul>
+        </section>
+        <section class="page-group page-group--resources" data-group="">
+          <h2>Resources</h2>
+          <ul class="page-list">
             <li data-item="" data-search="Developers /developers 개발자 문서 API documentation">
               <a class="page-link" href="/developers"
                 ><span><strong>Developers</strong><span class="path">/developers</span></span
@@ -199,93 +251,68 @@
                   ></path></svg
               ></a>
             </li>
-            <li data-item="" data-search="Privacy Policy /privacy 개인정보 처리방침 프라이버시">
-              <a class="page-link" href="/privacy"
-                ><span><strong>Privacy Policy</strong><span class="path">/privacy</span></span
-                ><svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          </ul>
+        </section>
+        <section
+          id="community"
+          class="page-group page-group--community"
+          data-group=""
+          aria-labelledby="community-heading"
+        >
+          <h2 id="community-heading">Community</h2>
+          <ul class="page-list">
+            <li
+              data-item=""
+              data-search="GitHub github.com/hiefny/MUSIXQUARE community repository source code 깃허브 깃헙 저장소 소스 커뮤니티"
+            >
+              <a
+                class="page-link page-link--external"
+                href="https://github.com/hiefny/MUSIXQUARE"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="GitHub (opens in a new tab)"
+              >
+                <span
+                  ><strong>GitHub</strong
+                  ><span class="path">github.com/hiefny/MUSIXQUARE</span></span
+                >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
                     d="M5 12h14m-6-6 6 6-6 6"
                     stroke="currentColor"
                     stroke-width="1.6"
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                  ></path></svg
-              ></a>
+                  ></path>
+                </svg>
+              </a>
             </li>
-            <li data-item="" data-search="Terms of Service /terms 이용약관 서비스 약관">
-              <a class="page-link" href="/terms"
-                ><span><strong>Terms of Service</strong><span class="path">/terms</span></span
-                ><svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <li
+              data-item=""
+              data-search="Discord discord.gg/PmmFhGTBsX community chat support 디스코드 디코 커뮤니티 채팅"
+            >
+              <a
+                class="page-link page-link--external"
+                href="https://discord.gg/PmmFhGTBsX"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Discord (opens in a new tab)"
+              >
+                <span><strong>Discord</strong><span class="path">discord.gg/PmmFhGTBsX</span></span>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
                     d="M5 12h14m-6-6 6 6-6 6"
                     stroke="currentColor"
                     stroke-width="1.6"
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                  ></path></svg
-              ></a>
+                  ></path>
+                </svg>
+              </a>
             </li>
           </ul>
         </section>
       </div>
-      <section
-        id="community"
-        class="catalog-section"
-        data-section=""
-        aria-labelledby="community-heading"
-      >
-        <div class="section-heading"><h2 id="community-heading">Community</h2></div>
-        <ul class="page-list community-list">
-          <li
-            data-item=""
-            data-search="GitHub github.com/hiefny/MUSIXQUARE community repository source code 깃허브 깃헙 저장소 소스 커뮤니티"
-          >
-            <a
-              class="page-link page-link--external"
-              href="https://github.com/hiefny/MUSIXQUARE"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="GitHub (opens in a new tab)"
-            >
-              <span
-                ><strong>GitHub</strong><span class="path">github.com/hiefny/MUSIXQUARE</span></span
-              >
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M5 12h14m-6-6 6 6-6 6"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                ></path>
-              </svg>
-            </a>
-          </li>
-          <li
-            data-item=""
-            data-search="Discord discord.gg/PmmFhGTBsX community chat support 디스코드 디코 커뮤니티 채팅"
-          >
-            <a
-              class="page-link page-link--external"
-              href="https://discord.gg/PmmFhGTBsX"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Discord (opens in a new tab)"
-            >
-              <span><strong>Discord</strong><span class="path">discord.gg/PmmFhGTBsX</span></span>
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M5 12h14m-6-6 6 6-6 6"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                ></path>
-              </svg>
-            </a>
-          </li>
-        </ul>
-      </section>
       <section
         id="languages"
         class="catalog-section"

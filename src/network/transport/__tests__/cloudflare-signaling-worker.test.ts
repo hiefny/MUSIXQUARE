@@ -718,6 +718,28 @@ function createMetricsEnv() {
   };
 }
 
+const STATUS_PROBE_CLAIM_URL = 'https://signaling.internal/internal/status-probe/v1/claim';
+
+function statusProbeClaimRequest(
+  body: unknown = { v: 1, roomId: '123456' },
+  options: { method?: string; url?: string; contentType?: string } = {},
+): Request {
+  const method = options.method ?? 'POST';
+  return new Request(options.url ?? STATUS_PROBE_CLAIM_URL, {
+    method,
+    headers: { 'content-type': options.contentType ?? 'application/json' },
+    ...(method === 'GET' ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }),
+  });
+}
+
+async function claimStatusProbe(
+  room: InstanceType<WorkerModule['MusixquareRoom']>,
+  ...request: Parameters<typeof statusProbeClaimRequest>
+): Promise<{ status: number; body: unknown }> {
+  const response = await room.fetch(statusProbeClaimRequest(...request));
+  return { status: response.status, body: JSON.parse(String(response.body)) };
+}
+
 async function createHostRoom(): Promise<{
   room: InstanceType<WorkerModule['MusixquareRoom']>;
   state: FakeDurableObjectState;
@@ -8432,6 +8454,324 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(metrics.events).toEqual([
       { bucketMinute: Math.floor(Date.now() / 60000), event: 'room_opened' },
       { bucketMinute: Math.floor(Date.now() / 60000), event: 'guest_joined' },
+    ]);
+  });
+
+  it('records a pre-claimed room and its guest as status probe events, never as counted ones', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+
+    expect(await claimStatusProbe(room)).toEqual({ status: 200, body: { ok: true } });
+    expect(await state.storage.get('status-probe-claim')).toEqual({
+      v: 1,
+      until: Date.now() + 120_000,
+    });
+    const host = await authenticateHost(room, 'probe-host', 'probe-secret');
+    const guest = await joinGuest(room, 'probe-guest');
+    await state.flushWaitUntil();
+
+    expect(sent(host)[0]).toMatchObject({ type: 'peer-open', roomId: '123456' });
+    expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'probe-guest', roomId: '123456' });
+    expect(metrics.events).toEqual([
+      { bucketMinute: Math.floor(Date.now() / 60000), event: 'status_probe_room_opened' },
+      { bucketMinute: Math.floor(Date.now() / 60000), event: 'status_probe_guest_joined' },
+    ]);
+    // The claim is single-use; the flag belongs to this room epoch.
+    expect(await state.storage.get('status-probe-claim')).toBeUndefined();
+    expect(await state.storage.get('status-probe-room')).toEqual({
+      v: 1,
+      until: Date.now() + 30 * 60_000,
+    });
+  });
+
+  it.each([
+    ['without a claim', 'none'],
+    ['after its claim expired', 'expired-claim'],
+    ['with a claim of an unknown shape', 'unknown-claim'],
+    ['with a probe flag left by a host accept that never opened its room', 'leftover-flag'],
+  ] as const)('counts a room and its guest as usual %s', async (_label, setup) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+    if (setup === 'expired-claim') {
+      expect((await claimStatusProbe(room)).status).toBe(200);
+      vi.advanceTimersByTime(120_000);
+    } else if (setup === 'unknown-claim') {
+      await state.storage.put('status-probe-claim', { v: 2, until: Date.now() + 120_000 });
+    } else if (setup === 'leftover-flag') {
+      // A host accept consumes the claim before its room is committed, so a
+      // rolled-back accept can leave the flag behind without a room.
+      await state.storage.put('status-probe-room', { v: 1, until: Date.now() + 30 * 60_000 });
+    }
+
+    await authenticateHost(room, 'host-1', 'secret-a');
+    await joinGuest(room, 'guest-1');
+    await state.flushWaitUntil();
+
+    expect(metrics.events.map(({ event }) => event)).toEqual(['room_opened', 'guest_joined']);
+    expect(await state.storage.get('status-probe-claim')).toBeUndefined();
+    expect(await state.storage.get('status-probe-room')).toBeUndefined();
+  });
+
+  it('refuses a status probe claim while a host is pending, live or in its reclaim grace', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+    const roomActive = { status: 409, body: { error: 'ROOM_ACTIVE' } };
+
+    await room.fetch(wsRequest('123456', 'host', 'pending-host'));
+    const pendingHost = lastServer();
+    expect(await claimStatusProbe(room)).toEqual(roomActive);
+    pendingHost.close();
+    await room.webSocketClose(pendingHost);
+
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    expect(await claimStatusProbe(room)).toEqual(roomActive);
+    host.close();
+    await room.webSocketClose(host);
+    expect(await claimStatusProbe(room)).toEqual(roomActive);
+    expect(await state.storage.get('status-probe-claim')).toBeUndefined();
+
+    // Once the reclaim grace has passed, the claim ends the old epoch first.
+    vi.advanceTimersByTime(120_000);
+    expect(await claimStatusProbe(room)).toEqual({ status: 200, body: { ok: true } });
+    await state.flushWaitUntil();
+    expect(await state.storage.get('roomMeta')).toMatchObject({ roomSecret: null });
+    expect(metrics.events.map(({ event }) => event)).toEqual([
+      'room_opened',
+      'standard_room_expired',
+    ]);
+  });
+
+  it('refuses a status probe claim for another room code or a quarantined room', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state);
+    expect(await claimStatusProbe(room)).toEqual({ status: 200, body: { ok: true } });
+    const claimed = await state.storage.get('status-probe-claim');
+
+    expect(await claimStatusProbe(room, { v: 1, roomId: '654321' })).toEqual({
+      status: 409,
+      body: { error: 'ROOM_STATE_INVALID' },
+    });
+    expect(await state.storage.get('status-probe-claim')).toEqual(claimed);
+
+    const quarantinedState = new FakeDurableObjectState();
+    await quarantinedState.storage.put('roomMeta', {
+      v: 2,
+      roomSecret: 'secret-corrupt',
+      roomPassword: '',
+      roomPasswordVerifier: null,
+      hostPeerId: null,
+      hostReleaseAt: 0,
+      ambiguousFutureField: true,
+    });
+    const quarantined = new workerModule.MusixquareRoom(quarantinedState);
+    expect(await claimStatusProbe(quarantined)).toEqual({
+      status: 409,
+      body: { error: 'ROOM_STATE_INVALID' },
+    });
+    expect(await quarantinedState.storage.get('status-probe-claim')).toBeUndefined();
+  });
+
+  it.each([
+    ['a missing room code', { v: 1 }, 'application/json'],
+    ['an unknown version', { v: 2, roomId: '123456' }, 'application/json'],
+    ['an extra key', { v: 1, roomId: '123456', role: 'host' }, 'application/json'],
+    ['a PRO namespace code', { v: 1, roomId: '012345' }, 'application/json'],
+    ['a short code', { v: 1, roomId: '12345' }, 'application/json'],
+    ['a numeric code', { v: 1, roomId: 123456 }, 'application/json'],
+    ['malformed JSON', '{"v":1,"roomId":', 'application/json'],
+    ['a non-JSON body type', { v: 1, roomId: '123456' }, 'text/plain'],
+  ] as const)('rejects a status probe claim with %s', async (_label, body, contentType) => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state);
+
+    expect(await claimStatusProbe(room, body, { contentType })).toEqual({
+      status: 400,
+      body: { error: 'INVALID_REQUEST' },
+    });
+    expect([...state.storage.data.keys()]).toEqual([]);
+    // A rejected body never binds the object to a room code.
+    expect((await claimStatusProbe(room, { v: 1, roomId: '654321' })).status).toBe(200);
+  });
+
+  it('serves the status probe claim only as a query-free POST and closes it in maintenance', async () => {
+    const env: Record<string, unknown> = {};
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, env);
+    const notFound = { status: 404, body: { error: 'NOT_FOUND' } };
+
+    expect(await claimStatusProbe(room, undefined, { method: 'GET' })).toEqual(notFound);
+    expect(
+      await claimStatusProbe(room, undefined, { url: `${STATUS_PROBE_CLAIM_URL}?roomId=123456` }),
+    ).toEqual(notFound);
+
+    env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding();
+    const maintenance = await claimStatusProbe(room);
+    expect(maintenance.status).toBe(503);
+    expect(maintenance.body).toMatchObject({ error: 'SERVICE_MAINTENANCE', maintenance: true });
+    expect([...state.storage.data.keys()]).toEqual([]);
+
+    // An unreadable control plane also fails closed, with its own error, so
+    // the App can tell a control outage from maintenance.
+    env.MUSIXQUARE_SERVICE_CONTROL = {
+      getByName: vi.fn(() => ({
+        fetch: vi.fn(async () => {
+          throw new Error('service control unavailable');
+        }),
+      })),
+    };
+    const controlOutage = await claimStatusProbe(room);
+    expect(controlOutage.status).toBe(503);
+    expect(controlOutage.body).toMatchObject({
+      error: 'SERVICE_MAINTENANCE_STATUS_UNAVAILABLE',
+      maintenance: true,
+    });
+    expect([...state.storage.data.keys()]).toEqual([]);
+  });
+
+  it.each(['signal.example.test', 'signal-alt.musixquare.com'])(
+    'keeps the status probe claim off the public signaling host %s',
+    async (host) => {
+      const routed = workerEnv();
+      const response = await workerModule.default.fetch(
+        statusProbeClaimRequest(undefined, {
+          url: `https://${host}/internal/status-probe/v1/claim`,
+        }),
+        routed.env,
+      );
+
+      expect(response.status).toBe(404);
+      expect(routed.idFromName).not.toHaveBeenCalled();
+      expect(routed.roomFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['grace alarm', 'last guest close'] as const)(
+    'skips the expiry of a status probe room at its %s and counts the next real room',
+    async (reset) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+      const metrics = createMetricsEnv();
+      const state = new FakeDurableObjectState();
+      const room = new workerModule.MusixquareRoom(state, metrics.env);
+      expect((await claimStatusProbe(room)).status).toBe(200);
+      const host = await authenticateHost(room, 'probe-host', 'probe-secret');
+      const guest = await joinGuest(room, 'probe-guest');
+
+      host.close();
+      await room.webSocketClose(host);
+      vi.advanceTimersByTime(120_000);
+      if (reset === 'grace alarm') {
+        await room.alarm();
+      } else {
+        guest.close();
+        await room.webSocketClose(guest);
+      }
+      await state.flushWaitUntil();
+
+      expect(await state.storage.get('roomMeta')).toMatchObject({ roomSecret: null });
+      expect(await state.storage.get('status-probe-room')).toBeUndefined();
+      expect(metrics.events.map(({ event }) => event)).toEqual([
+        'status_probe_room_opened',
+        'status_probe_guest_joined',
+      ]);
+
+      metrics.events.length = 0;
+      await authenticateHost(room, 'real-host', 'real-secret');
+      await joinGuest(room, 'real-guest');
+      await state.flushWaitUntil();
+      expect(metrics.events.map(({ event }) => event)).toEqual(['room_opened', 'guest_joined']);
+    },
+  );
+
+  it('clears the status probe flag with its epoch on storage without transactions', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    // The epoch reset's compatibility fallback for a storage without transactions.
+    Object.defineProperty(state.storage, 'transaction', { value: undefined });
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+    expect((await claimStatusProbe(room)).status).toBe(200);
+    const host = await authenticateHost(room, 'probe-host', 'probe-secret');
+
+    host.close();
+    await room.webSocketClose(host);
+    vi.advanceTimersByTime(120_000);
+    await room.alarm();
+    await state.flushWaitUntil();
+
+    expect(state.storage.transactionCalls).toBe(0);
+    expect(await state.storage.get('roomMeta')).toMatchObject({ roomSecret: null });
+    expect(await state.storage.get('status-probe-room')).toBeUndefined();
+    expect(metrics.events.map(({ event }) => event)).toEqual(['status_probe_room_opened']);
+  });
+
+  it('records a host reconnect in a status probe room as host_reconnected', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+    expect((await claimStatusProbe(room)).status).toBe(200);
+    const host = await authenticateHost(room, 'probe-host', 'probe-secret');
+    host.close();
+    await room.webSocketClose(host);
+
+    const reconnected = await authenticateHost(room, 'probe-host-again', 'probe-secret');
+    await joinGuest(room, 'probe-guest');
+    await state.flushWaitUntil();
+
+    expect(sent(reconnected)[0]).toMatchObject({ type: 'peer-open', roomId: '123456' });
+    expect(metrics.events.map(({ event }) => event)).toEqual([
+      'status_probe_room_opened',
+      'host_reconnected',
+      'status_probe_guest_joined',
+    ]);
+  });
+
+  it('keeps a status probe room uncounted after Durable Object hibernation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+    expect((await claimStatusProbe(room)).status).toBe(200);
+    const host = await authenticateHost(room, 'probe-host', 'probe-secret');
+    await state.flushWaitUntil();
+
+    const rehydrated = new workerModule.MusixquareRoom(state, metrics.env);
+    const guest = await joinGuest(rehydrated, 'probe-guest-after-wake');
+    await state.flushWaitUntil();
+
+    expect(sent(guest)[0]).toMatchObject({ type: 'peer-open', peerId: 'probe-guest-after-wake' });
+    expect(metrics.events.map(({ event }) => event)).toEqual([
+      'status_probe_room_opened',
+      'status_probe_guest_joined',
+    ]);
+
+    // The grace alarm of a later wake also reads the flag from storage.
+    host.close();
+    await rehydrated.webSocketClose(host);
+    vi.advanceTimersByTime(120_000);
+    const expiring = new workerModule.MusixquareRoom(state, metrics.env);
+    await expiring.alarm();
+    await state.flushWaitUntil();
+
+    expect(guest.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'ROOM_EXPIRED' });
+    expect(await state.storage.get('roomMeta')).toMatchObject({ roomSecret: null });
+    expect(await state.storage.get('status-probe-room')).toBeUndefined();
+    expect(metrics.events.map(({ event }) => event)).toEqual([
+      'status_probe_room_opened',
+      'status_probe_guest_joined',
     ]);
   });
 

@@ -46,6 +46,32 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### App 9.0.845 / v845 열차(공개 /status 페이지와 15분 점검) 배포 전: PR 및 CI 대기 중, target `all`(여섯 Worker, 열린 Standard 방 한 번 재연결), [화면 바뀜] `/status`·세 칸 사이트맵·바닥글 Status 링크·관리자 상태 공지 칸·공유 카드, [화면 그대로] 15분 서버·브라우저 점검, 셈하지 않는 점검 방, 관리자 PRO 등록부 멈춤 고침, 배포 뒤 수동 Full E2E는 오너 결정 대기
+
+- [ ] 범위와 상태(배포 전): 열차 갈래 `agent/status-page`(main `b92c1083`(#645) 위 페이지 `4b6c0395`, 점검과 서버 `f3b0bf89`, 고침과 다지기 `d3f19cd9`,
+      버전 올리기 `1cc67be4`, 문서 커밋)가 PR 및 CI 대기 중이다. `9.0.845` / `v845`(App 빌드 845, target `all`, 업데이트 창 한 번, 바닥 795 그대로,
+      Developer API D1 false). 운영 SHA와 견준 런타임 경로는 App 36, PRO room 3, signaling 2, remote-share·Developer API facade·Developer API 각 1(공유
+      `cloudflare/service-maintenance.ts`)이고 의존성 변경 0이다. 새것은 admin metrics D1 표 `mxqr_status_checks`(앞으로만, 릴리스의 새 D1 단계가 Worker
+      배포 전에 만듦), App의 세 번째 cron `0,15,30,45 * * * *`, workflow `.github/workflows/status-monitor.yml`(`7,22,37,52 * * * *`, GitHub OIDC, GitHub
+      환경 없음), signaling의 바인딩 전용 선점 경로, 상태 공지 객체 `musixquare-global-status-note-v1`이다. 새 비밀, 바인딩, KV namespace, Durable Object
+      클래스는 없다. [보고서](design/app-9-0-845-train-2026-11-26.md), [배포 범위](design/app-9-0-845-train-2026-11-26.md#5-배포-범위와-호환성).
+- [ ] 기댄 오너 결정(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-26 오너가 FAQ·Terms·Privacy 같은 영어 전용 문서 페이지에 24시간의 촘촘한
+      15분 칸을 두기로 하고, 검토 페이지의 추천 다섯(96칸 막대, 점검 모드에도 열린 `/status`와 `/api/status`, 모든 공개 바닥글과 사이트맵의 Status,
+      관리자에서 따로 쓰는 영어 상태 공지, 점검과 함께 한 릴리스)을 받아들였다. 우리 쪽에서 점검한다는 문단을 범례 위로 옮기고, 사이트맵은 실시간
+      상태 없이 세 칸으로 하며, 모두 이번 릴리스에 싣고 관리자 PRO 등록부 고침도 함께 넣도록 정했다([보고서 §1](design/app-9-0-845-train-2026-11-26.md#1-오너-결정)).
+- [ ] 배포와 배포 뒤 확인: (1) 최종 로컬 검증(`1cc67be4`) 통과([보고서 §4.1](design/app-9-0-845-train-2026-11-26.md#41-최종-로컬-검증-버전-올리기-1cc67be4)).
+      (2) PR CI, 자동 코드 검토, squash 머지, 머지 뒤 첫 일정 감시 실행이 배포 전 운영에서 브라우저 없이 성공하는지, exact-main CI, 오너의 분명한 배포
+      승인과 `MXQR_DEVELOPER_API_SMOKE_KEY`(방 `000001`) 확인, Release(target `all`, Developer API D1 false, `raise_app_build_floor` false) 확인 예정.
+      (3) 배포 뒤: 다음 :00/:15/:30/:45 cron 칸에서 `/api/status`의 `rooms`·`pro`가 `ok`, `gh workflow run status-monitor.yml --ref main` 첫 손 실행에서
+      `website`·`connection`이 적히고 두 OIDC 경로가 403 없이 답함(환경 없는 job의 토큰에 `environment` claim이 없다는 가정의 확인), 로그에 방 번호와
+      토큰이 없음, 몇 실행 뒤 관리자 지표의 `status_probe_room_opened`·`status_probe_guest_joined`가 시간마다 약 8씩 늘고 점검 방이 Rooms opened
+      (`room_opened`)로 잡히지 않음, 관리자 Maintenance > Status page note에서 짧은 영어 공지를 게시해 `/status`에서 보고 지우기, Drift Audit(cron
+      trigger는 견주지 않음), 수동 Full E2E는 오너 결정 대기(signaling이 바뀌어 한 번 돌리기를 추천)([릴리스 라운드](design/app-9-0-845-train-2026-11-26.md#42-머지-뒤-릴리스-라운드)).
+- [ ] 되돌리기([보고서 §6](design/app-9-0-845-train-2026-11-26.md#6-되돌리기와-남긴-한계)): 기본은 9.0.846 / v846 이상으로 앞으로 되돌리기다. 실패한
+      `all` 실행은 dispatch 때의 여섯 Worker로 자동 복구되지만 `mxqr_status_checks`는 앞으로만 가므로 남는다. CLI 되돌리기 뒤에도 App의 세 번째 cron은
+      등록된 채 남고 옛 App 코드는 그것을 무시한다(`rooms`·`pro`는 Not checked). signaling을 되돌리면 선점이 404라 점검이 방을 열지 않고 `rooms`와
+      `connection`이 Not checked가 된다. 브라우저 점검은 GitHub UI에서 `status-monitor.yml`을 꺼서 멈춘다.
+
 ### App 9.0.844 / v844 열차(`/designsystem` Loading states 부트 스플래시 프리뷰 카드 및 `/designsystem/loading` 전체 화면 페이지, 9.0.844/v844) 배포 뒤 확인: Release 45676025961이 attempt 1에 성공했고(App `a538064a` → `29659e35`), 공개 읽기와 Chromium/WebKit 첫 방문, Drift 통과, 오너 결정으로 수동 Full E2E 생략, 증분 둘([화면 바뀜] `/designsystem` Loading states 아래 버튼 없는 클릭 프리뷰 카드, `/designsystem/loading` `noindex` 전체 화면 반복·클릭 복귀 페이지), 기기 판정은 아직
 
 - [ ] 범위와 상태(배포 뒤): 9.0.844 / v844(App 빌드 844, target `app`, 업데이트 창 한 번)가 2026-11-26 03:33 KST에 운영에 올랐다([Release 45676025961](https://github.com/hiefny/MUSIXQUARE/actions/runs/45676025961)

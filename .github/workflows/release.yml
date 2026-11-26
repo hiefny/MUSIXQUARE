@@ -616,6 +616,47 @@ jobs:
             exit 1
           }
 
+      - name: Apply and verify status checks D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'app'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/admin-metrics.status-checks.migration.sql
+          verify_file='release-artifacts/deployments/admin-status-checks-verified.json'
+          verify_sql=$(cat <<'SQL'
+          SELECT
+            (SELECT COUNT(*) FROM sqlite_master
+              WHERE type = 'table' AND name = 'mxqr_status_checks'
+                AND instr(lower(sql), 'check (result in (''o'',''p'',''m''))') > 0
+                AND instr(lower(sql), 'slot_at % 60000 = 0') > 0
+                AND instr(lower(sql), 'primary key (component, slot_at)') > 0) AS table_count,
+            (SELECT COUNT(*) FROM pragma_table_info('mxqr_status_checks')) AS column_count,
+            (SELECT COUNT(*) FROM pragma_table_info('mxqr_status_checks') WHERE pk > 0) AS primary_key_count,
+            (SELECT COUNT(*) FROM pragma_table_info('mxqr_status_checks')
+              WHERE (name = 'component' AND type = 'TEXT' AND "notnull" = 1 AND pk = 1)
+                 OR (name = 'slot_at' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 2)
+                 OR (name IN ('result', 'reason', 'source') AND type = 'TEXT' AND "notnull" = 1 AND pk = 0)
+                 OR (name = 'checked_at' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 0)
+                 OR (name = 'run_id' AND type = 'TEXT' AND "notnull" = 0 AND pk = 0)) AS required_column_count
+          SQL
+          )
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "$verify_sql" \
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
+          jq -e '.[0].results[0] | (.table_count | tonumber) == 1 and (.column_count | tonumber) == 7 and (.primary_key_count | tonumber) == 2 and (.required_column_count | tonumber) == 7' "$verify_file" >/dev/null || {
+            echo '::error::The production status checks schema is incomplete.'
+            exit 1
+          }
+
       - name: Apply and verify generic PRO grant D1 contract
         timeout-minutes: 10
         if: inputs.target == 'all' || inputs.target == 'app' || inputs.target == 'pro-room'

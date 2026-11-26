@@ -11,8 +11,10 @@
  * Abuse bound: an unknown `kid` refreshes the key set at most once per
  * GITHUB_OIDC_JWKS_REFRESH_MIN_INTERVAL_MS per isolate (any fetch attempt,
  * successful or not, starts the interval), so forged tokens cannot turn into a
- * stream of outbound key fetches. The route also applies its abuse-rate limit
- * before it calls this verifier.
+ * stream of outbound key fetches. A fetch whose request ended before it
+ * finished (a client that disconnected) never settles for other requests: the
+ * next caller drops it, and it still counts as an attempt. The route also
+ * applies its abuse-rate limit before it calls this verifier.
  */
 import { fetchTextWithTimeout } from './account-auth.ts';
 
@@ -33,6 +35,13 @@ const JWT_MAX_AGE_SECONDS = 60 * 60;
 const JWT_KID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]*$/;
 
+/** This repository's identity claims, which every App ops policy pins. */
+export const MUSIXQUARE_GITHUB_REPOSITORY = Object.freeze({
+  repository: 'hiefny/MUSIXQUARE',
+  repositoryId: '1141408724',
+  repositoryOwnerId: '257024056',
+} as const);
+
 /** The identity a token must carry; every field is compared exactly. */
 export interface GitHubActionsOidcPolicy {
   readonly audience: string;
@@ -40,8 +49,13 @@ export interface GitHubActionsOidcPolicy {
   readonly repositoryId: string;
   readonly repositoryOwnerId: string;
   readonly ref: string;
-  readonly environment: string;
-  readonly eventName: string;
+  /**
+   * The GitHub environment the job names. Null pins a job that names none:
+   * its token must then carry no `environment` claim at all.
+   */
+  readonly environment: string | null;
+  /** The event that started the run, or a list of events any one of which may have. */
+  readonly eventName: string | readonly string[];
   readonly runnerEnvironment: string;
   /**
    * Workflows (`owner/repo/.github/workflows/file.yml@ref`) whose jobs may
@@ -194,7 +208,25 @@ async function fetchKeySet(nowMs: number): Promise<GitHubKeySet | null> {
 async function keySetFor(kid: string, nowMs: number): Promise<GitHubKeySet | null> {
   const cached = keySet && keySet.expiresAtMs > nowMs ? keySet : null;
   if (cached?.keys.has(kid)) return cached;
-  if (keySetFetch) return (await keySetFetch) ?? cached;
+  const shared = keySetFetch;
+  if (shared) {
+    // The download belongs to the request that started it. Once that request
+    // has ended (its client disconnected mid download), workerd never settles
+    // it in another request and rejects every waiter instead
+    // (handle_cross_request_promise_resolution), and the starter's finally
+    // never runs. Drop it if it is still the shared one and fall through: the
+    // lost download still counts as an attempt, so the cached set (or none)
+    // answers until the refresh interval allows the next one.
+    try {
+      return (await shared) ?? cached;
+    } catch {
+      if (keySetFetch === shared) keySetFetch = null;
+      // A fixed event only: never the token, its key id or the error text.
+      console.warn('[GitHub OIDC] shared key-set download rejected', {
+        event: 'github_oidc_jwks_shared_fetch_rejected',
+      });
+    }
+  }
   if (
     lastFetchAttemptAtMs !== null &&
     nowMs - lastFetchAttemptAtMs < GITHUB_OIDC_JWKS_REFRESH_MIN_INTERVAL_MS
@@ -242,14 +274,24 @@ function timeClaimsValid(claims: JsonObject, nowMs: number): boolean {
   );
 }
 
+function environmentMatches(environment: unknown, expected: string | null): boolean {
+  // Any present value, even an empty string, refuses a policy without one.
+  return expected === null ? environment === undefined : environment === expected;
+}
+
+function eventNameMatches(eventName: unknown, expected: string | readonly string[]): boolean {
+  if (typeof expected === 'string') return eventName === expected;
+  return typeof eventName === 'string' && expected.includes(eventName);
+}
+
 function identityMatches(claims: JsonObject, policy: GitHubActionsOidcPolicy): boolean {
   return (
     claims.repository === policy.repository &&
     claims.repository_id === policy.repositoryId &&
     claims.repository_owner_id === policy.repositoryOwnerId &&
     claims.ref === policy.ref &&
-    claims.environment === policy.environment &&
-    claims.event_name === policy.eventName &&
+    environmentMatches(claims.environment, policy.environment) &&
+    eventNameMatches(claims.event_name, policy.eventName) &&
     claims.runner_environment === policy.runnerEnvironment
   );
 }

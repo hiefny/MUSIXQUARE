@@ -18,6 +18,12 @@ export default defineConfig({
       'src/core/__tests__/standard-signaling-bridge-diagnostics.test.ts',
       'src/core/__tests__/pro-room-proxy-diagnostics.test.ts',
       'src/core/__tests__/worker-shared-read-lifetime.test.ts',
+      // The admin PRO room registry check across cancelled workerd requests.
+      'src/core/__tests__/admin-registry-request-lifetime.test.ts',
+      // The served App build read across cancelled workerd requests.
+      'src/core/__tests__/served-app-build-request-lifetime.test.ts',
+      // The GitHub Actions OIDC key-set download across cancelled workerd requests.
+      'src/core/__tests__/github-actions-oidc-request-lifetime.test.ts',
       'src/core/__tests__/standard-room-burst.test.ts',
       'src/core/__tests__/pro-room-burst.test.ts',
       // Forced update operations: the floor script and the smokes' build helper
@@ -41,6 +47,10 @@ export default defineConfig({
       'src/core/__tests__/translation-community.test.ts',
       'src/core/__tests__/translation-community-catalog.test.ts',
       'src/core/__tests__/translation-community-route.test.ts',
+      // Public status page (RO-57): the contract and the copies it pins, the
+      // check ledger and its two writers (the App cron and the browser
+      // monitor's OIDC report), the public answer and the status note.
+      'src/core/__tests__/{admin-status-note,github-actions-oidc-policy,status-api,status-browser-monitor,status-checks,status-contract,status-monitor-workflow,status-note-text,status-ops,status-payload,status-policy-parity,status-probe-claim,status-store-sqlite,status-worker-routes}.test.ts',
       'src/developer-api/__tests__/{developer-api-credential,developer-api-facade-worker,developer-api-worker}.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker,signaling-liveness}.test.ts',
       'src/pro-room/__tests__/{pro-room-app-build-floor,pro-room-claims,pro-room-generation,pro-room-grants,pro-room-permissions,pro-room-playback-timing,pro-room-playlists,pro-room-queue-mode,pro-room-receipt-timing,pro-room-worker,service-control,youtube-occurrence-manifest}.test.ts',

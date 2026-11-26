@@ -18,6 +18,12 @@ export default defineConfig({
       'src/core/__tests__/standard-signaling-bridge-diagnostics.test.ts',
       'src/core/__tests__/pro-room-proxy-diagnostics.test.ts',
       'src/core/__tests__/worker-shared-read-lifetime.test.ts',
+      // The admin PRO room registry check across cancelled workerd requests.
+      'src/core/__tests__/admin-registry-request-lifetime.test.ts',
+      // The served App build read across cancelled workerd requests.
+      'src/core/__tests__/served-app-build-request-lifetime.test.ts',
+      // The GitHub Actions OIDC key-set download across cancelled workerd requests.
+      'src/core/__tests__/github-actions-oidc-request-lifetime.test.ts',
       'src/core/__tests__/standard-room-burst.test.ts',
       'src/core/__tests__/pro-room-burst.test.ts',
       // Forced update operations: the floor script and the smokes' build helper

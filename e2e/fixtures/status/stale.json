@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-26T22:17:05+09:00",
-  "timeZone": "Asia/Seoul",
+  "generatedAt": "2026-11-26T13:17:05.000Z",
+  "timeZone": "UTC",
   "policy": {
     "checkIntervalMinutes": 15,
     "problemAfterFailures": 2,
@@ -15,7 +15,7 @@
   "overall": {
     "state": "stale",
     "reason": "not_checked_recently",
-    "lastCheckedAt": "2026-11-26T21:30:05+09:00",
+    "lastCheckedAt": "2026-11-26T12:30:05.000Z",
     "since": null
   },
   "maintenance": {
@@ -28,11 +28,11 @@
       "id": "website",
       "state": "stale",
       "reason": "not_checked_recently",
-      "lastCheckedAt": "2026-11-26T21:22:41+09:00",
-      "lastOkAt": "2026-11-26T21:22:41+09:00",
+      "lastCheckedAt": "2026-11-26T12:22:41.000Z",
+      "lastOkAt": "2026-11-26T12:22:41.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T22:07:00+09:00",
+        "lastAt": "2026-11-26T13:07:00.000Z",
         "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonnn"
       }
     },
@@ -40,11 +40,11 @@
       "id": "rooms",
       "state": "stale",
       "reason": "not_checked_recently",
-      "lastCheckedAt": "2026-11-26T21:30:05+09:00",
-      "lastOkAt": "2026-11-26T21:30:05+09:00",
+      "lastCheckedAt": "2026-11-26T12:30:05.000Z",
+      "lastOkAt": "2026-11-26T12:30:05.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T22:15:00+09:00",
+        "lastAt": "2026-11-26T13:15:00.000Z",
         "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonnn"
       }
     },
@@ -52,11 +52,11 @@
       "id": "connection",
       "state": "stale",
       "reason": "not_checked_recently",
-      "lastCheckedAt": "2026-11-26T21:22:41+09:00",
-      "lastOkAt": "2026-11-26T21:22:41+09:00",
+      "lastCheckedAt": "2026-11-26T12:22:41.000Z",
+      "lastOkAt": "2026-11-26T12:22:41.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T22:07:00+09:00",
+        "lastAt": "2026-11-26T13:07:00.000Z",
         "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonnn"
       }
     },
@@ -64,11 +64,11 @@
       "id": "pro",
       "state": "stale",
       "reason": "not_checked_recently",
-      "lastCheckedAt": "2026-11-26T21:30:05+09:00",
-      "lastOkAt": "2026-11-26T21:30:05+09:00",
+      "lastCheckedAt": "2026-11-26T12:30:05.000Z",
+      "lastOkAt": "2026-11-26T12:30:05.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T22:15:00+09:00",
+        "lastAt": "2026-11-26T13:15:00.000Z",
         "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonnn"
       }
     }

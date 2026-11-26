@@ -563,6 +563,7 @@ class StatusServerCheckRun<Namespace, Stub> {
       // The claim always comes first: an unclaimed room would be counted, so
       // without a claim no host frame is ever sent.
       const claim = await this.claim(roomId);
+      // The room object refused this code only (any 409): try another.
       if (claim === 'room_active') continue;
       // A signaling Worker without the claim route (rolled back): open no room.
       if (claim === 'unsupported') return { kind: 'skip', event: 'status_probe_unsupported' };
@@ -572,8 +573,9 @@ class StatusServerCheckRun<Namespace, Stub> {
       const outcome = await this.roomSessions(bridge, roomId, appBuild);
       if (outcome !== NEXT_CODE) return outcome;
     }
-    // Every code tried was busy. Random codes almost never are, so a run of
-    // them points at signaling rather than at chance.
+    // Every code tried was refused: in use, quarantined or taken. Random codes
+    // almost never are, so a run of them points at signaling rather than at
+    // chance.
     return failed('room_codes_busy', false);
   }
 

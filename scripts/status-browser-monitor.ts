@@ -11,7 +11,12 @@
  *
  * 1. GET /api/status. Unless it answers schema 1 (production before this
  *    train, or after a rollback), the run ends successfully with no browser.
- * 2. It mints the report and claim tokens, each masked in the log.
+ *    Beside it, the run reads the App build production serves from its
+ *    /service-worker.js.
+ * 2. It mints the report and claim tokens, each masked in the log. A job
+ *    without OIDC, or a token service that refuses it with a 4xx, fails the
+ *    run; one that gives no token for now (a 429, a 5xx or no answer) ends the
+ *    run with a warning and opens nothing.
  * 3. During maintenance it reports both rows as maintenance and opens nothing.
  * 4. Website and app: a fresh Chromium context opens the site and waits for a
  *    ready or degraded boot and the start screen's host button. A Cloudflare
@@ -19,13 +24,20 @@
  * 5. Device connections, only after the website passed: a host context makes
  *    a room, a guest context joins it, and each sends the other a chat
  *    message. Chat in a Standard room travels only over the two browsers'
- *    WebRTC data channel, so the two messages prove the connection. The host
- *    context's claim gate holds every host transport until the claim route
- *    granted its room code: signaling then records a status probe, and the
- *    /about room count stays unchanged. Without a claim no room opens and the
- *    check is skipped.
- * 6. It posts both results to the report route; statusMonitorExitCode decides
- *    whether the job fails.
+ *    WebRTC data channel, so the two messages prove the connection. Each page
+ *    sends only once it shows the other device connected, and sends again,
+ *    a bounded number of times, while the message has not arrived
+ *    (deliverChatMessage). The host context's claim gate holds every host
+ *    transport until the claim route granted its room code: signaling then
+ *    records a status probe, and the /about room count stays unchanged.
+ *    Without a claim no room opens and the check is skipped.
+ *    While production serves another App build than this checkout's (between
+ *    merging an App train and releasing it, or after an App rollback), a
+ *    failed check is reported as skipped (resultForServedBuild): the checks
+ *    follow main's App and may expect what the served build lacks.
+ * 6. It posts both results to the report route. statusMonitorEndAnnotations
+ *    and statusMonitorExitCode decide what the run's end reports and whether
+ *    the job fails.
  *
  * The public log shows no room code, peer id, token, IP address or full URL,
  * and the run saves no screenshot. Waits use Locator APIs only.
@@ -55,14 +67,18 @@ import {
   MONITOR_MAINTENANCE,
   MONITOR_PASSING,
   MONITOR_REASONS,
+  OidcUnavailableError,
   STATUS_MONITOR_APP_ORIGIN,
   STATUS_MONITOR_CONNECTION_BUDGET_MS,
   STATUS_MONITOR_DIALOG_WAIT_MS,
+  STATUS_MONITOR_PEER_ROW_SELECTOR,
   buildStatusReport,
   classifyDocumentResponse,
+  compareServedAppBuild,
   connectionAfterWebsite,
   connectionResult,
   createOidcTokenSource,
+  deliverChatMessage,
   describeAnswer,
   describeDelivered,
   monitorFailure,
@@ -70,14 +86,19 @@ import {
   postStatusReport,
   readStatusPreflight,
   requestStatusClaim,
+  resultForServedBuild,
   routeMonitorRequest,
   routeMonitorWebSocket,
   sanitizeMonitorDiagnostic,
+  statusMonitorEndAnnotations,
   statusMonitorExitCode,
+  type ClaimGateSummary,
   type ConnectionFlowOutcome,
   type MonitorResult,
   type StatusMonitorDeps,
+  type StatusMonitorRun,
 } from './lib/status-browser-monitor-lib.mts';
+import { resolveLiveSmokeAppBuild } from './live-smoke-app-build.mts';
 
 const LOG_PREFIX = '[status-monitor]';
 const DIAGNOSTIC_LINES_PER_PAGE = 12;
@@ -114,6 +135,8 @@ interface FlowProgress {
   reason: string;
   /** The host page showed its room code, so the room exists. */
   hostOpened: boolean;
+  /** Sends of each chat message so far, for the log, such as "to the guest 1". */
+  chatSends: string[];
 }
 
 function nodeDeps(): StatusMonitorDeps {
@@ -313,10 +336,11 @@ async function openGuestPage(
   context: BrowserContext,
   lines: string[],
   progress: FlowProgress,
+  origin: string,
 ): Promise<Page> {
   const page = await step(progress, MONITOR_REASONS.guestPageFailed, () => context.newPage());
   watchPage(page, 'guest', lines);
-  const opened = await openStartScreen(page, '#btn-setup-guest');
+  const opened = await openStartScreen(page, '#btn-setup-guest', origin);
   if (opened.outcome === 'skipped') throw new FlowStop(opened.reason, 'skipped');
   if (opened.outcome !== 'ok') throw new FlowStop(MONITOR_REASONS.guestPageFailed);
   return page;
@@ -348,23 +372,53 @@ async function dismissFirstRunDialog(page: Page, progress: FlowProgress): Promis
   });
 }
 
-/** One chat message from one page, which must arrive on the other. */
+/** Whether a Locator wait ended within its timeout. */
+function settled(wait: Promise<void>): Promise<boolean> {
+  return wait.then(
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * One chat message from one page, which must arrive on the other. The page
+ * sends only once it shows the other device connected, and sends again while
+ * the message has not arrived (deliverChatMessage).
+ */
 async function sendChat(
   from: Page,
   to: Page,
   message: string,
+  direction: string,
   reason: string,
   progress: FlowProgress,
 ): Promise<void> {
-  const timeout = STATUS_BROWSER_STEP_TIMEOUT_MS;
   await step(progress, reason, async () => {
-    const input = from.locator('#chat-input');
-    await input.waitFor({ state: 'visible', timeout });
-    await input.fill(message, { timeout });
-    await from.locator('#btn-chat-send').click({ timeout });
-    await to
-      .locator('#chat-messages', { hasText: message })
-      .waitFor({ state: 'attached', timeout });
+    const { delivered, sends } = await deliverChatMessage(
+      {
+        waitForPeer: (timeout) =>
+          settled(
+            from
+              .locator(STATUS_MONITOR_PEER_ROW_SELECTOR)
+              .first()
+              .waitFor({ state: 'attached', timeout }),
+          ),
+        send: async (timeout) => {
+          const deadline = Date.now() + timeout;
+          await from.locator('#chat-input').fill(message, { timeout });
+          await from.locator('#btn-chat-send').click({ timeout: remainingMs(deadline) });
+        },
+        waitForMessage: (timeout) =>
+          settled(
+            to
+              .locator('#chat-messages', { hasText: message })
+              .waitFor({ state: 'attached', timeout }),
+          ),
+      },
+      () => Date.now(),
+    );
+    progress.chatSends.push(`${direction} ${sends}`);
+    if (!delivered) throw new FlowStop(reason);
   });
 }
 
@@ -374,12 +428,13 @@ async function runConnectionFlow(
   gate: ClaimGate,
   guestLines: string[],
   progress: FlowProgress,
+  origin: string,
 ): Promise<{ readonly outcome: ConnectionFlowOutcome; readonly guestPage: Page | null }> {
   let guestPage: Page | null = null;
   try {
     const [host, guest] = await Promise.allSettled([
       startHost(hostPage, gate, progress),
-      openGuestPage(guestContext, guestLines, progress),
+      openGuestPage(guestContext, guestLines, progress, origin),
     ]);
     if (guest.status === 'fulfilled') guestPage = guest.value;
     if (host.status === 'rejected') throw host.reason;
@@ -395,6 +450,7 @@ async function runConnectionFlow(
       hostPage,
       guestReady,
       `Status check ${nonce} from the host`,
+      'to the guest',
       MONITOR_REASONS.chatToGuestFailed,
       progress,
     );
@@ -402,6 +458,7 @@ async function runConnectionFlow(
       guestReady,
       hostPage,
       `Status check ${nonce} from the guest`,
+      'to the host',
       MONITOR_REASONS.chatToHostFailed,
       progress,
     );
@@ -420,20 +477,30 @@ async function runConnectionFlow(
   }
 }
 
-async function checkConnection(
+/**
+ * The connection row, from a host page on the start screen: the whole flow
+ * within STATUS_MONITOR_CONNECTION_BUDGET_MS, with the guest page opened on
+ * the same origin.
+ */
+export async function checkConnection(
   deps: StatusMonitorDeps,
   hostPage: Page,
   hostLines: readonly string[],
   guestContext: BrowserContext,
   gate: ClaimGate,
+  origin: string = STATUS_MONITOR_APP_ORIGIN,
 ): Promise<MonitorResult> {
-  const progress: FlowProgress = { reason: MONITOR_REASONS.hostStartFailed, hostOpened: false };
+  const progress: FlowProgress = {
+    reason: MONITOR_REASONS.hostStartFailed,
+    hostOpened: false,
+    chatSends: [],
+  };
   const guestLines: string[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<null>((done) => {
     timer = setTimeout(() => done(null), STATUS_MONITOR_CONNECTION_BUDGET_MS);
   });
-  const flow = runConnectionFlow(hostPage, guestContext, gate, guestLines, progress);
+  const flow = runConnectionFlow(hostPage, guestContext, gate, guestLines, progress, origin);
   const finished = await Promise.race([flow, budget]).finally(() => clearTimeout(timer));
   const outcome: ConnectionFlowOutcome = finished?.outcome ?? {
     ok: false,
@@ -442,6 +509,7 @@ async function checkConnection(
     hostOpened: progress.hostOpened,
   };
   const result = connectionResult(outcome, gate.summary());
+  if (progress.chatSends.length > 0) log(deps, `chat sends: ${progress.chatSends.join(', ')}`);
   if (!outcome.ok) {
     log(deps, `connection flow stopped at ${outcome.reason}`);
     await printDiagnostics(deps, 'host', hostPage, hostLines);
@@ -477,30 +545,56 @@ async function runBrowserChecks(
   }
 }
 
+/**
+ * This checkout's App build (its service-worker cache epoch, as the release
+ * reads it), or null when it cannot be read: failures then stand.
+ */
+function readCheckoutAppBuild(deps: StatusMonitorDeps): number | null {
+  try {
+    return resolveLiveSmokeAppBuild().build;
+  } catch {
+    log(
+      deps,
+      "this checkout's App build could not be read: failed checks are reported as they are",
+    );
+    return null;
+  }
+}
+
 /** One monitor run: the exit code the job ends with. */
 export async function runStatusBrowserMonitor(
   deps: StatusMonitorDeps = nodeDeps(),
 ): Promise<0 | 1> {
   const startedAtMs = deps.now();
-  const { preflight, answer } = await readStatusPreflight(deps);
+  const { preflight, answer, servedAppBuild } = await readStatusPreflight(deps);
   if (preflight === 'not-deployed') {
     annotate(
       deps,
       'notice',
       `GET /api/status answered ${describeAnswer(answer)} without schema 1; no checks ran.`,
     );
-    return statusMonitorExitCode({ preflight, delivered: false, authRefused: false });
+    return statusMonitorExitCode({ preflight });
   }
 
-  // Both tokens up front: a job without OIDC fails before it opens anything.
+  // Both tokens up front: a job without OIDC, or one that GitHub's token
+  // service refused with a 4xx, fails before it opens anything. A token service
+  // that gave no token for now (a 429, a 5xx or no answer) ends the run with a
+  // warning instead, as an undelivered report does.
   const reportTokens = createOidcTokenSource(STATUS_REPORT_AUDIENCE, deps);
   const claimTokens = createOidcTokenSource(STATUS_CLAIM_AUDIENCE, deps);
-  await reportTokens.get();
-  await claimTokens.get();
+  try {
+    await reportTokens.get();
+    await claimTokens.get();
+  } catch (error) {
+    if (!(error instanceof OidcUnavailableError)) throw error;
+    const run: StatusMonitorRun = { preflight, tokensUnavailable: error.message };
+    for (const { kind, message } of statusMonitorEndAnnotations(run)) annotate(deps, kind, message);
+    return statusMonitorExitCode(run);
+  }
 
   let website = MONITOR_MAINTENANCE;
   let connection = MONITOR_MAINTENANCE;
-  let claimAuthRefused = false;
+  let claims: ClaimGateSummary | null = null;
   if (preflight === 'maintenance') {
     log(deps, 'maintenance is on: reporting both rows as maintenance, opening nothing');
   } else {
@@ -509,13 +603,26 @@ export async function runStatusBrowserMonitor(
       onVerdict: (verdict) => log(deps, `claim answered ${verdict}`),
     });
     ({ website, connection } = await runBrowserChecks(deps, gate));
-    const summary = gate.summary();
-    claimAuthRefused = summary.authRefused;
+    claims = gate.summary();
     log(
       deps,
-      `claim gate: ${summary.claimed} claimed, ${summary.refused} host transports refused, ` +
-        `${summary.unrecognized} unrecognized transports, bypass ${summary.bypassed ? 'yes' : 'no'}`,
+      `claim gate: ${claims.claimed} claimed, ${claims.refused} host transports refused, ` +
+        `${claims.unrecognized} unrecognized transports, bypass ${claims.bypassed ? 'yes' : 'no'}`,
     );
+    const checkoutAppBuild = readCheckoutAppBuild(deps);
+    const match = compareServedAppBuild(servedAppBuild, checkoutAppBuild);
+    if (match === 'different') {
+      // Build numbers are public; the reasons are fixed codes.
+      log(
+        deps,
+        `production serves App build ${servedAppBuild}, this checkout is build ` +
+          `${checkoutAppBuild}: failed checks are reported as skipped (website ` +
+          `${website.outcome} ${website.reason}, connection ${connection.outcome} ` +
+          `${connection.reason})`,
+      );
+    }
+    website = resultForServedBuild(website, match);
+    connection = resultForServedBuild(connection, match);
   }
 
   log(deps, `website: ${website.outcome} (${website.reason})`);
@@ -532,24 +639,12 @@ export async function runStatusBrowserMonitor(
     reportTokens,
     deps,
   );
-  if (delivery.delivered) {
+  if (delivery.verdict === 'delivered') {
     log(deps, `report delivered: ${describeDelivered(delivery.answer)}`);
-  } else {
-    annotate(
-      deps,
-      'error',
-      `The report was not delivered: ${describeAnswer(delivery.answer)} after ` +
-        `${delivery.attempts} attempt(s).`,
-    );
   }
-  if (claimAuthRefused) {
-    annotate(deps, 'error', "The claim route refused this job's identity (401 or 403).");
-  }
-  return statusMonitorExitCode({
-    preflight,
-    delivered: delivery.delivered,
-    authRefused: delivery.authRefused || claimAuthRefused,
-  });
+  const run: StatusMonitorRun = { preflight, delivery, claims };
+  for (const { kind, message } of statusMonitorEndAnnotations(run)) annotate(deps, kind, message);
+  return statusMonitorExitCode(run);
 }
 
 /** Ends the run without Node's own report, whose stack could show a URL or a room code. */

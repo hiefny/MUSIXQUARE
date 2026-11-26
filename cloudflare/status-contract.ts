@@ -103,8 +103,26 @@ export const STATUS_RESULT_RETENTION_MS = 48 * 60 * 60_000;
 /** Made-up path of the /api/status edge-cache key; no route serves it. */
 export const STATUS_EDGE_CACHE_KEY_PATH = '/.well-known/mxqr-cache/status/v1';
 
-/** Edge-cache lifetime of a /api/status body whose results and note were both read, in seconds. */
+/** Edge-cache lifetime of a /api/status body built from three answered reads, in seconds. */
 export const STATUS_EDGE_CACHE_TTL_S = 30;
+
+/**
+ * Edge-cache lifetime of a /api/status body built around a failed or late
+ * read, in seconds. It keeps such an answer from sending every request to the
+ * admin D1 and the status note object. It is at least the ledger read bound
+ * and well inside one page poll.
+ */
+export const STATUS_EDGE_CACHE_DEGRADED_TTL_S = 10;
+
+/**
+ * Bound of the /api/status ledger read. A read still running at this bound
+ * counts as failed: every row reads results_unavailable and the answer is
+ * edge-cached only for STATUS_EDGE_CACHE_DEGRADED_TTL_S. The page itself gives
+ * up after its own 15 s fetch timeout (STATUS_FETCH_TIMEOUT_MS in
+ * browser/classic-runtime/status-page.ts), which status-policy-parity.test.ts
+ * keeps above this bound.
+ */
+export const STATUS_API_READ_TIMEOUT_MS = 5_000;
 
 /**
  * Oldest report the report route accepts, by the run's startedAt. It is above

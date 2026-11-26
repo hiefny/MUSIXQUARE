@@ -6,15 +6,24 @@
  *
  * - classifyStatusPreflight: the checks run only when GET /api/status answers
  *   schema 1, and report maintenance while it is on.
+ * - compareServedAppBuild and resultForServedBuild: while production serves
+ *   another App build than this checkout's, a failed check is reported as
+ *   skipped, since the checks may expect what the served build lacks.
  * - mintOidcToken and createOidcTokenSource: GitHub Actions OIDC tokens for the
  *   report and claim routes, each masked in the job log before anything else.
+ *   A mint that GitHub's token service answered with a 429, a 5xx or nothing
+ *   throws OidcUnavailableError, which ends a run with a warning, not a crash.
  * - ClaimGate, routeMonitorWebSocket and routeMonitorRequest: no host transport
  *   reaches signaling before the claim route granted its room code, so the
  *   monitor's rooms stay out of the public room count. An unknown transport is
  *   aborted and the connection check is reported as skipped.
+ * - STATUS_MONITOR_PEER_ROW_SELECTOR and deliverChatMessage: a chat message is
+ *   sent only once the sending page shows the other device connected, and is
+ *   sent again, a bounded number of times, while it has not arrived.
  * - buildStatusReport, connectionResult and postStatusReport: the exact report
  *   body and its bounded delivery.
- * - statusMonitorExitCode: when the GitHub job fails.
+ * - statusMonitorEndAnnotations and statusMonitorExitCode: what the run's end
+ *   reports, and when the GitHub job fails.
  * - sanitizeMonitorDiagnostic: what the public Actions log may show.
  *
  * The status checks' timing values come from cloudflare/status-contract.ts.
@@ -27,12 +36,14 @@ import { Buffer } from 'node:buffer';
 import {
   STATUS_BROWSER_CLAIM_TIMEOUT_MS,
   STATUS_BROWSER_REPORT_ATTEMPTS,
+  STATUS_BROWSER_STEP_TIMEOUT_MS,
   STATUS_CLAIM_PATH,
   STATUS_PUBLIC_PATH,
   STATUS_REPORT_PATH,
   STATUS_SCHEMA_VERSION,
   isStatusReason,
 } from '../../cloudflare/status-contract.ts';
+import { readServiceWorkerAppBuild } from '../live-smoke-app-build.mts';
 
 /** The live App: the status routes and the HTTP signaling bridge. */
 export const STATUS_MONITOR_APP_ORIGIN = 'https://musixquare.com';
@@ -53,6 +64,17 @@ export const STATUS_MONITOR_CONNECTION_BUDGET_MS = 75_000;
 
 /** How long a page may take to show its first-run dialog before the check goes on. */
 export const STATUS_MONITOR_DIALOG_WAIT_MS = 2_000;
+
+/** Most sends of one chat message, the first included, all within one step timeout. */
+export const STATUS_MONITOR_CHAT_SEND_ATTEMPTS = 3;
+
+/**
+ * How long a sent chat message may take to show on the other page before it is
+ * sent again; the last send waits until the step ends. It stays above the
+ * App's guard against an identical message sent twice within 500 ms
+ * (sendChatMessage in src/ui/chat.ts), which would drop the second send.
+ */
+export const STATUS_MONITOR_CHAT_RESEND_AFTER_MS = 5_000;
 
 /** A cached OIDC token is minted again when it expires within this margin. */
 export const STATUS_MONITOR_TOKEN_REFRESH_MARGIN_MS = 60_000;
@@ -107,6 +129,7 @@ export const MONITOR_REASONS = Object.freeze({
   chatToGuestFailed: 'chat_to_guest_failed',
   chatToHostFailed: 'chat_to_host_failed',
   connectionTimeout: 'connection_timeout',
+  appBuildMismatch: 'app_build_mismatch',
 } as const);
 
 const MONITOR_OUTCOMES: ReadonlySet<string> = new Set(['ok', 'fail', 'maintenance', 'skipped']);
@@ -283,24 +306,72 @@ export function classifyStatusPreflight(answer: JsonAnswer | null): StatusPrefli
   return isRecord(maintenance) && maintenance.active === true ? 'maintenance' : 'run';
 }
 
-export async function readStatusPreflight(
-  deps: StatusMonitorDeps,
-): Promise<{ readonly preflight: StatusPreflight; readonly answer: JsonAnswer | null }> {
-  const answer = await requestJson(
-    deps,
-    `${STATUS_MONITOR_APP_ORIGIN}${STATUS_PUBLIC_PATH}`,
-    { method: 'GET', headers: { Accept: 'application/json' } },
-    STATUS_MONITOR_REQUEST_TIMEOUT_MS,
-  );
-  return { preflight: classifyStatusPreflight(answer), answer };
+/**
+ * GET /api/status, and beside it the build the live App serves (the cache
+ * epoch of its /service-worker.js, as the App Worker reads its own). Both
+ * requests go out at once, so the build read adds no time to the run; its
+ * bound is no longer than the status read's (status-monitor-workflow.test.ts).
+ */
+export async function readStatusPreflight(deps: StatusMonitorDeps): Promise<{
+  readonly preflight: StatusPreflight;
+  readonly answer: JsonAnswer | null;
+  /** The App build production serves, or null when it cannot be read. */
+  readonly servedAppBuild: number | null;
+}> {
+  const [answer, servedAppBuild] = await Promise.all([
+    requestJson(
+      deps,
+      `${STATUS_MONITOR_APP_ORIGIN}${STATUS_PUBLIC_PATH}`,
+      { method: 'GET', headers: { Accept: 'application/json' } },
+      STATUS_MONITOR_REQUEST_TIMEOUT_MS,
+    ),
+    readServiceWorkerAppBuild((url, init) => deps.fetch(url, init ?? {})),
+  ]);
+  return { preflight: classifyStatusPreflight(answer), answer, servedAppBuild };
+}
+
+/** How the build production serves compares with this checkout's build. */
+export type ServedAppBuildMatch = 'same' | 'different' | 'unknown';
+
+export function compareServedAppBuild(
+  served: number | null,
+  checkout: number | null,
+): ServedAppBuildMatch {
+  if (served === null || checkout === null) return 'unknown';
+  return served === checkout ? 'same' : 'different';
+}
+
+/**
+ * A check's result as the run reports it. The monitor runs from main against
+ * the App that production serves, and the parity tests move its selectors and
+ * transport shapes together with main's App source. Between merging an App
+ * train and releasing it, or after an App rollback, this checkout may expect
+ * what the served build lacks, so while the two builds differ a failed check
+ * is reported as skipped: its slot reads no check, never a problem. A pass, a
+ * skip and maintenance stand, and every failure stands while the builds match
+ * or either one is unknown.
+ */
+export function resultForServedBuild(
+  result: MonitorResult,
+  match: ServedAppBuildMatch,
+): MonitorResult {
+  return match === 'different' && result.outcome === 'fail'
+    ? monitorSkipped(MONITOR_REASONS.appBuildMismatch)
+    : result;
 }
 
 // ── GitHub Actions OIDC ──────────────────────────────────────────────────
 
+/** GitHub's token service gave no token for now: no answer, a 429 or a 5xx. */
+export class OidcUnavailableError extends Error {}
+
 /**
  * Mints a GitHub Actions OIDC token for one route's audience (the job needs
  * permissions id-token: write) and masks it before anything else is written,
- * so the public log can never show it.
+ * so the public log can never show it. One request, never retried here: no
+ * answer, a 429 or a 5xx throws OidcUnavailableError, and anything else that
+ * is not a token (no OIDC in the job, a 4xx, a malformed answer) throws a
+ * plain Error.
  */
 export async function mintOidcToken(audience: string, deps: StatusMonitorDeps): Promise<string> {
   const requestUrl = deps.env.ACTIONS_ID_TOKEN_REQUEST_URL;
@@ -327,18 +398,20 @@ export async function mintOidcToken(audience: string, deps: StatusMonitorDeps): 
     },
     STATUS_MONITOR_REQUEST_TIMEOUT_MS,
   );
-  const token = isRecord(answer?.body) ? answer.body.value : undefined;
+  const failure = `GitHub Actions OIDC did not issue a token for ${route} (${
+    answer === null ? 'no answer' : `HTTP ${answer.status}`
+  }).`;
+  if (answer === null || answer.status === 429 || answer.status >= 500) {
+    throw new OidcUnavailableError(failure);
+  }
+  const token = isRecord(answer.body) ? answer.body.value : undefined;
   if (
-    answer?.status !== 200 ||
+    answer.status !== 200 ||
     typeof token !== 'string' ||
     token.length > OIDC_TOKEN_MAX_BYTES ||
     !OIDC_TOKEN_RE.test(token)
   ) {
-    throw new Error(
-      `GitHub Actions OIDC did not issue a token for ${route} (${
-        answer === null ? 'no answer' : `HTTP ${answer.status}`
-      }).`,
-    );
+    throw new Error(failure);
   }
   deps.write(`::add-mask::${token}`);
   return token;
@@ -406,7 +479,10 @@ export type ClaimVerdict =
   | 'unauthorized'
   /** 503 SERVICE_MAINTENANCE: maintenance started; claim nothing more. */
   | 'maintenance'
-  /** Any other 4xx: the request itself is wrong; claim nothing more. */
+  /**
+   * Any other 4xx, or a 2xx other than 200: an answer outside the route's
+   * contract, so the monitor and the route disagree; claim nothing more.
+   */
   | 'rejected'
   /** 429, another 5xx, no answer, or no answer within the claim timeout. */
   | 'unavailable';
@@ -430,7 +506,11 @@ export function classifyClaimAnswer(answer: JsonAnswer | null): ClaimVerdict {
   return 'rejected';
 }
 
-/** One claim request through the claim route with a token of its audience. */
+/**
+ * One claim request through the claim route with a token of its audience. An
+ * answer that fails the job (unauthorized or rejected) is logged by its status
+ * and error code.
+ */
 export async function requestStatusClaim(
   roomId: string,
   tokens: OidcTokenSource,
@@ -458,7 +538,11 @@ export async function requestStatusClaim(
     STATUS_BROWSER_CLAIM_TIMEOUT_MS,
     signal,
   );
-  return classifyClaimAnswer(answer);
+  const verdict = classifyClaimAnswer(answer);
+  if (verdict === 'unauthorized' || verdict === 'rejected') {
+    deps.write(`[status-monitor] claim route answered ${describeAnswer(answer)}`);
+  }
+  return verdict;
 }
 
 export interface ClaimGateSummary {
@@ -474,6 +558,8 @@ export interface ClaimGateSummary {
   readonly stoppedBy: ClaimVerdict | null;
   /** The claim route answered 401 or 403. */
   readonly authRefused: boolean;
+  /** The claim route answered outside its contract (verdict rejected). */
+  readonly contractMismatch: boolean;
 }
 
 export interface ClaimGateOptions {
@@ -499,6 +585,7 @@ export class ClaimGate {
   readonly #codes = new Map<string, CodeState>();
   #stoppedBy: ClaimVerdict | null = null;
   #authRefused = false;
+  #contractMismatch = false;
   #refused = 0;
   #unrecognized = 0;
   #bypassed = false;
@@ -550,6 +637,7 @@ export class ClaimGate {
       bypassed: this.#bypassed,
       stoppedBy: this.#stoppedBy,
       authRefused: this.#authRefused,
+      contractMismatch: this.#contractMismatch,
     };
   }
 
@@ -567,7 +655,9 @@ export class ClaimGate {
     this.#codes.set(roomId, 'refused');
     if (DEFINITE_REFUSALS.has(verdict)) {
       this.#stoppedBy ??= verdict;
+      // Kept even when another code's refusal stopped claiming first: both fail the job.
       if (verdict === 'unauthorized') this.#authRefused = true;
+      if (verdict === 'rejected') this.#contractMismatch = true;
     }
     return false;
   }
@@ -901,21 +991,103 @@ export function connectionAfterWebsite(website: MonitorResult): MonitorResult {
     : monitorSkipped(MONITOR_REASONS.websiteFailed);
 }
 
+// ── Chat ─────────────────────────────────────────────────────────────────
+
+/**
+ * A row of the Connect panel's device list for a device other than the page's
+ * own. The host's list keeps only peers it marked connected: broadcastDeviceList
+ * (src/network/peer-state.ts) filters on status 'connected', the same check
+ * broadcast() makes before it sends a chat message, and renderConnectDeviceList
+ * (src/ui/connect.ts) marks the page's own row is-current-member. On the host
+ * page that row is the guest, once the host took the guest's APPLIED receipt
+ * (completeConnection in src/network/host.ts). On the guest page it is the
+ * host, from the device list the host sends only to peers it marked connected
+ * (handleDeviceListUpdateMsg in src/network/guest.ts).
+ */
+export const STATUS_MONITOR_PEER_ROW_SELECTOR =
+  '#connect-device-list .device-row:not(.is-current-member)';
+
+/** What one chat step does on its two pages: Playwright in the script, fakes in tests. */
+export interface ChatStepPages {
+  /** Whether the sending page showed STATUS_MONITOR_PEER_ROW_SELECTOR within the timeout. */
+  readonly waitForPeer: (timeoutMs: number) => Promise<boolean>;
+  /** Types the message on the sending page and presses Send, within the timeout. */
+  readonly send: (timeoutMs: number) => Promise<void>;
+  /**
+   * Whether the message showed on the receiving page within the timeout. It
+   * answers false only once the whole timeout has passed.
+   */
+  readonly waitForMessage: (timeoutMs: number) => Promise<boolean>;
+}
+
+export interface ChatStepResult {
+  readonly delivered: boolean;
+  /** How many times the message was sent; 0 when the other device never showed connected. */
+  readonly sends: number;
+}
+
+/**
+ * One chat message, within one STATUS_BROWSER_STEP_TIMEOUT_MS from its start.
+ * The App's chat broadcast skips a peer the host has not marked connected yet,
+ * and the guest's setup screen closes once the guest sent its APPLIED receipt,
+ * before the host took it, so a message sent at once can be lost with nothing
+ * wrong. Each send therefore waits until the sending page shows the other
+ * device connected. A message that has not shown on the other page after
+ * STATUS_MONITOR_CHAT_RESEND_AFTER_MS is sent again, up to
+ * STATUS_MONITOR_CHAT_SEND_ATTEMPTS sends; the last waits until the step ends.
+ * A send that throws ends the step.
+ */
+export async function deliverChatMessage(
+  pages: ChatStepPages,
+  now: () => number,
+): Promise<ChatStepResult> {
+  const deadline = now() + STATUS_BROWSER_STEP_TIMEOUT_MS;
+  const remaining = (): number => deadline - now();
+  let sends = 0;
+  while (sends < STATUS_MONITOR_CHAT_SEND_ATTEMPTS && remaining() > 0) {
+    if (!(await pages.waitForPeer(remaining())) || remaining() <= 0) break;
+    await pages.send(remaining());
+    sends += 1;
+    const wait =
+      sends < STATUS_MONITOR_CHAT_SEND_ATTEMPTS
+        ? Math.min(STATUS_MONITOR_CHAT_RESEND_AFTER_MS, remaining())
+        : remaining();
+    if (wait > 0 && (await pages.waitForMessage(wait))) return { delivered: true, sends };
+  }
+  return { delivered: false, sends };
+}
+
 // ── Delivery and exit ────────────────────────────────────────────────────
 
+/**
+ * How the report route answered: `delivered` (200 {ok:true}); `unavailable`
+ * (429, 5xx or no answer, which may be tried again); `unauthorized` (401 or
+ * 403); `mismatch` (any other answer: another 4xx, or a 2xx without {ok:true},
+ * outside the route's contract).
+ */
+export type ReportVerdict = 'delivered' | 'unavailable' | 'unauthorized' | 'mismatch';
+
+export function classifyReportAnswer(answer: JsonAnswer | null): ReportVerdict {
+  if (answer === null) return 'unavailable';
+  const { status, body } = answer;
+  if (status === 200 && isRecord(body) && body.ok === true) return 'delivered';
+  if (status === 401 || status === 403) return 'unauthorized';
+  if (status === 429 || status >= 500) return 'unavailable';
+  return 'mismatch';
+}
+
 export interface ReportDelivery {
-  readonly delivered: boolean;
-  /** The report route answered 401 or 403. */
-  readonly authRefused: boolean;
+  /** The verdict of the last attempt. */
+  readonly verdict: ReportVerdict;
   /** The last answer, or null when no attempt got one. */
   readonly answer: JsonAnswer | null;
   readonly attempts: number;
 }
 
 /**
- * Posts the report up to STATUS_BROWSER_REPORT_ATTEMPTS times. Only a 429, a
- * 5xx or no answer is tried again; 200 {ok:true} is delivered, and any other
- * answer is final.
+ * Posts the report up to STATUS_BROWSER_REPORT_ATTEMPTS times. Only an
+ * unavailable answer (429, 5xx or none) is tried again; every other verdict is
+ * final.
  */
 export async function postStatusReport(
   body: StatusReportBody,
@@ -947,13 +1119,9 @@ export async function postStatusReport(
             },
             STATUS_MONITOR_REQUEST_TIMEOUT_MS,
           );
-    if (answer?.status === 200 && isRecord(answer.body) && answer.body.ok === true) {
-      return { delivered: true, authRefused: false, answer, attempts: attempt };
-    }
-    const authRefused = answer?.status === 401 || answer?.status === 403;
-    const transient = answer === null || answer.status === 429 || answer.status >= 500;
-    if (!transient || attempt >= STATUS_BROWSER_REPORT_ATTEMPTS) {
-      return { delivered: false, authRefused, answer, attempts: attempt };
+    const verdict = classifyReportAnswer(answer);
+    if (verdict !== 'unavailable' || attempt >= STATUS_BROWSER_REPORT_ATTEMPTS) {
+      return { verdict, answer, attempts: attempt };
     }
     deps.write(
       `[status-monitor] report attempt ${attempt} got ${describeAnswer(answer)}; trying again`,
@@ -975,19 +1143,92 @@ export function describeDelivered(answer: JsonAnswer | null): string {
   return `slot ${slotAt}, website ${mark(recorded.website)}, connection ${mark(recorded.connection)}`;
 }
 
+/** How a run ended, as far as its closing annotations and exit code go. */
+export type StatusMonitorRun =
+  | { readonly preflight: 'not-deployed' }
+  | {
+      readonly preflight: 'maintenance' | 'run';
+      /** Why GitHub's token service gave no token at the start; no check ran. */
+      readonly tokensUnavailable: string;
+    }
+  | {
+      readonly preflight: 'maintenance' | 'run';
+      readonly delivery: ReportDelivery;
+      /** What the claim gate saw; null when no browser ran (maintenance). */
+      readonly claims: Pick<ClaimGateSummary, 'authRefused' | 'contractMismatch'> | null;
+    };
+
+export interface MonitorAnnotation {
+  readonly kind: 'warning' | 'error';
+  readonly message: string;
+}
+
 /**
- * 0 when production has no status API yet, or when the report was delivered
- * (failed checks included). 1 when the report or claim route answered 401 or
- * 403, or the report was not delivered; a crash before reporting also ends
- * with 1, from the script itself.
+ * The annotations that end a run. A report that was still unavailable after
+ * every attempt is a warning: its rows keep their last results and age to Not
+ * checked. So is a run that GitHub's token service gave no token at the start.
+ * A route that refused the job's identity, or answered outside its contract,
+ * is an error, and the job fails (statusMonitorExitCode).
  */
-export function statusMonitorExitCode(run: {
-  readonly preflight: StatusPreflight;
-  readonly delivered: boolean;
-  readonly authRefused: boolean;
-}): 0 | 1 {
+export function statusMonitorEndAnnotations(run: StatusMonitorRun): MonitorAnnotation[] {
+  if (run.preflight === 'not-deployed') return [];
+  if ('tokensUnavailable' in run) {
+    return [
+      {
+        kind: 'warning',
+        message:
+          `${run.tokensUnavailable} No checks ran. Until a report lands, the website and ` +
+          'connection rows age to Not checked.',
+      },
+    ];
+  }
+  const { verdict, answer, attempts } = run.delivery;
+  const annotations: MonitorAnnotation[] = [];
+  if (verdict === 'unavailable') {
+    annotations.push({
+      kind: 'warning',
+      message:
+        `The report was not delivered: ${describeAnswer(answer)} after ${attempts} ` +
+        'attempt(s). Until a report lands, the website and connection rows age to Not checked.',
+    });
+  } else if (verdict === 'unauthorized') {
+    annotations.push({
+      kind: 'error',
+      message: `The report route refused this job's identity: ${describeAnswer(answer)}.`,
+    });
+  } else if (verdict === 'mismatch') {
+    annotations.push({
+      kind: 'error',
+      message: `The report route answered ${describeAnswer(answer)}, outside its contract.`,
+    });
+  }
+  if (run.claims?.authRefused) {
+    annotations.push({
+      kind: 'error',
+      message: "The claim route refused this job's identity (401 or 403).",
+    });
+  }
+  if (run.claims?.contractMismatch) {
+    annotations.push({ kind: 'error', message: 'The claim route answered outside its contract.' });
+  }
+  return annotations;
+}
+
+/**
+ * 0 when production has no status API yet, when the report was delivered
+ * (failed checks included), and when it was not delivered after every attempt
+ * because of a 429, a 5xx or no answer, which includes GitHub's token service
+ * giving no token for now at the start of the run. 1 when the claim or the
+ * report route answered 401 or 403, or answered outside its contract (the
+ * claim verdict rejected, the report verdict mismatch); a crash, a job without
+ * OIDC and any other failed mint also end with 1, from the script itself.
+ */
+export function statusMonitorExitCode(run: StatusMonitorRun): 0 | 1 {
   if (run.preflight === 'not-deployed') return 0;
-  return run.delivered && !run.authRefused ? 0 : 1;
+  if ('tokensUnavailable' in run) return 0;
+  if (run.claims?.authRefused || run.claims?.contractMismatch) return 1;
+  const { verdict } = run.delivery;
+  return verdict === 'unauthorized' || verdict === 'mismatch' ? 1 : 0;
 }
 
 // ── Diagnostics ──────────────────────────────────────────────────────────

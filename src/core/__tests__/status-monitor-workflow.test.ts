@@ -157,6 +157,16 @@ describe('status monitor workflow', () => {
       STATUS_MONITOR_REQUEST_TIMEOUT_MS;
     // Browser start and close, and the diagnostics of a failed run, fit the rest.
     expect(runStepMs - slowestReportingRunMs).toBeGreaterThanOrEqual(30_000);
+
+    // The live App's build is read beside the status read (readStatusPreflight),
+    // so its own bound must not outlast that read's.
+    const liveApp = readFileSync(resolve('scripts/live-smoke-app-build.mts'), 'utf8');
+    const liveAppTimeout = /^const LIVE_APP_REQUEST_TIMEOUT_MS = ([\d_]+);$/mu.exec(liveApp);
+    expect(liveAppTimeout, 'LIVE_APP_REQUEST_TIMEOUT_MS').not.toBeNull();
+    expect(liveApp).toContain('signal: AbortSignal.timeout(LIVE_APP_REQUEST_TIMEOUT_MS)');
+    expect(Number(liveAppTimeout?.[1]?.replaceAll('_', ''))).toBeLessThanOrEqual(
+      STATUS_MONITOR_REQUEST_TIMEOUT_MS,
+    );
   });
 
   it('runs no inline JavaScript and uploads nothing to the public run', () => {

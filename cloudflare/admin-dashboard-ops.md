@@ -252,6 +252,13 @@ scripts and audits; `GET /api/app-build-floor/effective` is the App's own read
 at start and on return to the foreground, edge-cached for 30 seconds and never
 above the build the answering App serves.
 
+The App Worker reads the build it serves from its own `/service-worker.js` once
+per isolate, and requests share a read that is still running. A request that
+finds that read rejected because the request that started it ended (a page
+that dropped its floor read, or a client that disconnected) logs the warning
+`served_app_build_shared_read_rejected`, which carries only `event`, and reads
+again itself.
+
 ## Status page
 
 App 9.0.845 adds the public page `musixquare.com/status` (resource record RO-57
@@ -279,12 +286,18 @@ wins. Every cron run deletes rows older than 48 hours. The table holds no room
 code, account, IP or other user identifier.
 
 `GET /api/status` builds the page's JSON from the last 48 hours of rows, the
-maintenance state and the status note. It is edge-cached for 30 seconds, and
-only when the results, the maintenance state and the note were all read. A row
-shows Problem after two failed checks in a row (missed slots and maintenance
-marks are skipped) and Not checked once its newest passed or failed check is
-more than 30 minutes old. If the D1 read fails, the page says that status is
-unavailable and still shows the note.
+maintenance state and the status note. It is edge-cached for 30 seconds when
+the results, the maintenance state and the note were all read, and for 10
+seconds (`STATUS_EDGE_CACHE_DEGRADED_TTL_S`) when one of those reads failed, so
+a struggling database or note object is not asked again by every visitor. A
+row shows Problem after two failed checks in a row (missed slots and
+maintenance marks are skipped) and Not checked once its newest passed or failed
+check is more than 30 minutes old. If the D1 read fails, or has not answered
+within 5 seconds (`STATUS_API_READ_TIMEOUT_MS`), every row reads
+`results_unavailable` and the answer is cached for those 10 seconds only: the
+page says that status is unavailable and still shows the note. The maintenance
+and note reads are bounded by the service-control read timeout, so
+`/api/status` answers well before the page's own 15-second fetch timeout.
 
 While maintenance is on, the checks open no room and record `m` for every row.
 A control-plane outage is not maintenance: the checks run and record what
@@ -309,7 +322,13 @@ OIDC token for audience `https://musixquare.com/api/ops/status-report` or
 workflow `status-monitor.yml` on `refs/heads/main`, event `schedule` or
 `workflow_dispatch`, a GitHub-hosted runner and no `environment` claim. Each
 accepts 60 requests per 10 minutes. The workflow uses no GitHub environment,
-and no repository or Worker secret is involved.
+and no repository or Worker secret is involved. The App keeps GitHub's key set
+per isolate and downloads it at most once a minute. A download whose request
+ended before it finished (a client that disconnected) is dropped by the next
+request, which logs the warning `github_oidc_jwks_shared_fetch_rejected`
+(carrying only `event`); until the next download is allowed, a token whose key
+is not cached gets 503 `OIDC_JWKS_UNAVAILABLE`, which the monitor treats as
+unavailable. The App build floor's ops route uses the same verifier.
 
 The Maintenance view's "Status page note" panel publishes one message of up to
 280 characters, written in English, with an optional expiry; Remove clears it.
@@ -327,9 +346,24 @@ Troubleshooting:
 - `website` or `connection` reads Not checked: the GitHub schedule did not run,
   or the job could not report. GitHub can start a scheduled run late or drop
   it, and it disables the schedule after 60 days without repository activity.
-  Read the latest Status monitor run. The job fails only when the report or
-  claim route refuses its identity (401 or 403) or the script stops before
-  reporting; failed checks still end in a successful run.
+  Read the latest Status monitor run. A run succeeds after a delivered report
+  (failed checks included), when production has no `/api/status` yet, and
+  when the report still could not be delivered after its retries because of a
+  429, a 5xx or no answer: that run shows a warning, and `website` and
+  `connection` age to Not checked. A run also succeeds with a warning, having
+  opened nothing, when GitHub's OIDC token service gave no token at its start
+  (a 429, a 5xx or no answer). A run fails when the report or claim route
+  answers 401 or 403 (it refused the job's identity) or any other 4xx outside
+  the route's contract (a contract mismatch), when the job has no OIDC
+  permission or the token service refuses it with a 4xx, or when the script
+  crashes.
+- The run log shows `skipped (app_build_mismatch)` for `website` or
+  `connection`: production served another App build than the monitor's
+  checkout of main (the log names both builds), between merging an App train
+  and releasing it, or after an App rollback. The checks follow main's App and
+  may expect what the served build lacks, so a failed check is reported as
+  skipped and its row reads Not checked until production serves main's build
+  again. A passed check is still recorded.
 - The claim answers 424 `STATUS_PROBE_UNSUPPORTED`, or the cron logs
   `status_probe_unsupported`: signaling runs a build without the claim route,
   for example after a signaling rollback. The checks then open no room, and
@@ -513,12 +547,28 @@ https://musixquare.com/admin
 
 ### Runtime schema-initialization measurement
 
-The App Worker emits one sampled custom-log event per isolate and bound Admin
-D1 instance when `ensureAdminProRoomRegistry` initializes. The event name is
+The App Worker emits one sampled custom-log event each time an
+`ensureAdminProRoomRegistry` check completes. The event name is
 `admin_pro_room_registry_schema_ensure`; it contains only `outcome`,
-`durationMs`, the total statement count, and aggregate read/write/DDL/other
-counts. It contains no SQL text, room code, actor, account, request, or binding
-identifier. Cloudflare's configured custom-log sampling applies to this event.
+`durationMs`, the total statement count, aggregate read/write/DDL/other counts
+and, for an `error` outcome, an `errorClass`: a fixed class of the failure,
+never its message. It contains no SQL text, room code, actor, account, request,
+or binding identifier. Cloudflare's configured custom-log sampling applies to
+this event.
+
+The requests of one isolate and bound Admin D1 instance share a check that is
+still running, so a successful check logs once for all of them. After a failed
+check, the next request runs and logs a new one. A check whose request was
+cancelled never completes and logs nothing, so its statements are in no event.
+Since App 9.0.845, each request that finds another request's in-flight check
+rejected (for example after that request was cancelled) drops it, logs the
+warning `admin_pro_room_registry_shared_check_rejected`, and runs its own check
+instead of failing with it. The warning contains only `event` and an
+`errorClass`: `cross_request` when the Workers runtime rejected a check whose
+request had ended, otherwise `other` (the failed check's own `error` event
+carries its full class). One isolate can therefore log several schema-ensure
+events and warnings; for the measurement below, aggregate `durationMs` and
+`statementCount` over every schema-ensure event, not per isolate.
 
 Review a continuous 14-day window before changing the initializer. Implement a
 read-only readiness fast path only when at least one of these measured

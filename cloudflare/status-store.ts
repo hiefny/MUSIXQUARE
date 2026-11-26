@@ -1,3 +1,4 @@
+// Resource owner: RO-57 (the public status check ledger; see docs/design/resource-ownership-registry.md).
 /**
  * The status check ledger: the mxqr_status_checks table in the admin metrics
  * D1 database, one row per status row (component) and 15-minute slot. It is

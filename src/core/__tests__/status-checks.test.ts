@@ -25,6 +25,7 @@ import {
   type StatusCheckRow,
   type StatusProbeClaimOutcome,
 } from '../../../cloudflare/status-contract.ts';
+import { claimStatusProbeRoom } from '../../../cloudflare/status-probe-claim.ts';
 
 /**
  * The status cron's server checks (cloudflare/status-checks.ts, registry
@@ -392,6 +393,42 @@ function interceptPolls(
   h.fake.intercept = (call) => (call.operation === 'poll' ? reply() : undefined);
 }
 
+/**
+ * Claims through the App's own claim (cloudflare/status-probe-claim.ts): the
+ * room object of a code in refusals answers 409 with that body, and every
+ * other room object stores the claim.
+ */
+function claimOnRoomObjects(h: Harness, refusals: Readonly<Record<string, unknown>>): void {
+  const namespace = {
+    idFromName: (name: string) => name,
+    get: (id: string) => id,
+  };
+  h.claim.mockImplementation((roomId) =>
+    claimStatusProbeRoom({
+      namespace,
+      roomId,
+      fetchBounded: async (stub) =>
+        Object.hasOwn(refusals, stub)
+          ? { response: { status: 409 }, bytes: bytesOf(refusals[stub]) }
+          : { response: { status: 200 }, bytes: bytesOf({ ok: true }) },
+    }),
+  );
+}
+
+/** The fake room refuses host-auth on one code with id-taken, as for a room just taken. */
+function hostIdTakenOn(h: Harness, roomId: string): void {
+  h.fake.react = (frame, session) => {
+    if (frame.type !== 'host-auth' || session.roomId !== roomId) return false;
+    h.fake.deliver(session, {
+      type: 'error',
+      errorType: 'id-taken',
+      message: 'ROOM_ALREADY_ACTIVE',
+    });
+    session.terminal = true;
+    return true;
+  };
+}
+
 describe('status server checks', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], now: STARTED });
@@ -651,16 +688,7 @@ describe('status server checks', () => {
     const h = harness();
     const [busy, taken, free] = CODES;
     h.claim.mockImplementation(async (roomId) => (roomId === busy ? 'room_active' : 'claimed'));
-    h.fake.react = (frame, session) => {
-      if (frame.type !== 'host-auth' || session.roomId !== taken) return false;
-      h.fake.deliver(session, {
-        type: 'error',
-        errorType: 'id-taken',
-        message: 'ROOM_ALREADY_ACTIVE',
-      });
-      session.terminal = true;
-      return true;
-    };
+    hostIdTakenOn(h, taken!);
     await run(h.deps);
 
     expectRow(rowsOf(h).rooms, 'o', 'passing');
@@ -686,6 +714,75 @@ describe('status server checks', () => {
     expect(h.claim).toHaveBeenCalledTimes(STATUS_ROOMS_CODE_ATTEMPTS);
     expect(h.fake.attempts).toEqual([]);
     expect(h.sleep).not.toHaveBeenCalled();
+  });
+
+  describe('with the App claim on the room objects', () => {
+    it('moves to another code on any 409 of a room object, a quarantined room included', async () => {
+      const h = harness();
+      const [quarantined, refused, free] = CODES;
+      claimOnRoomObjects(h, {
+        [quarantined!]: { error: 'ROOM_STATE_INVALID' },
+        [refused!]: { error: 'ROOM_REFUSED_BY_A_LATER_SIGNALING' },
+      });
+      await run(h.deps);
+
+      expectRow(rowsOf(h).rooms, 'o', 'passing');
+      expect(h.log.filter((entry) => /^(?:claim|open):/.test(entry))).toEqual([
+        `claim:${quarantined}`,
+        `claim:${refused}`,
+        `claim:${free}`,
+        `open:host:${free}`,
+        `open:guest:${free}`,
+      ]);
+      expectEverySessionClosed(h);
+      expect(h.sleep).not.toHaveBeenCalled();
+      expect(h.warn).not.toHaveBeenCalled();
+    });
+
+    it('fails with room_codes_busy, and no retry, when the room objects refuse every code', async () => {
+      const h = harness();
+      const bodies: unknown[] = [{ error: 'ROOM_STATE_INVALID' }, { error: 'ROOM_ACTIVE' }, ''];
+      claimOnRoomObjects(
+        h,
+        Object.fromEntries(CODES.map((code, index) => [code, bodies[index % bodies.length]])),
+      );
+      await run(h.deps);
+
+      const rows = rowsOf(h);
+      expectRow(rows.rooms, 'p', 'room_codes_busy');
+      expectRow(rows.pro, 'o', 'passing');
+      expect(h.roomIds).toEqual(CODES.slice(0, STATUS_ROOMS_CODE_ATTEMPTS));
+      expect(h.fake.attempts).toEqual([]);
+      expect(h.sleep).not.toHaveBeenCalled();
+      expect(h.warn.mock.calls).toEqual([
+        ['status_check_failed', { component: 'rooms', reason: 'room_codes_busy' }],
+      ]);
+    });
+
+    it('counts refused claims and an id-taken host alike toward room_codes_busy', async () => {
+      const h = harness();
+      const [quarantined, taken, ...active] = CODES.slice(0, STATUS_ROOMS_CODE_ATTEMPTS);
+      claimOnRoomObjects(h, {
+        [quarantined!]: { error: 'ROOM_STATE_INVALID' },
+        ...Object.fromEntries(active.map((code) => [code, { error: 'ROOM_ACTIVE' }])),
+      });
+      hostIdTakenOn(h, taken!);
+      await run(h.deps);
+
+      expectRow(rowsOf(h).rooms, 'p', 'room_codes_busy');
+      expect(h.log.filter((entry) => /^(?:claim|open|close):/.test(entry))).toEqual([
+        `claim:${quarantined}`,
+        `claim:${taken}`,
+        `open:host:${taken}`,
+        `close:host:${taken}`,
+        ...active.map((code) => `claim:${code}`),
+      ]);
+      expectEverySessionClosed(h);
+      expect(h.sleep).not.toHaveBeenCalled();
+      expect(h.warn.mock.calls).toEqual([
+        ['status_check_failed', { component: 'rooms', reason: 'room_codes_busy' }],
+      ]);
+    });
   });
 
   it('fails with host_timeout when peer-open never comes, after one retry on a fresh code', async () => {

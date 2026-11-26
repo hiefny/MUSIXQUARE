@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-26T19:52:30+09:00",
-  "timeZone": "Asia/Seoul",
+  "generatedAt": "2026-11-26T10:52:30.000Z",
+  "timeZone": "UTC",
   "policy": {
     "checkIntervalMinutes": 15,
     "problemAfterFailures": 2,
@@ -15,8 +15,8 @@
   "overall": {
     "state": "problem",
     "reason": "component_problem",
-    "lastCheckedAt": "2026-11-26T19:45:29+09:00",
-    "since": "2026-11-26T19:30:31+09:00"
+    "lastCheckedAt": "2026-11-26T10:45:29.000Z",
+    "since": "2026-11-26T10:30:31.000Z"
   },
   "maintenance": {
     "active": false,
@@ -25,19 +25,19 @@
   "announcement": {
     "id": "demo-problem",
     "message": "We're looking into problems joining PRO rooms. Regular rooms are working.",
-    "postedAt": "2026-11-26T19:48:10+09:00",
-    "expiresAt": "2026-11-26T22:00:00+09:00"
+    "postedAt": "2026-11-26T10:48:10.000Z",
+    "expiresAt": "2026-11-26T13:00:00.000Z"
   },
   "components": [
     {
       "id": "website",
       "state": "ok",
       "reason": "passing",
-      "lastCheckedAt": "2026-11-26T19:37:44+09:00",
-      "lastOkAt": "2026-11-26T19:37:44+09:00",
+      "lastCheckedAt": "2026-11-26T10:37:44.000Z",
+      "lastOkAt": "2026-11-26T10:37:44.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T19:37:00+09:00",
+        "lastAt": "2026-11-26T10:37:00.000Z",
         "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
       }
     },
@@ -45,11 +45,11 @@
       "id": "rooms",
       "state": "ok",
       "reason": "passing",
-      "lastCheckedAt": "2026-11-26T19:45:29+09:00",
-      "lastOkAt": "2026-11-26T19:45:29+09:00",
+      "lastCheckedAt": "2026-11-26T10:45:29.000Z",
+      "lastOkAt": "2026-11-26T10:45:29.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T19:45:00+09:00",
+        "lastAt": "2026-11-26T10:45:00.000Z",
         "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooopoooooooooooo"
       }
     },
@@ -57,11 +57,11 @@
       "id": "connection",
       "state": "ok",
       "reason": "passing",
-      "lastCheckedAt": "2026-11-26T19:37:44+09:00",
-      "lastOkAt": "2026-11-26T19:37:44+09:00",
+      "lastCheckedAt": "2026-11-26T10:37:44.000Z",
+      "lastOkAt": "2026-11-26T10:37:44.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T19:37:00+09:00",
+        "lastAt": "2026-11-26T10:37:00.000Z",
         "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
       }
     },
@@ -69,11 +69,11 @@
       "id": "pro",
       "state": "problem",
       "reason": "pro_entry_unreachable",
-      "lastCheckedAt": "2026-11-26T19:45:29+09:00",
-      "lastOkAt": "2026-11-26T19:15:06+09:00",
-      "problemSince": "2026-11-26T19:30:31+09:00",
+      "lastCheckedAt": "2026-11-26T10:45:29.000Z",
+      "lastOkAt": "2026-11-26T10:15:06.000Z",
+      "problemSince": "2026-11-26T10:30:31.000Z",
       "recent": {
-        "lastAt": "2026-11-26T19:45:00+09:00",
+        "lastAt": "2026-11-26T10:45:00.000Z",
         "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooopp"
       }
     }

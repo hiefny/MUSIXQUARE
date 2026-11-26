@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  STATUS_API_READ_TIMEOUT_MS,
   STATUS_BROWSER_CHECK_MINUTES,
   STATUS_BROWSER_CLAIM_TIMEOUT_MS,
   STATUS_BROWSER_CRON,
@@ -14,6 +15,7 @@ import {
   STATUS_CLAIM_PATH,
   STATUS_COMPONENT_IDS,
   STATUS_COMPONENT_SCHEDULE,
+  STATUS_EDGE_CACHE_DEGRADED_TTL_S,
   STATUS_EDGE_CACHE_KEY_PATH,
   STATUS_EDGE_CACHE_TTL_S,
   STATUS_MONITOR_WORKFLOW_REF,
@@ -147,6 +149,19 @@ describe('status page contract', () => {
   it('caches the public answer for less than one check interval', () => {
     expect(STATUS_EDGE_CACHE_TTL_S).toBe(30);
     expect(STATUS_EDGE_CACHE_TTL_S * 1_000).toBeLessThan(INTERVAL_MS);
+  });
+
+  it('caches an answer built around a failed or late read for at least the read bound, and shorter', () => {
+    expect(STATUS_EDGE_CACHE_DEGRADED_TTL_S).toBe(10);
+    expect(STATUS_EDGE_CACHE_DEGRADED_TTL_S * 1_000).toBeGreaterThanOrEqual(
+      STATUS_API_READ_TIMEOUT_MS,
+    );
+    expect(STATUS_EDGE_CACHE_DEGRADED_TTL_S).toBeLessThan(STATUS_EDGE_CACHE_TTL_S);
+  });
+
+  it('bounds the ledger read of the public answer at 5 seconds', () => {
+    // status-policy-parity.test.ts keeps it below the page's own fetch timeout.
+    expect(STATUS_API_READ_TIMEOUT_MS).toBe(5_000);
   });
 
   it('bounds the report window, the report body and the ops rate', () => {

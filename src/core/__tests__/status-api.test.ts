@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  STATUS_API_READ_TIMEOUT_MS,
+  STATUS_EDGE_CACHE_DEGRADED_TTL_S,
   STATUS_EDGE_CACHE_KEY_PATH,
   STATUS_EDGE_CACHE_TTL_S,
   STATUS_PUBLIC_PATH,
@@ -158,6 +160,27 @@ async function body(response: Response): Promise<StatusPayload> {
   return (await response.json()) as StatusPayload;
 }
 
+/**
+ * An answer built around a failed or late read was stored once, through
+ * waitUntil, for the degraded lifetime, and the next request is served from it
+ * without reading the ledger, the maintenance state or the note again.
+ */
+async function expectDegradedBodyServedFromCache(test: Harness, payload: StatusPayload) {
+  expect(test.waits).toHaveLength(1);
+  await Promise.all(test.waits);
+  expect(test.cache.put).toHaveBeenCalledTimes(1);
+  const [key, stored] = test.cache.put.mock.calls[0]!;
+  expect(key.url).toBe(CACHE_KEY_URL);
+  expect(stored.headers.get('Cache-Control')).toBe(
+    `public, max-age=${STATUS_EDGE_CACHE_DEGRADED_TTL_S}`,
+  );
+  const reads = { ...test.reads };
+  const again = await body(await handleStatusApi(get(), test.deps));
+  expect(test.reads).toEqual(reads);
+  expect({ ...again, generatedAt: payload.generatedAt }).toEqual(payload);
+  expect(test.cache.put).toHaveBeenCalledTimes(1);
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(T0);
@@ -275,7 +298,7 @@ describe('GET /api/status', () => {
     expect((await handleStatusApi(get(), throwing.deps)).status).toBe(200);
   });
 
-  it('answers 200 with results_unavailable when the store fails, and caches nothing', async () => {
+  it('answers 200 with results_unavailable when the store fails, and caches it only briefly', async () => {
     for (const test of [
       harness({ db: false }),
       harness({ rows: async () => Promise.reject(new Error('D1_ERROR: unavailable')) }),
@@ -296,12 +319,11 @@ describe('GET /api/status', () => {
       // The note and the maintenance state still come through.
       expect(payload.announcement).toEqual(NOTE);
       expect(payload.maintenance).toEqual({ active: false, since: null });
-      await Promise.all(test.waits);
-      expect(test.cache.put).not.toHaveBeenCalled();
+      await expectDegradedBodyServedFromCache(test, payload);
     }
   });
 
-  it('gives announcement null when the note cannot be read, and caches nothing', async () => {
+  it('gives announcement null when the note cannot be read, and caches it only briefly', async () => {
     for (const test of [
       harness({ note: async () => ({ status: 'unavailable' }) }),
       harness({ note: async () => Promise.reject(new Error('control down')) }),
@@ -309,12 +331,45 @@ describe('GET /api/status', () => {
       const payload = await body(await handleStatusApi(get(), test.deps));
       expect(payload.announcement).toBeNull();
       expect(payload.overall.reason).toBe('component_problem');
-      expect(test.cache.put).not.toHaveBeenCalled();
+      await expectDegradedBodyServedFromCache(test, payload);
     }
     const none = harness({ note: async () => ({ status: 'ok', note: null }) });
     expect((await body(await handleStatusApi(get(), none.deps))).announcement).toBeNull();
     await Promise.all(none.waits);
     expect(none.cache.put).toHaveBeenCalledTimes(1);
+    expect(none.cache.put.mock.calls[0]![1].headers.get('Cache-Control')).toBe(
+      `public, max-age=${STATUS_EDGE_CACHE_TTL_S}`,
+    );
+  });
+
+  it('never replaces a full body that another request stored while its own read was failing', async () => {
+    const full = harness();
+    let failLedger: ((error: Error) => void) | undefined;
+    const failing = harness({
+      rows: () =>
+        new Promise((_resolve, reject) => {
+          failLedger = reject;
+        }),
+    });
+    failing.deps.edgeCache = () => full.cache;
+    const late = handleStatusApi(get(), failing.deps);
+    await vi.waitFor(() => expect(failLedger).toBeDefined());
+
+    await handleStatusApi(get(), full.deps);
+    await Promise.all(full.waits);
+    expect(full.cache.put).toHaveBeenCalledTimes(1);
+
+    failLedger!(new Error('D1_ERROR: unavailable'));
+    expect((await body(await late)).overall.reason).toBe('results_unavailable');
+    await Promise.all(failing.waits);
+    expect(failing.waits).toHaveLength(1);
+    // The failing request's store saw the full body and left it in place.
+    expect(full.cache.put).toHaveBeenCalledTimes(1);
+    const stored = full.cache.entries.get(CACHE_KEY_URL)!;
+    expect(stored.headers.get('Cache-Control')).toBe(`public, max-age=${STATUS_EDGE_CACHE_TTL_S}`);
+    expect(((await stored.clone().json()) as StatusPayload).overall.reason).toBe(
+      'component_problem',
+    );
   });
 
   it('shows maintenance only while it is enabled and the control object answered', async () => {
@@ -344,10 +399,120 @@ describe('GET /api/status', () => {
     expect(unavailable.overall).toMatchObject({ state: 'problem', reason: 'component_problem' });
     expect(unavailable.components.some((entry) => entry.state === 'maintenance')).toBe(false);
 
-    // A maintenance read that throws is not maintenance, and is never cached.
+    // A maintenance read that throws is not maintenance, and is cached only
+    // for the degraded lifetime.
     const failed = harness({ maintenance: async () => Promise.reject(new Error('down')) });
     const answer = await body(await handleStatusApi(get(), failed.deps));
     expect(answer.maintenance).toEqual({ active: false, since: null });
-    expect(failed.cache.put).not.toHaveBeenCalled();
+    await expectDegradedBodyServedFromCache(failed, answer);
+  });
+});
+
+describe('GET /api/status ledger read bound', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], now: T0 });
+  });
+
+  /** Starts a request whose answer the test can look for while the fake clock runs. */
+  function start(deps: StatusApiDependencies) {
+    let answered = false;
+    const response = handleStatusApi(get(), deps).then((value) => {
+      answered = true;
+      return value;
+    });
+    return { response, answered: () => answered };
+  }
+
+  /** A ledger read that settles with the given outcome some time after it starts. */
+  function settlesAfter(delayMs: number, outcome: 'answers' | 'fails'): () => Promise<unknown> {
+    return () =>
+      new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (outcome === 'answers') resolve({ success: true, results: D1_ROWS });
+          else reject(new Error('D1_ERROR: unavailable'));
+        }, delayMs);
+      });
+  }
+
+  it('answers results_unavailable at the bound when the ledger read hangs, and caches it only briefly', async () => {
+    expect(STATUS_API_READ_TIMEOUT_MS).toBe(5_000);
+    const test = harness({ rows: () => new Promise<never>(() => {}) });
+    const request = start(test.deps);
+    await vi.advanceTimersByTimeAsync(STATUS_API_READ_TIMEOUT_MS - 1);
+    expect(request.answered()).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(request.answered()).toBe(true);
+
+    const response = await request.response;
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    const payload = await body(response);
+    expect(payload.generatedAt).toBe(new Date(T0 + STATUS_API_READ_TIMEOUT_MS).toISOString());
+    expect(payload.overall).toEqual({
+      state: 'stale',
+      reason: 'results_unavailable',
+      lastCheckedAt: null,
+      since: null,
+    });
+    expect(new Set(payload.components.map((entry) => entry.reason))).toEqual(
+      new Set(['results_unavailable']),
+    );
+    // The note and the maintenance state still come through.
+    expect(payload.announcement).toEqual(NOTE);
+    expect(payload.maintenance).toEqual({ active: false, since: null });
+    // Edge-cached only for the degraded lifetime, so the next request reads
+    // nothing, and the bound leaves no timer behind.
+    expect(vi.getTimerCount()).toBe(0);
+    await expectDegradedBodyServedFromCache(test, payload);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('uses and caches a ledger read that answers just inside the bound, clearing the bound', async () => {
+    const test = harness({ rows: settlesAfter(STATUS_API_READ_TIMEOUT_MS - 1, 'answers') });
+    const request = start(test.deps);
+    await vi.advanceTimersByTimeAsync(STATUS_API_READ_TIMEOUT_MS - 1);
+    expect(request.answered()).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+
+    const payload = await body(await request.response);
+    expect(payload.overall.reason).toBe('component_problem');
+    expect(payload.components.map((entry) => entry.state)).toEqual([
+      'stale',
+      'ok',
+      'stale',
+      'problem',
+    ]);
+    await Promise.all(test.waits);
+    expect(test.cache.put).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['answers', 'fails'] as const)(
+    'drops a ledger read that %s after the bound',
+    async (outcome) => {
+      const test = harness({ rows: settlesAfter(STATUS_API_READ_TIMEOUT_MS + 1_000, outcome) });
+      const request = start(test.deps);
+      await vi.advanceTimersByTimeAsync(STATUS_API_READ_TIMEOUT_MS);
+      const payload = await body(await request.response);
+      expect(payload.overall.reason).toBe('results_unavailable');
+
+      // The late outcome changes nothing; a late rejection is handled, so it
+      // never surfaces as an unhandled rejection.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(vi.getTimerCount()).toBe(0);
+      await expectDegradedBodyServedFromCache(test, payload);
+    },
+  );
+
+  it('clears the bound whenever the read settles first, and sets none without a database', async () => {
+    for (const test of [
+      harness(),
+      harness({ rows: async () => Promise.reject(new Error('D1_ERROR: unavailable')) }),
+      harness({ rows: async () => ({ success: false, results: [] }) }),
+      harness({ db: false }),
+    ]) {
+      const response = await handleStatusApi(get(), test.deps);
+      expect(response.status).toBe(200);
+      expect(vi.getTimerCount()).toBe(0);
+    }
   });
 });

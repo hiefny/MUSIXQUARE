@@ -36,6 +36,7 @@ import {
   type StatusOpsRateLimit,
   type StatusReportDeps,
 } from '../../../cloudflare/status-ops.ts';
+import { claimStatusProbeRoom } from '../../../cloudflare/status-probe-claim.ts';
 
 // Wrap the real verifier so the tests can prove when it never ran.
 vi.mock('../../../cloudflare/github-actions-oidc.ts', async (importOriginal) => {
@@ -952,6 +953,38 @@ describe('status claim route', () => {
     expect(await response.json()).toEqual(body);
     expect(calls.claims).toEqual([ROOM_ID]);
   });
+
+  it.each([
+    ['a room in use', { error: 'ROOM_ACTIVE' }],
+    ['a quarantined room or an object of another code', { error: 'ROOM_STATE_INVALID' }],
+    ['a refusal it does not know', { error: 'ROOM_REFUSED_BY_A_LATER_SIGNALING' }],
+    ['a refusal without a body', ''],
+  ])(
+    'answers 409 ROOM_ACTIVE when the room object refuses the code for %s',
+    async (_label, refusal) => {
+      installJwks([primary.jwk]);
+      const { deps } = harness();
+      const objects: string[] = [];
+      // The App's own claim, as claimStatusProbe binds it, on a room object that answers 409.
+      const response = await claim({
+        ...deps,
+        claim: (roomId) =>
+          claimStatusProbeRoom({
+            namespace: { idFromName: (name: string) => name, get: (id: string) => id },
+            roomId,
+            fetchBounded: async (stub) => {
+              objects.push(stub);
+              const body = typeof refusal === 'string' ? refusal : JSON.stringify(refusal);
+              return { response: { status: 409 }, bytes: new TextEncoder().encode(body) };
+            },
+          }),
+      });
+      expect(response.status).toBe(409);
+      // Only the route's own code goes back, never the room object's body.
+      expect(await response.json()).toEqual({ error: 'ROOM_ACTIVE' });
+      expect(objects).toEqual([ROOM_ID]);
+    },
+  );
 
   it('answers 503 when the claim call throws', async () => {
     installJwks([primary.jwk]);

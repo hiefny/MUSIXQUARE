@@ -108,6 +108,7 @@ describe('status probe claim', () => {
     const cases: Array<[StatusProbeClaimReply | null, StatusProbeClaimOutcome]> = [
       [reply(200, { ok: true }), 'claimed'],
       [reply(409, { error: 'ROOM_ACTIVE' }), 'room_active'],
+      [reply(409, { error: 'ROOM_STATE_INVALID' }), 'room_active'],
       [reply(404, { error: 'NOT_FOUND' }), 'unsupported'],
       [reply(404), 'unsupported'],
       [reply(503, { error: 'SERVICE_MAINTENANCE', maintenance: true }), 'maintenance'],
@@ -121,7 +122,6 @@ describe('status probe claim', () => {
       [reply(200), 'failed'],
       [reply(200, [{ ok: true }]), 'failed'],
       [reply(200, null, new Uint8Array([0x7b, 0xff, 0x7d])), 'failed'],
-      [reply(409, { error: 'ROOM_STATE_INVALID' }), 'failed'],
       [reply(400, { error: 'INVALID_REQUEST' }), 'failed'],
       [reply(503, { error: 'STANDARD_HTTP_BRIDGE_UNAVAILABLE' }), 'failed'],
       [reply(503), 'failed'],
@@ -130,6 +130,34 @@ describe('status probe claim', () => {
     ];
     for (const [answer, outcome] of cases) {
       expect(classifyStatusProbeClaimReply(answer), JSON.stringify(answer?.response)).toBe(outcome);
+    }
+  });
+
+  it('takes any 409, whatever its body, as a refusal of that code only', () => {
+    // ROOM_ACTIVE is a room in use; ROOM_STATE_INVALID a quarantined room or an
+    // object that belongs to another code. Another code may still be claimed.
+    const refusals: StatusProbeClaimReply[] = [
+      reply(409, { error: 'ROOM_ACTIVE' }),
+      reply(409, { error: 'ROOM_STATE_INVALID' }),
+      reply(409, { error: 'ROOM_REFUSED_BY_A_LATER_SIGNALING' }),
+      reply(409, { ok: true }),
+      reply(409, [{ error: 'ROOM_ACTIVE' }]),
+      reply(409),
+      reply(409, null, new TextEncoder().encode('<!doctype html>')),
+      reply(409, null, new Uint8Array([0x7b, 0xff, 0x7d])),
+    ];
+    for (const refusal of refusals) {
+      expect(classifyStatusProbeClaimReply(refusal), new TextDecoder().decode(refusal.bytes)).toBe(
+        'room_active',
+      );
+    }
+    // Only a 409 refuses a code: the same refusal under any other status fails.
+    for (const status of [200, 400, 403, 408, 410, 423, 429, 500, 503]) {
+      for (const error of ['ROOM_ACTIVE', 'ROOM_STATE_INVALID']) {
+        expect(classifyStatusProbeClaimReply(reply(status, { error })), `${status} ${error}`).toBe(
+          'failed',
+        );
+      }
     }
   });
 
@@ -196,6 +224,7 @@ describe('status probe claim', () => {
 
     for (const [answer, outcome] of [
       [reply(409, { error: 'ROOM_ACTIVE' }), 'room_active'],
+      [reply(409, { error: 'ROOM_STATE_INVALID' }), 'room_active'],
       [reply(404), 'unsupported'],
       [reply(503, { error: 'SERVICE_MAINTENANCE' }), 'maintenance'],
     ] as const) {

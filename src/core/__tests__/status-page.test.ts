@@ -385,7 +385,7 @@ describe('the /status page runtime', () => {
     const page = await openWithFixture('maintenance');
     expect(note(page.document)).not.toBeNull();
 
-    // The note expires at 15:30, 25 minutes 40 seconds after this answer.
+    // The note expires at 06:30 UTC, 25 minutes 40 seconds after this answer.
     page.advance(26 * MINUTE_MS);
     await page.refocus();
     expect(page.requests).toHaveLength(2);

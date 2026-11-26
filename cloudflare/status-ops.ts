@@ -360,7 +360,8 @@ export async function handleStatusReport(
 
 /**
  * POST /api/ops/status-claim. 200 once the room object stored the claim; 409
- * ROOM_ACTIVE for a code in use, so the monitor tries another; 424
+ * ROOM_ACTIVE whenever the room object refused that code (in use, quarantined
+ * or bound to another code), so the monitor tries another; 424
  * STATUS_PROBE_UNSUPPORTED from a signaling Worker without the claim route, so
  * the monitor opens no room; 503 STATUS_PROBE_UNAVAILABLE for anything else.
  */

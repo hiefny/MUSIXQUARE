@@ -4383,7 +4383,10 @@ entry needs the owner's acceptance and is not implied by this registry.
   (one isolate cache, fail-open), the public status (`APP_BUILD_FLOOR_PUBLIC_STATUS_PATH`) and the
   page's client read (`APP_BUILD_FLOOR_CLIENT_PATH`). The client read publishes 0 unless the floor
   was read live, keeps a live value in the colo's edge cache, and clamps the answer to the build
-  its own assets serve on every request. The edge cache is a reader's cache with one lifetime,
+  its own assets serve on every request. That served build (`readServedAppBuild`, which the
+  status cron of RO-57 also reads) is kept per isolate and assets binding once read; callers
+  share a read that is still running, and one that finds it rejected because the request that
+  started it ended drops it and reads again. The edge cache is a reader's cache with one lifetime,
   not a writer. A setter's or reporter's answer refreshes its own isolate's cached view. Since
   forced update Inc 7 the client read's one product caller is the page's start and resume check
   (RO-22), at most two reads per page per minute.
@@ -4416,11 +4419,17 @@ entry needs the owner's acceptance and is not implied by this registry.
   - Teardown: `app-build-floor-app-worker.test.ts` "publishes 0 while the floor is off or once the
     live report is stale" and "publishes 0 for an object without the floor routes, no binding or
     a failed read"; `src/core/__tests__/service-maintenance.test.ts` "keeps the last canonical
-    floor as stale when a later read fails, and 0 before any".
+    floor as stale when a later read fails, and 0 before any";
+    `src/core/__tests__/served-app-build-request-lifetime.test.ts` "lets the status cron that
+    comes next, and every later caller, read again after the first read is cancelled" and
+    "recovers a caller that was awaiting the shared read when its creator was cancelled".
   - Visibility: n/a.
   - Setters: `src/core/__tests__/app-build-floor-ops.test.ts` (the abuse limit before any token
     parse or key fetch, each pinned claim, `set` above the live build refused, `lower` refusing a
-    raise) and the admin rows of `app-build-floor-app-worker.test.ts`.
+    raise) and the admin rows of `app-build-floor-app-worker.test.ts`. The verifier's key-set
+    download, which a cancelled request must not strand for the isolate:
+    `src/core/__tests__/github-actions-oidc-request-lifetime.test.ts` "answers 503, not a thrown
+    error, after a forged report is cancelled mid-download in a cold isolate".
 - **Status:** `owner-in-place`. Added with forced update Inc 3 (train 9.0.14), when the cron
   report became a second machine on the floor beside the setters.
 
@@ -5079,8 +5088,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   bypass, which skips the gate's refresh) and the status note, and builds the answer with
   `buildStatusPayload` (`cloudflare/status-payload.ts`), which decides from its `nowMs` which
   slots show, when a row has a problem and when it reads Not checked; no writer stores `n` marks
-  or failure counts. The colo edge cache keeps an answer for `STATUS_EDGE_CACHE_TTL_S` only when
-  all three reads succeeded; it is a reader's cache, not a writer. The note has its own single
+  or failure counts. The colo edge cache keeps an answer for `STATUS_EDGE_CACHE_TTL_S` when all
+  three reads succeeded, and for `STATUS_EDGE_CACHE_DEGRADED_TTL_S` otherwise, never over a body
+  already cached; it is a reader's cache, not a writer. The note has its own single
   writer (`handleAdminStatusNote` through `updateStatusNoteControl`, on its own named
   service-control object, `STATUS_NOTE_CONTROL_OBJECT_NAME`, with its expiry checked when read)
   and needs no record.
@@ -5112,8 +5122,11 @@ entry needs the owner's acceptance and is not implied by this registry.
   the prune only from the cron; reads through `handleStatusApi` (bound in `statusApiDeps`).
   Readers of the answer: the `/status` page and the monitor's preflight
   (`classifyStatusPreflight`): without an answer of schema `STATUS_SCHEMA_VERSION` the monitor
-  opens no browser, and during maintenance it only reports maintenance. Claims from the cron's
-  rooms check and from `handleStatusClaim`.
+  opens no browser, and during maintenance it only reports maintenance. Beside that read the
+  preflight reads the App build production serves; while it differs from the checkout's
+  (`compareServedAppBuild`), the monitor reports a failed check as skipped
+  (`resultForServedBuild`), since its checks follow main's App. Claims from the cron's rooms
+  check and from `handleStatusClaim`.
 - **Lifecycle operations:** record a result in its slot (the newer `checked_at` wins), mark
   maintenance, prune at 48 hours, read the retained window, derive each row's state when read;
   claim a code, consume a claim into the epoch's flag, drop an expired or malformed claim, clear
@@ -5125,25 +5138,35 @@ entry needs the owner's acceptance and is not implied by this registry.
   bridge, whose lease is the backstop. The browser job is bounded by its `timeout-minutes`
   (`STATUS_BROWSER_JOB_TIMEOUT_MINUTES`) and each claim by `STATUS_BROWSER_CLAIM_TIMEOUT_MS`; the
   report route refuses a run that started more than `STATUS_REPORT_MAX_AGE_MS` before its clock
-  or more than `STATUS_REPORT_MAX_FUTURE_SKEW_MS` after it. The reader's maintenance and note
-  reads are bounded by `SERVICE_CONTROL_READ_TIMEOUT_MS` in `cloudflare/service-maintenance.ts`;
-  its ledger read and the report route's write have no bound of their own beyond D1's, and an
-  answer built around a failed read is never cached. The probe claim and flag have no timer or
-  alarm: their expiry is checked when they are read.
+  or more than `STATUS_REPORT_MAX_FUTURE_SKEW_MS` after it. The reader, `handleStatusApi`, owns
+  the deadline of its ledger read: it races `readStatusChecks` against
+  `STATUS_API_READ_TIMEOUT_MS`, clears that timer on every path and drops a read that ends
+  later; a read still running at the bound counts as failed (every row `results_unavailable`).
+  Its maintenance and note reads are service-control calls, each bounded by
+  `SERVICE_CONTROL_READ_TIMEOUT_MS` in `cloudflare/service-maintenance.ts` (the maintenance read
+  makes at most two), so the answer comes before the page's own fetch timeout
+  (`STATUS_FETCH_TIMEOUT_MS` in `status-page.ts`) ends. The report route's write has no bound of
+  its own beyond D1's, and an answer built around a failed read is cached only for
+  `STATUS_EDGE_CACHE_DEGRADED_TTL_S`. The probe claim and flag have no timer or alarm: their
+  expiry is checked when they are read.
 - **Timing-constant home:** `cloudflare/status-contract.ts`: the schedule
   (`STATUS_CHECK_INTERVAL_MINUTES`, `STATUS_SERVER_CHECK_MINUTES`, `STATUS_BROWSER_CHECK_MINUTES`,
   `STATUS_SERVER_CRON`, `STATUS_BROWSER_CRON` and `statusSlotAt`), the result policy
   (`STATUS_PROBLEM_AFTER_FAILURES`, `STATUS_STALE_AFTER_MINUTES`, `STATUS_RECENT_SLOTS`),
-  `STATUS_RESULT_RETENTION_MS`, `STATUS_EDGE_CACHE_TTL_S`, the report window and the budgets of
-  the server checks and the browser job. Beside the code they bound: the bridge call bounds
-  `STANDARD_SIGNALING_BRIDGE_CALL_TIMEOUT_MS` (5 s) and
+  `STATUS_RESULT_RETENTION_MS`, `STATUS_EDGE_CACHE_TTL_S`, `STATUS_EDGE_CACHE_DEGRADED_TTL_S`, the
+  reader's ledger read bound `STATUS_API_READ_TIMEOUT_MS` (5 s), the report window and the
+  budgets of the server checks and the browser job. Beside the code they bound: the bridge call
+  bounds `STANDARD_SIGNALING_BRIDGE_CALL_TIMEOUT_MS` (5 s) and
   `STANDARD_SIGNALING_BRIDGE_POLL_TIMEOUT_MS` (18 s) in `cloudflare/app-worker.ts`, shared with
   the public bridge route; the claim and flag lifetimes `STATUS_PROBE_CLAIM_TTL_MS` (120 s) and
   `STATUS_PROBE_ROOM_TTL_MS` (30 min) in `cloudflare/signaling-worker.ts`; the monitor's own
   `STATUS_MONITOR_REQUEST_TIMEOUT_MS`, `STATUS_MONITOR_REPORT_RETRY_DELAY_MS`,
-  `STATUS_MONITOR_CONNECTION_BUDGET_MS`, `STATUS_MONITOR_DIALOG_WAIT_MS` and
+  `STATUS_MONITOR_CONNECTION_BUDGET_MS`, `STATUS_MONITOR_DIALOG_WAIT_MS`, the chat step's
+  `STATUS_MONITOR_CHAT_SEND_ATTEMPTS` and `STATUS_MONITOR_CHAT_RESEND_AFTER_MS`, and
   `STATUS_MONITOR_TOKEN_REFRESH_MARGIN_MS` in `scripts/lib/status-browser-monitor-lib.mts`; the
-  page's own refresh and fetch timeout in `status-page.ts`. Copies that cannot import the
+  bound of every service-control call, `SERVICE_CONTROL_READ_TIMEOUT_MS` (2 s), in
+  `cloudflare/service-maintenance.ts`; the page's own refresh and fetch timeout
+  (`STATUS_FETCH_TIMEOUT_MS`, 15 s) in `status-page.ts`. Copies that cannot import the
   contract are pinned by `src/core/__tests__/status-policy-parity.test.ts`: "keeps the App cron
   trigger and the monitor workflow on the contract schedule" (the cron in
   `cloudflare/wrangler.app.toml`, the workflow cron and job timeout), "keeps the page runtime and
@@ -5151,12 +5174,19 @@ entry needs the owner's acceptance and is not implied by this registry.
   count, rows, states and marks, against what `buildStatusPayload` sends), "keeps the page copy
   and the share card on the contract policy" (`.workshop/status/status.html` and the
   `og-status.png` tagline), "keeps every page fixture on the contract policy and the API shape"
-  (`e2e/fixtures/status/`) and "keeps signaling's claim route and status probe events on the
-  contract and the admin metrics". The same suite pins the monitor's report and claim bodies to
-  `cloudflare/status-ops.ts` ("keeps the browser monitor's report and claim bodies on the ops
-  routes' wire contract") and the order between the contract's budgets and the bridge, claim
-  and flag bounds ("fits the rooms check inside the bridge bounds and the probe claim and flag
-  lifetimes").
+  (`e2e/fixtures/status/`, with the API's UTC times in `toISOString` form) and "keeps
+  signaling's claim route and status probe events on the contract and the admin metrics". The
+  same suite pins the monitor's report and claim bodies to `cloudflare/status-ops.ts` ("keeps the
+  browser monitor's report and claim bodies on the ops routes' wire contract"), the order
+  between the contract's budgets and the bridge, claim and flag bounds ("fits the rooms check
+  inside the bridge bounds and the probe claim and flag lifetimes"), and the reader's bounds
+  below the page's fetch timeout ("bounds every read behind /api/status below the page's fetch
+  timeout": `STATUS_API_READ_TIMEOUT_MS` and two `SERVICE_CONTROL_READ_TIMEOUT_MS` calls).
+  `src/core/__tests__/status-browser-monitor.test.ts` pins the chat step's values ("fits every
+  send and its wait in one step, apart by more than the App double-send guard"): the attempts
+  times the resend wait within `STATUS_BROWSER_STEP_TIMEOUT_MS`, the resend wait above the
+  double-send guard of `sendChatMessage` (`src/ui/chat.ts`), and the attempts within the host's
+  `CHAT_RATE_BURST` (`src/chat/protocol.ts`).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/status-store-sqlite.test.ts` "keeps the newest checked_at
     for a slot in every arrival order".
@@ -5169,6 +5199,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   - Teardown: `src/core/__tests__/status-payload.test.ts` "turns a row stale once its newest
     passed or failed check is older than 30 minutes"; `status-checks.test.ts` "settles by the
     deadline when every dependency hangs, and an interrupted check records no row";
+    `src/core/__tests__/status-api.test.ts` "answers results_unavailable at the bound when the
+    ledger read hangs, and caches it only briefly" and "drops a ledger read that %s after the
+    bound";
     `status-store-sqlite.test.ts` "prunes rows before the boundary and keeps the boundary slot";
     for the flag, `src/network/transport/__tests__/cloudflare-signaling-worker.test.ts` "skips
     the expiry of a status probe room at its %s and counts the next real room".

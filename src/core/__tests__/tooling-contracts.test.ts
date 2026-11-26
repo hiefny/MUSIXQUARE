@@ -128,6 +128,23 @@ describe('tooling reproducibility contracts', () => {
     }
   });
 
+  it('documents every PRO registry log event the App Worker emits', () => {
+    const appWorker = readFileSync('cloudflare/app-worker.ts', 'utf8');
+    const events = [
+      ...new Set(
+        [...appWorker.matchAll(/event: '(admin_pro_room_registry_[a-z_]+)'/gu)].map(
+          (match) => match[1],
+        ),
+      ),
+    ].sort();
+    expect(events).toEqual([
+      'admin_pro_room_registry_schema_ensure',
+      'admin_pro_room_registry_shared_check_rejected',
+    ]);
+    const runbook = readFileSync('cloudflare/admin-dashboard-ops.md', 'utf8');
+    for (const event of events) expect(runbook, event).toContain(`\`${event}\``);
+  });
+
   it('runs the report viewer from the exact lockfile dependency', () => {
     expect(packageManifest.scripts['test:report-viewer']).toBe(
       'node scripts/materialize-auxiliary-browser-assets.mts && serve . -p 3333 -s',

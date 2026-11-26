@@ -1,14 +1,22 @@
 /**
  * GET|HEAD /api/status: the public JSON that musixquare.com/status polls.
  *
- * Every page gets the same answer, so a body is edge-cached for
- * STATUS_EDGE_CACHE_TTL_S under a made-up key that no route serves, and only
- * when the ledger, the maintenance state and the status note were all read;
- * an answer built around a failed read is served once and never cached. A
+ * Every page gets the same answer, so a body is edge-cached under a made-up key
+ * that no route serves: for STATUS_EDGE_CACHE_TTL_S when the ledger, the
+ * maintenance state and the status note were all read, and for
+ * STATUS_EDGE_CACHE_DEGRADED_TTL_S when one of those reads failed or ran past
+ * its bound, so a struggling admin D1 or note object is not asked again by
+ * every request. A degraded body never replaces a body already cached. A
  * failed read never turns into a 5xx: without the ledger every row reads
  * results_unavailable, and without the note there is no announcement.
  * generatedAt is stamped with the serve time on every answer, cached bodies
  * included, and query strings are ignored.
+ *
+ * The ledger read is raced against STATUS_API_READ_TIMEOUT_MS, and a read
+ * still running at that bound counts as failed. The maintenance and note
+ * reads need no bound of their own here: the App's service-control calls
+ * behind them are bounded by SERVICE_CONTROL_READ_TIMEOUT_MS in
+ * cloudflare/service-maintenance.ts.
  *
  * The route sits on the maintenance bypass, which skips the gate's background
  * refresh, so the App wires readMaintenance to its own maintenance read. The
@@ -16,6 +24,8 @@
  */
 
 import {
+  STATUS_API_READ_TIMEOUT_MS,
+  STATUS_EDGE_CACHE_DEGRADED_TTL_S,
   STATUS_EDGE_CACHE_KEY_PATH,
   STATUS_EDGE_CACHE_TTL_S,
   STATUS_RESULT_RETENTION_MS,
@@ -58,7 +68,10 @@ export interface StatusApiDependencies {
 }
 
 interface StatusRead<T> {
-  /** Whether the source answered; only a body built from three answers is cached. */
+  /**
+   * Whether the source answered. A body built from three answers is cached for
+   * STATUS_EDGE_CACHE_TTL_S, any other for STATUS_EDGE_CACHE_DEGRADED_TTL_S.
+   */
   readonly read: boolean;
   readonly value: T;
 }
@@ -96,16 +109,43 @@ async function readCachedBody(cache: StatusEdgeCache, key: Request): Promise<obj
   }
 }
 
+/** The ledger when it was not read: no database, a failed read or one past its bound. */
+const LEDGER_UNREAD: StatusRead<StatusCheckRow[] | null> = Object.freeze({
+  read: false,
+  value: null,
+});
+
+/**
+ * Reads the retained rows within STATUS_API_READ_TIMEOUT_MS. Both outcomes of
+ * the read are handled, so one that ends after the bound is dropped without an
+ * unhandled rejection, and the timer is cleared on every path.
+ */
 async function readRows(
   deps: StatusApiDependencies,
   nowMs: number,
 ): Promise<StatusRead<StatusCheckRow[] | null>> {
+  let db: StatusD1Database | null;
   try {
-    const db = deps.adminDb();
-    if (!db) return { read: false, value: null };
-    return { read: true, value: await readStatusChecks(db, nowMs - STATUS_RESULT_RETENTION_MS) };
+    db = deps.adminDb();
   } catch {
-    return { read: false, value: null };
+    return LEDGER_UNREAD;
+  }
+  if (!db) return LEDGER_UNREAD;
+  const sinceMs = nowMs - STATUS_RESULT_RETENTION_MS;
+  const answer = Promise.resolve(db)
+    .then((ledger) => readStatusChecks(ledger, sinceMs))
+    .then(
+      (rows): StatusRead<StatusCheckRow[] | null> => ({ read: true, value: rows }),
+      () => LEDGER_UNREAD,
+    );
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<StatusRead<StatusCheckRow[] | null>>((resolve) => {
+    timer = setTimeout(() => resolve(LEDGER_UNREAD), STATUS_API_READ_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([answer, deadline]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
 }
 
@@ -133,24 +173,32 @@ async function readNote(deps: StatusApiDependencies): Promise<StatusRead<StatusP
   }
 }
 
+/**
+ * Stores the body for the full lifetime when every read answered, otherwise
+ * for the degraded one. A degraded body is stored only while no body is
+ * cached, so it never replaces one that another request stored meanwhile.
+ */
 async function storeBody(
   deps: StatusApiDependencies,
   cache: StatusEdgeCache,
   key: Request,
   body: object,
+  complete: boolean,
 ): Promise<void> {
+  const maxAgeSeconds = complete ? STATUS_EDGE_CACHE_TTL_S : STATUS_EDGE_CACHE_DEGRADED_TTL_S;
   const write = Promise.resolve()
-    .then(() =>
-      cache.put(
+    .then(async () => {
+      if (!complete && (await readCachedBody(cache, key)) !== null) return;
+      await cache.put(
         key,
         new Response(JSON.stringify(body), {
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': `public, max-age=${STATUS_EDGE_CACHE_TTL_S}`,
+            'Cache-Control': `public, max-age=${maxAgeSeconds}`,
           },
         }),
-      ),
-    )
+      );
+    })
     .catch(() => undefined);
   if (typeof deps.waitUntil === 'function') deps.waitUntil(write);
   else await write;
@@ -179,9 +227,7 @@ export async function handleStatusApi(
       maintenance: maintenance.value,
       note: note.value,
     });
-    if (cache && rows.read && maintenance.read && note.read) {
-      await storeBody(deps, cache, key, body);
-    }
+    if (cache) await storeBody(deps, cache, key, body, rows.read && maintenance.read && note.read);
   }
   const served = { ...body, generatedAt: new Date(Date.now()).toISOString() };
   return deps.withoutBodyForHead(request, deps.json(served));

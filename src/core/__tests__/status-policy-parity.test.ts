@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
+import { SERVICE_CONTROL_READ_TIMEOUT_MS } from '../../../cloudflare/service-maintenance.ts';
 import {
+  STATUS_API_READ_TIMEOUT_MS,
   STATUS_BROWSER_CHECK_MINUTES,
   STATUS_BROWSER_CLAIM_TIMEOUT_MS,
   STATUS_BROWSER_CRON,
@@ -93,6 +95,14 @@ function stringConstant(source: string, name: string): string {
 
 function quotedStrings(text: string): string[] {
   return [...text.matchAll(/'([^']*)'/gu)].map((match) => match[1] ?? '');
+}
+
+/** Every string in a JSON value that begins like an ISO date and time. */
+function isoTimes(value: unknown): string[] {
+  if (typeof value === 'string') return /^\d{4}-\d{2}-\d{2}T/u.test(value) ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap(isoTimes);
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(isoTimes);
+  return [];
 }
 
 const RESULT_REASONS = {
@@ -264,10 +274,16 @@ describe('status policy parity (resource record RO-57)', () => {
     for (const name of names) {
       const fixture = JSON.parse(read(`${FIXTURE_DIRECTORY}/${name}`)) as {
         readonly schemaVersion?: unknown;
+        readonly timeZone?: unknown;
         readonly policy?: unknown;
         readonly components?: ReadonlyArray<Record<string, unknown>>;
       };
       expect(fixture.schemaVersion, name).toBe(STATUS_SCHEMA_VERSION);
+      // Times as the API writes them: in UTC, in toISOString form.
+      expect(fixture.timeZone, name).toBe(built?.timeZone);
+      const times = isoTimes(fixture);
+      expect(times.length, name).toBeGreaterThan(0);
+      for (const time of times) expect(time, name).toBe(new Date(time).toISOString());
       expect(fixture.policy, name).toEqual(CONTRACT_POLICY);
       expect(Object.keys(fixture).sort(), name).toEqual(Object.keys(built ?? {}).sort());
       expect(
@@ -375,5 +391,19 @@ describe('status policy parity (resource record RO-57)', () => {
         numericConstant(signaling, 'STANDARD_HTTP_BRIDGE_LEASE_MS') +
         reclaimGrace,
     );
+  });
+
+  it("bounds every read behind /api/status below the page's fetch timeout", () => {
+    const fetchTimeout = numericConstant(
+      read('browser/classic-runtime/status-page.ts'),
+      'STATUS_FETCH_TIMEOUT_MS',
+    );
+    // The answer waits on three reads at once. The ledger read is raced
+    // against its own bound. The maintenance and note reads are service-control
+    // calls, each bounded by SERVICE_CONTROL_READ_TIMEOUT_MS; the maintenance
+    // read makes at most two (a HEAD, then a GET when the status headers are
+    // missing).
+    expect(STATUS_API_READ_TIMEOUT_MS).toBeLessThan(fetchTimeout);
+    expect(2 * SERVICE_CONTROL_READ_TIMEOUT_MS).toBeLessThan(fetchTimeout);
   });
 });

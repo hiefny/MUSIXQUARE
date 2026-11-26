@@ -15,9 +15,17 @@ name: Status monitor
 # - The test room's code is claimed before the host connects, so signaling
 #   records a status probe and the /about room count stays unchanged. Without a
 #   granted claim no room opens and the connection check is skipped.
-# - The job fails only when the routes refuse its identity (401 or 403), when
-#   the report cannot be delivered, or when the script crashes. Failed checks
-#   show on /status, not as failed runs.
+# - The checks come from main and run against the App production serves. While
+#   production serves another App build than this checkout's (between merging
+#   an App train and releasing it, or after an App rollback), a failed check is
+#   reported as skipped: main's checks may expect what the served build lacks.
+# - The job fails when the claim or report route refuses its identity (401 or
+#   403) or answers outside its contract (any other 4xx), when GitHub refuses
+#   the job a token, or when the script crashes. A report still undelivered
+#   after its retries (429, 5xx or no answer), or a token that GitHub could not
+#   issue for now (the same answers), ends with a warning and a successful run;
+#   the website and connection rows then age to Not checked. Failed checks show
+#   on /status, not as failed runs.
 # - Logs of this public repository are public: the script prints no room code,
 #   peer id, token, IP address or full URL, and the job uploads no artifacts.
 # - Disable this workflow in the GitHub UI to stop the browser checks.

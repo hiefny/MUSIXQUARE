@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   STATUS_BROWSER_CLAIM_TIMEOUT_MS,
   STATUS_BROWSER_REPORT_ATTEMPTS,
+  STATUS_BROWSER_STEP_TIMEOUT_MS,
   STATUS_CLAIM_AUDIENCE,
   STATUS_CLAIM_PATH,
   STATUS_PUBLIC_PATH,
@@ -18,7 +19,11 @@ import {
   MONITOR_MAINTENANCE,
   MONITOR_PASSING,
   MONITOR_REASONS,
+  OidcUnavailableError,
   STATUS_MONITOR_APP_ORIGIN,
+  STATUS_MONITOR_CHAT_RESEND_AFTER_MS,
+  STATUS_MONITOR_CHAT_SEND_ATTEMPTS,
+  STATUS_MONITOR_PEER_ROW_SELECTOR,
   STATUS_MONITOR_REFUSED_CLOSE_CODE,
   STATUS_MONITOR_REPORT_RETRY_DELAY_MS,
   STATUS_MONITOR_SIGNALING_ENDPOINTS,
@@ -28,10 +33,13 @@ import {
   classifyDocumentResponse,
   classifyMonitorRequest,
   classifyMonitorWebSocket,
+  classifyReportAnswer,
   classifyStatusPreflight,
+  compareServedAppBuild,
   connectionAfterWebsite,
   connectionResult,
   createOidcTokenSource,
+  deliverChatMessage,
   describeAnswer,
   describeDelivered,
   mintOidcToken,
@@ -40,18 +48,25 @@ import {
   postStatusReport,
   readStatusPreflight,
   requestStatusClaim,
+  resultForServedBuild,
   routeMonitorRequest,
   routeMonitorWebSocket,
   sanitizeMonitorDiagnostic,
+  statusMonitorEndAnnotations,
   statusMonitorExitCode,
+  type ChatStepPages,
   type ClaimGateSummary,
   type ClaimVerdict,
+  type JsonAnswer,
   type MonitorPageSocket,
   type MonitorServerSocket,
   type MonitorSocketCloseOptions,
   type MonitorSocketMessage,
   type OidcTokenSource,
+  type ReportDelivery,
+  type ReportVerdict,
   type StatusMonitorDeps,
+  type StatusMonitorRun,
 } from '../../../scripts/lib/status-browser-monitor-lib.mts';
 
 // Synthetic room codes and peer ids only.
@@ -61,6 +76,12 @@ const HOST_SOCKET = `wss://signal.musixquare.com/api/rooms/${ROOM}/ws?role=host&
 const OIDC_REQUEST_URL = 'https://pipelines.actions.example/idtoken?api-version=2.0';
 const OIDC_REQUEST_TOKEN = 'actions-request-token';
 const T0 = Date.parse('2026-11-26T05:07:41.000Z');
+const SERVICE_WORKER_PATH = '/service-worker.js';
+
+/** The live App's service worker, as it declares the build it serves. */
+function served(build: number): string {
+  return `self.addEventListener('install', () => {});\nconst CACHE_VERSION = 'v${build}';\n`;
+}
 
 interface RecordedRequest {
   readonly url: string;
@@ -69,7 +90,9 @@ interface RecordedRequest {
   readonly body: string | null;
 }
 
-type Answer = { readonly status: number; readonly body?: unknown } | 'network-error';
+/** A JSON body, or with `text` a raw one (the live App's service worker). */
+type Answer =
+  { readonly status: number; readonly body?: unknown; readonly text?: string } | 'network-error';
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -94,7 +117,7 @@ class World {
   readonly issued: string[] = [];
   mintExpiry: number | null = Math.floor(T0 / 1_000) + 300;
   /** What GitHub's token endpoint answers instead of a fresh token. */
-  oidcAnswer: { readonly status: number; readonly body: unknown } | null = null;
+  oidcAnswer: { readonly status: number; readonly body: unknown } | 'network-error' | null = null;
   env: Record<string, string | undefined> = {
     ACTIONS_ID_TOKEN_REQUEST_URL: OIDC_REQUEST_URL,
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: OIDC_REQUEST_TOKEN,
@@ -128,6 +151,7 @@ class World {
     this.requests.push({ url, method: init.method ?? 'GET', headers, body });
     const parsed = new URL(url);
     if (url.startsWith(OIDC_REQUEST_URL.split('?')[0] ?? '')) {
+      if (this.oidcAnswer === 'network-error') throw new TypeError('fetch failed');
       if (this.oidcAnswer) return json(this.oidcAnswer.status, this.oidcAnswer.body);
       const token = oidcToken(this.mintExpiry, `sig${this.issued.length + 1}`);
       this.issued.push(token);
@@ -137,6 +161,12 @@ class World {
     const next = queue.length > 1 ? queue.shift() : queue[0];
     if (!next) throw new Error(`no answer configured for ${parsed.pathname}`);
     if (next === 'network-error') throw new TypeError('fetch failed');
+    if (next.text !== undefined) {
+      return new Response(next.text, {
+        status: next.status,
+        headers: { 'Content-Type': 'text/javascript' },
+      });
+    }
     return json(next.status, next.body ?? {});
   }
 }
@@ -288,6 +318,7 @@ const QUIET_GATE: ClaimGateSummary = Object.freeze({
   bypassed: false,
   stoppedBy: null,
   authRefused: false,
+  contractMismatch: false,
 });
 
 afterEach(() => {
@@ -327,24 +358,69 @@ describe('status browser monitor preflight', () => {
   });
 
   it('reads the public status route once, without credentials', async () => {
-    const world = new World().answer(STATUS_PUBLIC_PATH, {
-      status: 200,
-      body: { schemaVersion: 1, maintenance: { active: true, since: null } },
-    });
+    const world = new World()
+      .answer(STATUS_PUBLIC_PATH, {
+        status: 200,
+        body: { schemaVersion: 1, maintenance: { active: true, since: null } },
+      })
+      .answer(SERVICE_WORKER_PATH, { status: 200, text: served(845) });
 
     await expect(readStatusPreflight(world.deps)).resolves.toMatchObject({
       preflight: 'maintenance',
     });
-    expect(world.requests).toHaveLength(1);
-    expect(world.requests[0]?.url).toBe(`${STATUS_MONITOR_APP_ORIGIN}${STATUS_PUBLIC_PATH}`);
-    expect(world.requests[0]?.method).toBe('GET');
-    expect(world.requests[0]?.headers.get('Authorization')).toBeNull();
+    const reads = world.requestsTo(STATUS_PUBLIC_PATH);
+    expect(reads).toHaveLength(1);
+    expect(reads[0]?.url).toBe(`${STATUS_MONITOR_APP_ORIGIN}${STATUS_PUBLIC_PATH}`);
+    expect(reads[0]?.method).toBe('GET');
+    expect(reads[0]?.headers.get('Authorization')).toBeNull();
+    expect(world.requests).toHaveLength(2);
     expect(world.lines).toEqual([]);
 
-    const unreachable = new World().answer(STATUS_PUBLIC_PATH, 'network-error');
+    const unreachable = new World()
+      .answer(STATUS_PUBLIC_PATH, 'network-error')
+      .answer(SERVICE_WORKER_PATH, 'network-error');
     await expect(readStatusPreflight(unreachable.deps)).resolves.toEqual({
       preflight: 'not-deployed',
       answer: null,
+      servedAppBuild: null,
+    });
+  });
+
+  it('reads the build the live App serves beside the status route, both at once', async () => {
+    const world = new World()
+      .answer(STATUS_PUBLIC_PATH, { status: 200, body: { schemaVersion: 1 } })
+      .answer(SERVICE_WORKER_PATH, { status: 200, text: served(845) });
+
+    const pending = readStatusPreflight(world.deps);
+    // Both requests are out before either answer is read: the build read adds
+    // no time to the run.
+    expect(world.requests.map((request) => request.url).sort()).toEqual([
+      `${STATUS_MONITOR_APP_ORIGIN}${STATUS_PUBLIC_PATH}`,
+      `${STATUS_MONITOR_APP_ORIGIN}${SERVICE_WORKER_PATH}`,
+    ]);
+    await expect(pending).resolves.toEqual({
+      preflight: 'run',
+      answer: { status: 200, body: { schemaVersion: 1 } },
+      servedAppBuild: 845,
+    });
+    const [build] = world.requestsTo(SERVICE_WORKER_PATH);
+    expect(build?.method).toBe('GET');
+    expect(build?.headers.get('Authorization')).toBeNull();
+    expect(world.lines).toEqual([]);
+  });
+
+  it.each([
+    ['a network error', 'network-error'],
+    ['a 404', { status: 404, text: 'Not found' }],
+    ['a 503', { status: 503, text: served(845) }],
+    ['no cache version', { status: 200, text: 'self.addEventListener("fetch", () => {});' }],
+  ] as const)('gives no served build for %s', async (_label, answer) => {
+    const world = new World()
+      .answer(STATUS_PUBLIC_PATH, { status: 200, body: { schemaVersion: 1 } })
+      .answer(SERVICE_WORKER_PATH, answer as Answer);
+    await expect(readStatusPreflight(world.deps)).resolves.toMatchObject({
+      preflight: 'run',
+      servedAppBuild: null,
     });
   });
 
@@ -356,6 +432,53 @@ describe('status browser monitor preflight', () => {
         website: { outcome: 'maintenance', reason: 'maintenance' },
         connection: { outcome: 'maintenance', reason: 'maintenance' },
       },
+    });
+  });
+});
+
+describe('status browser monitor served build', () => {
+  const MISMATCH = { outcome: 'skipped', reason: 'app_build_mismatch' };
+
+  it('compares the build production serves with this checkout', () => {
+    expect(compareServedAppBuild(845, 846)).toBe('different');
+    expect(compareServedAppBuild(847, 846)).toBe('different');
+    expect(compareServedAppBuild(846, 846)).toBe('same');
+    expect(compareServedAppBuild(null, 846)).toBe('unknown');
+    expect(compareServedAppBuild(846, null)).toBe('unknown');
+  });
+
+  it('reports a failed check as skipped only while production serves another build', () => {
+    expect(MONITOR_REASONS.appBuildMismatch).toBe('app_build_mismatch');
+    for (const reason of [
+      MONITOR_REASONS.chatToGuestFailed,
+      MONITOR_REASONS.startScreenMissing,
+      'page_http_503',
+    ]) {
+      expect(resultForServedBuild(monitorFailure(reason), 'different')).toEqual(MISMATCH);
+      // A failure stands while the builds match, or when either is unknown.
+      expect(resultForServedBuild(monitorFailure(reason), 'same')).toEqual(monitorFailure(reason));
+      expect(resultForServedBuild(monitorFailure(reason), 'unknown')).toEqual(
+        monitorFailure(reason),
+      );
+    }
+    // A pass, a skip and maintenance stand whatever production serves.
+    for (const result of [
+      MONITOR_PASSING,
+      monitorSkipped(MONITOR_REASONS.claimUnavailable),
+      monitorSkipped(MONITOR_REASONS.edgeChallenge),
+      MONITOR_MAINTENANCE,
+    ]) {
+      for (const match of ['different', 'same', 'unknown'] as const) {
+        expect(resultForServedBuild(result, match)).toEqual(result);
+      }
+    }
+  });
+
+  it('reports both rows skipped for a build mismatch in the exact report body', () => {
+    const skipped = monitorSkipped(MONITOR_REASONS.appBuildMismatch);
+    expect(buildStatusReport(T0, skipped, skipped).results).toEqual({
+      website: MISMATCH,
+      connection: MISMATCH,
     });
   });
 });
@@ -477,6 +600,56 @@ describe('status browser monitor OIDC tokens', () => {
     refused.oidcAnswer = { status: 403, body: { message: 'denied' } };
     await expect(mintOidcToken(STATUS_REPORT_AUDIENCE, refused.deps)).rejects.toThrow('HTTP 403');
     expect(refused.lines).toEqual([]);
+  });
+
+  it('tells a token service that gave no token for now from one that refused the job', async () => {
+    const mintError = async (world: World) =>
+      mintOidcToken(STATUS_REPORT_AUDIENCE, world.deps).then(
+        () => null,
+        (error: unknown) => error,
+      );
+    for (const [answer, detail] of [
+      [{ status: 503, body: { message: 'unavailable' } }, 'HTTP 503'],
+      [{ status: 500, body: {} }, 'HTTP 500'],
+      [{ status: 429, body: { message: 'slow down' } }, 'HTTP 429'],
+      ['network-error', 'no answer'],
+    ] as const) {
+      const world = new World();
+      world.oidcAnswer = answer;
+      const error = await mintError(world);
+      expect(error, detail).toBeInstanceOf(OidcUnavailableError);
+      expect((error as Error).message).toBe(
+        `GitHub Actions OIDC did not issue a token for /api/ops/status-report (${detail}).`,
+      );
+      // One request, never retried here, and nothing written.
+      expect(world.requests).toHaveLength(1);
+      expect(world.lines).toEqual([]);
+      // The token source hands the same error to the run, which ends with a warning.
+      await expect(
+        createOidcTokenSource(STATUS_CLAIM_AUDIENCE, world.deps).get(),
+      ).rejects.toBeInstanceOf(OidcUnavailableError);
+    }
+
+    const refusals: World[] = [];
+    for (const answer of [
+      { status: 403, body: { message: 'denied' } },
+      { status: 400, body: {} },
+      { status: 404, body: {} },
+      { status: 200, body: { value: 'not a token' } },
+    ]) {
+      const world = new World();
+      world.oidcAnswer = answer;
+      refusals.push(world);
+    }
+    const withoutOidc = new World();
+    withoutOidc.env = {};
+    refusals.push(withoutOidc);
+    for (const world of refusals) {
+      const error = await mintError(world);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(OidcUnavailableError);
+      expect(world.lines).toEqual([]);
+    }
   });
 
   it('reuses a token until it expires within the refresh margin, and shares one mint', async () => {
@@ -658,6 +831,77 @@ describe('status browser monitor claim gate', () => {
       expect(calls, verdict).toEqual([ROOM]);
       expect(gate.summary().stoppedBy).toBe(verdict);
       expect(gate.summary().authRefused).toBe(verdict === 'unauthorized');
+      expect(gate.summary().contractMismatch).toBe(verdict === 'rejected');
+    }
+    for (const verdict of ['claimed', 'room_active', 'unavailable'] as const) {
+      const { gate } = gateAnswering(verdict);
+      await gate.claim(ROOM);
+      expect(gate.summary(), verdict).toMatchObject({
+        stoppedBy: null,
+        authRefused: false,
+        contractMismatch: false,
+      });
+    }
+  });
+
+  it('keeps an identity refusal or a contract mismatch that arrives after claiming stopped', async () => {
+    for (const late of ['unauthorized', 'rejected'] as const) {
+      const { gate, answer } = scriptedGate();
+      const first = gate.claim(ROOM);
+      const second = gate.claim(OTHER_ROOM);
+      await Promise.resolve();
+      answer('unsupported');
+      answer(late);
+      await expect(Promise.all([first, second])).resolves.toEqual([false, false]);
+      expect(gate.summary(), late).toMatchObject({
+        stoppedBy: 'unsupported',
+        authRefused: late === 'unauthorized',
+        contractMismatch: late === 'rejected',
+      });
+    }
+  });
+
+  it('logs the status and error code of a claim answer that fails the job, and nothing else', async () => {
+    const cases: Array<[Answer, ClaimVerdict, string | null]> = [
+      [
+        { status: 401, body: { error: 'OIDC_TOKEN_INVALID' } },
+        'unauthorized',
+        'HTTP 401 (OIDC_TOKEN_INVALID)',
+      ],
+      [
+        { status: 403, body: { error: 'OIDC_TOKEN_FORBIDDEN' } },
+        'unauthorized',
+        'HTTP 403 (OIDC_TOKEN_FORBIDDEN)',
+      ],
+      [
+        { status: 400, body: { error: 'INVALID_REQUEST' } },
+        'rejected',
+        'HTTP 400 (INVALID_REQUEST)',
+      ],
+      [
+        { status: 405, body: { error: 'METHOD_NOT_ALLOWED' } },
+        'rejected',
+        'HTTP 405 (METHOD_NOT_ALLOWED)',
+      ],
+      [{ status: 200, body: { ok: true } }, 'claimed', null],
+      [{ status: 409, body: { error: 'ROOM_ACTIVE' } }, 'room_active', null],
+      [{ status: 424, body: { error: 'STATUS_PROBE_UNSUPPORTED' } }, 'unsupported', null],
+      [{ status: 429, body: { error: 'RATE_LIMITED' } }, 'unavailable', null],
+      [{ status: 503, body: { error: 'SERVICE_MAINTENANCE' } }, 'maintenance', null],
+      ['network-error', 'unavailable', null],
+    ];
+    for (const [reply, verdict, logged] of cases) {
+      const world = new World().answer(STATUS_CLAIM_PATH, reply);
+      const tokens = createOidcTokenSource(STATUS_CLAIM_AUDIENCE, world.deps);
+      await expect(
+        requestStatusClaim(ROOM, tokens, world.deps, new AbortController().signal),
+      ).resolves.toBe(verdict);
+      const lines = world.lines.filter((line) => !line.startsWith('::add-mask::'));
+      expect(lines, verdict).toEqual(
+        logged === null ? [] : [`[status-monitor] claim route answered ${logged}`],
+      );
+      expect(lines.some((line) => line.includes(ROOM))).toBe(false);
+      expect(lines.some((line) => world.issued.some((token) => line.includes(token)))).toBe(false);
     }
   });
 
@@ -927,6 +1171,215 @@ describe('status browser monitor connection result', () => {
   });
 });
 
+/**
+ * The two pages of one chat step on a fake clock. The other device shows
+ * connected from peerAt on (until peerGoneAfterSends sends, if set), a send
+ * takes sendMs, and a send that is not lost shows on the other page arriveMs
+ * later. Each wait that ends without its condition uses its whole timeout.
+ */
+class FakeChat {
+  time = 0;
+  peerAt = 0;
+  peerGoneAfterSends: number | null = null;
+  sendMs = 100;
+  arriveMs = 50;
+  readonly lost = new Set<number>();
+  sendError: Error | null = null;
+  readonly calls: string[] = [];
+  readonly sendTimes: number[] = [];
+  /** Each timeout handed to the pages, with the step time left when it was handed over. */
+  readonly timeouts: Array<{ timeoutMs: number; leftMs: number }> = [];
+  private shownAt = Number.POSITIVE_INFINITY;
+
+  readonly now = (): number => this.time;
+
+  readonly pages: ChatStepPages = {
+    waitForPeer: async (timeoutMs) => {
+      this.handOver(timeoutMs);
+      this.calls.push(`peer ${timeoutMs}`);
+      const gone =
+        this.peerGoneAfterSends !== null && this.sendTimes.length >= this.peerGoneAfterSends;
+      if (!gone && this.peerAt - this.time <= timeoutMs) {
+        this.time = Math.max(this.time, this.peerAt);
+        return true;
+      }
+      this.time += timeoutMs;
+      return false;
+    },
+    send: async (timeoutMs) => {
+      this.handOver(timeoutMs);
+      if (this.sendError) throw this.sendError;
+      this.time += this.sendMs;
+      this.sendTimes.push(this.time);
+      this.calls.push(`send ${this.sendTimes.length}`);
+      if (!this.lost.has(this.sendTimes.length)) {
+        this.shownAt = Math.min(this.shownAt, this.time + this.arriveMs);
+      }
+    },
+    waitForMessage: async (timeoutMs) => {
+      this.handOver(timeoutMs);
+      this.calls.push(`message ${timeoutMs}`);
+      if (this.shownAt - this.time <= timeoutMs) {
+        this.time = Math.max(this.time, this.shownAt);
+        return true;
+      }
+      this.time += timeoutMs;
+      return false;
+    },
+  };
+
+  private handOver(timeoutMs: number): void {
+    this.timeouts.push({ timeoutMs, leftMs: STATUS_BROWSER_STEP_TIMEOUT_MS - this.time });
+  }
+}
+
+describe('status browser monitor chat', () => {
+  const STEP = STATUS_BROWSER_STEP_TIMEOUT_MS;
+  const RESEND = STATUS_MONITOR_CHAT_RESEND_AFTER_MS;
+
+  /** Every timeout is positive (Playwright reads 0 as none) and inside the step. */
+  function expectBoundedTimeouts(chat: FakeChat): void {
+    for (const { timeoutMs, leftMs } of chat.timeouts) {
+      expect(timeoutMs).toBeGreaterThan(0);
+      expect(timeoutMs).toBeLessThanOrEqual(leftMs);
+    }
+    expect(chat.time).toBeLessThanOrEqual(STEP);
+  }
+
+  it('sends once when the message arrives, after the other device shows connected', async () => {
+    const chat = new FakeChat();
+    chat.peerAt = 1_200;
+    await expect(deliverChatMessage(chat.pages, chat.now)).resolves.toEqual({
+      delivered: true,
+      sends: 1,
+    });
+    expect(chat.calls).toEqual([`peer ${STEP}`, 'send 1', `message ${RESEND}`]);
+    // The send came only once the other device showed connected.
+    expect(chat.sendTimes).toEqual([1_200 + chat.sendMs]);
+    expectBoundedTimeouts(chat);
+  });
+
+  it('never sends while the other device has not shown connected', async () => {
+    const chat = new FakeChat();
+    chat.peerAt = Number.POSITIVE_INFINITY;
+    await expect(deliverChatMessage(chat.pages, chat.now)).resolves.toEqual({
+      delivered: false,
+      sends: 0,
+    });
+    expect(chat.calls).toEqual([`peer ${STEP}`]);
+    expect(chat.time).toBe(STEP);
+
+    // Nor sends again once the other device went away.
+    const gone = new FakeChat();
+    gone.lost.add(1);
+    gone.peerGoneAfterSends = 1;
+    await expect(deliverChatMessage(gone.pages, gone.now)).resolves.toEqual({
+      delivered: false,
+      sends: 1,
+    });
+    expect(gone.calls).toEqual([
+      `peer ${STEP}`,
+      'send 1',
+      `message ${RESEND}`,
+      `peer ${STEP - gone.sendMs - RESEND}`,
+    ]);
+    expectBoundedTimeouts(gone);
+  });
+
+  it('sends a lost message again after the resend wait, never inside the App double-send guard', async () => {
+    const chat = new FakeChat();
+    chat.lost.add(1);
+    await expect(deliverChatMessage(chat.pages, chat.now)).resolves.toEqual({
+      delivered: true,
+      sends: 2,
+    });
+    expect(chat.calls).toEqual([
+      `peer ${STEP}`,
+      'send 1',
+      `message ${RESEND}`,
+      `peer ${STEP - chat.sendMs - RESEND}`,
+      'send 2',
+      `message ${RESEND}`,
+    ]);
+    const [first = 0, second = 0] = chat.sendTimes;
+    expect(second - first).toBeGreaterThanOrEqual(RESEND);
+    expectBoundedTimeouts(chat);
+
+    const late = new FakeChat();
+    late.lost.add(1);
+    late.lost.add(2);
+    await expect(deliverChatMessage(late.pages, late.now)).resolves.toEqual({
+      delivered: true,
+      sends: STATUS_MONITOR_CHAT_SEND_ATTEMPTS,
+    });
+  });
+
+  it('stops after the last send has waited until the step ends', async () => {
+    const chat = new FakeChat();
+    for (let send = 1; send <= STATUS_MONITOR_CHAT_SEND_ATTEMPTS; send += 1) {
+      chat.lost.add(send);
+    }
+    await expect(deliverChatMessage(chat.pages, chat.now)).resolves.toEqual({
+      delivered: false,
+      sends: STATUS_MONITOR_CHAT_SEND_ATTEMPTS,
+    });
+    const waits = chat.calls.filter((call) => call.startsWith('message '));
+    expect(waits).toHaveLength(STATUS_MONITOR_CHAT_SEND_ATTEMPTS);
+    expect(waits.slice(0, -1)).toEqual(
+      Array.from({ length: STATUS_MONITOR_CHAT_SEND_ATTEMPTS - 1 }, () => `message ${RESEND}`),
+    );
+    // The last wait runs to the end of the step, and not a millisecond beyond.
+    const lastSentAt = chat.sendTimes.at(-1) ?? 0;
+    expect(waits.at(-1)).toBe(`message ${STEP - lastSentAt}`);
+    expect(chat.time).toBe(STEP);
+    expectBoundedTimeouts(chat);
+  });
+
+  it('sends no more than the step leaves time for', async () => {
+    const chat = new FakeChat();
+    chat.peerAt = STEP - 3_000;
+    chat.lost.add(1);
+    await expect(deliverChatMessage(chat.pages, chat.now)).resolves.toEqual({
+      delivered: false,
+      sends: 1,
+    });
+    expect(chat.calls).toEqual([`peer ${STEP}`, 'send 1', `message ${3_000 - chat.sendMs}`]);
+    expect(chat.time).toBe(STEP);
+    expectBoundedTimeouts(chat);
+
+    // A send that uses up the step leaves nothing to wait for.
+    const slow = new FakeChat();
+    slow.sendMs = STEP;
+    await expect(deliverChatMessage(slow.pages, slow.now)).resolves.toEqual({
+      delivered: false,
+      sends: 1,
+    });
+    expect(slow.calls).toEqual([`peer ${STEP}`, 'send 1']);
+  });
+
+  it('ends the step when a send throws', async () => {
+    const chat = new FakeChat();
+    chat.sendError = new Error('locator.fill: Timeout exceeded');
+    await expect(deliverChatMessage(chat.pages, chat.now)).rejects.toThrow('Timeout exceeded');
+    expect(chat.calls).toEqual([`peer ${STEP}`]);
+  });
+
+  it('fits every send and its wait in one step, apart by more than the App double-send guard', () => {
+    const chat = readFileSync(resolve('src/ui/chat.ts'), 'utf8');
+    const guard = /if \(text === _lastSentText && now - _lastSentTs < (\d+)\) return;/u.exec(chat);
+    expect(guard, 'sendChatMessage double-send guard').not.toBeNull();
+    expect(RESEND).toBeGreaterThan(Number(guard?.[1]));
+    expect(STATUS_MONITOR_CHAT_SEND_ATTEMPTS).toBeGreaterThan(1);
+    // After every resend wait, the last send still gets at least one whole wait.
+    expect(STATUS_MONITOR_CHAT_SEND_ATTEMPTS * RESEND).toBeLessThanOrEqual(STEP);
+    // The host's per-peer chat rate limit never drops a resend.
+    const protocol = readFileSync(resolve('src/chat/protocol.ts'), 'utf8');
+    const burst = /^const CHAT_RATE_BURST = (\d+);$/mu.exec(protocol);
+    expect(burst, 'CHAT_RATE_BURST').not.toBeNull();
+    expect(STATUS_MONITOR_CHAT_SEND_ATTEMPTS).toBeLessThanOrEqual(Number(burst?.[1]));
+  });
+});
+
 describe('status browser monitor report delivery', () => {
   const body = buildStatusReport(T0, MONITOR_PASSING, monitorFailure('chat_to_guest_failed'));
 
@@ -946,7 +1399,7 @@ describe('status browser monitor report delivery', () => {
         recorded: { website: 'o', connection: 'p' },
       },
     });
-    expect(delivery).toMatchObject({ delivered: true, authRefused: false, attempts: 1 });
+    expect(delivery).toMatchObject({ verdict: 'delivered', attempts: 1 });
     expect(reports).toHaveLength(1);
     expect(reports[0]?.url).toBe(`${STATUS_MONITOR_APP_ORIGIN}${STATUS_REPORT_PATH}`);
     expect(reports[0]?.method).toBe('POST');
@@ -966,7 +1419,7 @@ describe('status browser monitor report delivery', () => {
       { status: 200, body: { ok: true } },
     );
     expect(STATUS_BROWSER_REPORT_ATTEMPTS).toBe(3);
-    expect(recovered.delivery).toMatchObject({ delivered: true, attempts: 3 });
+    expect(recovered.delivery).toMatchObject({ verdict: 'delivered', attempts: 3 });
     expect(recovered.world.sleeps).toEqual([
       STATUS_MONITOR_REPORT_RETRY_DELAY_MS,
       STATUS_MONITOR_REPORT_RETRY_DELAY_MS,
@@ -978,27 +1431,55 @@ describe('status browser monitor report delivery', () => {
 
     const limited = await deliver({ status: 429, body: { error: 'RATE_LIMITED' } });
     expect(limited.delivery).toMatchObject({
-      delivered: false,
-      authRefused: false,
+      verdict: 'unavailable',
       attempts: STATUS_BROWSER_REPORT_ATTEMPTS,
     });
     expect(limited.reports).toHaveLength(STATUS_BROWSER_REPORT_ATTEMPTS);
 
     const exhausted = await deliver({ status: 500, body: {} });
     expect(exhausted.reports).toHaveLength(STATUS_BROWSER_REPORT_ATTEMPTS);
-    expect(exhausted.delivery.delivered).toBe(false);
+    expect(exhausted.delivery).toMatchObject({ verdict: 'unavailable', answer: { status: 500 } });
+
+    const silent = await deliver('network-error');
+    expect(silent.reports).toHaveLength(STATUS_BROWSER_REPORT_ATTEMPTS);
+    expect(silent.delivery).toEqual({
+      verdict: 'unavailable',
+      answer: null,
+      attempts: STATUS_BROWSER_REPORT_ATTEMPTS,
+    });
   });
 
   it('never repeats a definite answer', async () => {
-    for (const status of [400, 401, 403, 404, 405, 415]) {
+    for (const status of [400, 401, 403, 404, 405, 409, 413, 415, 422]) {
       const { delivery, reports } = await deliver({ status, body: { error: 'X' } });
       expect(reports, String(status)).toHaveLength(1);
-      expect(delivery.delivered).toBe(false);
-      expect(delivery.authRefused).toBe(status === 401 || status === 403);
+      expect(delivery.verdict, String(status)).toBe(
+        status === 401 || status === 403 ? 'unauthorized' : 'mismatch',
+      );
     }
     const unconfirmed = await deliver({ status: 200, body: { ok: false } });
     expect(unconfirmed.reports).toHaveLength(1);
-    expect(unconfirmed.delivery.delivered).toBe(false);
+    expect(unconfirmed.delivery.verdict).toBe('mismatch');
+  });
+
+  it('classifies every report route answer', () => {
+    const verdict = (answer: JsonAnswer | null): ReportVerdict => classifyReportAnswer(answer);
+    expect(verdict({ status: 200, body: { ok: true, slotAt: 'x', recorded: {} } })).toBe(
+      'delivered',
+    );
+    expect(verdict({ status: 200, body: { ok: false } })).toBe('mismatch');
+    expect(verdict({ status: 200, body: null })).toBe('mismatch');
+    expect(verdict({ status: 204, body: null })).toBe('mismatch');
+    expect(verdict({ status: 401, body: { error: 'OIDC_TOKEN_INVALID' } })).toBe('unauthorized');
+    expect(verdict({ status: 403, body: { error: 'OIDC_TOKEN_FORBIDDEN' } })).toBe('unauthorized');
+    for (const status of [400, 404, 405, 409, 413, 415, 422]) {
+      expect(verdict({ status, body: { error: 'X' } }), String(status)).toBe('mismatch');
+    }
+    expect(verdict({ status: 429, body: { error: 'RATE_LIMITED' } })).toBe('unavailable');
+    for (const status of [500, 502, 503, 504]) {
+      expect(verdict({ status, body: null }), String(status)).toBe('unavailable');
+    }
+    expect(verdict(null)).toBe('unavailable');
   });
 
   it('describes answers without their bodies', () => {
@@ -1016,21 +1497,201 @@ describe('status browser monitor report delivery', () => {
 });
 
 describe('status browser monitor exit code', () => {
-  it('fails the job only when its identity is refused or the report is not delivered', () => {
-    const exit = (
-      preflight: 'not-deployed' | 'maintenance' | 'run',
-      delivered: boolean,
-      authRefused: boolean,
-    ) => statusMonitorExitCode({ preflight, delivered, authRefused });
+  const answers: Record<ReportVerdict, JsonAnswer | null> = {
+    delivered: { status: 200, body: { ok: true } },
+    unavailable: { status: 503, body: { error: 'STATUS_STORE_UNAVAILABLE' } },
+    unauthorized: { status: 403, body: { error: 'OIDC_TOKEN_FORBIDDEN' } },
+    mismatch: { status: 400, body: { error: 'INVALID_REQUEST' } },
+  };
+  const delivery = (verdict: ReportVerdict, attempts = 1): ReportDelivery => ({
+    verdict,
+    answer: answers[verdict],
+    attempts,
+  });
+  type Claims = Pick<ClaimGateSummary, 'authRefused' | 'contractMismatch'> | null;
+  const quiet: Claims = { authRefused: false, contractMismatch: false };
+  const run = (verdict: ReportVerdict, claims: Claims = quiet): StatusMonitorRun => ({
+    preflight: 'run',
+    delivery: delivery(verdict),
+    claims,
+  });
 
-    expect(exit('not-deployed', false, false)).toBe(0);
-    expect(exit('run', true, false)).toBe(0);
-    expect(exit('maintenance', true, false)).toBe(0);
-    // The claim route refused the identity although the report landed.
-    expect(exit('run', true, true)).toBe(1);
-    expect(exit('run', false, true)).toBe(1);
-    expect(exit('run', false, false)).toBe(1);
-    expect(exit('maintenance', false, false)).toBe(1);
+  it('ends successfully when production has no status API yet', () => {
+    expect(statusMonitorExitCode({ preflight: 'not-deployed' })).toBe(0);
+    expect(statusMonitorEndAnnotations({ preflight: 'not-deployed' })).toEqual([]);
+  });
+
+  it('ends successfully after a delivered report, failed checks included', () => {
+    // The report body carries the failed rows; the exit code never reads it.
+    expect(statusMonitorExitCode(run('delivered'))).toBe(0);
+    expect(statusMonitorEndAnnotations(run('delivered'))).toEqual([]);
+    const maintenance: StatusMonitorRun = {
+      preflight: 'maintenance',
+      delivery: delivery('delivered'),
+      claims: null,
+    };
+    expect(statusMonitorExitCode(maintenance)).toBe(0);
+    expect(statusMonitorEndAnnotations(maintenance)).toEqual([]);
+    // A 409 or 424 claim answer is part of the claim route's contract.
+    for (const stoppedBy of ['room_active', 'unsupported', 'maintenance'] as const) {
+      const summary: ClaimGateSummary = { ...QUIET_GATE, claimed: 0, refused: 1, stoppedBy };
+      expect(statusMonitorExitCode(run('delivered', summary)), stoppedBy).toBe(0);
+    }
+  });
+
+  it('ends successfully with a warning when the report is still unavailable after every attempt', () => {
+    for (const answer of [
+      { status: 429, body: { error: 'RATE_LIMITED' } },
+      { status: 503, body: { error: 'STATUS_STORE_UNAVAILABLE' } },
+      null,
+    ]) {
+      const unavailable: StatusMonitorRun = {
+        preflight: 'run',
+        delivery: { verdict: 'unavailable', answer, attempts: STATUS_BROWSER_REPORT_ATTEMPTS },
+        claims: quiet,
+      };
+      expect(statusMonitorExitCode(unavailable)).toBe(0);
+      expect(statusMonitorEndAnnotations(unavailable)).toEqual([
+        {
+          kind: 'warning',
+          message:
+            `The report was not delivered: ${describeAnswer(answer)} after ` +
+            `${STATUS_BROWSER_REPORT_ATTEMPTS} attempt(s). Until a report lands, the website ` +
+            'and connection rows age to Not checked.',
+        },
+      ]);
+    }
+    const maintenance: StatusMonitorRun = {
+      preflight: 'maintenance',
+      delivery: delivery('unavailable', STATUS_BROWSER_REPORT_ATTEMPTS),
+      claims: null,
+    };
+    expect(statusMonitorExitCode(maintenance)).toBe(0);
+    expect(statusMonitorEndAnnotations(maintenance).map((annotation) => annotation.kind)).toEqual([
+      'warning',
+    ]);
+  });
+
+  it('ends successfully with a warning when GitHub gave no token at the start of the run', () => {
+    const tokensUnavailable =
+      'GitHub Actions OIDC did not issue a token for /api/ops/status-report (HTTP 503).';
+    for (const preflight of ['run', 'maintenance'] as const) {
+      const ended: StatusMonitorRun = { preflight, tokensUnavailable };
+      expect(statusMonitorExitCode(ended), preflight).toBe(0);
+      expect(statusMonitorEndAnnotations(ended)).toEqual([
+        {
+          kind: 'warning',
+          message:
+            `${tokensUnavailable} No checks ran. Until a report lands, the website and ` +
+            'connection rows age to Not checked.',
+        },
+      ]);
+    }
+  });
+
+  it('fails the job when the report route refuses its identity or answers outside its contract', () => {
+    expect(statusMonitorExitCode(run('unauthorized'))).toBe(1);
+    expect(statusMonitorEndAnnotations(run('unauthorized'))).toEqual([
+      {
+        kind: 'error',
+        message: "The report route refused this job's identity: HTTP 403 (OIDC_TOKEN_FORBIDDEN).",
+      },
+    ]);
+    expect(statusMonitorExitCode(run('mismatch'))).toBe(1);
+    expect(statusMonitorEndAnnotations(run('mismatch'))).toEqual([
+      {
+        kind: 'error',
+        message: 'The report route answered HTTP 400 (INVALID_REQUEST), outside its contract.',
+      },
+    ]);
+    for (const verdict of ['unauthorized', 'mismatch'] as const) {
+      const maintenance: StatusMonitorRun = {
+        preflight: 'maintenance',
+        delivery: delivery(verdict),
+        claims: null,
+      };
+      expect(statusMonitorExitCode(maintenance), verdict).toBe(1);
+    }
+  });
+
+  it('fails the job when the claim route refuses its identity or answers outside its contract', () => {
+    const refused = { ...QUIET_GATE, claimed: 0, refused: 1, stoppedBy: 'unauthorized' as const };
+    const mismatch = { ...QUIET_GATE, claimed: 0, refused: 1, stoppedBy: 'rejected' as const };
+    for (const verdict of ['delivered', 'unavailable'] as const) {
+      expect(statusMonitorExitCode(run(verdict, { ...refused, authRefused: true })), verdict).toBe(
+        1,
+      );
+      expect(
+        statusMonitorExitCode(run(verdict, { ...mismatch, contractMismatch: true })),
+        verdict,
+      ).toBe(1);
+    }
+    expect(
+      statusMonitorEndAnnotations(run('delivered', { ...refused, authRefused: true })),
+    ).toEqual([
+      { kind: 'error', message: "The claim route refused this job's identity (401 or 403)." },
+    ]);
+    expect(
+      statusMonitorEndAnnotations(run('delivered', { ...mismatch, contractMismatch: true })),
+    ).toEqual([{ kind: 'error', message: 'The claim route answered outside its contract.' }]);
+    // Every failure is reported, the report's first.
+    expect(
+      statusMonitorEndAnnotations(
+        run('unauthorized', { authRefused: true, contractMismatch: true }),
+      ).map((annotation) => annotation.message),
+    ).toEqual([
+      "The report route refused this job's identity: HTTP 403 (OIDC_TOKEN_FORBIDDEN).",
+      "The claim route refused this job's identity (401 or 403).",
+      'The claim route answered outside its contract.',
+    ]);
+  });
+
+  it('fails the job exactly when the run ends with an error annotation', () => {
+    const verdicts: ReportVerdict[] = ['delivered', 'unavailable', 'unauthorized', 'mismatch'];
+    for (const verdict of verdicts) {
+      for (const claims of [
+        null,
+        quiet,
+        { authRefused: true, contractMismatch: false },
+        { authRefused: false, contractMismatch: true },
+        { authRefused: true, contractMismatch: true },
+      ]) {
+        const ended: StatusMonitorRun = { preflight: 'run', delivery: delivery(verdict), claims };
+        const errors = statusMonitorEndAnnotations(ended).filter(
+          (annotation) => annotation.kind === 'error',
+        );
+        expect(statusMonitorExitCode(ended), `${verdict} ${JSON.stringify(claims)}`).toBe(
+          errors.length > 0 ? 1 : 0,
+        );
+      }
+    }
+    for (const preflight of ['run', 'maintenance'] as const) {
+      const ended: StatusMonitorRun = {
+        preflight,
+        tokensUnavailable:
+          'GitHub Actions OIDC did not issue a token for /api/ops/status-claim (no answer).',
+      };
+      const errors = statusMonitorEndAnnotations(ended).filter(
+        (annotation) => annotation.kind === 'error',
+      );
+      expect(statusMonitorExitCode(ended), preflight).toBe(errors.length > 0 ? 1 : 0);
+    }
+  });
+
+  it('logs no body, token or room code in its annotations', () => {
+    const leaky: StatusMonitorRun = {
+      preflight: 'run',
+      delivery: {
+        verdict: 'mismatch',
+        answer: { status: 400, body: { error: `room ${ROOM} token ${oidcToken(1)}` } },
+        attempts: 1,
+      },
+      claims: quiet,
+    };
+    const [annotation] = statusMonitorEndAnnotations(leaky);
+    expect(annotation?.message).toBe(
+      'The report route answered HTTP 400 (unknown), outside its contract.',
+    );
   });
 });
 
@@ -1093,11 +1754,29 @@ describe('status browser monitor transport parity', () => {
     ).toEqual([...STATUS_MONITOR_SIGNALING_ENDPOINTS.socketOrigins]);
 
     const transport = source('src/network/transport/cloudflare-signaling.ts');
-    expect(transport).toContain(
-      "base.pathname = `${base.pathname.replace(/\\/+$/, '')}/${encodeURIComponent(roomId)}/ws`;",
-    );
-    expect(transport).toContain("base.searchParams.set('role', role);");
-    expect(transport).toContain("base.searchParams.set('peerId', peerId);");
+    const standardPath =
+      "base.pathname = `${base.pathname.replace(/\\/+$/, '')}/${encodeURIComponent(roomId)}/ws`;";
+    const start = transport.indexOf(standardPath);
+    expect(start).toBeGreaterThan(-1);
+    const end = transport.indexOf('return base.toString();', start);
+    expect(end).toBeGreaterThan(start);
+    // classifyMonitorWebSocket accepts a host socket whose query has exactly
+    // these two keys, so the Standard branch's whole query is pinned: a third
+    // key fails here, not on every monitor run after the release. The monitor
+    // runs from main against the released App: when this pin fails because of
+    // an App change, let classifyMonitorWebSocket accept both the released and
+    // main's key sets (with a lib test for each) until the release that ships
+    // the change is live, then drop the old set.
+    const query = transport
+      .slice(transport.indexOf('\n', start) + 1, end)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//'));
+    expect(query).toEqual([
+      "base.search = '';",
+      "base.searchParams.set('role', role);",
+      "base.searchParams.set('peerId', peerId);",
+    ]);
   });
 
   it('gates the HTTP bridge the App falls back to', () => {
@@ -1130,6 +1809,122 @@ describe('status browser monitor transport parity', () => {
     expect(openers(/\bendpointPrefix\b/u)).toEqual([
       'src/network/transport/standard-http-signaling.ts',
     ]);
+  });
+
+  it('waits for the device row that only a connected peer gets before each chat send', () => {
+    // A change to any of these is a change to when a chat message can be lost:
+    // review deliverChatMessage and the selector in the same change.
+    expect(STATUS_MONITOR_PEER_ROW_SELECTOR).toBe(
+      '#connect-device-list .device-row:not(.is-current-member)',
+    );
+    expect(source('index.html')).toContain(
+      '<div id="connect-device-list" class="device-list"></div>',
+    );
+
+    const connect = source('src/ui/connect.ts');
+    expect(connect).toContain("getUiElement('connect-device-list'),");
+    expect(connect).toContain(
+      "row.className = `device-row${member.isCurrent ? ' is-current-member' : ''}`;",
+    );
+    expect(connect).toMatch(
+      /_busScope\.on\('network:device-list-update', \(list: unknown\[\]\) => \{\s+if \(Array\.isArray\(list\)\) \{\s+renderConnectDeviceList\(list\);/u,
+    );
+
+    const peerState = source('src/network/peer-state.ts');
+    const body = (name: string): string => {
+      const start = peerState.indexOf(`export function ${name}(`);
+      expect(start, name).toBeGreaterThan(-1);
+      return peerState.slice(start, peerState.indexOf('\n}\n', start));
+    };
+    // The chat broadcast skips a peer that is not connected yet ...
+    expect(body('broadcast')).toContain("if (p.status === 'connected' && p.conn) {");
+    // ... and the device list holds only connected peers besides the host itself.
+    const deviceList = body('broadcastDeviceList');
+    expect(deviceList).toContain(".filter((peer) => peer.status === 'connected')");
+    expect(deviceList).toContain("bus.emit('network:device-list', list);");
+
+    // The host renders its own list; a guest renders only the list its host sent.
+    expect(source('src/network/host.ts')).toMatch(
+      /bus\.on\('network:device-list', \(list\) => \{\s+if \(Array\.isArray\(list\)\) \{\s+setState\('network\.lastKnownDeviceList', list as DeviceInfo\[\]\);\s+bus\.emit\('network:device-list-update', list\);/u,
+    );
+    const guest = source('src/network/guest.ts');
+    const update = guest.slice(guest.indexOf('function handleDeviceListUpdateMsg('));
+    expect(update).toMatch(
+      /^function handleDeviceListUpdateMsg\([^)]*\): void \{[\s\S]*?if \(!hostConn \|\| conn !== hostConn\) return;[\s\S]*?setState\('network\.lastKnownDeviceList', list\);\s+bus\.emit\('network:device-list-update', list\);\n\}/u,
+    );
+
+    const script = source('scripts/status-browser-monitor.ts');
+    expect(script).toContain('.locator(STATUS_MONITOR_PEER_ROW_SELECTOR)');
+    expect(script).toContain('deliverChatMessage(');
+  });
+
+  it('uses only App selectors that the App still renders', () => {
+    // The monitor runs from main against the released App. When a pin below
+    // fails because of an App change, keep the monitor accepting both the
+    // released form and main's form until the release that ships the change is
+    // live, then drop the old form: a selector takes a comma-joined
+    // alternative ('#old-id, #new-id'), which passes here while one of its
+    // alternatives names only ids the App renders.
+    const script = source('scripts/status-browser-monitor.ts');
+    const literals = [...script.matchAll(/'[^'\n]*'/gu)]
+      .map((match) => match[0].slice(1, -1))
+      .filter((literal) => literal.includes('#'));
+    const idsOf = (selector: string): string[] =>
+      [...selector.matchAll(/#([a-z][\w-]*)/gu)].map((match) => match[1] ?? '');
+    // Every id the monitor waits for or reads; a new one joins this list.
+    expect([...new Set(literals.flatMap(idsOf))].sort()).toEqual([
+      'btn-chat-send',
+      'btn-dialog-secondary',
+      'btn-setup-confirm',
+      'btn-setup-guest',
+      'btn-setup-host',
+      'chat-input',
+      'chat-messages',
+      'dialog-overlay',
+      'dialog-title',
+      'setup-code',
+      'setup-code-area',
+      'setup-guest-error',
+      'setup-host-error',
+      'setup-join-area',
+      'setup-join-code',
+      'setup-overlay',
+    ]);
+
+    // The page markup, the start screen's two buttons, and the confirm button
+    // that both the host and the guest setup render.
+    const html = source('index.html');
+    const setup = source('src/ui/setup.ts');
+    const setupFlows = [source('src/ui/setup-host.ts'), source('src/ui/setup-guest.ts')];
+    const rendered = (id: string): boolean =>
+      html.includes(`id="${id}"`) ||
+      setup.includes(`id: '${id}',`) ||
+      setupFlows.every((flow) => flow.includes(`id: '${id}'`));
+    for (const literal of literals) {
+      const alternatives = literal.split(',').map(idsOf);
+      expect(
+        alternatives.some((ids) => ids.length > 0 && ids.every(rendered)),
+        literal,
+      ).toBe(true);
+    }
+
+    // The state classes the monitor waits on.
+    const dom = source('src/ui/dom.ts');
+    expect(dom).toContain("{ id: 'setup-overlay', cls: 'active', fullscreen: true },");
+    expect(dom).toContain("{ id: 'dialog-overlay', cls: 'show', fullscreen: false },");
+    expect(script).toContain("'#setup-overlay.active'");
+    expect(script).toContain("'#dialog-overlay.show'");
+
+    // The boot states the website check ends on.
+    const app = source('src/app.ts');
+    expect(app).toContain('root.dataset.bootstrapState = state;');
+    expect(app).toContain(
+      "type PublishedBootstrapState = BootstrapReadinessSnapshot['state'] | 'bootstrapping' | 'aborted';",
+    );
+    expect(source('src/core/bootstrap-readiness.ts')).toContain("? 'degraded' : 'ready'");
+    for (const state of ['ready', 'degraded', 'aborted']) {
+      expect(script).toContain(`html[data-bootstrap-state="${state}"]`);
+    }
   });
 
   it('keeps the browser script on Locator waits, with no screenshot or page script', () => {

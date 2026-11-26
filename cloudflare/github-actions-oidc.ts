@@ -11,8 +11,10 @@
  * Abuse bound: an unknown `kid` refreshes the key set at most once per
  * GITHUB_OIDC_JWKS_REFRESH_MIN_INTERVAL_MS per isolate (any fetch attempt,
  * successful or not, starts the interval), so forged tokens cannot turn into a
- * stream of outbound key fetches. The route also applies its abuse-rate limit
- * before it calls this verifier.
+ * stream of outbound key fetches. A fetch whose request ended before it
+ * finished (a client that disconnected) never settles for other requests: the
+ * next caller drops it, and it still counts as an attempt. The route also
+ * applies its abuse-rate limit before it calls this verifier.
  */
 import { fetchTextWithTimeout } from './account-auth.ts';
 
@@ -206,7 +208,25 @@ async function fetchKeySet(nowMs: number): Promise<GitHubKeySet | null> {
 async function keySetFor(kid: string, nowMs: number): Promise<GitHubKeySet | null> {
   const cached = keySet && keySet.expiresAtMs > nowMs ? keySet : null;
   if (cached?.keys.has(kid)) return cached;
-  if (keySetFetch) return (await keySetFetch) ?? cached;
+  const shared = keySetFetch;
+  if (shared) {
+    // The download belongs to the request that started it. Once that request
+    // has ended (its client disconnected mid download), workerd never settles
+    // it in another request and rejects every waiter instead
+    // (handle_cross_request_promise_resolution), and the starter's finally
+    // never runs. Drop it if it is still the shared one and fall through: the
+    // lost download still counts as an attempt, so the cached set (or none)
+    // answers until the refresh interval allows the next one.
+    try {
+      return (await shared) ?? cached;
+    } catch {
+      if (keySetFetch === shared) keySetFetch = null;
+      // A fixed event only: never the token, its key id or the error text.
+      console.warn('[GitHub OIDC] shared key-set download rejected', {
+        event: 'github_oidc_jwks_shared_fetch_rejected',
+      });
+    }
+  }
   if (
     lastFetchAttemptAtMs !== null &&
     nowMs - lastFetchAttemptAtMs < GITHUB_OIDC_JWKS_REFRESH_MIN_INTERVAL_MS

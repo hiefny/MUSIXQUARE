@@ -2549,6 +2549,23 @@ function observeAdminRegistryDb(db: D1Database, observation: AdminRegistryObserv
   };
 }
 
+type AdminRegistryErrorClass =
+  'cross_request' | 'd1_network' | 'd1_overloaded' | 'd1_other' | 'other';
+
+// Logs carry only this fixed class, never the message: D1 and SQLite text can
+// echo SQL, table names or bound values.
+function adminRegistryErrorClass(error: unknown): AdminRegistryErrorClass {
+  const rawMessage = isJsonObject(error) ? error.message : error;
+  const message = typeof rawMessage === 'string' ? rawMessage : '';
+  // workerd's rejection of a promise awaited in another request after the
+  // request that created it ended (handle_cross_request_promise_resolution).
+  if (message.includes('can never settle')) return 'cross_request';
+  if (message.includes('Network connection lost')) return 'd1_network';
+  if (message.includes('overloaded')) return 'd1_overloaded';
+  if (message.startsWith('D1_ERROR')) return 'd1_other';
+  return 'other';
+}
+
 function getProRoomAdminNamespace(env: AppEnv) {
   const namespace = env.PRO_ROOM_ADMIN_ROOMS;
   return namespace &&
@@ -2561,20 +2578,38 @@ function getProRoomAdminNamespace(env: AppEnv) {
 async function ensureAdminProRoomRegistry(db: D1Database) {
   if (!db?.prepare) return false;
   const existing = adminProRoomRegistryReadyByDb.get(db);
-  if (existing) return existing;
+  if (existing) {
+    // The cached check belongs to the request that started it. workerd never
+    // settles it in another request once that request has ended, for example
+    // when an admin client aborts its list read: every waiting request is
+    // rejected instead. Await it only here; on any rejection, drop it if it is
+    // still the cached one and run this request's own check below.
+    try {
+      return await existing;
+    } catch (error) {
+      if (adminProRoomRegistryReadyByDb.get(db) === existing) {
+        adminProRoomRegistryReadyByDb.delete(db);
+      }
+      console.warn('[PRO registry] shared schema check rejected', {
+        event: 'admin_pro_room_registry_shared_check_rejected',
+        errorClass: adminRegistryErrorClass(error) === 'cross_request' ? 'cross_request' : 'other',
+      });
+    }
+  }
   const sourceDb = db;
   const startedAtMs = Date.now();
   const observation = {
     statementCount: 0,
     statementKinds: { read: 0, write: 0, ddl: 0, other: 0 },
   };
-  const observeCompletion = (outcome: string) => {
+  const observeCompletion = (outcome: 'ready' | 'error', errorClass?: AdminRegistryErrorClass) => {
     console.info('[PRO registry] schema ensure', {
       event: 'admin_pro_room_registry_schema_ensure',
       outcome,
       durationMs: Math.max(0, Date.now() - startedAtMs),
       statementCount: observation.statementCount,
       statementKinds: observation.statementKinds,
+      ...(errorClass ? { errorClass } : {}),
     });
   };
   const initialize = (async () => {
@@ -3271,7 +3306,7 @@ async function ensureAdminProRoomRegistry(db: D1Database) {
       return value;
     },
     (error) => {
-      observeCompletion('error');
+      observeCompletion('error', adminRegistryErrorClass(error));
       throw error;
     },
   );
@@ -3279,7 +3314,9 @@ async function ensureAdminProRoomRegistry(db: D1Database) {
   try {
     return await initialize;
   } catch (error) {
-    adminProRoomRegistryReadyByDb.delete(db);
+    if (adminProRoomRegistryReadyByDb.get(db) === initialize) {
+      adminProRoomRegistryReadyByDb.delete(db);
+    }
     throw error;
   }
 }
@@ -12125,7 +12162,11 @@ async function handleAdminStatusNote(request: Request, env: AppEnv) {
   return json({ ok: true, ...adminStatusNotePayload(state) });
 }
 
-/** The /api/status note: the active note, none, or a failed read (never cached). */
+/**
+ * The /api/status note: the active note, none, or a failed read. Nothing is
+ * cached here; /api/status edge-caches the whole answer, for a short time only
+ * after a failed read.
+ */
 async function readPublicStatusNote(env: AppEnv): Promise<StatusNoteRead> {
   const state = await readStatusNoteState(env);
   if (!state) return { status: 'unavailable' };
@@ -12181,23 +12222,50 @@ async function fetchServedAppBuild(assets: AppAssetFetcher): Promise<number | nu
  * service worker, so no copy of the epoch lives here. An isolate runs one
  * Worker version, whose assets never change, so the first successful read is
  * kept per assets binding; an unreadable asset is read again next time.
+ *
+ * Callers share a read that is still running, but that read belongs to the
+ * request that started it. Once that request has ended (a page drops its floor
+ * read when it is hidden, and any client can disconnect), workerd never
+ * settles the read in another request and rejects every request awaiting it
+ * instead (handle_cross_request_promise_resolution). So the shared read is
+ * awaited only here: on any rejection it is dropped if it is still the shared
+ * one, and this request reads again. fetchServedAppBuild never rejects on its
+ * own, so the only rejection is that one.
  */
 async function readServedAppBuild(env: AppEnv): Promise<number | null> {
   const assets = env.ASSETS;
   if (!assets || typeof assets.fetch !== 'function') return null;
   const known = servedAppBuildByAssets.get(assets);
   if (known !== undefined) return known;
-  let pending = servedAppBuildReads.get(assets);
-  if (!pending) {
-    pending = fetchServedAppBuild(assets)
-      .then((build) => {
-        if (build !== null) servedAppBuildByAssets.set(assets, build);
-        return build;
-      })
-      .finally(() => servedAppBuildReads.delete(assets));
-    servedAppBuildReads.set(assets, pending);
+  const shared = servedAppBuildReads.get(assets);
+  if (shared) {
+    try {
+      return await shared;
+    } catch {
+      if (servedAppBuildReads.get(assets) === shared) servedAppBuildReads.delete(assets);
+      // A fixed event only: never the error text.
+      console.warn('[App build floor] shared served build read rejected', {
+        event: 'served_app_build_shared_read_rejected',
+      });
+      const recovered = servedAppBuildByAssets.get(assets);
+      if (recovered !== undefined) return recovered;
+    }
   }
-  return pending;
+  const pending = fetchServedAppBuild(assets).then((build) => {
+    if (build !== null) servedAppBuildByAssets.set(assets, build);
+    return build;
+  });
+  servedAppBuildReads.set(assets, pending);
+  try {
+    return await pending;
+  } finally {
+    if (servedAppBuildReads.get(assets) === pending) servedAppBuildReads.delete(assets);
+  }
+}
+
+export async function readServedAppBuildForTests(env: unknown) {
+  if (!isAppEnv(env)) throw new TypeError('App Worker environment unavailable');
+  return readServedAppBuild(env);
 }
 
 /** The minute cron's live-App report. It never writes the stored floor. */

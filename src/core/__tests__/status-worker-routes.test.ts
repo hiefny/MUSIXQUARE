@@ -17,7 +17,9 @@ import {
 import {
   STATUS_CLAIM_AUDIENCE,
   STATUS_CLAIM_PATH,
+  STATUS_EDGE_CACHE_DEGRADED_TTL_S,
   STATUS_EDGE_CACHE_KEY_PATH,
+  STATUS_EDGE_CACHE_TTL_S,
   STATUS_MONITOR_WORKFLOW_REF,
   STATUS_PRO_PROBE_ROOM_CODE,
   STATUS_PROBE_CLAIM_INTERNAL_PATH,
@@ -720,10 +722,19 @@ describe('App Worker /api/status', () => {
     expect(edge.cache.put).toHaveBeenCalledTimes(2);
   });
 
-  it('answers 200 with results_unavailable when the ledger cannot be read, and never caches it', async () => {
+  it('answers 200 with results_unavailable when the ledger cannot be read, and caches it only briefly', async () => {
     useDateClock('2026-11-26T05:50:00.000Z');
     const edge = installEdgeCache();
     const { env, ledger } = statusEnv();
+    ledger!.insert({
+      component: 'rooms',
+      slotAt: at('2026-11-26T05:45:00.000Z'),
+      result: 'o',
+      reason: 'passing',
+      checkedAt: at('2026-11-26T05:45:06.000Z'),
+      source: 'cron',
+      runId: null,
+    });
     ledger!.failReads(true);
 
     for (let request = 0; request < 2; request += 1) {
@@ -750,16 +761,44 @@ describe('App Worker /api/status', () => {
         });
       }
     }
-    expect(edge.cache.put).not.toHaveBeenCalled();
-    expect(ledger!.ledgerReads()).toHaveLength(2);
+    // The second answer came from the edge cache: one ledger read, stored
+    // for the degraded lifetime only.
+    expect(ledger!.ledgerReads()).toHaveLength(1);
+    expect(edge.cache.put).toHaveBeenCalledOnce();
+    expect(edge.entries.get(edge.key)?.headers.get('Cache-Control')).toBe(
+      `public, max-age=${STATUS_EDGE_CACHE_DEGRADED_TTL_S}`,
+    );
 
-    // Without the admin database it is the same answer.
+    // Once that lifetime ends, a request reads the recovered ledger and
+    // stores its real rows for the full lifetime.
+    ledger!.failReads(false);
+    vi.setSystemTime(at('2026-11-26T05:50:00.000Z') + STATUS_EDGE_CACHE_DEGRADED_TTL_S * 1_000);
+    const recovered = await statusApi(env);
+    const recoveredBody = (await recovered.response.json()) as JsonObject & {
+      components: Array<JsonObject & { id: string }>;
+    };
+    expect(recoveredBody.components.find((component) => component.id === 'rooms')).toMatchObject({
+      state: 'ok',
+      reason: 'passing',
+      lastCheckedAt: '2026-11-26T05:45:06.000Z',
+    });
+    expect(ledger!.ledgerReads()).toHaveLength(2);
+    expect(edge.cache.put).toHaveBeenCalledTimes(2);
+    expect(edge.entries.get(edge.key)?.headers.get('Cache-Control')).toBe(
+      `public, max-age=${STATUS_EDGE_CACHE_TTL_S}`,
+    );
+
+    // Without the admin database it is the same answer, cached the same way.
+    edge.entries.clear();
     const unbound = statusEnv({ ledger: null });
     const { response } = await statusApi(unbound.env);
     await expect(response.json()).resolves.toMatchObject({
       overall: { state: 'stale', reason: 'results_unavailable' },
     });
-    expect(edge.cache.put).not.toHaveBeenCalled();
+    expect(edge.cache.put).toHaveBeenCalledTimes(3);
+    expect(edge.entries.get(edge.key)?.headers.get('Cache-Control')).toBe(
+      `public, max-age=${STATUS_EDGE_CACHE_DEGRADED_TTL_S}`,
+    );
   });
 });
 

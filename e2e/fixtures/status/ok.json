@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-26T14:48:20+09:00",
-  "timeZone": "Asia/Seoul",
+  "generatedAt": "2026-11-26T05:48:20.000Z",
+  "timeZone": "UTC",
   "policy": {
     "checkIntervalMinutes": 15,
     "problemAfterFailures": 2,
@@ -15,7 +15,7 @@
   "overall": {
     "state": "ok",
     "reason": "all_passing",
-    "lastCheckedAt": "2026-11-26T14:45:06+09:00",
+    "lastCheckedAt": "2026-11-26T05:45:06.000Z",
     "since": null
   },
   "maintenance": {
@@ -28,11 +28,11 @@
       "id": "website",
       "state": "ok",
       "reason": "passing",
-      "lastCheckedAt": "2026-11-26T14:37:41+09:00",
-      "lastOkAt": "2026-11-26T14:37:41+09:00",
+      "lastCheckedAt": "2026-11-26T05:37:41.000Z",
+      "lastOkAt": "2026-11-26T05:37:41.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T14:37:00+09:00",
+        "lastAt": "2026-11-26T05:37:00.000Z",
         "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
       }
     },
@@ -40,11 +40,11 @@
       "id": "rooms",
       "state": "ok",
       "reason": "passing",
-      "lastCheckedAt": "2026-11-26T14:45:06+09:00",
-      "lastOkAt": "2026-11-26T14:45:06+09:00",
+      "lastCheckedAt": "2026-11-26T05:45:06.000Z",
+      "lastOkAt": "2026-11-26T05:45:06.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T14:45:00+09:00",
+        "lastAt": "2026-11-26T05:45:00.000Z",
         "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
       }
     },
@@ -52,11 +52,11 @@
       "id": "connection",
       "state": "ok",
       "reason": "passing",
-      "lastCheckedAt": "2026-11-26T14:37:41+09:00",
-      "lastOkAt": "2026-11-26T14:37:41+09:00",
+      "lastCheckedAt": "2026-11-26T05:37:41.000Z",
+      "lastOkAt": "2026-11-26T05:37:41.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T14:37:00+09:00",
+        "lastAt": "2026-11-26T05:37:00.000Z",
         "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
       }
     },
@@ -64,11 +64,11 @@
       "id": "pro",
       "state": "ok",
       "reason": "passing",
-      "lastCheckedAt": "2026-11-26T14:45:06+09:00",
-      "lastOkAt": "2026-11-26T14:45:06+09:00",
+      "lastCheckedAt": "2026-11-26T05:45:06.000Z",
+      "lastOkAt": "2026-11-26T05:45:06.000Z",
       "problemSince": null,
       "recent": {
-        "lastAt": "2026-11-26T14:45:00+09:00",
+        "lastAt": "2026-11-26T05:45:00.000Z",
         "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
       }
     }

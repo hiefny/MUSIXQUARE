@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-26T14:48:20+09:00",
-  "timeZone": "Asia/Seoul",
+  "generatedAt": "2026-11-26T05:48:20.000Z",
+  "timeZone": "UTC",
   "policy": {
     "checkIntervalMinutes": 15,
     "problemAfterFailures": 2,
@@ -25,8 +25,8 @@
   "announcement": {
     "id": "demo-outage",
     "message": "We're looking into connection problems.",
-    "postedAt": "2026-11-26T14:35:00+09:00",
-    "expiresAt": "2026-11-26T18:00:00+09:00"
+    "postedAt": "2026-11-26T05:35:00.000Z",
+    "expiresAt": "2026-11-26T09:00:00.000Z"
   },
   "components": [
     {

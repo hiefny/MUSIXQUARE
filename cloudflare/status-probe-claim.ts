@@ -10,7 +10,11 @@
  * The App passes in its bounded service-binding fetch, so this module adds no
  * timer of its own. Only the documented answers count; anything else, or no
  * answer, is `failed`, and a caller opens no room unless the outcome is
- * `claimed`. A signaling Worker without the route answers 404 (`unsupported`).
+ * `claimed`. Every 409 refuses that code only (`room_active`), whatever its
+ * body: the room object answers ROOM_ACTIVE for a room in use and
+ * ROOM_STATE_INVALID for a quarantined room or an object that belongs to
+ * another code, and the caller tries another code either way. A signaling
+ * Worker without the route answers 404 (`unsupported`).
  */
 
 import {
@@ -64,9 +68,10 @@ export function classifyStatusProbeClaimReply(
   if (!reply) return 'failed';
   const status = reply.response.status;
   if (status === 404) return 'unsupported';
+  // A refusal of this code only, never of the probe: another code may claim.
+  if (status === 409) return 'room_active';
   const body = replyJson(reply.bytes);
   if (status === 200 && body?.ok === true) return 'claimed';
-  if (status === 409 && body?.error === 'ROOM_ACTIVE') return 'room_active';
   if (status === 503 && body?.error === 'SERVICE_MAINTENANCE') return 'maintenance';
   if (status === 503 && body?.error === 'SERVICE_MAINTENANCE_STATUS_UNAVAILABLE') {
     return 'control_unavailable';

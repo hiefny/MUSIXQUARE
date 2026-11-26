@@ -1,0 +1,195 @@
+<!doctype html>
+<!-- MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <link rel="canonical" href="https://musixquare.com/status" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#121212" />
+
+    <title>Status · MUSIXQUARE</title>
+    <meta
+      name="description"
+      content="Whether MUSIXQUARE is working right now: the website and app, creating and joining rooms, device connections, and PRO rooms, checked every 15 minutes."
+    />
+
+    <meta property="og:title" content="Status · MUSIXQUARE" />
+    <meta
+      property="og:description"
+      content="Whether MUSIXQUARE is working right now, checked every 15 minutes."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="MUSIXQUARE" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://musixquare.com/status" />
+    <meta property="og:image" content="https://musixquare.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MUSIXQUARE" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Status · MUSIXQUARE" />
+    <meta name="twitter:description" content="Whether MUSIXQUARE is working right now." />
+    <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
+
+    <link rel="icon" href="/designsystem/assets/favicon.svg" />
+    <script src="/han-order.js"></script>
+    <link rel="stylesheet" href="/web-fonts/first.css" vite-ignore />
+    <link rel="stylesheet" href="/web-fonts/stacks.css" vite-ignore />
+    <link rel="stylesheet" href="/legal-pages.css" />
+    <link rel="stylesheet" href="/.workshop/status/status.css" />
+    <script defer src="/status-page.js"></script>
+    <!-- Cloudflare Web Analytics -->
+    <script defer src="/analytics-bootstrap.js"></script>
+    <!-- End Cloudflare Web Analytics -->
+  </head>
+
+  <body>
+    <header class="policy-header">
+      <a class="policy-logo" href="https://musixquare.com" aria-label="MUSIXQUARE home">
+        <span class="policy-wordmark" aria-hidden="true"></span>
+      </a>
+      <a class="policy-home policy-home--shortcut" href="/sitemap">
+        Sitemap
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M5 12h14m-6-6 6 6-6 6"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </a>
+    </header>
+
+    <main class="policy-shell status-shell">
+      <section class="policy-hero">
+        <h1>Status</h1>
+        <p class="status-overall" role="status" aria-atomic="true" data-state="loading">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span data-slot="overall">Loading…</span>
+        </p>
+        <p class="status-meta" data-slot="meta" hidden></p>
+        <div class="status-note" role="note" data-slot="notice" hidden>
+          <p class="status-note__message" data-slot="notice-message"></p>
+          <p class="status-note__posted" data-slot="notice-posted" hidden></p>
+        </div>
+      </section>
+
+      <article class="policy-doc">
+        <ul class="status-list" role="list" aria-label="Status by service">
+          <li class="status-row" data-component="website" data-state="loading">
+            <span class="status-name">Website and app</span>
+            <span class="status-state">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span class="status-word" data-slot="word"></span>
+            </span>
+            <div class="status-checks" data-slot="checks" hidden></div>
+          </li>
+          <li class="status-row" data-component="rooms" data-state="loading">
+            <span class="status-name">Creating and joining rooms</span>
+            <span class="status-state">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span class="status-word" data-slot="word"></span>
+            </span>
+            <div class="status-checks" data-slot="checks" hidden></div>
+          </li>
+          <li class="status-row" data-component="connection" data-state="loading">
+            <span class="status-name">Device connections</span>
+            <span class="status-state">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span class="status-word" data-slot="word"></span>
+            </span>
+            <div class="status-checks" data-slot="checks" hidden></div>
+          </li>
+          <li class="status-row" data-component="pro" data-state="loading">
+            <span class="status-name">PRO rooms</span>
+            <span class="status-state">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span class="status-word" data-slot="word"></span>
+            </span>
+            <div class="status-checks" data-slot="checks" hidden></div>
+          </li>
+        </ul>
+
+        <section class="status-how">
+          <h2>How we check</h2>
+          <p>
+            Automated checks run every 15 minutes, and each bar under a service is one check from
+            the last 24 hours. A service shows Problem only after two checks in a row fail, and Not
+            checked when no check has finished in the last 30 minutes.
+          </p>
+          <p>
+            We check from our side, so a problem that appears only on some networks or devices may
+            not show here. If something isn't working for you, email
+            <a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com"
+              >contact@musixquare.com</a
+            >.
+          </p>
+          <ul class="status-legend" role="list" aria-label="What the bars mean">
+            <li>
+              <span class="status-legend__swatch" aria-hidden="true"
+                ><span class="status-checks__cell" data-result="o"></span></span
+              >Passed
+            </li>
+            <li>
+              <span class="status-legend__swatch" aria-hidden="true"
+                ><span class="status-checks__cell" data-result="p"></span></span
+              >Failed
+            </li>
+            <li>
+              <span class="status-legend__swatch" aria-hidden="true"
+                ><span class="status-checks__cell" data-result="m"></span></span
+              >During maintenance
+            </li>
+            <li>
+              <span class="status-legend__swatch" aria-hidden="true"
+                ><span class="status-checks__cell" data-result="n"></span></span
+              >No check
+            </li>
+          </ul>
+          <dl>
+            <div>
+              <dt>Website and app</dt>
+              <dd>MUSIXQUARE opens in a browser and reaches its start screen.</dd>
+            </div>
+            <div>
+              <dt>Creating and joining rooms</dt>
+              <dd>A test room opens on our servers, and a second device joins it.</dd>
+            </div>
+            <div>
+              <dt>Device connections</dt>
+              <dd>Two browsers join the same room, connect, and send each other a message.</dd>
+            </div>
+            <div>
+              <dt>PRO rooms</dt>
+              <dd>The entrance of a test PRO room answers.</dd>
+            </div>
+          </dl>
+        </section>
+      </article>
+    </main>
+
+    <footer class="policy-footer">
+      <div class="policy-footer__inner">
+        <span>© 2026 MUSIXQUARE</span>
+        <nav aria-label="Footer">
+          <a href="/about">About</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/faq">FAQ</a>
+          <a href="/developers">Developers</a>
+          <a href="/translate">Translate</a>
+          <a href="/history">History</a>
+          <a href="/designsystem">Design System</a>
+          <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer"
+            >GitHub</a
+          >
+        </nav>
+      </div>
+    </footer>
+    <link rel="stylesheet" href="/web-fonts/rest.css" vite-ignore />
+  </body>
+</html>

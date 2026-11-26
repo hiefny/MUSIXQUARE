@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-26T19:52:30+09:00",
+  "timeZone": "Asia/Seoul",
+  "policy": {
+    "checkIntervalMinutes": 15,
+    "problemAfterFailures": 2,
+    "staleAfterMinutes": 30,
+    "recentSlots": 96,
+    "schedule": {
+      "server": [
+        0,
+        15,
+        30,
+        45
+      ],
+      "browser": [
+        7,
+        22,
+        37,
+        52
+      ]
+    }
+  },
+  "overall": {
+    "state": "problem",
+    "reason": "component_problem",
+    "lastCheckedAt": "2026-11-26T19:45:29+09:00",
+    "since": "2026-11-26T19:30:31+09:00"
+  },
+  "maintenance": {
+    "active": false,
+    "since": null
+  },
+  "announcement": {
+    "id": "demo-problem",
+    "message": "We're looking into problems joining PRO rooms. Regular rooms are working.",
+    "postedAt": "2026-11-26T19:48:10+09:00",
+    "expiresAt": "2026-11-26T22:00:00+09:00"
+  },
+  "components": [
+    {
+      "id": "website",
+      "state": "ok",
+      "reason": "passing",
+      "lastCheckedAt": "2026-11-26T19:37:44+09:00",
+      "lastOkAt": "2026-11-26T19:37:44+09:00",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T19:37:00+09:00",
+        "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
+      }
+    },
+    {
+      "id": "rooms",
+      "state": "ok",
+      "reason": "passing",
+      "lastCheckedAt": "2026-11-26T19:45:29+09:00",
+      "lastOkAt": "2026-11-26T19:45:29+09:00",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T19:45:00+09:00",
+        "slots": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooopoooooooooooo"
+      }
+    },
+    {
+      "id": "connection",
+      "state": "ok",
+      "reason": "passing",
+      "lastCheckedAt": "2026-11-26T19:37:44+09:00",
+      "lastOkAt": "2026-11-26T19:37:44+09:00",
+      "problemSince": null,
+      "recent": {
+        "lastAt": "2026-11-26T19:37:00+09:00",
+        "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
+      }
+    },
+    {
+      "id": "pro",
+      "state": "problem",
+      "reason": "pro_entry_unreachable",
+      "lastCheckedAt": "2026-11-26T19:45:29+09:00",
+      "lastOkAt": "2026-11-26T19:15:06+09:00",
+      "problemSince": "2026-11-26T19:30:31+09:00",
+      "recent": {
+        "lastAt": "2026-11-26T19:45:00+09:00",
+        "slots": "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooopp"
+      }
+    }
+  ]
+}

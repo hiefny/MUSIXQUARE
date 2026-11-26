@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv, type Connect, type Plugin, type UserConfig } from 'vite';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'path';
 import postcss, { type Plugin as PostCssPlugin } from 'postcss';
 import postcssCascadeLayers from '@csstools/postcss-cascade-layers';
@@ -250,6 +251,60 @@ function failClosedDevApi(proxyEnabled: boolean): Plugin {
   };
 }
 
+// Local preview of /status only. With MXQR_DEV_STATUS_FIXTURES=true the dev
+// server answers /api/status from e2e/fixtures/status/<name>.json, where
+// <name> is the `fixture` query of the page that asked (read from Referer).
+// The page script stays identical to production and never chooses a state;
+// preview and production keep failing closed.
+const DEV_STATUS_FIXTURES_FLAG = 'MXQR_DEV_STATUS_FIXTURES';
+const DEV_STATUS_FIXTURE_NAME_RE = /^[a-z0-9-]{1,40}$/u;
+
+function devStatusFixtures(enabled: boolean): Plugin {
+  return {
+    name: 'dev-status-fixtures',
+    apply: 'serve',
+    configureServer(server) {
+      if (!enabled) return;
+      server.middlewares.use((req, res, next) => {
+        let pathname = '';
+        try {
+          pathname = new URL(req.url || '/', 'http://localhost').pathname;
+        } catch {
+          next();
+          return;
+        }
+        if (pathname !== '/api/status' || (req.method !== 'GET' && req.method !== 'HEAD')) {
+          next();
+          return;
+        }
+        let name = '';
+        try {
+          name =
+            new URL(String(req.headers.referer || ''), 'http://localhost').searchParams.get(
+              'fixture',
+            ) || '';
+        } catch {
+          name = '';
+        }
+        if (!DEV_STATUS_FIXTURE_NAME_RE.test(name)) {
+          next();
+          return;
+        }
+        const file = resolve(import.meta.dirname, 'e2e/fixtures/status', `${name}.json`);
+        readFile(file, 'utf8').then(
+          (body) => {
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(req.method === 'HEAD' ? undefined : body);
+          },
+          () => next(),
+        );
+      });
+    },
+  };
+}
+
 function productionApiProxy() {
   return Object.fromEntries(
     PRODUCTION_API_PROXY_PATHS.map((pathname) => [
@@ -277,6 +332,7 @@ const flattenWorkshopHtml = (): Plugin => ({
       '.workshop/developers/developers.html': 'developers.html',
       '.workshop/translate/translate.html': 'translate.html',
       '.workshop/sitemap/sitemap.html': 'sitemap.html',
+      '.workshop/status/status.html': 'status.html',
     };
     for (const key of Object.keys(bundle)) {
       const normalized = key.replace(/\\/g, '/');
@@ -334,6 +390,8 @@ export function pageAliasTarget(rawUrl: string, built = false): string | null {
     target = built ? '/translate.html' : '/.workshop/translate/translate.html';
   } else if (normalizedPath === '/sitemap' || normalizedPath === '/sitemap.html') {
     target = built ? '/sitemap.html' : '/.workshop/sitemap/sitemap.html';
+  } else if (normalizedPath === '/status' || normalizedPath === '/status.html') {
+    target = built ? '/status.html' : '/.workshop/status/status.html';
   } else if (
     normalizedPath === '/history' ||
     normalizedPath === '/changelog' ||
@@ -780,6 +838,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       // from the app's processed font sheets without changing them.
       publicFontSheets(),
       devPageAliases(),
+      devStatusFixtures(String(env[DEV_STATUS_FIXTURES_FLAG] || '').trim() === 'true'),
       failClosedDevApi(proxyProductionApi),
       prioritizeStylesheetsInHtml(),
       guardInitialAppBundleGraph(),
@@ -829,6 +888,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
           developers: resolve(import.meta.dirname, '.workshop/developers/developers.html'),
           translate: resolve(import.meta.dirname, '.workshop/translate/translate.html'),
           sitemap: resolve(import.meta.dirname, '.workshop/sitemap/sitemap.html'),
+          status: resolve(import.meta.dirname, '.workshop/status/status.html'),
         },
         output: {
           codeSplitting: {

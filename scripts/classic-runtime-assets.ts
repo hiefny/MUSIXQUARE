@@ -98,6 +98,10 @@ export const CLASSIC_RUNTIME_ASSETS = [
     outputPath: 'static-language.js',
   },
   {
+    sourcePath: 'browser/classic-runtime/status-page.ts',
+    outputPath: 'status-page.js',
+  },
+  {
     sourcePath: 'browser/classic-runtime/wordmark-anim.ts',
     outputPath: 'wordmark-anim.js',
     minify: true,

@@ -3,6 +3,13 @@
   --sitemap-gutter: 32px;
   --sitemap-line: #292929;
   --sitemap-sub: #a2a2a2;
+  /* One page row is a 1px rule over a --sitemap-link link; one group heading
+     is a --sitemap-head-line line with --sitemap-head-gap under it. The page
+     groups' row gap is their difference, so a second heading in a column
+     takes exactly one row and every column ends on the same line. */
+  --sitemap-link: 70px;
+  --sitemap-head-line: 30px;
+  --sitemap-head-gap: 16px;
 }
 
 html {
@@ -129,11 +136,43 @@ html {
   border: 0;
 }
 
-.page-groups,
-.community-list {
+/* The page groups use the Languages grid's columns: three, two under 900px,
+   one under 600px. Thirteen entries cannot split evenly, so Explore keeps
+   its five rows and the other columns hold two groups of two. The markup
+   runs column by column (Explore; Help, Policies; Resources, Community), so
+   reading and keyboard order follow the columns at every width. */
+.page-groups {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 72px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas:
+    'explore help resources'
+    'explore policies community';
+  column-gap: 36px;
+  row-gap: calc(var(--sitemap-link) + 1px - var(--sitemap-head-line) - var(--sitemap-head-gap));
+  align-items: start;
+}
+.page-group--explore {
+  grid-area: explore;
+}
+.page-group--help {
+  grid-area: help;
+}
+.page-group--policies {
+  grid-area: policies;
+}
+.page-group--resources {
+  grid-area: resources;
+}
+.page-group--community {
+  grid-area: community;
+}
+/* While a search hides a whole group, the groups left close up from the
+   start instead of keeping empty cells. */
+.page-groups:has(> [hidden]) {
+  grid-template-areas: none;
+}
+.page-groups:has(> [hidden]) > .page-group {
+  grid-area: auto;
 }
 .sitemap-shell h2 {
   margin: 0;
@@ -143,7 +182,8 @@ html {
   letter-spacing: -0.025em;
 }
 .page-group h2 {
-  margin-bottom: 16px;
+  margin-bottom: var(--sitemap-head-gap);
+  line-height: var(--sitemap-head-line);
 }
 .sitemap-shell ul {
   list-style: none;
@@ -154,7 +194,7 @@ html {
   border-top: 1px solid var(--sitemap-line);
 }
 .page-link {
-  min-height: 70px;
+  min-height: var(--sitemap-link);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -331,9 +371,15 @@ html {
   }
 }
 @media (max-width: 900px) {
-  .page-groups,
-  .community-list {
-    gap: 40px;
+  /* Two columns, like Languages: Explore and Help against Policies,
+     Resources and Community, eight row heights each. */
+  .page-groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      'explore policies'
+      'explore resources'
+      'help community';
+    column-gap: 32px;
   }
   .language-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -354,16 +400,18 @@ html {
   .search-wrap {
     margin-bottom: 34px;
   }
+  .sitemap-page {
+    --sitemap-link: 66px;
+  }
   .page-groups {
-    grid-template-columns: 1fr;
-    gap: 34px;
-  }
-  .community-list {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-  .page-link {
-    min-height: 66px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'explore'
+      'help'
+      'policies'
+      'resources'
+      'community';
+    row-gap: 34px;
   }
   .catalog-section {
     margin-top: 44px;
@@ -431,7 +479,10 @@ html {
     color: #111;
   }
   .page-groups {
-    gap: 32px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      'explore help resources'
+      'explore policies community';
   }
   .catalog-section {
     margin-top: 28px;

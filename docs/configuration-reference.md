@@ -29,10 +29,11 @@ The namespace identifies ownership; it does not make a value secret.
 
 ## Local Vite dev/preview controls
 
-| Variable                                 | Accepted value / default                                  | Effect                                                                                                                         |
-| ---------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `MUSIXQUARE_DEV_PROXY_PRODUCTION_API`    | Exact `true` after trim/case normalization; default false | Enables dev-server forwarding only for the five routes listed below. Preview never forwards them and returns `503`.            |
-| `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` | Exact trusted hostname                                    | Lets Vite accept a one-off trusted tunnel hostname without disabling DNS-rebinding protection globally. Do not use a wildcard. |
+| Variable                                 | Accepted value / default                                  | Effect                                                                                                                                                                                                                  |
+| ---------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MUSIXQUARE_DEV_PROXY_PRODUCTION_API`    | Exact `true` after trim/case normalization; default false | Enables dev-server forwarding only for the five routes listed below. Preview never forwards them and returns `503`.                                                                                                     |
+| `MXQR_DEV_STATUS_FIXTURES`               | Exact `true` after trim (case-sensitive); default false   | Dev server only: answers `/api/status` from `e2e/fixtures/status/<name>.json`, where `<name>` is the `?fixture=` value of the `/status` page that asked. Preview returns `503`; production builds never serve fixtures. |
+| `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` | Exact trusted hostname                                    | Lets Vite accept a one-off trusted tunnel hostname without disabling DNS-rebinding protection globally. Do not use a wildcard.                                                                                          |
 
 The opt-in proxy route set is:
 
@@ -46,6 +47,14 @@ With the flag disabled, other unconfigured relative `/api/*` requests receive
 `503 LOCAL_API_NOT_CONFIGURED`. Preview applies the same fail-closed responses
 regardless of the dev-only proxy flag. Both responses are non-cacheable and
 take precedence over the SPA fallback.
+
+`MXQR_DEV_STATUS_FIXTURES` (from App 9.0.845) previews the states of the
+`/status` page on the dev server. The page script is the production one and
+never picks a state: the dev server reads the `fixture` query from the asking
+page's `Referer`, so open `/status?fixture=<name>` with one of `ok`, `problem`,
+`server-problem`, `maintenance`, `maintenance-row`, `stale`, `some-stale`,
+`short-record` or `unavailable-notice`. Without a known name the request falls
+through to the same `503 LOCAL_API_NOT_CONFIGURED`.
 
 ## Public browser build and routing inputs
 
@@ -131,10 +140,62 @@ configurable: it comes from `SERVICE_WORKER_CACHE_VERSION` at build time
 ([release versioning](release-versioning.md#app-build-number-and-floor)),
 and the `X-MXQR-App-Build` request header that carries it is public.
 
+### Status monitor (from App 9.0.845)
+
+The public `musixquare.com/status` page shows four rows, each checked every 15
+minutes. Their timing values live in `cloudflare/status-contract.ts`, and the
+runbook is [admin dashboard operations](../cloudflare/admin-dashboard-ops.md#status-page).
+None of the inputs below is an operator setting.
+
+- The rooms and PRO rows come from the App Worker's third cron trigger,
+  `0,15,30,45 * * * *` in `cloudflare/wrangler.app.toml`. It takes no input.
+- The website and connection rows come from the `Status monitor` workflow,
+  `.github/workflows/status-monitor.yml`. It runs on the schedule
+  `7,22,37,52 * * * *` (UTC) and on manual `workflow_dispatch`, from `main`
+  only, in its own concurrency group without cancelling a run in progress. Its
+  job runs `scripts/status-browser-monitor.ts` in the
+  `mcr.microsoft.com/playwright:v1.65.1-noble` container with
+  `timeout-minutes: 10` and has no inputs. GitHub can start a scheduled run
+  late or drop it.
+- Identity: the job names no GitHub environment, so production environment
+  secrets stay out of its reach, and it has `id-token: write`. The script
+  requests one GitHub OIDC token per route audience,
+  `https://musixquare.com/api/ops/status-claim` and
+  `https://musixquare.com/api/ops/status-report`, through
+  `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` (provided
+  by GitHub), and masks each token before it writes anything else. The App
+  Worker accepts a token only for repository `hiefny/MUSIXQUARE`, ref
+  `refs/heads/main`, event `schedule` or `workflow_dispatch`, a GitHub-hosted
+  runner, `workflow_ref`
+  `hiefny/MUSIXQUARE/.github/workflows/status-monitor.yml@refs/heads/main` and
+  no `environment` claim; a token minted inside a reusable workflow is refused.
+- Routes: a run first reads `GET /api/status` and opens no browser unless it
+  answers 200 with `schemaVersion` 1, which production does from App 9.0.845.
+  `POST /api/ops/status-claim` claims the test room's code before the test
+  host connects, and `POST /api/ops/status-report` records the website and
+  connection results. Each of the two ops routes accepts 60 requests per 10
+  minutes and a bearer token of at most 8 KiB, and neither answers CORS. During
+  maintenance the report route records maintenance and the claim route
+  answers 503.
+- Exit code: 0 when the report was delivered (failed checks included), when
+  production has no status API yet, when the report still got a 429, a 5xx or
+  no answer after its retries, and when GitHub's token service gave no token
+  for now at the start of the run (a 429, a 5xx or no answer); the last two
+  end with a warning, and the two rows age to Not checked. 1 when the claim or
+  report route answered 401 or 403 or anything else outside its contract, when
+  the job has no OIDC permission or the token service refused it with a 4xx,
+  or when the script crashed. A failed run therefore means that the monitor
+  itself is broken; outages show on `/status`.
+
+No repository secret, GitHub environment, Worker secret, binding or Wrangler
+`[vars]` entry was added for the status page, so
+`cloudflare/ops-drift.contract.json` is unchanged. To stop the browser checks,
+disable the workflow in the GitHub UI.
+
 ## Safe `.env.example` policy
 
-The committed example contains only a safe local Vite default and commented
-browser routing examples. Add a variable there only if it is non-secret,
+The committed example contains only safe, off-by-default local Vite flags and
+commented browser routing examples. Add a variable there only if it is non-secret,
 useful to ordinary local development, and its fallback cannot be mistaken for
 full production isolation. Keep test ports, operator output paths, Worker
 secrets, provider credentials, and live identifiers out.

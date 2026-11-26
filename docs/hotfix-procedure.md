@@ -87,7 +87,7 @@ Repository publication has two distinct paths:
   test/guard contracts that feed neither an App nor Worker bundle are published
   by merging to GitHub. Do not run a Cloudflare Production Release for them.
 - Changes under `public/**` or the production
-  `.workshop/{landing,privacy,terms,faq,developers,translate,sitemap}/**` trees are hosted App
+  `.workshop/{landing,privacy,terms,faq,developers,translate,sitemap,status}/**` trees are hosted App
   inputs. Advance the required product/cache identifiers, merge the change,
   wait for the exact merge-SHA `main` push CI candidate to succeed, then run
   `Production Release` with target `app` and Developer API D1 application
@@ -568,6 +568,21 @@ it as the immediate rollback target. Within a few minutes of another deploy this
 read can answer an earlier deployment; read it as
 [Local emergency deployment](#local-emergency-deployment) describes.
 
+The public status checks (from App 9.0.845; see
+[admin dashboard operations](../cloudflare/admin-dashboard-ops.md#status-page))
+keep running during a Production Release: no release step pauses the App
+Worker's quarter-hour cron or the `status-monitor.yml` workflow, so a release
+that restarts the signaling room objects or swaps the App can leave one failed
+cell on `/status`. A row shows Problem only after two failed checks in a row.
+A CLI rollback of the App Worker leaves its `0,15,30,45 * * * *` cron trigger
+registered; App code older than 9.0.845 ignores that trigger, and the rooms and
+PRO rows read Not checked until the App is current again. After a signaling
+rollback below 9.0.845 the room object answers the status probe claim with 404,
+so no check opens a room and the rooms and connection rows read Not checked.
+To stop the browser checks, disable `status-monitor.yml` in the GitHub UI. The
+`mxqr_status_checks` table in the admin metrics D1 is forward-only: a Worker
+rollback leaves it in place, unused, and it has no rollback SQL.
+
 ## Client Update Behavior
 
 MUSIXQUARE is a PWA with a service worker, so "deployed" and "every open client is already running it" are different things.
@@ -626,7 +641,7 @@ does require one; the guard derives these files from the value-import graph of
 of the checked range. The `vite.config.ts` helpers that change the emitted App,
 `scripts/browser-target.ts` and `scripts/locale-recovery-assets.ts`, also
 require one. Files under `public/**` and the
-production `.workshop/{landing,privacy,terms,faq,developers,translate,sitemap}/**` trees are App
+production `.workshop/{landing,privacy,terms,faq,developers,translate,sitemap,status}/**` trees are App
 artifact inputs and do require a covering bump. The guard reads committed
 first-parent `HEAD`, not the working tree, so run `npm run build:checked` after
 the final bump commit and before pushing. A build performed before that commit

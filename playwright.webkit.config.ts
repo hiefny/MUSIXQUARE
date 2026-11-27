@@ -12,6 +12,7 @@ export default defineConfig({
     'back-navigation.test.ts',
     'webkit-mobile-smoke.test.ts',
     'custom-scrollbar-timeline.test.ts',
+    'custom-scrollbar-view-transition.test.ts',
     'youtube-landscape-full-bleed.test.ts',
     'playlist-title-marquee.test.ts',
     'chat-copy-tap.test.ts',

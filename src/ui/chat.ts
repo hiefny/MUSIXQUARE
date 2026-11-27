@@ -1677,11 +1677,16 @@ export function initChat(): void {
       return t('chat.over_limit', { count: text.length - MAX_MSG_LENGTH });
     }
 
-    /** Speak through the status region; clearing it first repeats the same words. */
+    /**
+     * Speak through the status region; clearing it first repeats the same
+     * words. A draft shortened before the next frame says nothing stale.
+     */
     function announceLimit(message: string): void {
       status.textContent = '';
       window.requestAnimationFrame(() => {
-        if (!uiSignal.aborted) status.textContent = message;
+        if (!uiSignal.aborted && isOverMessageLimit(getInputValue())) {
+          status.textContent = message;
+        }
       });
     }
 

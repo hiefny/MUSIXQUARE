@@ -889,6 +889,38 @@ describe('Chat Module', () => {
     }
   });
 
+  it('says nothing stale when a refused draft is shortened before the announcement', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
+    const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+    document.body.innerHTML =
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper">' +
+      '<div id="chat-input" contenteditable="true"></div><button id="btn-chat-send"></button>' +
+      '</div></div>';
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const input = document.getElementById('chat-input')!;
+    const status = document.querySelector<HTMLElement>('.chat-limit-status')!;
+    const type = (text: string): void => {
+      input.textContent = text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    try {
+      type('a'.repeat(MAX_MSG_LENGTH + 1));
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+      // Shortened in the same frame: the refusal is moot and stays unsaid.
+      type('a'.repeat(MAX_MSG_LENGTH));
+      vi.advanceTimersToNextFrame();
+      vi.runOnlyPendingTimers();
+      expect(status.textContent).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('installs bubble copy gestures when the desktop chat starts already visible', async () => {
     const desktopMedia = window.matchMedia(DESKTOP_LAYOUT_QUERY);
     Object.defineProperty(desktopMedia, 'matches', { configurable: true, value: true });

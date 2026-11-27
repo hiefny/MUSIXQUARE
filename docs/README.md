@@ -96,6 +96,31 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.846 / v846 train: the App cron starts the `/status` browser checks through `workflow_dispatch`, and a No expiry Developer API key for the smoke room `000001` (2026-11-27)](design/app-9-0-846-train-2026-11-27.md):
+  before deploy, awaiting PR CI on `agent/app-9-0-846` over main `27a25dee` (#647, 9.0.845 release record). GitHub
+  has been creating this repository's schedule events 8 to 10.5 hours late, so after the 9.0.845 release the
+  `website` and `connection` rows of `/status` read Not checked most of the time (one manual run at 02:15 KST and one
+  scheduled run at 09:45 KST, about 8 hours late). At 7, 22, 37 and 52 minutes past each hour (UTC) the App's minute
+  cron now asks GitHub to start `status-monitor.yml` on `main` through `workflow_dispatch`
+  (`cloudflare/status-dispatch.ts`: one request per check minute, bounded by 15 seconds, never retried within it,
+  logged by outcome class only) with the new App Worker secret `MXQR_STATUS_MONITOR_DISPATCH_TOKEN`, a fine-grained
+  token for this repository only with Actions read and write and an expiry, kept only in that secret because it can
+  also start `Production Release`. The workflow's own schedule stays as the fallback, and the monitor job and its two
+  OIDC routes are unchanged. The admin Developer API form of room `000001`, the release smoke room, also offers No
+  expiry (a 36,525-day key, accepted in that room only; every other room keeps 1 to 365 days, and the Developer API
+  Worker and schema are unchanged). RO-57 (`OK: 52 registry records, 475 production files`), the drift contract (19
+  App secret names), the runbooks and the hotfix procedure's new "Worker secret changes" section follow. Target `app`
+  (changed runtime paths: App 7, every other Worker 0), one update dialog, App build floor stays 795. The owner sets
+  the secret between the merge and the release dispatch, since a Worker secret change at once deploys an App version
+  without a `git:` message, which only the release replaces, and after the release issues a No expiry key for
+  `000001`, replaces the `production` secret `MXQR_DEVELOPER_API_SMOKE_KEY` and revokes the old key. Local
+  verification at `e7ce87a9` (runtime as the version bump `6f19f795`; a first run stopped at the brand
+  capitalization guard on an RO-57 sentence, fixed by that docs-only commit): source/architecture/worker guards,
+  `typecheck`, `lint`, `format:check`, the full unit suite (823 files, 20,330 passed, 1 skipped), Worker coverage
+  (functions 94.62%; every line, branch and function of `cloudflare/status-dispatch.ts`), the production build and
+  guards and the deploy-scope check (target `app` compatible) passed; 6 Chromium E2E specs (135 passed), the
+  WebKit lane (239 passed, 24 skipped), the WebKit service-worker smoke (1 passed), the `candidate` lane (20 passed, 11
+  skipped) and the critical paths (101 passed).
 - [App 9.0.845 / v845 train: public `/status` page with 15-minute room, PRO and browser checks, three-column sitemap, Status footer links, admin status note, and the admin PRO registry fix (2026-11-26)](design/app-9-0-845-train-2026-11-26.md):
   released on 2026-11-27 02:13 KST in Release 45865175393 (PR #646, squash `8bf07f29`, exact-main CI 45858089952
   attempt 1, candidate artifact 15137535610; the dispatch waited until a Cloudflare API incident was fixed) as App

@@ -534,6 +534,16 @@ and is issued or revoked from the Access-protected admin surface. Keeping the
 release smoke fixed to `000001` makes the deployment check reproducible; it does
 not limit API availability to that room.
 
+An expired or revoked smoke key fails an `all` release at that smoke, after
+the first five Workers have deployed. Admin keys last 1 to 365 days, so from
+App 9.0.846 the admin surface also issues a No expiry key (a 36,525-day key,
+since a key always keeps an expiry) in room `000001` and in no other room.
+After that release, issue one and replace this secret as
+[admin dashboard operations](../cloudflare/admin-dashboard-ops.md#developer-api-key-lifetimes)
+describes. Replacing a GitHub environment secret changes no Worker, so unlike
+a [Worker secret change](#worker-secret-changes) it needs no release; change it
+between releases.
+
 Before the first App Worker deployment that includes dashboard key issuance,
 run `npm run developer-api:admin-secret:sync` from the secured operator machine.
 It copies the existing Developer API pepper to the App Worker through stdin and
@@ -571,17 +581,75 @@ read can answer an earlier deployment; read it as
 The public status checks (from App 9.0.845; see
 [admin dashboard operations](../cloudflare/admin-dashboard-ops.md#status-page))
 keep running during a Production Release: no release step pauses the App
-Worker's quarter-hour cron or the `status-monitor.yml` workflow, so a release
+Worker's quarter-hour cron, its minute cron's start of the `status-monitor.yml`
+workflow (from App 9.0.846) or that workflow's fallback schedule, so a release
 that restarts the signaling room objects or swaps the App can leave one failed
 cell on `/status`. A row shows Problem only after two failed checks in a row.
 A CLI rollback of the App Worker leaves its `0,15,30,45 * * * *` cron trigger
 registered; App code older than 9.0.845 ignores that trigger, and the rooms and
-PRO rows read Not checked until the App is current again. After a signaling
-rollback below 9.0.845 the room object answers the status probe claim with 404,
-so no check opens a room and the rooms and connection rows read Not checked.
-To stop the browser checks, disable `status-monitor.yml` in the GitHub UI. The
-`mxqr_status_checks` table in the admin metrics D1 is forward-only: a Worker
-rollback leaves it in place, unused, and it has no rollback SQL.
+PRO rows read Not checked until the App is current again. App code older than
+9.0.846 does not start the browser checks, so after such a rollback only
+GitHub's schedule does, often hours late, and the website and connection rows
+mostly read Not checked. After a signaling rollback below 9.0.845 the room
+object answers the status probe claim with 404, so no check opens a room and
+the rooms and connection rows read Not checked.
+
+To stop the browser checks, disable `status-monitor.yml` in the GitHub UI.
+GitHub then runs no schedule and refuses the App's dispatches with 422, which
+the App logs as a `status_dispatch` warning with outcome `unprocessable`, four
+an hour, until the workflow is enabled again. That is the pause switch. To end
+the App's requests as well, delete the App secret:
+`npm run wrangler -- secret delete MXQR_STATUS_MONITOR_DISPATCH_TOKEN --config cloudflare/wrangler.app.toml`.
+That is a [Worker secret change](#worker-secret-changes), and the Operations
+Drift Audit reports the name missing until `cloudflare/ops-drift.contract.json`
+and `cloudflare/config-drift-ops.md` drop it. If the token leaked, revoke it on
+GitHub first: each dispatch then logs `unauthorized` (401), and the schedule
+still runs the checks, late. The `mxqr_status_checks` table in the admin
+metrics D1 is forward-only: a Worker rollback leaves it in place, unused, and
+it has no rollback SQL.
+
+### Worker secret changes
+
+`npm run wrangler -- secret put <NAME> --config <config>`, `secret delete` and
+the dashboard's Variables and Secrets change a production Worker at once:
+Cloudflare makes a new version with the changed secret and deploys it at 100%,
+and that deployment carries no `git:<40-character SHA>` message (Wrangler
+lists it as a Secret Change; the 2026-10-20 `YOUTUBE_API_KEY` row of the
+[release history](release-history.md) is one). Cloudflare refuses `secret put`
+while the Worker's newest version is not the deployed one (a gradual
+deployment). Until an approved release deploys that Worker again, its live
+deployment has no verifiable Git provenance:
+
+- a partial release that leaves the Worker unselected stops at the
+  compatibility gate (`production deployment does not record a
+  git:<40-char-sha> release message`), so release that Worker or `all`;
+- a [local emergency deployment](#local-emergency-deployment) of it stops
+  (`live deployment has no verifiable Git provenance`);
+- the next release that includes it captures the secret change as an
+  unverified baseline, so if that release fails, automatic recovery keeps the
+  candidate (forward repair) instead of rolling the Worker back.
+
+Secrets persist across later deployments. So change a secret shortly before
+the approved release that includes the Worker, and never while a release runs:
+its checkpoint and ownership reads would meet a deployment they did not make.
+Before dispatching, read
+`npm run wrangler -- deployments status --config <config> --json` until two
+reads a minute apart answer the version of the secret change (the list can lag,
+as [Local emergency deployment](#local-emergency-deployment) describes). The
+release then restores the `git:` message, and the change gets its own row in
+the release history. A new secret name enters
+`cloudflare/ops-drift.contract.json` and the inventory in
+`cloudflare/config-drift-ops.md` in the change that first reads it: the
+Operations Drift Audit fails while the live names and the contract differ, so
+set the secret between that change's merge and its release. A change that stops
+reading a secret, a revert of the change that added it included, leaves the
+secret set, so once it drops the name from those two files the audit reports the
+name as unexpected. Delete the secret between that change's merge and its
+release, or let a revert keep the name in both files and in
+`src/core/__tests__/ops-drift-audit.test.ts` and drop it later in this way. Once
+`MXQR_STATUS_MONITOR_DISPATCH_TOKEN` is deleted for good, also revoke the token
+on GitHub. Never put a secret value in a shell argument, a file, an issue or a
+log; the interactive prompt reads it without echo.
 
 ## Client Update Behavior
 
@@ -1250,6 +1318,11 @@ If a deployment is bad:
    the bad release, set the `package.json` patch to that epoch, and update
    `package-lock.json`, `ADMIN_ASSET_VERSION` and `ADMIN_SCRIPT_VERSION`, all in
    the single rollback commit.
+
+   When the reverted commit added a Worker secret name, such as
+   `MXQR_STATUS_MONITOR_DISPATCH_TOKEN` in App 9.0.846, plan that secret as
+   [Worker secret changes](#worker-secret-changes) describes before releasing
+   the revert: Worker secrets persist across the revert release.
 
 3. Run the `Production Release` workflow for the reverted scope, then rerun its
    live smoke; merging the revert into `main` alone does not update Cloudflare.

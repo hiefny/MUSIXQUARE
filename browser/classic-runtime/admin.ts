@@ -283,6 +283,7 @@ interface AdminLifetimeMetrics {
 }
 
 interface DeveloperApiKey {
+  readonly createdAt?: AdminTimestamp;
   readonly expiresAt?: AdminTimestamp;
   readonly keyId?: string;
   readonly label?: string;
@@ -652,6 +653,25 @@ const developerApiPresets: Readonly<Record<string, readonly string[]>> = Object.
   ],
   full: Object.keys(developerApiScopeLabels),
 });
+// The release workflow's Developer API smoke authenticates to this room with a
+// stored key, so only this room offers No expiry. The App Worker accepts the
+// No expiry lifetime there alone and keeps it as 36,525 days (100 years), since
+// a key always has an expiry; the key list shows a key of exactly that lifetime
+// as No expiry. developer-api-smoke-room-key.test.ts pins these three copies to
+// cloudflare/app-worker.ts.
+const DEVELOPER_API_SMOKE_ROOM_CODE = '000001';
+const DEVELOPER_API_KEY_NO_EXPIRY_DAYS = 36_525;
+const DEVELOPER_API_DAY_MS = 86_400_000;
+
+function isDeveloperApiNoExpiryKey(key: DeveloperApiKey): boolean {
+  const createdAt = key?.createdAt;
+  const expiresAt = key?.expiresAt;
+  return (
+    typeof createdAt === 'number' &&
+    typeof expiresAt === 'number' &&
+    expiresAt - createdAt === DEVELOPER_API_KEY_NO_EXPIRY_DAYS * DEVELOPER_API_DAY_MS
+  );
+}
 
 function createAdminRequestId(): string {
   if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
@@ -3759,7 +3779,11 @@ function renderProRoomApiKey(
   state.textContent = keyStatus.charAt(0).toUpperCase() + keyStatus.slice(1);
   const expiry = document.createElement('small');
   const expiresAt = formatAdminDateTime(key?.expiresAt);
-  expiry.textContent = expiresAt ? `Expires ${expiresAt}` : 'Expiry unavailable';
+  expiry.textContent = isDeveloperApiNoExpiryKey(key)
+    ? 'No expiry'
+    : expiresAt
+      ? `Expires ${expiresAt}`
+      : 'Expiry unavailable';
   const lastUsed = document.createElement('small');
   const lastUsedAt = formatAdminDateTime(key?.lastUsedAt ?? key?.lastUsedHour);
   lastUsed.textContent = lastUsedAt ? `Last used ${lastUsedAt}` : 'Not used yet';
@@ -3970,6 +3994,12 @@ function renderProRoomApiPanel(
     option.value = String(days);
     option.textContent = `${days} days`;
     if (days === 90) option.selected = true;
+    expirySelect.append(option);
+  }
+  if (roomCode === DEVELOPER_API_SMOKE_ROOM_CODE) {
+    const option = document.createElement('option');
+    option.value = String(DEVELOPER_API_KEY_NO_EXPIRY_DAYS);
+    option.textContent = 'No expiry';
     expirySelect.append(option);
   }
   expiryField.append(expiryTitle, expirySelect);

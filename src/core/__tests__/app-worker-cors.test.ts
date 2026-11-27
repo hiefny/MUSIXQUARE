@@ -9060,12 +9060,13 @@ describe('Cloudflare app worker Developer API key administration', () => {
     body: unknown,
     requestId = crypto.randomUUID(),
     roomGeneration = 0,
+    roomCode = '000001',
   ) {
     const requestBody =
       body && typeof body === 'object' && !Array.isArray(body)
         ? { ...body, roomGeneration, requestId }
         : body;
-    return new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys', {
+    return new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}/api-keys`, {
       method: 'POST',
       headers: adminMutationHeaders({
         Cookie: cookie,
@@ -9252,6 +9253,118 @@ describe('Cloudflare app worker Developer API key administration', () => {
     expect(listText).not.toContain(secret);
     expect(listText).not.toContain(stored.secret_digest);
     expect(listText).not.toContain('secret_digest');
+  });
+
+  it('issues a No expiry key in the Developer API smoke room 000001 and in no other room', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-27T00:00:00.000Z'));
+    // No expiry is 36,525 days (100 years): the schema keeps expires_at later
+    // than created_at, so a key always has an expiry.
+    const noExpiryDays = 36_525;
+    const dayMs = 86_400_000;
+    const { env, keyRows, audits, registryRows } = createDeveloperApiAdminEnv();
+    registryRows.set('000002', {
+      ...registryRows.get('000001')!,
+      room_code: '000002',
+      label: 'Cafe room',
+    });
+    let cookie = await loginDeveloperApiAdmin(env);
+    const issueBody = { label: 'Release smoke', days: noExpiryDays, scopes: ['room:read'] };
+
+    // Every other room keeps the 1 to 365 day limit.
+    const otherRoom = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, issueBody, crypto.randomUUID(), 0, '000002'),
+      env,
+    );
+    expect(otherRoom.status).toBe(400);
+    await expect(otherRoom.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    const otherRoomYear = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(
+        cookie,
+        { ...issueBody, label: 'Cafe bot', days: 365 },
+        crypto.randomUUID(),
+        0,
+        '000002',
+      ),
+      env,
+    );
+    expect(otherRoomYear.status).toBe(201);
+
+    // The smoke room accepts that one value, not any lifetime past 365 days.
+    for (const days of [366, noExpiryDays - 1, noExpiryDays + 1]) {
+      const response = await appWorker.fetch(
+        issueDeveloperApiKeyRequest(cookie, { ...issueBody, days }),
+        env,
+      );
+      expect(response.status, String(days)).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    }
+
+    const requestId = crypto.randomUUID();
+    const issued = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, issueBody, requestId),
+      env,
+    );
+    const payload = (await issued.json()) as {
+      apiKey: string;
+      key: { keyId: string; status: string; createdAt: number; expiresAt: number };
+    };
+    expect(issued.status).toBe(201);
+    const expiresAt = Date.now() + noExpiryDays * dayMs;
+    expect(Number.isSafeInteger(expiresAt)).toBe(true);
+    expect(new Date(expiresAt).toISOString()).toBe('2126-11-28T00:00:00.000Z');
+    expect(payload.key).toMatchObject({ status: 'active', createdAt: Date.now(), expiresAt });
+    expect(keyRows.get(payload.key.keyId)).toMatchObject({
+      room_code: '000001',
+      created_at: Date.now(),
+      expires_at: expiresAt,
+    });
+
+    // The requestId replay and the room generation checks still hold.
+    const replay = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, issueBody, requestId),
+      env,
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({ apiKey: payload.apiKey });
+    const lifetimeConflict = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, { ...issueBody, days: 365 }, requestId),
+      env,
+    );
+    expect(lifetimeConflict.status).toBe(409);
+    await expect(lifetimeConflict.json()).resolves.toEqual({
+      error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT',
+    });
+    const staleGeneration = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(cookie, issueBody, crypto.randomUUID(), 1),
+      env,
+    );
+    expect(staleGeneration.status).toBe(409);
+    await expect(staleGeneration.json()).resolves.toEqual({
+      error: 'PRO_ROOM_GENERATION_CONFLICT',
+    });
+    expect(keyRows.size).toBe(2);
+    expect(audits.filter(({ action }) => action === 'key.issue')).toHaveLength(2);
+
+    // A year and a day later the 365-day key has expired and the smoke key has not.
+    vi.setSystemTime(Date.now() + 366 * dayMs);
+    cookie = await loginDeveloperApiAdmin(env);
+    const smokeRoomList = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    await expect(smokeRoomList.json()).resolves.toMatchObject({
+      keys: [{ keyId: payload.key.keyId, status: 'active', expiresAt }],
+    });
+    const otherRoomList = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000002/api-keys', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    await expect(otherRoomList.json()).resolves.toMatchObject({ keys: [{ status: 'expired' }] });
   });
 
   it('issues the CLI key at the current canonical owner epoch and recovers a lost response', async () => {

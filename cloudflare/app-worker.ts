@@ -95,6 +95,11 @@ import {
   type StatusServerCheckDeps,
 } from './status-checks.ts';
 import { claimStatusProbeRoom, STATUS_PROBE_CLAIM_REPLY_MAX_BYTES } from './status-probe-claim.ts';
+import {
+  dispatchStatusMonitor,
+  isStatusDispatchMinute,
+  type StatusDispatchDeps,
+} from './status-dispatch.ts';
 import { canonicalStatusNoteMessage, STATUS_NOTE_MESSAGE_MAX_LENGTH } from './status-note-text.ts';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.ts';
 import {
@@ -283,6 +288,8 @@ interface AppEnv extends Partial<AppConfiguredBindings> {
   MXQR_CAPABILITY_TTL?: string;
   MXQR_DEVELOPER_API_KEY_PEPPER?: string;
   MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET?: string;
+  /** Fine-grained GitHub token with Actions write on this repository only (status-dispatch.ts). */
+  MXQR_STATUS_MONITOR_DISPATCH_TOKEN?: string;
   MXQR_TURNSTILE_ALLOWED_HOSTNAMES?: string;
   SORO_RSS_URL?: string;
   TRUSTED_CORS_ORIGINS?: string;
@@ -501,6 +508,21 @@ const ADMIN_DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const ADMIN_DEVELOPER_API_KEY_SECRET_RE = /^[A-Za-z0-9_-]{43}$/;
 const ADMIN_DEVELOPER_API_KEY_DEFAULT_DAYS = 90;
 const ADMIN_DEVELOPER_API_KEY_MAX_DAYS = 365;
+// The Developer API smoke room: the release workflow's 'Smoke Developer API
+// Worker' step authenticates to it with the stored production secret
+// MXQR_DEVELOPER_API_SMOKE_KEY (MXQR_DEVELOPER_API_SMOKE_ROOM in
+// .github/workflows/release.yml, and the default room of
+// scripts/live-developer-api-smoke.mts). It is the one room whose key may be
+// issued with No expiry, so that secret never runs out.
+// developer-api-smoke-room-key.test.ts pins those copies and the admin
+// client's (browser/classic-runtime/admin.ts) to this value.
+const ADMIN_DEVELOPER_API_SMOKE_ROOM_CODE = '000001';
+// No expiry, in days. A key keeps an expiry: the Developer API schema requires
+// expires_at later than created_at, and every reader refuses a key whose
+// expiry has passed. So No expiry is 100 years of 365.25 days. A key issued in
+// 2026 expires in 2126, and created_at plus 3,155,760,000,000 ms stays far
+// below Number.MAX_SAFE_INTEGER. Accepted only for the smoke room.
+const ADMIN_DEVELOPER_API_KEY_NO_EXPIRY_DAYS = 36_525;
 const ADMIN_DEVELOPER_API_DAY_MS = 86_400_000;
 const ADMIN_DEVELOPER_API_KEY_MAX_ACTIVE = 3;
 const ADMIN_DEVELOPER_API_KEY_LIST_LIMIT = 200;
@@ -5684,7 +5706,24 @@ function isAdminDeveloperApiScopeName(value: unknown): value is AdminDeveloperAp
   );
 }
 
-function parseAdminDeveloperApiKeyIssueBody(body: unknown): AdminDeveloperApiKeyIssue | null {
+// A whole number of days from 1 to 365 in every room, and No expiry in the
+// Developer API smoke room only. The exact-key body keeps its one optional
+// days field: a No expiry request sends ADMIN_DEVELOPER_API_KEY_NO_EXPIRY_DAYS
+// there, so the requestId replay check compares the lifetime as before.
+function isAdminDeveloperApiKeyLifetime(roomCode: string, days: unknown): days is number {
+  return (
+    typeof days === 'number' &&
+    Number.isSafeInteger(days) &&
+    ((days >= 1 && days <= ADMIN_DEVELOPER_API_KEY_MAX_DAYS) ||
+      (roomCode === ADMIN_DEVELOPER_API_SMOKE_ROOM_CODE &&
+        days === ADMIN_DEVELOPER_API_KEY_NO_EXPIRY_DAYS))
+  );
+}
+
+function parseAdminDeveloperApiKeyIssueBody(
+  body: unknown,
+  roomCode: string,
+): AdminDeveloperApiKeyIssue | null {
   if (!isJsonObject(body)) return null;
   const keys = Object.keys(body);
   if (
@@ -5706,10 +5745,7 @@ function parseAdminDeveloperApiKeyIssueBody(body: unknown): AdminDeveloperApiKey
     !label ||
     label.length > 64 ||
     /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(label) ||
-    typeof days !== 'number' ||
-    !Number.isSafeInteger(days) ||
-    days < 1 ||
-    days > ADMIN_DEVELOPER_API_KEY_MAX_DAYS ||
+    !isAdminDeveloperApiKeyLifetime(roomCode, days) ||
     !Array.isArray(rawScopes) ||
     rawScopes.length < 1 ||
     rawScopes.length > Object.keys(ADMIN_DEVELOPER_API_KEY_SCOPES).length ||
@@ -8756,7 +8792,7 @@ async function handleAdminDeveloperApiKeys(request: Request, env: AppEnv, pathna
     }
     const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
     if (parsedBody.error) return jsonBodyError(parsedBody);
-    const issue = parseAdminDeveloperApiKeyIssueBody(parsedBody.value);
+    const issue = parseAdminDeveloperApiKeyIssueBody(parsedBody.value, roomCode);
     if (!issue) return json({ error: 'INVALID_REQUEST' }, 400);
     if (issue.roomGeneration !== room.roomGeneration) {
       return json({ error: 'PRO_ROOM_GENERATION_CONFLICT' }, 409);
@@ -14270,6 +14306,34 @@ function statusServerCheckDeps(
   };
 }
 
+/**
+ * Envs whose missing dispatch token was already reported. A Worker's env
+ * lives as long as its isolate, so this bounds that setup warning to one per
+ * isolate without a timer, as servedAppBuildByAssets keys its memo by binding.
+ */
+const statusDispatchUnconfiguredReported = new WeakSet<object>();
+
+/**
+ * The browser checks' starter (cloudflare/status-dispatch.ts): GitHub's
+ * workflow dispatch with the MXQR_STATUS_MONITOR_DISPATCH_TOKEN secret.
+ */
+function statusDispatchDeps(env: AppEnv): StatusDispatchDeps<ReturnType<typeof setTimeout>> {
+  return {
+    token: env.MXQR_STATUS_MONITOR_DISPATCH_TOKEN,
+    fetch: (url, init) => fetch(url, init),
+    setTimer: (callback, ms) => setTimeout(callback, ms),
+    clearTimer: (timer) => clearTimeout(timer),
+    warn: (fields) => {
+      if (fields.outcome === 'unconfigured') {
+        if (statusDispatchUnconfiguredReported.has(env)) return;
+        statusDispatchUnconfiguredReported.add(env);
+      }
+      // The outcome and GitHub's HTTP status only: never the token or a body.
+      console.warn({ diagnostic: 'status_dispatch', ...fields });
+    },
+  };
+}
+
 function getRealtimeEnv(env: AppEnv) {
   return {
     appId: String(
@@ -17017,6 +17081,17 @@ export default {
     // App build floor must follow whatever App is live, maintenance or not.
     if ((cron === null || cron === '* * * * *') && env.ASSETS && env.MUSIXQUARE_SERVICE_CONTROL) {
       ctx.waitUntil(reportServedAppBuild(env));
+    }
+    // The browser checks' starter (RO-57): at a browser check minute the
+    // minute cron asks GitHub to start the status monitor workflow, whose own
+    // schedule only backs this up. It too runs before the maintenance read and
+    // its return: the browser job reads maintenance itself and records
+    // maintenance marks, so its rows stay honest. Deferred like the minute
+    // cron's other jobs, so none of them waits on GitHub; the dispatch is
+    // bounded by STATUS_DISPATCH_TIMEOUT_MS and never rejects. A null cron or
+    // an event without a numeric scheduledTime never dispatches.
+    if (cron === '* * * * *' && isStatusDispatchMinute(event?.scheduledTime)) {
+      ctx.waitUntil(dispatchStatusMonitor(statusDispatchDeps(env)));
     }
     const serviceStatus = await readServiceMaintenance(env, { context: ctx });
     // The /status server checks also run before the maintenance return: during

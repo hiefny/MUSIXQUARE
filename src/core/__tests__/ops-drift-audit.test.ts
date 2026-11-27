@@ -318,7 +318,7 @@ describe('operations drift audit', () => {
       r2ExactLifecyclePolicyCount: 1,
       r2ShortLifecycleGuardCount: 1,
       workerSecretPolicyCount: 6,
-      workerSecretNameCount: 39,
+      workerSecretNameCount: 40,
       workerSurfacePolicyCount: 6,
       workerBindingCount: 64,
       workerCustomDomainCount: 6,
@@ -359,6 +359,8 @@ describe('operations drift audit', () => {
       throw new Error('Required Worker secret inventory is missing.');
     }
     expect(appInventory.expectedNames).toContain('CLOUDFLARE_REALTIME_API_TOKEN');
+    // App 9.0.846: the GitHub token with which the App starts the status monitor.
+    expect(appInventory.expectedNames).toContain('MXQR_STATUS_MONITOR_DISPATCH_TOKEN');
     expect(appInventory.expectedNames).not.toContain('CLOUDFLARE_REALTIME_APP_SECRET');
     expect(appInventory.expectedNames).not.toContain('MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET');
     expect(signalingInventory.expectedNames).not.toContain('PRO_ROOM_DECOMMISSION_VERIFY_SECRET');

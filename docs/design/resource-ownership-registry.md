@@ -1,12 +1,12 @@
 # Resource Ownership Registry
 
-| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Maintained contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Last source review | 2026-11-26 (RO-57 added against the App 9.0.845 / v845 train's code, branched from `main` `b92c1083`: the public status check ledger, its two writers and its reader, and the status probe claim on the signaling room object); 2026-11-21 (RO-56 added and RO-27's custom scrollbar flows re-checked against `main` `884015a0`, App 9.0.833, with the hold of a pressed custom scrollbar on its scroller); 2026-11-18 (RO-21 re-checked and extended against `main` `eae02e897`, App 9.0.830: the hold for this device's own PRO share, its requesters and anchor tests); 2026-11-11 (the names RO-01, RO-10 and RO-36 cite re-checked against the App 9.0.44 / v819 train's code after the audio recovery owner's rename, branched from `main` `c4a3d6f0`: every cited identifier exists, no owner or flow changed); 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1) |
-| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | Maintained contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Last source review | 2026-11-27 (RO-57 extended against the App 9.0.846 / v846 train's code, branched from `main` `27a25dee`: the App minute cron's start of the browser job, the workflow schedule as its fallback, and the dispatch bound's home); 2026-11-26 (RO-57 added against the App 9.0.845 / v845 train's code, branched from `main` `b92c1083`: the public status check ledger, its two writers and its reader, and the status probe claim on the signaling room object); 2026-11-21 (RO-56 added and RO-27's custom scrollbar flows re-checked against `main` `884015a0`, App 9.0.833, with the hold of a pressed custom scrollbar on its scroller); 2026-11-18 (RO-21 re-checked and extended against `main` `eae02e897`, App 9.0.830: the hold for this device's own PRO share, its requesters and anchor tests); 2026-11-11 (the names RO-01, RO-10 and RO-36 cite re-checked against the App 9.0.44 / v819 train's code after the audio recovery owner's rename, branched from `main` `c4a3d6f0`: every cited identifier exists, no owner or flow changed); 2026-11-10 (RO-01, RO-36 and RO-44 re-verified and RO-37 closed against the Phase 7 7C train's code, App 9.0.41 / v814, branched from `main` `f11a5cba`); whole registry 2026-10-22 (`main` `c08b6c39`, App 9.0.1) |
+| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 This registry names one owner for each shared runtime resource and records where that is not
 yet true. A 2026-10-22 survey of `1bd9cd6f` found 9 resources where the same protocol is
@@ -5075,13 +5075,27 @@ entry needs the owner's acceptance and is not implied by this registry.
     and claims, opens and reads nothing; a control-plane outage runs the checks. Without the
     admin database it does nothing;
   - the browser monitor's report: `.github/workflows/status-monitor.yml` runs
-    `scripts/status-browser-monitor.ts` on `STATUS_BROWSER_CRON`, and the script posts its
-    `website` and `connection` results to `handleStatusReport` (`cloudflare/status-ops.ts`, on
-    `STATUS_REPORT_PATH`) with a GitHub Actions OIDC token that `STATUS_REPORT_POLICY` pins to
-    that workflow on main, without an environment claim. The route records in the browser slot
-    the run started in, with `checked_at` from the App Worker's clock, records both rows as `m`
-    while maintenance is active, and records no row for a skipped check. The App binds it to
-    `recordStatusReport`, which rejects without the ledger, so the route answers 503.
+    `scripts/status-browser-monitor.ts`, and the script posts its `website` and `connection`
+    results to `handleStatusReport` (`cloudflare/status-ops.ts`, on `STATUS_REPORT_PATH`) with a
+    GitHub Actions OIDC token that `STATUS_REPORT_POLICY` pins to that workflow on main, without
+    an environment claim. The route records in the browser slot the run started in, with
+    `checked_at` from the App Worker's clock, records both rows as `m` while maintenance is
+    active, and records no row for a skipped check. The App binds it to `recordStatusReport`,
+    which rejects without the ledger, so the route answers 503. The job has one starter and one
+    fallback (App 9.0.846). The starter is the App's minute cron: in a minute of
+    `STATUS_BROWSER_CHECK_MINUTES` (`isStatusDispatchMinute` on the event's `scheduledTime`;
+    a null cron or a missing time never starts it), `scheduled()` in
+    `cloudflare/app-worker.ts` hands `dispatchStatusMonitor` (`cloudflare/status-dispatch.ts`,
+    bound in `statusDispatchDeps`) to `ctx.waitUntil`, before the maintenance read and its
+    return, since the job records maintenance marks itself. It sends one GitHub
+    `workflow_dispatch` request for `STATUS_MONITOR_WORKFLOW_FILE` on `STATUS_MONITOR_BRANCH`
+    with the Worker secret `MXQR_STATUS_MONITOR_DISPATCH_TOKEN`, follows no redirect, never
+    retries within a cron run and never rejects; without the token it sends nothing and warns
+    once per isolate (keyed by the env, like `servedAppBuildByAssets`). The fallback is the
+    workflow's own schedule, `STATUS_BROWSER_CRON`, whose events GitHub delivers hours late for
+    this repository or drops. A late scheduled run is one more real check of the slot it
+    starts in, where the newest `checked_at` wins, and the workflow's concurrency group
+    (`musixquare-status-monitor`, nothing cancelled in progress) runs one monitor at a time.
 
   The reader is `handleStatusApi` (`cloudflare/status-api.ts`). It reads the retained rows
   through `readStatusChecks`, the maintenance state itself (the route is on the maintenance
@@ -5126,7 +5140,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   preflight reads the App build production serves; while it differs from the checkout's
   (`compareServedAppBuild`), the monitor reports a failed check as skipped
   (`resultForServedBuild`), since its checks follow main's App. Claims from the cron's rooms
-  check and from `handleStatusClaim`.
+  check and from `handleStatusClaim`. Starts of the browser job: `dispatchStatusMonitor` from
+  the minute cron only (bound in `statusDispatchDeps`), the workflow's schedule as the
+  fallback, and a manual dispatch.
 - **Lifecycle operations:** record a result in its slot (the newer `checked_at` wins), mark
   maintenance, prune at 48 hours, read the retained window, derive each row's state when read;
   claim a code, consume a claim into the epoch's flag, drop an expired or malformed claim, clear
@@ -5135,7 +5151,10 @@ entry needs the owner's acceptance and is not implied by this registry.
   owns one deadline per cron run, `STATUS_ROOMS_CHECK_DEADLINE_MS` from its start, which every
   awaited step races; a check it cuts records no row. The App hands each bridge close of the
   status cron to `ctx.waitUntil`, so a close the deadline no longer awaits still reaches the
-  bridge, whose lease is the backstop. The browser job is bounded by its `timeout-minutes`
+  bridge, whose lease is the backstop. The dispatch that starts the browser job owns one
+  bound, `STATUS_DISPATCH_TIMEOUT_MS` from the request, aborts the request at it and clears its
+  timer on every path; the next browser check minute is its only retry. The browser job is
+  bounded by its `timeout-minutes`
   (`STATUS_BROWSER_JOB_TIMEOUT_MINUTES`) and each claim by `STATUS_BROWSER_CLAIM_TIMEOUT_MS`; the
   report route refuses a run that started more than `STATUS_REPORT_MAX_AGE_MS` before its clock
   or more than `STATUS_REPORT_MAX_FUTURE_SKEW_MS` after it. The reader, `handleStatusApi`, owns
@@ -5154,8 +5173,12 @@ entry needs the owner's acceptance and is not implied by this registry.
   `STATUS_SERVER_CRON`, `STATUS_BROWSER_CRON` and `statusSlotAt`), the result policy
   (`STATUS_PROBLEM_AFTER_FAILURES`, `STATUS_STALE_AFTER_MINUTES`, `STATUS_RECENT_SLOTS`),
   `STATUS_RESULT_RETENTION_MS`, `STATUS_EDGE_CACHE_TTL_S`, `STATUS_EDGE_CACHE_DEGRADED_TTL_S`, the
-  reader's ledger read bound `STATUS_API_READ_TIMEOUT_MS` (5 s), the report window and the
-  budgets of the server checks and the browser job. Beside the code they bound: the bridge call
+  reader's ledger read bound `STATUS_API_READ_TIMEOUT_MS` (5 s), the report window, the
+  budgets of the server checks and the browser job, the dispatch bound
+  `STATUS_DISPATCH_TIMEOUT_MS` (15 s, above GitHub's own 10-second processing limit), and the
+  dispatched workflow's file and branch (`STATUS_MONITOR_WORKFLOW_FILE`,
+  `STATUS_MONITOR_BRANCH`, from which `STATUS_MONITOR_WORKFLOW_REF` is built). Beside the code
+  they bound: the bridge call
   bounds `STANDARD_SIGNALING_BRIDGE_CALL_TIMEOUT_MS` (5 s) and
   `STANDARD_SIGNALING_BRIDGE_POLL_TIMEOUT_MS` (18 s) in `cloudflare/app-worker.ts`, shared with
   the public bridge route; the claim and flag lifetimes `STATUS_PROBE_CLAIM_TTL_MS` (120 s) and
@@ -5169,7 +5192,12 @@ entry needs the owner's acceptance and is not implied by this registry.
   (`STATUS_FETCH_TIMEOUT_MS`, 15 s) in `status-page.ts`. Copies that cannot import the
   contract are pinned by `src/core/__tests__/status-policy-parity.test.ts`: "keeps the App cron
   trigger and the monitor workflow on the contract schedule" (the cron in
-  `cloudflare/wrangler.app.toml`, the workflow cron and job timeout), "keeps the page runtime and
+  `cloudflare/wrangler.app.toml`, the workflow cron and job timeout), "starts the browser job
+  from the App minute cron at the browser minutes, on a workflow GitHub can dispatch" (the
+  dispatch minutes against `STATUS_BROWSER_CHECK_MINUTES`, the one dispatch call on the
+  minute cron, the workflow file, its `workflow_dispatch` trigger without inputs, its branch,
+  and the repository in `STATUS_MONITOR_WORKFLOW_REF` against
+  `MUSIXQUARE_GITHUB_REPOSITORY`), "keeps the page runtime and
   the dev server fixture route on the contract and the API" (the page's path, schema, slot
   count, rows, states and marks, against what `buildStatusPayload` sends), "keeps the page copy
   and the share card on the contract policy" (`.workshop/status/status.html` and the
@@ -5195,7 +5223,18 @@ entry needs the owner's acceptance and is not implied by this registry.
     reads nothing while maintenance is %s", `src/core/__tests__/status-worker-routes.test.ts`
     "records maintenance marks and claims, opens and reads nothing while maintenance is on" and
     `src/core/__tests__/status-ops.test.ts` "records maintenance marks for both rows while
-    maintenance is %s".
+    maintenance is %s". The browser job's start does not pause with maintenance, so that job
+    records the marks: `status-worker-routes.test.ts` "dispatches whether or not maintenance is
+    on (maintenance %s); the other minute jobs stop at its return".
+  - Start of the browser job (App minute cron, schedule as fallback):
+    `src/core/__tests__/status-dispatch.test.ts` "asks GitHub once to start status-monitor.yml on
+    main, with exactly this request", "classifies HTTP %i %j as %s, warns once and sends
+    nothing more", "gives up at STATUS_DISPATCH_TIMEOUT_MS, aborts the request and clears its
+    timer", "drops an answer that arrives after the bound unread" and "sends no request and
+    arms no timer with %s"; `status-worker-routes.test.ts` "asks GitHub once at :%s on the
+    minute cron to start the monitor, deferred", "never dispatches on %s", "sends nothing
+    without the token and warns about it once per isolate" and "lets scheduled() return while
+    GitHub hangs, then ends the request at its bound".
   - Teardown: `src/core/__tests__/status-payload.test.ts` "turns a row stale once its newest
     passed or failed check is older than 30 minutes"; `status-checks.test.ts` "settles by the
     deadline when every dependency hangs, and an interrupted check records no row";
@@ -5218,7 +5257,9 @@ entry needs the owner's acceptance and is not implied by this registry.
     `src/core/__tests__/status-browser-monitor.test.ts` "holds a host socket, with no server
     connection, until the claim answers".
 - **Status:** `owner-in-place`. Added with App 9.0.845 / v845, when the browser monitor's report
-  route became a second writer on the ledger beside the App cron.
+  route became a second writer on the ledger beside the App cron. With App 9.0.846 / v846 the
+  App's minute cron became the browser job's starter and the workflow's schedule its fallback;
+  the ledger's writers and its single owner did not change.
 
 ## Checked side flows without a record
 

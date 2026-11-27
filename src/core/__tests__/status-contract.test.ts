@@ -15,9 +15,12 @@ import {
   STATUS_CLAIM_PATH,
   STATUS_COMPONENT_IDS,
   STATUS_COMPONENT_SCHEDULE,
+  STATUS_DISPATCH_TIMEOUT_MS,
   STATUS_EDGE_CACHE_DEGRADED_TTL_S,
   STATUS_EDGE_CACHE_KEY_PATH,
   STATUS_EDGE_CACHE_TTL_S,
+  STATUS_MONITOR_BRANCH,
+  STATUS_MONITOR_WORKFLOW_FILE,
   STATUS_MONITOR_WORKFLOW_REF,
   STATUS_OPS_RATE_LIMIT,
   STATUS_OPS_RATE_WINDOW_SECONDS,
@@ -69,6 +72,8 @@ describe('status page contract', () => {
     expect(STATUS_CLAIM_PATH).toBe('/api/ops/status-claim');
     expect(STATUS_REPORT_AUDIENCE).toBe('https://musixquare.com/api/ops/status-report');
     expect(STATUS_CLAIM_AUDIENCE).toBe('https://musixquare.com/api/ops/status-claim');
+    expect(STATUS_MONITOR_WORKFLOW_FILE).toBe('status-monitor.yml');
+    expect(STATUS_MONITOR_BRANCH).toBe('main');
     expect(STATUS_MONITOR_WORKFLOW_REF).toBe(
       'hiefny/MUSIXQUARE/.github/workflows/status-monitor.yml@refs/heads/main',
     );
@@ -225,6 +230,15 @@ describe('status page contract', () => {
     // A held host frame waits for its claim within one step.
     expect(STATUS_BROWSER_CLAIM_TIMEOUT_MS).toBeLessThan(STATUS_BROWSER_STEP_TIMEOUT_MS);
     expect(STATUS_BROWSER_JOB_TIMEOUT_MINUTES).toBeLessThan(STATUS_CHECK_INTERVAL_MINUTES);
+  });
+
+  it("bounds the monitor's start above GitHub's own 10-second limit and inside one minute", () => {
+    expect(STATUS_DISPATCH_TIMEOUT_MS).toBe(15_000);
+    // GitHub ends a REST request it has processed for 10 s with a 5xx, which
+    // then arrives before this bound.
+    expect(STATUS_DISPATCH_TIMEOUT_MS).toBeGreaterThan(10_000);
+    // The minute cron sends it, so it ends long before that cron runs again.
+    expect(STATUS_DISPATCH_TIMEOUT_MS).toBeLessThan(MINUTE_MS);
   });
 });
 

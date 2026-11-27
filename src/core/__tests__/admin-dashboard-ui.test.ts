@@ -1535,6 +1535,160 @@ describe('admin PRO room operations dashboard', () => {
     });
   });
 
+  it('offers No expiry only in the Developer API smoke room and lists such a key as No expiry', async () => {
+    installAdminDom();
+    // No expiry is a 36,525-day (100-year) key, which only room 000001 may hold.
+    const noExpiryDays = 36_525;
+    const dayMs = 86_400_000;
+    const createdAt = Date.now();
+    const keyRecord = (keyId: string, label: string, days: number) => ({
+      keyId,
+      label,
+      scopes: ['room:read'],
+      status: 'active',
+      createdAt,
+      updatedAt: createdAt,
+      expiresAt: createdAt + days * dayMs,
+      revokedAt: null,
+      lastUsedAt: null,
+    });
+    let issuedBody: unknown;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: ['000001', '000002'].map((roomCode) => ({
+            roomCode,
+            roomGeneration: 4,
+            label: `Room ${roomCode}`,
+            status: 'registered',
+            activationState: 'active',
+            ownerAccountLinked: true,
+            createdAt,
+          })),
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000001/api-keys') {
+        if (init?.method === 'POST') {
+          issuedBody = JSON.parse(String(init.body));
+          return Response.json({
+            roomCode: '000001',
+            roomGeneration: 4,
+            apiKey: 'mxqr_live_one-time-secret',
+            key: keyRecord('SmokeKeyId000002', 'Next release smoke', noExpiryDays),
+          });
+        }
+        return Response.json({
+          roomCode: '000001',
+          roomGeneration: 4,
+          maxActiveKeys: 3,
+          keys: [
+            keyRecord('SmokeKeyId000001', 'Release smoke', noExpiryDays),
+            keyRecord('CafeKeyId0000001', 'Cafe controller', 90),
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000002/api-keys') {
+        return Response.json({
+          roomCode: '000002',
+          roomGeneration: 4,
+          maxActiveKeys: 3,
+          keys: [keyRecord('YearKeyId0000001', 'Yearly bot', 365)],
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    const openRoom = async (roomCode: string) => {
+      const room = await vi.waitFor(() => {
+        const value = document.querySelector<HTMLDetailsElement>(
+          `[data-pro-room-item="${roomCode}"]`,
+        );
+        expect(value).not.toBeNull();
+        return value!;
+      });
+      room.open = true;
+      room.dispatchEvent(new Event('toggle'));
+      const form = await vi.waitFor(() => {
+        const value = room.querySelector<HTMLFormElement>(`[data-pro-room-api-form="${roomCode}"]`);
+        expect(value).not.toBeNull();
+        expect(room.querySelector('.pro-room-api-key')).not.toBeNull();
+        return value!;
+      });
+      const days = form.elements.namedItem('days') as HTMLSelectElement | null;
+      const expiryOf = (label: string) =>
+        [...room.querySelectorAll<HTMLElement>('.pro-room-api-key')]
+          .find((item) => item.querySelector('strong')?.textContent === label)
+          ?.querySelector('.pro-room-api-key-meta small')?.textContent;
+      return { room, form, days, expiryOf };
+    };
+    const optionsOf = (select: HTMLSelectElement | null) =>
+      [...(select?.options || [])].map((option) => [option.value, option.textContent]);
+    const dayOptions = [
+      ['30', '30 days'],
+      ['90', '90 days'],
+      ['180', '180 days'],
+      ['365', '365 days'],
+    ];
+
+    const smoke = await openRoom('000001');
+    expect(optionsOf(smoke.days)).toEqual([...dayOptions, [String(noExpiryDays), 'No expiry']]);
+    expect(smoke.days?.value).toBe('90');
+    expect(smoke.expiryOf('Release smoke')).toBe('No expiry');
+    expect(smoke.expiryOf('Cafe controller')).toMatch(/^Expires /);
+
+    const label = smoke.form.elements.namedItem('label') as HTMLInputElement | null;
+    if (label) label.value = 'Next release smoke';
+    if (smoke.days) smoke.days.value = String(noExpiryDays);
+    smoke.form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => {
+      expect(
+        smoke.room.querySelector<HTMLInputElement>('[aria-label="000001 Developer API key"]')
+          ?.value,
+      ).toBe('mxqr_live_one-time-secret');
+    });
+    expect(issuedBody).toMatchObject({
+      roomGeneration: 4,
+      label: 'Next release smoke',
+      days: noExpiryDays,
+      scopes: ['room:read', 'playback:read', 'queue:read', 'effects:read'],
+    });
+
+    const other = await openRoom('000002');
+    expect(optionsOf(other.days)).toEqual(dayOptions);
+    expect(other.expiryOf('Yearly bot')).toMatch(/^Expires /);
+    expect(
+      other.room.querySelector('[data-pro-room-api-panel="000002"]')?.textContent,
+    ).not.toContain('No expiry');
+  });
+
   it('discards a room-code-only API-key response before rendering a reused room generation', async () => {
     installAdminDom();
     let apiKeyListReads = 0;

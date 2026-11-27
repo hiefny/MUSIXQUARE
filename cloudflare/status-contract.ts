@@ -1,5 +1,6 @@
 /**
- * Public status page contract (musixquare.com/status, train 9.0.845).
+ * Public status page contract (musixquare.com/status, train 9.0.845; the
+ * App's start of the browser monitor, train 9.0.846).
  *
  * The single home of the status routes, the identity of the GitHub browser
  * monitor, the check schedule, the result policy and the check budgets. It is
@@ -11,10 +12,13 @@
  *
  * Copies that cannot import this file are pinned to it by
  * src/core/__tests__/status-policy-parity.test.ts: the server cron in
- * cloudflare/wrangler.app.toml, the workflow cron and timeout in
- * .github/workflows/status-monitor.yml, browser/classic-runtime/status-page.ts,
- * .workshop/status/status.html, the fixtures in e2e/fixtures/status/ and the
- * claim path that cloudflare/signaling-worker.ts declares.
+ * cloudflare/wrangler.app.toml, the workflow cron, timeout, branch and
+ * workflow_dispatch trigger in .github/workflows/status-monitor.yml, the
+ * repository that STATUS_MONITOR_WORKFLOW_REF names (against
+ * cloudflare/github-actions-oidc.ts, which this leaf cannot import),
+ * browser/classic-runtime/status-page.ts, .workshop/status/status.html, the
+ * fixtures in e2e/fixtures/status/ and the claim path that
+ * cloudflare/signaling-worker.ts declares.
  *
  * Cloudflare documents a 15-minute wall-clock limit for Cron Trigger
  * invocations and a 30-second default CPU limit for schedules whose interval
@@ -44,9 +48,22 @@ export const STATUS_REPORT_AUDIENCE = `https://musixquare.com${STATUS_REPORT_PAT
 /** The only GitHub Actions OIDC audience the claim route accepts. */
 export const STATUS_CLAIM_AUDIENCE = `https://musixquare.com${STATUS_CLAIM_PATH}`;
 
+/**
+ * The browser monitor's workflow file in .github/workflows/, which the App
+ * Worker asks GitHub to start.
+ */
+export const STATUS_MONITOR_WORKFLOW_FILE = 'status-monitor.yml';
+
+/**
+ * The branch the browser monitor runs from: the App Worker starts it there,
+ * and the report and claim routes accept no other.
+ */
+export const STATUS_MONITOR_BRANCH = 'main';
+
 /** The only workflow whose job may call the report and claim routes, and only from main. */
 export const STATUS_MONITOR_WORKFLOW_REF =
-  'hiefny/MUSIXQUARE/.github/workflows/status-monitor.yml@refs/heads/main';
+  `hiefny/MUSIXQUARE/.github/workflows/${STATUS_MONITOR_WORKFLOW_FILE}` +
+  `@refs/heads/${STATUS_MONITOR_BRANCH}`;
 
 /** Rows of the page and of the ledger, in page order. */
 export const STATUS_COMPONENT_IDS = Object.freeze([
@@ -81,7 +98,12 @@ export const STATUS_BROWSER_CHECK_MINUTES = Object.freeze([7, 22, 37, 52] as con
 /** The App Worker cron trigger of the server checks; scheduled() matches this exact string. */
 export const STATUS_SERVER_CRON = '0,15,30,45 * * * *';
 
-/** The browser monitor workflow's schedule. GitHub may start a run late or drop it. */
+/**
+ * The browser monitor workflow's schedule, a fallback only: at these minutes
+ * the App Worker's minute cron starts the workflow itself
+ * (cloudflare/status-dispatch.ts), because GitHub may start a scheduled run
+ * hours late or drop it.
+ */
 export const STATUS_BROWSER_CRON = '7,22,37,52 * * * *';
 
 /**
@@ -204,6 +226,19 @@ export const STATUS_BROWSER_JOB_TIMEOUT_MINUTES = 10;
 
 /** Attempts to deliver one report; only a 429, a 5xx or a network error is retried. */
 export const STATUS_BROWSER_REPORT_ATTEMPTS = 3;
+
+/**
+ * Bound of the App Worker's one request that starts the browser monitor (a
+ * GitHub workflow dispatch, cloudflare/status-dispatch.ts), which is never
+ * retried within a cron run. GitHub ends a REST request that it has
+ * processed for more than 10 seconds with a server error
+ * (docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api,
+ * read 2026-11-27), so its own answer, a 5xx, comes first and this bound,
+ * 5 seconds later for the connection and the transfer, only ends a request
+ * that hangs. It is far inside the one-minute period of the cron that sends
+ * it and the 15-minute wall-clock limit of a Cron Trigger invocation.
+ */
+export const STATUS_DISPATCH_TIMEOUT_MS = 15_000;
 
 /**
  * A check result as the ledger stores it: `o` passed, `p` failed, `m` during

@@ -15,8 +15,10 @@ import {
   clearServiceMaintenanceCacheForTests,
 } from '../../../cloudflare/service-maintenance.ts';
 import {
+  STATUS_BROWSER_CHECK_MINUTES,
   STATUS_CLAIM_AUDIENCE,
   STATUS_CLAIM_PATH,
+  STATUS_DISPATCH_TIMEOUT_MS,
   STATUS_EDGE_CACHE_DEGRADED_TTL_S,
   STATUS_EDGE_CACHE_KEY_PATH,
   STATUS_EDGE_CACHE_TTL_S,
@@ -31,10 +33,12 @@ import {
 } from '../../../cloudflare/status-contract.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 
-// The App Worker's /status wiring end to end: GET /api/status, the status cron
-// and the browser monitor's report, over a node:sqlite ledger with the real
-// admin metrics schema, the real service-control object, a fake signaling
-// namespace and a fake PRO front door. Room codes here are random test codes.
+// The App Worker's /status wiring end to end: GET /api/status, the status cron,
+// the minute cron's start of the browser monitor and the monitor's report,
+// over a node:sqlite ledger with the real admin metrics schema, the real
+// service-control object, a fake signaling namespace, a fake PRO front door and
+// a fake GitHub API. Room codes here are random test codes, and the dispatch
+// token is a made-up value in no real token format.
 
 const ORIGIN = 'https://musixquare.com';
 const ADMIN_SCHEMA = readFileSync(
@@ -1094,6 +1098,203 @@ describe('App Worker status cron', () => {
       component: 'pro',
       reason: 'pro_unreachable',
     });
+  });
+});
+
+// ── The browser monitor's start: the minute cron's GitHub workflow dispatch ──
+
+const MINUTE_CRON = '* * * * *';
+const DISPATCH_TOKEN = 'status-dispatch-route-test-token';
+const DISPATCH_URL =
+  'https://api.github.com/repos/hiefny/MUSIXQUARE/actions/workflows/status-monitor.yml/dispatches';
+
+/** The UTC time of minute `minute` past 03:00 on 2026-11-27. */
+function minuteOfHour(minute: number): number {
+  return Date.UTC(2026, 10, 27, 3, minute);
+}
+
+/** A fake GitHub API; any other outbound fetch (a Soro feed, say) answers 503. */
+function installGitHub(answer: () => Response = () => new Response(null, { status: 204 })) {
+  const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.startsWith('https://api.github.com/')) return new Response('', { status: 503 });
+      calls.push({ url, init });
+      return answer();
+    }),
+  );
+  return calls;
+}
+
+async function runScheduled(env: Record<string, unknown>, event: Record<string, unknown>) {
+  const { context, settle } = createContext();
+  await appWorker.scheduled(event, env, context);
+  const deferred = context.waitUntil.mock.calls.length;
+  await settle();
+  return { context, deferred };
+}
+
+describe('App Worker status monitor dispatch', () => {
+  it.each(STATUS_BROWSER_CHECK_MINUTES)(
+    'asks GitHub once at :%s on the minute cron to start the monitor, deferred',
+    async (minute) => {
+      const logs = quietConsole();
+      const calls = installGitHub();
+
+      const { deferred } = await runScheduled(
+        { MXQR_STATUS_MONITOR_DISPATCH_TOKEN: DISPATCH_TOKEN },
+        { cron: MINUTE_CRON, scheduledTime: minuteOfHour(minute) },
+      );
+
+      // Handed to waitUntil, not awaited: the only deferred job of this env.
+      expect(deferred).toBe(1);
+      expect(calls).toHaveLength(1);
+      const [call] = calls;
+      expect(call?.url).toBe(DISPATCH_URL);
+      expect(call?.init?.method).toBe('POST');
+      expect(call?.init?.body).toBe('{"ref":"main"}');
+      expect(call?.init?.redirect).toBe('manual');
+      expect(new Headers(call?.init?.headers).get('authorization')).toBe(
+        `Bearer ${DISPATCH_TOKEN}`,
+      );
+      expect(logs.warn).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [':08 on the minute cron', { cron: MINUTE_CRON, scheduledTime: minuteOfHour(8) }],
+    [':06 on the minute cron', { cron: MINUTE_CRON, scheduledTime: minuteOfHour(6) }],
+    ['a null cron at :07', { scheduledTime: minuteOfHour(7) }],
+    ['the minute cron without a scheduled time', { cron: MINUTE_CRON }],
+    [
+      'the minute cron with a scheduled time that is not a number',
+      { cron: MINUTE_CRON, scheduledTime: new Date(minuteOfHour(7)).toISOString() },
+    ],
+    ['the status server cron', { cron: STATUS_SERVER_CRON, scheduledTime: minuteOfHour(7) }],
+  ])('never dispatches on %s', async (_label, event) => {
+    quietConsole();
+    const calls = installGitHub();
+    const store = new Map<string, string>();
+
+    await runScheduled(
+      {
+        MXQR_STATUS_MONITOR_DISPATCH_TOKEN: DISPATCH_TOKEN,
+        // A null cron also runs the six-hour jobs, whose Soro refresh reads this.
+        SORO_RSS_BACKUP: {
+          get: vi.fn(async (key: string) => store.get(key) ?? null),
+          put: vi.fn(async (key: string, value: string) => {
+            store.set(key, value);
+          }),
+        },
+      },
+      event,
+    );
+
+    expect(calls).toEqual([]);
+  });
+
+  it.each([false, true])(
+    'dispatches whether or not maintenance is on (maintenance %s); the other minute jobs stop at its return',
+    async (maintenance) => {
+      quietConsole();
+      const calls = installGitHub();
+      const control = createAtomicRateControlBinding().binding;
+      if (maintenance) await enableMaintenance(control);
+      // The minute cron's account deletion job, which maintenance stops.
+      const deletionQueries = vi.fn(() => ({
+        bind: () => ({ all: async () => ({ results: [] }) }),
+      }));
+
+      await runScheduled(
+        {
+          MXQR_STATUS_MONITOR_DISPATCH_TOKEN: DISPATCH_TOKEN,
+          MUSIXQUARE_SERVICE_CONTROL: control,
+          MUSIXQUARE_AUTH_DB: { prepare: deletionQueries },
+        },
+        { cron: MINUTE_CRON, scheduledTime: minuteOfHour(37) },
+      );
+
+      // The browser job reads maintenance itself and records maintenance marks.
+      expect(calls).toHaveLength(1);
+      expect(deletionQueries.mock.calls.length > 0).toBe(!maintenance);
+    },
+  );
+
+  it('sends nothing without the token and warns about it once per isolate', async () => {
+    const logs = quietConsole();
+    const calls = installGitHub();
+    const isolateEnv: Record<string, unknown> = {};
+
+    await runScheduled(isolateEnv, { cron: MINUTE_CRON, scheduledTime: minuteOfHour(7) });
+    await runScheduled(isolateEnv, { cron: MINUTE_CRON, scheduledTime: minuteOfHour(22) });
+
+    expect(calls).toEqual([]);
+    expect(logs.warn.mock.calls).toEqual([
+      [{ diagnostic: 'status_dispatch', outcome: 'unconfigured' }],
+    ]);
+
+    // A new isolate's env reports it once again.
+    await runScheduled({}, { cron: MINUTE_CRON, scheduledTime: minuteOfHour(37) });
+    expect(calls).toEqual([]);
+    expect(logs.warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('warns once per failed dispatch with only its outcome and HTTP status, never the token', async () => {
+    const logs = quietConsole();
+    installGitHub(() =>
+      Response.json({ message: `Bad credentials: ${DISPATCH_TOKEN}` }, { status: 401 }),
+    );
+    const env = { MXQR_STATUS_MONITOR_DISPATCH_TOKEN: DISPATCH_TOKEN };
+
+    await runScheduled(env, { cron: MINUTE_CRON, scheduledTime: minuteOfHour(52) });
+    await runScheduled(env, { cron: MINUTE_CRON, scheduledTime: minuteOfHour(60 + 7) });
+
+    expect(logs.warn.mock.calls).toEqual([
+      [{ diagnostic: 'status_dispatch', outcome: 'unauthorized', httpStatus: 401 }],
+      [{ diagnostic: 'status_dispatch', outcome: 'unauthorized', httpStatus: 401 }],
+    ]);
+    const printed = JSON.stringify([
+      ...logs.warn.mock.calls,
+      ...logs.error.mock.calls,
+      ...logs.info.mock.calls,
+    ]);
+    expect(printed).not.toContain(DISPATCH_TOKEN);
+    expect(printed).not.toContain('Bad credentials');
+  });
+
+  it('lets scheduled() return while GitHub hangs, then ends the request at its bound', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const logs = quietConsole();
+    let signal: AbortSignal | null | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            signal = init?.signal;
+            init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+          }),
+      ),
+    );
+    const { context, settle } = createContext();
+
+    await appWorker.scheduled(
+      { cron: MINUTE_CRON, scheduledTime: minuteOfHour(22) },
+      { MXQR_STATUS_MONITOR_DISPATCH_TOKEN: DISPATCH_TOKEN },
+      context,
+    );
+    await vi.waitFor(() => expect(signal).toBeInstanceOf(AbortSignal));
+    expect(context.waitUntil).toHaveBeenCalledTimes(1);
+    expect(signal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(STATUS_DISPATCH_TIMEOUT_MS);
+    await settle();
+
+    expect(signal?.aborted).toBe(true);
+    expect(logs.warn.mock.calls).toEqual([[{ diagnostic: 'status_dispatch', outcome: 'failed' }]]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

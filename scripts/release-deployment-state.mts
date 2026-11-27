@@ -497,7 +497,8 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/account-auth.ts',
     // The App build floor ops route verifies GitHub Actions OIDC tokens.
     'cloudflare/github-actions-oidc.ts',
-    // The public status page: its contract, ledger, API, checks and routes.
+    // The public status page: its contract, ledger, API, checks and routes,
+    // and the start of its browser monitor.
     'cloudflare/status-contract.ts',
     'cloudflare/status-store.ts',
     'cloudflare/status-payload.ts',
@@ -505,6 +506,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/status-probe-claim.ts',
     'cloudflare/status-checks.ts',
     'cloudflare/status-ops.ts',
+    'cloudflare/status-dispatch.ts',
     'cloudflare/status-note-text.ts',
     'cloudflare/translation-community.ts',
     'cloudflare/translation-community-catalog.ts',

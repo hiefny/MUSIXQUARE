@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 import { bus } from '../../core/events.ts';
 import { COMPACT_LAYOUT_QUERY, SHORT_DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { animateTransition } from '../dom.ts';
 
 // ── jsdom polyfills (module scope, installed once for the whole file) ──────
 //
@@ -2795,6 +2796,99 @@ describe('custom-scrollbar transition reveal', () => {
     expect(dialogList.track().style.height).toBe('180px');
     expect(dialogList.track().style.opacity).toBe('1');
     expect(dialogList.track().querySelector<HTMLElement>('.cscroll-thumb')?.style.display).toBe('');
+  });
+
+  it('commits frame-0 geometry and opacity synchronously inside a view-transition update and defers ScrollTimeline until release', async () => {
+    const originalTransition = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+    const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
+    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
+    let finishVt!: () => void;
+    let runVtUpdate!: () => void;
+    const animate = vi.fn(
+      (
+        _keyframes: Keyframe[] | PropertyIndexedKeyframes,
+        options?: number | KeyframeAnimationOptions,
+      ) =>
+        ({
+          cancel: vi.fn(),
+          ready: Promise.resolve(),
+          timeline: typeof options === 'object' ? options.timeline : null,
+        }) as unknown as Animation,
+    );
+
+    Object.defineProperty(document, 'startViewTransition', {
+      configurable: true,
+      value: vi.fn((update: () => void) => {
+        runVtUpdate = update;
+        const finished = new Promise<void>((resolve) => {
+          finishVt = resolve;
+        });
+        return { ready: Promise.resolve(), updateCallbackDone: Promise.resolve(), finished };
+      }),
+    });
+    Object.defineProperty(globalThis, 'ScrollTimeline', {
+      configurable: true,
+      value: class ScrollTimelineStub {},
+    });
+    Object.defineProperty(HTMLElement.prototype, 'animate', {
+      configurable: true,
+      value: animate,
+    });
+
+    try {
+      const tabPanel = createScrollbox('vt-tab-reveal');
+      tabPanel.setClientHeight(0);
+      initCustomScrollbar(tabPanel.container);
+      expect(tabPanel.track().style.height).toBe('0px');
+      expect(tabPanel.track().style.opacity).toBe('0');
+
+      animateTransition(
+        () => {
+          tabPanel.setClientHeight(200);
+          bus.emit('ui:scrollbar-reveal', tabPanel.container.parentElement!);
+        },
+        { preserveHeader: true },
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Inside startViewTransition's update callback, layout & opacity:1 must
+      // commit synchronously (before any rAF) while ScrollTimeline stays deferred.
+      runVtUpdate();
+      expect(tabPanel.track().style.height).toBe('200px');
+      expect(tabPanel.track().style.opacity).toBe('1');
+      expect(tabPanel.track().style.transition).toBe('opacity 0.3s ease');
+      expect(tabPanel.track().dataset.scrollDriver).toBe('script');
+      expect(animate).not.toHaveBeenCalled();
+
+      // A ResizeObserver delivery during the active transition also defers.
+      const roBefore = tabPanel.rectSpy.mock.calls.length;
+      notifyResize(tabPanel.container);
+      expect(tabPanel.rectSpy.mock.calls.length).toBe(roBefore);
+      expect(animate).not.toHaveBeenCalled();
+
+      // Finishing the view transition + one teardown frame attaches ScrollTimeline cleanly.
+      finishVt();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(animate).not.toHaveBeenCalled();
+
+      flushAnimationFrame();
+      expect(tabPanel.track().dataset.scrollDriver).toBe('timeline');
+      expect(animate).toHaveBeenCalledTimes(1);
+
+      // The normal auto-fade timer still hides the track after FADE_DELAY.
+      vi.advanceTimersByTime(1200);
+      expect(tabPanel.track().style.opacity).toBe('0');
+    } finally {
+      if (originalTransition)
+        Object.defineProperty(document, 'startViewTransition', originalTransition);
+      else Reflect.deleteProperty(document, 'startViewTransition');
+      if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
+      else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
+      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+    }
   });
 });
 

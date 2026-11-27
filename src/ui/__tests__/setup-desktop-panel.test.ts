@@ -43,6 +43,7 @@ vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
 }));
 
+import { animateTransition } from '../dom.ts';
 import {
   setupSetCode,
   setupShowCodeArea,
@@ -107,12 +108,14 @@ describe('desktop setup left panel', () => {
     // QR crossfade that starts with the code.
     const observer = new MutationObserver(() => {});
     observer.observe(document.body, { childList: true, subtree: true });
+    vi.mocked(animateTransition).mockClear();
     setupSetCode('654321');
     const stageMoves = observer
       .takeRecords()
       .filter((record) => [...record.addedNodes, ...record.removedNodes].includes(stage));
     observer.disconnect();
 
+    expect(animateTransition).not.toHaveBeenCalled();
     expect(stageMoves).toHaveLength(0);
     expect(stage.parentElement).toBe(el('desktop-diagram-area'));
     expect((el('setup-code') as HTMLInputElement).value).toBe('654321');

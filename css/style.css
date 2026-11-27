@@ -836,24 +836,81 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     will-change: transform;
   }
 
-  /* Normal tab transitions keep only the live header image. Its own logo and
-     loading-text motion continues without replaying an old snapshot. The
-     runtime opts out when an overlay needs the original root stacking order. */
+  @keyframes view-transition-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* Single normal-alpha fade over a steady old snapshot avoids the
+     plus-lighter double-flash WebKit produces with default UA transitions. */
+  ::view-transition-group(root) {
+    animation: none;
+  }
+
+  ::view-transition-old(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-new(root) {
+    animation: view-transition-fade-in 0.25s ease both;
+    mix-blend-mode: normal;
+  }
+
+  /* Normal tab transitions keep only the live header and bottom-nav chrome.
+     Their own logo, loading-text, and active-tab state stay steady without
+     replaying an old snapshot. The runtime opts out when an overlay needs the
+     original root stacking order. */
   html.tab-header-transition #main-header {
     view-transition-name: main-header;
   }
 
+  html.tab-header-transition .bottom-nav {
+    view-transition-name: bottom-nav;
+  }
+
   ::view-transition-group(main-header),
-  ::view-transition-new(main-header) {
+  ::view-transition-new(main-header),
+  ::view-transition-group(bottom-nav),
+  ::view-transition-new(bottom-nav) {
     animation: none;
   }
 
-  ::view-transition-old(main-header) {
+  ::view-transition-old(main-header),
+  ::view-transition-old(bottom-nav) {
     display: none;
   }
 
-  ::view-transition-new(main-header) {
+  ::view-transition-new(main-header),
+  ::view-transition-new(bottom-nav) {
     mix-blend-mode: normal;
+  }
+
+  /* Isolate the host QR loading spinner onto its own view-transition layer so
+     WebKit does not jump its rotating layers when ::view-transition-new(root)
+     tears down. */
+  ::view-transition-group(host-qr-spinner) {
+    animation: none;
+  }
+
+  ::view-transition-old(host-qr-spinner) {
+    display: none;
+  }
+
+  ::view-transition-new(host-qr-spinner) {
+    animation: view-transition-fade-in 0.25s ease both;
+    mix-blend-mode: normal;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-new(root),
+    ::view-transition-new(host-qr-spinner) {
+      animation: none;
+    }
   }
 
   /* Header loading progress */
@@ -5018,9 +5075,6 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     /* iOS Safari: Force hardware acceleration to isolate from background video layers */
     transform: translateZ(0);
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-
-    /* Prevent transparency flicker during View Transition tab switches */
-    view-transition-name: bottom-nav;
   }
 
   /* Hide bottom-nav when soft keyboard is open — prevents floating in wrong position
@@ -7518,6 +7572,12 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     transition:
       opacity 0.18s ease-out,
       visibility 0s linear 0s;
+  }
+
+  #setup-overlay.active
+    .setup-host-invite-stage.is-room-qr-loading
+    > .setup-host-qr-loading-spinner {
+    view-transition-name: host-qr-spinner;
   }
 
   /* Set after the fade-out (setup-host-invite.ts): the hidden loop holds its

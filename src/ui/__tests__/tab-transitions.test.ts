@@ -1,6 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState } from '../../core/state.ts';
@@ -8,6 +9,9 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import {
   animateTransition,
   finishOverlayExit,
+  isInsideViewTransitionUpdate,
+  isViewTransitionActive,
+  runAfterActiveViewTransition,
   runWithoutViewTransitions,
   startOverlayExit,
 } from '../dom.ts';
@@ -35,6 +39,10 @@ async function flushTransitionTasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function flushReleaseFrame(): void {
+  vi.advanceTimersToNextFrame();
 }
 
 beforeEach(() => {
@@ -88,6 +96,7 @@ beforeEach(() => {
 afterEach(async () => {
   transitions.forEach((transition) => transition.finish());
   await flushTransitionTasks();
+  flushReleaseFrame();
   showLoader(false);
   clearAllManagedTimers();
   bus.clear();
@@ -123,6 +132,10 @@ describe('tab transitions during header loading', () => {
 
       transitions[0].finish();
       await flushTransitionTasks();
+      // Kept for one frame after vt.finished so WebKit finishes tearing down
+      // the view-transition tree before removing live-chrome isolation.
+      expect(preservesHeader()).toBe(true);
+      flushReleaseFrame();
       expect(preservesHeader()).toBe(false);
     },
   );
@@ -257,6 +270,8 @@ describe('batched and overlapping tab transitions', () => {
 
       transitions[1].finish();
       await flushTransitionTasks();
+      expect(preservesHeader()).toBe(true);
+      flushReleaseFrame();
       expect(preservesHeader()).toBe(false);
       expect(document.getElementById('tab-connect')?.classList.contains('active')).toBe(true);
     },
@@ -350,6 +365,7 @@ describe('overlays appearing while a tab crossfade is running', () => {
     await flushTransitionTasks();
 
     expect(transitions[0].skip).not.toHaveBeenCalled();
+    flushReleaseFrame();
     expect(preservesHeader()).toBe(false);
   });
 
@@ -405,6 +421,7 @@ describe('tab transition fallback and cleanup', () => {
 
     transitions[0].reject(new Error('Document became hidden'));
     await flushTransitionTasks();
+    flushReleaseFrame();
 
     expect(preservesHeader()).toBe(false);
     expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
@@ -448,5 +465,84 @@ describe('tab transition fallback and cleanup', () => {
     expect(transitions[0].headerPreservedAtCapture).toBe(true);
     transitions[0].update();
     expect(document.getElementById('tab-connect')?.classList.contains('active')).toBe(true);
+  });
+
+  it('tracks active/update state and flushes post-transition work only after the latest transition settles', async () => {
+    expect(isViewTransitionActive()).toBe(false);
+    expect(isInsideViewTransitionUpdate()).toBe(false);
+
+    let insideFirstUpdate = false;
+    let activeDuringFirstUpdate = false;
+    const afterFirst = vi.fn();
+    animateTransition(
+      () => {
+        insideFirstUpdate = isInsideViewTransitionUpdate();
+        activeDuringFirstUpdate = isViewTransitionActive();
+        runAfterActiveViewTransition(afterFirst);
+      },
+      { preserveHeader: true },
+    );
+    await flushTransitionTasks();
+
+    expect(isViewTransitionActive()).toBe(true);
+    transitions[0].update();
+    expect(insideFirstUpdate).toBe(true);
+    expect(activeDuringFirstUpdate).toBe(true);
+    expect(isInsideViewTransitionUpdate()).toBe(false);
+    expect(afterFirst).not.toHaveBeenCalled();
+
+    // A second transition supersedes the first before it finishes.
+    const afterSecond = vi.fn();
+    animateTransition(
+      () => {
+        runAfterActiveViewTransition(afterSecond);
+      },
+      { preserveHeader: true },
+    );
+    await flushTransitionTasks();
+    transitions[1].update();
+
+    // The superseded transition rejecting must not drop active state or flush queued work early.
+    transitions[0].reject(new Error('Transition superseded'));
+    await flushTransitionTasks();
+    flushReleaseFrame();
+    expect(isViewTransitionActive()).toBe(true);
+    expect(afterFirst).not.toHaveBeenCalled();
+    expect(afterSecond).not.toHaveBeenCalled();
+
+    // Settling the latest transition releases after one animation frame and flushes queued work.
+    transitions[1].finish();
+    await flushTransitionTasks();
+    expect(isViewTransitionActive()).toBe(true);
+    expect(afterFirst).not.toHaveBeenCalled();
+    expect(afterSecond).not.toHaveBeenCalled();
+
+    flushReleaseFrame();
+    expect(isViewTransitionActive()).toBe(false);
+    expect(afterFirst).toHaveBeenCalledOnce();
+    expect(afterSecond).toHaveBeenCalledOnce();
+  });
+
+  it('defines normal-alpha root crossfade, tab-scoped bottom-nav isolation, and host spinner layer rules', async () => {
+    const css = await readFile('css/style.css', 'utf8');
+
+    expect(css).toMatch(
+      /::view-transition-old\(root\)\s*\{[^}]*animation:\s*none;[^}]*mix-blend-mode:\s*normal;/su,
+    );
+    expect(css).toMatch(
+      /::view-transition-new\(root\)\s*\{[^}]*animation:\s*view-transition-fade-in 0\.25s ease both;[^}]*mix-blend-mode:\s*normal;/su,
+    );
+    expect(css).toMatch(
+      /html\.tab-header-transition \.bottom-nav\s*\{[^}]*view-transition-name:\s*bottom-nav;/su,
+    );
+    expect(css).not.toMatch(
+      /(?:^|[\r\n])\s*\.bottom-nav\s*\{[^}]*view-transition-name:\s*bottom-nav;/su,
+    );
+    expect(css).toMatch(
+      /#setup-overlay\.active\s+\.setup-host-invite-stage\.is-room-qr-loading\s*>\s*\.setup-host-qr-loading-spinner\s*\{[^}]*view-transition-name:\s*host-qr-spinner;/su,
+    );
+    expect(css).toMatch(
+      /::view-transition-new\(host-qr-spinner\)\s*\{[^}]*animation:\s*view-transition-fade-in 0\.25s ease both;[^}]*mix-blend-mode:\s*normal;/su,
+    );
   });
 });

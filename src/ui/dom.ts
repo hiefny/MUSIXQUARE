@@ -43,10 +43,38 @@ export function cycleFocusWithin(
 let _batchedTransitionCb: (() => void) | null = null;
 let _batchedTransitionPreservesHeader = false;
 let _headerTransitionGeneration = 0;
+let _activeViewTransitionGeneration = 0;
+let _inViewTransitionUpdateDepth = 0;
 let _immediateTransitionDepth = 0;
 let _backDispatchDepth = 0;
+const _afterViewTransitionQueue: Array<() => void> = [];
 const _backSurfaceTransitions = new Map<Promise<void>, () => void>();
 let _batchedBackSettlements: Array<() => void> = [];
+
+/** Whether a native view transition owned by animateTransition() is currently running. */
+export function isViewTransitionActive(): boolean {
+  return _activeViewTransitionGeneration !== 0;
+}
+
+/** Whether code is executing synchronously inside startViewTransition()'s update callback. */
+export function isInsideViewTransitionUpdate(): boolean {
+  return _inViewTransitionUpdateDepth > 0;
+}
+
+function flushAfterViewTransitionQueue(): void {
+  if (_activeViewTransitionGeneration !== 0 || _afterViewTransitionQueue.length === 0) return;
+  const callbacks = _afterViewTransitionQueue.splice(0, _afterViewTransitionQueue.length);
+  for (const callback of callbacks) callback();
+}
+
+/** Run work once the active view transition settles and its teardown frame completes. */
+export function runAfterActiveViewTransition(callback: () => void): void {
+  if (_activeViewTransitionGeneration === 0) {
+    callback();
+    return;
+  }
+  _afterViewTransitionQueue.push(callback);
+}
 
 /** A closing surface owns its completion; no duration or CSS inference is needed. */
 export function beginBackSurfaceTransition(): () => void {
@@ -296,16 +324,35 @@ export function animateTransition(callback: () => void, options: TransitionOptio
       }
       const root = document.documentElement;
       const generation = ++_headerTransitionGeneration;
+      _activeViewTransitionGeneration = generation;
       root.classList.toggle(
         'tab-header-transition',
         preserveHeader && canPreserveTransitionHeader(),
       );
       let stopWatchingHeader = () => {};
-      const releaseHeader = () => {
+      const completeRelease = () => {
+        // A superseded transition must not clear a newer transition's group or active mark.
+        if (generation !== _headerTransitionGeneration) return;
+        root.classList.remove('tab-header-transition');
+        if (_activeViewTransitionGeneration === generation) {
+          _activeViewTransitionGeneration = 0;
+          flushAfterViewTransitionQueue();
+        }
+      };
+      const releaseHeaderImmediate = () => {
         stopWatchingHeader();
-        // A superseded transition must not clear a newer transition's group.
-        if (generation === _headerTransitionGeneration) {
-          root.classList.remove('tab-header-transition');
+        completeRelease();
+      };
+      const releaseHeaderAfterPaint = () => {
+        stopWatchingHeader();
+        if (generation !== _headerTransitionGeneration) return;
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+          // Defer live-chrome release and post-transition work by one animation
+          // frame after vt.finished so WebKit finishes tearing down the
+          // view-transition tree without a synchronous teardown blink.
+          window.requestAnimationFrame(completeRelease);
+        } else {
+          completeRelease();
         }
       };
       let executed = false;
@@ -320,7 +367,12 @@ export function animateTransition(callback: () => void, options: TransitionOptio
         // was aborted because of invalid state". Silence the benign ones.
         const vt = transitionDocument.startViewTransition(() => {
           executed = true;
-          cb();
+          _inViewTransitionUpdateDepth += 1;
+          try {
+            cb();
+          } finally {
+            _inViewTransitionUpdateDepth -= 1;
+          }
           // Tab lifecycle listeners may synchronously reveal a modal too.
           if (generation === _headerTransitionGeneration && !canPreserveTransitionHeader()) {
             root.classList.remove('tab-header-transition');
@@ -342,7 +394,7 @@ export function animateTransition(callback: () => void, options: TransitionOptio
             }
             if (!canPreserveTransitionHeader()) {
               vt.skipTransition?.();
-              releaseHeader();
+              releaseHeaderImmediate();
             }
           };
           const observer = new MutationObserver(checkHeaderOcclusion);
@@ -362,13 +414,14 @@ export function animateTransition(callback: () => void, options: TransitionOptio
         vt?.ready?.catch(() => {
           /* noop — benign abort */
         });
-        if (vt?.finished !== undefined) void vt.finished.then(releaseHeader, releaseHeader);
-        else releaseHeader();
+        if (vt?.finished !== undefined)
+          void vt.finished.then(releaseHeaderAfterPaint, releaseHeaderAfterPaint);
+        else releaseHeaderImmediate();
         vt?.updateCallbackDone?.catch(() => {
           /* noop — benign abort */
         });
       } catch {
-        releaseHeader();
+        releaseHeaderImmediate();
         try {
           if (!executed) cb();
         } finally {

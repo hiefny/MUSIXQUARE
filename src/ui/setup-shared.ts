@@ -327,14 +327,15 @@ export function setupShowCodeArea(show: boolean): void {
 }
 
 export function setupSetCode(code: string): void {
-  animateTransition(() => {
-    const el = setupEl('setup-code');
-    if (el) {
-      if (el.tagName === 'INPUT') (el as HTMLInputElement).value = code || '------';
-      else el.textContent = code || '------';
-    }
-    setupShowCodeArea(!!code);
-  });
+  // Commit the room code directly without starting a second full-document view
+  // transition: setup-host immediately starts the room QR CSS crossfade, and a
+  // concurrent root snapshot flashes the placeholder QR over the real QR on WebKit.
+  const el = setupEl('setup-code');
+  if (el) {
+    if (el.tagName === 'INPUT') (el as HTMLInputElement).value = code || '------';
+    else el.textContent = code || '------';
+  }
+  setupShowCodeArea(!!code);
 }
 
 export function setupShowJoinArea(show: boolean): void {

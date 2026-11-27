@@ -653,6 +653,9 @@ describe('setTheme transition hold', () => {
       await flushTransitionTasks();
       transitions.forEach((transition) => transition.finish());
       await flushTransitionTasks();
+      if (transitions.length > 0) {
+        await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      }
       if (originalTransition) {
         Object.defineProperty(document, 'startViewTransition', originalTransition);
       } else {

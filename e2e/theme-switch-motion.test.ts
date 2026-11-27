@@ -51,8 +51,8 @@ const HOLD_CLASS =
     readFileSync('src/ui/settings.ts', 'utf8'),
   )?.[1] ?? '';
 
-/** The only groups a theme cross-fade may have: the page and the phone's bottom bar. */
-const THEME_GROUPS = ['root', 'bottom-nav'];
+/** The only group a theme cross-fade may have: the page (header and bottom bar fade with it). */
+const THEME_GROUPS = ['root'];
 
 type Theme = 'dark' | 'light';
 
@@ -584,7 +584,10 @@ async function readTabChange(page: Page, opened: OpenedSettings): Promise<Transi
   );
   expect(record, 'the Settings tab change').not.toBeNull();
   expect(record!.activeTab, 'the panel after the Settings tab change').toBe('tab-settings');
-  expect(fadeOf(record!, '::view-transition-old(root)'), "the tab change's old page").toBeTruthy();
+  expect(
+    fadeOf(record!, '::view-transition-old(root)'),
+    "the tab change's old page holds steady without a fade-out animation",
+  ).toBeUndefined();
   expect(fadeOf(record!, '::view-transition-new(root)'), "the tab change's new page").toBeTruthy();
   return record!;
 }
@@ -655,28 +658,19 @@ function expectCrossFade(
   const groups = groupsOf(record);
   expect(groups, `the groups of ${context}`).toContain('root');
   expect(groups.filter((group) => !THEME_GROUPS.includes(group))).toEqual([]);
-  expect(groups.includes('bottom-nav'), 'a bottom-nav group exactly when the bar is shown').toBe(
-    reading.bottomNav,
-  );
+  expect(
+    groups.includes('bottom-nav'),
+    'bottom-nav stays part of root during a theme switch (only isolated on tab transitions)',
+  ).toBe(false);
 
-  // The old page fades out and the new one in on one timing, the tab
-  // change's, so their opacities add up to one at every moment.
+  // The old page holds steady underneath while the new page fades in with
+  // normal alpha on the same timing as a tab change (no plus-lighter flash).
   const oldRoot = fadeOf(record, '::view-transition-old(root)');
   const newRoot = fadeOf(record, '::view-transition-new(root)');
-  expect(fadeTiming(oldRoot), 'the old page fade').toBeTruthy();
-  expect(fadeTiming(newRoot)).toEqual(fadeTiming(oldRoot));
-  expect(fadeTiming(oldRoot)).toEqual(fadeTiming(fadeOf(tabChange, '::view-transition-old(root)')));
+  expect(oldRoot, 'the old page holds steady without fading out').toBeUndefined();
+  expect(fadeTiming(newRoot), 'the new page fade').toBeTruthy();
   expect(fadeTiming(newRoot)).toEqual(fadeTiming(fadeOf(tabChange, '::view-transition-new(root)')));
-  expect(transparentAt(oldRoot, 1), 'the old page is transparent at its end').toBe(true);
   expect(transparentAt(newRoot, 0), 'the new page is transparent at its start').toBe(true);
-  if (reading.bottomNav) {
-    expect(fadeTiming(fadeOf(record, '::view-transition-old(bottom-nav)'))).toEqual(
-      fadeTiming(oldRoot),
-    );
-    expect(fadeTiming(fadeOf(record, '::view-transition-new(bottom-nav)'))).toEqual(
-      fadeTiming(newRoot),
-    );
-  }
 
   const fade = reading.fade!;
   expect(fade, `the fade of ${context}`).not.toBeNull();
@@ -717,7 +711,7 @@ function expectImmediateSwitch(reading: PressReading, theme: Theme, playActions:
 /** What a switch exercised, in words for the gate report. */
 function describeSwitch(reading: PressReading): string {
   if (!reading.record) return 'immediate';
-  const fade = fadeOf(reading.record, '::view-transition-old(root)');
+  const fade = fadeOf(reading.record, '::view-transition-new(root)');
   return `view transition: ${groupsOf(reading.record).join(', ')}, ${fade?.duration} ms`;
 }
 

@@ -1,37 +1,55 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import {
+  afterViewTransitions,
   animateTransition,
   finishOverlayExit,
   isInsideViewTransitionUpdate,
-  isViewTransitionActive,
-  runAfterActiveViewTransition,
   runWithoutViewTransitions,
   startOverlayExit,
+  whenBackSurfaceSettled,
 } from '../dom.ts';
-import { switchTab } from '../tabs.ts';
+import { initTabs, switchTab } from '../tabs.ts';
 import { showLoader } from '../toast.ts';
 
 interface PendingTransition {
   headerPreservedAtCapture: boolean;
+  /** <html> had the owner's in-transition mark when the browser was asked to capture. */
+  markedAtCapture: boolean;
   update: () => void;
   finish: () => void;
   reject: (reason: Error) => void;
   skip: ReturnType<typeof vi.fn>;
 }
 
+/** The owner's <html> class from a transition's update until its release, read from its home. */
+const VIEW_TRANSITION_CLASS =
+  /const VIEW_TRANSITION_CLASS = '([^']+)';/u.exec(readFileSync('src/ui/dom.ts', 'utf8'))?.[1] ??
+  '';
+
 let originalTransition: PropertyDescriptor | undefined;
 let transitions: PendingTransition[];
 let nativeTransition: ReturnType<typeof vi.fn>;
+let reducedMotion: boolean;
+let visibility: DocumentVisibilityState;
 
 function preservesHeader(): boolean {
   return document.documentElement.classList.contains('tab-header-transition');
+}
+
+function marked(): boolean {
+  return document.documentElement.classList.contains(VIEW_TRANSITION_CLASS);
+}
+
+function activeTab(): string | null {
+  return document.querySelector('.tab-content.active')?.id ?? null;
 }
 
 async function flushTransitionTasks(): Promise<void> {
@@ -45,13 +63,29 @@ function flushReleaseFrame(): void {
   vi.advanceTimersToNextFrame();
 }
 
+function setVisibility(state: DocumentVisibilityState): void {
+  visibility = state;
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+  reducedMotion = false;
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' ? reducedMotion : true,
+    })),
+  );
+  visibility = 'visible';
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibility,
+  });
   resetState();
   bus.clear();
   transitions = [];
-  document.documentElement.classList.remove('tab-header-transition');
+  document.documentElement.classList.remove('tab-header-transition', VIEW_TRANSITION_CLASS);
   document.body.innerHTML = `
     <style>.demo-curtain { opacity: 0; }</style>
     <header id="main-header">
@@ -79,7 +113,14 @@ beforeEach(() => {
       reject = rejectPromise;
     });
     const skip = vi.fn(() => finish());
-    transitions.push({ headerPreservedAtCapture: preservesHeader(), update, finish, reject, skip });
+    transitions.push({
+      headerPreservedAtCapture: preservesHeader(),
+      markedAtCapture: marked(),
+      update,
+      finish,
+      reject,
+      skip,
+    });
     return {
       ready: Promise.resolve(),
       updateCallbackDone: Promise.resolve(),
@@ -105,7 +146,8 @@ afterEach(async () => {
   } else {
     Reflect.deleteProperty(document, 'startViewTransition');
   }
-  document.documentElement.classList.remove('tab-header-transition');
+  Reflect.deleteProperty(document, 'visibilityState');
+  document.documentElement.classList.remove('tab-header-transition', VIEW_TRANSITION_CLASS);
   document.body.innerHTML = '';
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -176,7 +218,7 @@ describe('tab transitions during header loading', () => {
     expect(transitions[1].headerPreservedAtCapture).toBe(true);
   });
 
-  it('returns a newly opened modal and the header to normal root compositing', async () => {
+  it('ends the presentation when a tab listener opens a modal inside the update', async () => {
     bus.on('ui:settings-tab-opened', () => {
       document.getElementById('dialog-overlay')!.classList.add('show');
     });
@@ -186,6 +228,10 @@ describe('tab transitions during header loading', () => {
 
     expect(transitions[0].headerPreservedAtCapture).toBe(true);
     transitions[0].update();
+    // The live header and nav would paint over the modal, and their old
+    // images are hidden: dropping only their names would blink them, so the
+    // transition ends and the modal shows in its own stack at once.
+    expect(transitions[0].skip).toHaveBeenCalledOnce();
     expect(preservesHeader()).toBe(false);
     expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
     expect(nativeTransition).toHaveBeenCalledOnce();
@@ -220,7 +266,7 @@ describe('tab transitions during header loading', () => {
   );
 });
 
-describe('batched and overlapping tab transitions', () => {
+describe('one native view transition at a time', () => {
   it('preserves the header when all updates in one batch are tab switches', async () => {
     switchTab('settings');
     switchTab('connect');
@@ -251,29 +297,62 @@ describe('batched and overlapping tab transitions', () => {
     },
   );
 
+  it('joins a tab change made before the running update into that update', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    expect(nativeTransition).toHaveBeenCalledOnce();
+
+    // The browser has not run the update yet: the change waits for it, and
+    // stays out of the old image.
+    switchTab('connect');
+    await flushTransitionTasks();
+    expect(nativeTransition).toHaveBeenCalledOnce();
+    expect(activeTab()).toBe('tab-play');
+
+    transitions[0].update();
+    expect(activeTab()).toBe('tab-connect');
+    expect(preservesHeader()).toBe(true);
+    expect(transitions[0].skip).not.toHaveBeenCalled();
+  });
+
+  it('applies a tab change made after the update in place, inside the running fade', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+
+    let insideUpdate: boolean | null = null;
+    bus.on('ui:connect-tab-opened', () => {
+      insideUpdate = isInsideViewTransitionUpdate();
+    });
+    switchTab('connect');
+
+    // The new image is live, so the change shows at once without a second
+    // capture that would skip the running fade.
+    expect(activeTab()).toBe('tab-connect');
+    expect(insideUpdate).toBe(true);
+    expect(isInsideViewTransitionUpdate()).toBe(false);
+    await flushTransitionTasks();
+    expect(nativeTransition).toHaveBeenCalledOnce();
+    expect(transitions[0].skip).not.toHaveBeenCalled();
+    expect(preservesHeader()).toBe(true);
+  });
+
   it.each(['finish', 'reject'] as const)(
-    'keeps the newer header group when the superseded transition receives %s',
+    'keeps the header group until the transition that applied both changes settles (%s)',
     async (outcome) => {
       switchTab('settings');
       await flushTransitionTasks();
       transitions[0].update();
-
       switchTab('connect');
-      await flushTransitionTasks();
-      transitions[1].update();
       expect(preservesHeader()).toBe(true);
 
       if (outcome === 'finish') transitions[0].finish();
-      else transitions[0].reject(new Error('The newer transition superseded this transition'));
-      await flushTransitionTasks();
-      expect(preservesHeader()).toBe(true);
-
-      transitions[1].finish();
+      else transitions[0].reject(new Error('Document became hidden'));
       await flushTransitionTasks();
       expect(preservesHeader()).toBe(true);
       flushReleaseFrame();
       expect(preservesHeader()).toBe(false);
-      expect(document.getElementById('tab-connect')?.classList.contains('active')).toBe(true);
+      expect(activeTab()).toBe('tab-connect');
     },
   );
 
@@ -281,15 +360,105 @@ describe('batched and overlapping tab transitions', () => {
     switchTab('settings');
     await flushTransitionTasks();
     transitions[0].update();
+    transitions[0].finish();
+    await flushTransitionTasks();
+    // The first transition settled; its release frame has not come yet.
     expect(preservesHeader()).toBe(true);
 
     const otherUpdate = vi.fn();
     animateTransition(otherUpdate);
     await flushTransitionTasks();
+    expect(nativeTransition).toHaveBeenCalledTimes(2);
     expect(transitions[1].headerPreservedAtCapture).toBe(false);
     transitions[1].update();
     expect(otherUpdate).toHaveBeenCalledOnce();
     expect(preservesHeader()).toBe(false);
+
+    // The older release frame must not take the newer transition's mark.
+    flushReleaseFrame();
+    expect(marked()).toBe(true);
+    transitions[1].finish();
+    await flushTransitionTasks();
+    flushReleaseFrame();
+    expect(marked()).toBe(false);
+  });
+
+  it('never starts a second transition for arrow keys pressed on the tab list during one', async () => {
+    initTabs();
+    const nav = (tab: string) =>
+      document.querySelector<HTMLElement>(`.bottom-nav .nav-item[data-tab="${tab}"]`)!;
+    const press = (tab: string, key: string) =>
+      nav(tab).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+
+    press('play', 'ArrowRight');
+    await flushTransitionTasks();
+    // Before the update has run, and again while the fade runs.
+    press('settings', 'ArrowRight');
+    await flushTransitionTasks();
+    transitions[0].update();
+    expect(activeTab()).toBe('tab-connect');
+    press('connect', 'ArrowLeft');
+    expect(activeTab()).toBe('tab-settings');
+    await flushTransitionTasks();
+
+    expect(nativeTransition).toHaveBeenCalledOnce();
+    expect(transitions[0].skip).not.toHaveBeenCalled();
+    expect(nav('settings').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('applies a programmatic screen change in place and ends the presentation for its window', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+
+    // As a session-full or reconnect fallback does while a tab fades in.
+    animateTransition(() => {
+      document.getElementById('dialog-overlay')!.classList.add('show');
+    });
+    expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
+    await flushTransitionTasks();
+
+    expect(nativeTransition).toHaveBeenCalledOnce();
+    expect(transitions[0].skip).toHaveBeenCalledOnce();
+    expect(preservesHeader()).toBe(false);
+  });
+
+  it.each(['before', 'after'] as const)(
+    'settles a window closed %s the running update with that transition, not at once',
+    async (when) => {
+      switchTab('settings');
+      await flushTransitionTasks();
+      if (when === 'after') transitions[0].update();
+
+      const close = vi.fn();
+      animateTransition(close, { closingWindow: true });
+      const observed = vi.fn();
+      const observation = whenBackSurfaceSettled().then(observed);
+      if (when === 'before') {
+        expect(close).not.toHaveBeenCalled();
+        transitions[0].update();
+      }
+      expect(close).toHaveBeenCalledOnce();
+      await flushTransitionTasks();
+      // The held old image still shows the closing window.
+      expect(observed).not.toHaveBeenCalled();
+
+      transitions[0].finish();
+      await observation;
+      expect(observed).toHaveBeenCalledOnce();
+      expect(nativeTransition).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('runs every update of a shared transition when one of them throws', async () => {
+    animateTransition(() => {
+      throw new Error('a setup update failed');
+    });
+    switchTab('settings');
+    await flushTransitionTasks();
+
+    expect(() => transitions[0].update()).not.toThrow();
+    expect(activeTab()).toBe('tab-settings');
   });
 });
 
@@ -391,24 +560,56 @@ describe('overlays appearing while a tab crossfade is running', () => {
     expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
   });
 
-  it('ends only the latest snapshot presentation when an overlay opens after supersession', async () => {
+  it('ends the presentation once when an overlay opens after a tab change applied in place', async () => {
     switchTab('settings');
     await flushTransitionTasks();
     transitions[0].update();
-
     switchTab('connect');
     await flushTransitionTasks();
-    transitions[1].update();
-    await flushTransitionTasks();
-    const oldSkipCalls = transitions[0].skip.mock.calls.length;
 
     document.getElementById('dialog-overlay')!.classList.add('show');
     await flushTransitionTasks();
 
-    expect(transitions[0].skip).toHaveBeenCalledTimes(oldSkipCalls);
-    expect(transitions[1].skip).toHaveBeenCalledOnce();
+    expect(nativeTransition).toHaveBeenCalledOnce();
+    expect(transitions[0].skip).toHaveBeenCalledOnce();
     expect(preservesHeader()).toBe(false);
     expect(document.getElementById('tab-connect')?.classList.contains('active')).toBe(true);
+  });
+
+  it('keeps work waiting after an overlay ends the presentation until the update has run', async () => {
+    // A browser runs the update of a skipped transition and settles it after.
+    let finish!: () => void;
+    const skip = vi.fn();
+    let update!: () => void;
+    nativeTransition.mockImplementationOnce((callback: () => void) => {
+      update = callback;
+      return {
+        ready: Promise.reject(new Error('skipped')),
+        updateCallbackDone: Promise.resolve(),
+        finished: new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+        skipTransition: skip,
+      };
+    });
+    switchTab('settings');
+    await flushTransitionTasks();
+    const waiting = vi.fn(() => activeTab());
+    afterViewTransitions(waiting);
+
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    await flushTransitionTasks();
+    expect(skip).toHaveBeenCalledOnce();
+    expect(preservesHeader()).toBe(false);
+
+    flushReleaseFrame();
+    expect(waiting).not.toHaveBeenCalled();
+    update();
+    finish();
+    await flushTransitionTasks();
+    flushReleaseFrame();
+    expect(waiting).toHaveBeenCalledOnce();
+    expect(waiting).toHaveReturnedWith('tab-settings');
   });
 });
 
@@ -436,11 +637,16 @@ describe('tab transition fallback and cleanup', () => {
     });
 
     switchTab('settings');
+    // Waiting work runs only once the update has been applied.
+    const waiting = vi.fn(() => activeTab());
+    afterViewTransitions(waiting);
     await flushTransitionTasks();
 
     expect(changed).toHaveBeenCalledExactlyOnceWith('settings');
     expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
     expect(preservesHeader()).toBe(false);
+    expect(marked()).toBe(false);
+    expect(waiting).toHaveReturnedWith('tab-settings');
   });
 
   it('keeps unsupported browsers synchronous even immediately after loading', () => {
@@ -451,6 +657,32 @@ describe('tab transition fallback and cleanup', () => {
     expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
     expect(nativeTransition).not.toHaveBeenCalled();
     expect(preservesHeader()).toBe(false);
+  });
+
+  it('starts no native transition under reduced motion, and settles a closing window with its update', async () => {
+    reducedMotion = true;
+    switchTab('settings');
+    const close = vi.fn();
+    animateTransition(close, { closingWindow: true });
+    const observed = vi.fn();
+    const observation = whenBackSurfaceSettled().then(observed);
+    // The batch applies after its callers' task, where a transition's update
+    // would, so callers see the same order as with motion.
+    expect(activeTab()).toBe('tab-play');
+    expect(close).not.toHaveBeenCalled();
+
+    await flushTransitionTasks();
+    expect(activeTab()).toBe('tab-settings');
+    expect(close).toHaveBeenCalledOnce();
+    await observation;
+    expect(observed).toHaveBeenCalledOnce();
+    expect(nativeTransition).not.toHaveBeenCalled();
+    expect(preservesHeader()).toBe(false);
+    expect(marked()).toBe(false);
+    // Nothing waits for a transition that never started.
+    const waiting = vi.fn();
+    afterViewTransitions(waiting);
+    expect(waiting).toHaveBeenCalledOnce();
   });
 
   it('keeps first-paint scopes synchronous and permits the next tab crossfade', async () => {
@@ -467,63 +699,90 @@ describe('tab transition fallback and cleanup', () => {
     expect(document.getElementById('tab-connect')?.classList.contains('active')).toBe(true);
   });
 
-  it('tracks active/update state and flushes post-transition work only after the latest transition settles', async () => {
-    expect(isViewTransitionActive()).toBe(false);
-    expect(isInsideViewTransitionUpdate()).toBe(false);
-
-    let insideFirstUpdate = false;
-    let activeDuringFirstUpdate = false;
-    const afterFirst = vi.fn();
-    animateTransition(
-      () => {
-        insideFirstUpdate = isInsideViewTransitionUpdate();
-        activeDuringFirstUpdate = isViewTransitionActive();
-        runAfterActiveViewTransition(afterFirst);
-      },
-      { preserveHeader: true },
-    );
+  it('marks <html> from the update until one frame after the transition, then runs waiting work', async () => {
+    let insideUpdate = false;
+    let markedInUpdate = false;
+    switchTab('settings');
+    animateTransition(() => {
+      insideUpdate = isInsideViewTransitionUpdate();
+      markedInUpdate = marked();
+    });
+    // Waiting from the batch on: nothing has started yet.
+    const waiting = vi.fn();
+    afterViewTransitions(waiting);
+    const cancelled = vi.fn();
+    const cancel = afterViewTransitions(cancelled);
+    const failing = vi.fn(() => {
+      throw new Error('waiting work failed');
+    });
+    afterViewTransitions(failing);
+    cancel();
     await flushTransitionTasks();
 
-    expect(isViewTransitionActive()).toBe(true);
+    // The old image is captured without the mark.
+    expect(transitions[0].markedAtCapture).toBe(false);
     transitions[0].update();
-    expect(insideFirstUpdate).toBe(true);
-    expect(activeDuringFirstUpdate).toBe(true);
+    expect(insideUpdate).toBe(true);
+    expect(markedInUpdate).toBe(true);
     expect(isInsideViewTransitionUpdate()).toBe(false);
-    expect(afterFirst).not.toHaveBeenCalled();
+    expect(marked()).toBe(true);
 
-    // A second transition supersedes the first before it finishes.
-    const afterSecond = vi.fn();
-    animateTransition(
-      () => {
-        runAfterActiveViewTransition(afterSecond);
-      },
-      { preserveHeader: true },
-    );
+    transitions[0].finish();
     await flushTransitionTasks();
-    transitions[1].update();
-
-    // The superseded transition rejecting must not drop active state or flush queued work early.
-    transitions[0].reject(new Error('Transition superseded'));
-    await flushTransitionTasks();
-    flushReleaseFrame();
-    expect(isViewTransitionActive()).toBe(true);
-    expect(afterFirst).not.toHaveBeenCalled();
-    expect(afterSecond).not.toHaveBeenCalled();
-
-    // Settling the latest transition releases after one animation frame and flushes queued work.
-    transitions[1].finish();
-    await flushTransitionTasks();
-    expect(isViewTransitionActive()).toBe(true);
-    expect(afterFirst).not.toHaveBeenCalled();
-    expect(afterSecond).not.toHaveBeenCalled();
+    expect(marked()).toBe(true);
+    expect(waiting).not.toHaveBeenCalled();
 
     flushReleaseFrame();
-    expect(isViewTransitionActive()).toBe(false);
-    expect(afterFirst).toHaveBeenCalledOnce();
-    expect(afterSecond).toHaveBeenCalledOnce();
+    expect(marked()).toBe(false);
+    expect(failing).toHaveBeenCalledOnce();
+    expect(waiting).toHaveBeenCalledOnce();
+    expect(cancelled).not.toHaveBeenCalled();
+
+    // With nothing pending the work runs at once.
+    const later = vi.fn();
+    afterViewTransitions(later);
+    expect(later).toHaveBeenCalledOnce();
   });
 
-  it('defines normal-alpha root crossfade, tab-scoped bottom-nav isolation, and host spinner layer rules', async () => {
+  it('releases at once when the transition settles on a hidden page, which runs no frames', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+    const waiting = vi.fn();
+    afterViewTransitions(waiting);
+
+    // The browser skips the transition when the page hides.
+    setVisibility('hidden');
+    transitions[0].reject(new Error('Document became hidden'));
+    await flushTransitionTasks();
+
+    expect(preservesHeader()).toBe(false);
+    expect(marked()).toBe(false);
+    expect(waiting).toHaveBeenCalledOnce();
+  });
+
+  it('releases at once when the page hides during the release frame', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+    transitions[0].finish();
+    await flushTransitionTasks();
+    expect(preservesHeader()).toBe(true);
+
+    setVisibility('hidden');
+
+    expect(preservesHeader()).toBe(false);
+    expect(marked()).toBe(false);
+    // The frame that comes once the page shows again finds nothing to release.
+    setVisibility('visible');
+    switchTab('play');
+    await flushTransitionTasks();
+    transitions[1].update();
+    flushReleaseFrame();
+    expect(preservesHeader()).toBe(true);
+  });
+
+  it('defines normal-alpha root crossfade, tab-scoped bottom-nav isolation, and the transition scrollbar rule', async () => {
     const css = await readFile('css/style.css', 'utf8');
 
     expect(css).toMatch(
@@ -538,11 +797,17 @@ describe('tab transition fallback and cleanup', () => {
     expect(css).not.toMatch(
       /(?:^|[\r\n])\s*\.bottom-nav\s*\{[^}]*view-transition-name:\s*bottom-nav;/su,
     );
+    // The host QR spinner stays out of the page's images instead of taking a
+    // layer of its own (src/ui/setup-host-invite.ts).
+    expect(css).not.toContain('host-qr-spinner');
+    // One rule, owned by animateTransition(), turns every custom scrollbar's
+    // own fade off while a transition's new image is live.
+    expect(VIEW_TRANSITION_CLASS).toMatch(/^[a-z]+(?:-[a-z]+)*$/u);
     expect(css).toMatch(
-      /#setup-overlay\.active\s+\.setup-host-invite-stage\.is-room-qr-loading\s*>\s*\.setup-host-qr-loading-spinner\s*\{[^}]*view-transition-name:\s*host-qr-spinner;/su,
-    );
-    expect(css).toMatch(
-      /::view-transition-new\(host-qr-spinner\)\s*\{[^}]*animation:\s*view-transition-fade-in 0\.25s ease both;[^}]*mix-blend-mode:\s*normal;/su,
+      new RegExp(
+        `html\\.${VIEW_TRANSITION_CLASS} \\.cscroll-track\\s*\\{\\s*transition: none !important;\\s*\\}`,
+        'u',
+      ),
     );
   });
 });

@@ -12,11 +12,7 @@ import {
 import { isDesktopLayout, SHORT_DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { bus } from '../core/events.ts';
-import {
-  isInsideViewTransitionUpdate,
-  isViewTransitionActive,
-  runAfterActiveViewTransition,
-} from './dom.ts';
+import { isInsideViewTransitionUpdate } from './dom.ts';
 import { isHovered, isHoverInput } from './hover-pointer.ts';
 
 const THUMB_MIN_HEIGHT = 30;
@@ -96,8 +92,6 @@ interface ScrollbarState {
   resizedSinceCheck: boolean;
   resizeEndFrame: number | null;
   revealAfterLayout: boolean;
-  deferredTimelineAfterVt: boolean;
-  deferredRelayoutAfterVt: boolean;
   destroyed: boolean;
   /** Cached transform-containing-block ancestor (resolved lazily on first updateLayout). */
   transformBlock: HTMLElement | null;
@@ -228,23 +222,8 @@ function updateTimelineElasticity(
  * content changes size none is built: the resize-end check builds one for the
  * settled geometry (followResize).
  */
-function deferTimelineUntilViewTransitionEnds(state: ScrollbarState): void {
-  if (state.deferredTimelineAfterVt) return;
-  state.deferredTimelineAfterVt = true;
-  runAfterActiveViewTransition(() => {
-    state.deferredTimelineAfterVt = false;
-    if (state.destroyed || state.isDragging || state.resizing || !state.hasOverflow) return;
-    ensureScrollTimeline(state);
-  });
-}
-
 function ensureScrollTimeline(state: ScrollbarState, scrollTop?: number): boolean {
   if (state.resizing) return false;
-  if (isViewTransitionActive()) {
-    cancelScrollTimeline(state);
-    deferTimelineUntilViewTransitionEnds(state);
-    return false;
-  }
   if (!state.hasOverflow || state.maxScroll <= 0 || state.maxThumbTop < 0) return false;
   if (
     state.scrollAnimation &&
@@ -376,17 +355,9 @@ function isTrackHeld(state: ScrollbarState): boolean {
   return isHovered(state.track) && document.hasFocus();
 }
 
-function setTrackVisible(state: ScrollbarState, visible: boolean, immediate = false): void {
-  if (state.trackVisible === visible && !immediate) return;
+function setTrackVisible(state: ScrollbarState, visible: boolean): void {
+  if (state.trackVisible === visible) return;
   state.trackVisible = visible;
-  if (immediate) {
-    state.track.style.transition = 'none';
-    state.track.style.opacity = visible ? '1' : '0';
-    state.track.style.pointerEvents = visible ? 'auto' : 'none';
-    void state.track.offsetWidth;
-    state.track.style.transition = 'opacity 0.3s ease';
-    return;
-  }
   state.track.style.opacity = visible ? '1' : '0';
   state.track.style.pointerEvents = visible ? 'auto' : 'none';
 }
@@ -418,14 +389,14 @@ function armFade(state: ScrollbarState): void {
 }
 
 /** Reveal from cached layout state; the scroll hot path must never force style/layout. */
-function showTrack(state: ScrollbarState, immediate = false): void {
+function showTrack(state: ScrollbarState): void {
   if (!state.hasOverflow) {
     cancelFade(state);
-    setTrackVisible(state, false, immediate);
+    setTrackVisible(state, false);
     return;
   }
 
-  setTrackVisible(state, true, immediate);
+  setTrackVisible(state, true);
   if (state.isDragging) {
     cancelFade(state);
     return;
@@ -584,7 +555,7 @@ function stopFollowingResize(state: ScrollbarState): void {
   state.resizeEndFrame = null;
 }
 
-function updateLayout(state: ScrollbarState, immediateReveal = false): void {
+function updateLayout(state: ScrollbarState): void {
   const { container, track, thumb } = state;
   const hasOverflow = hasVisibleOverflow(container, state.scrollHeld);
   if (
@@ -611,7 +582,7 @@ function updateLayout(state: ScrollbarState, immediateReveal = false): void {
     state.visibleHeight = 0;
     state.thumbHeight = 0;
     state.revealAfterLayout = false;
-    setTrackVisible(state, false, immediateReveal);
+    setTrackVisible(state, false);
     setStyleIfChanged(track.style, 'height', '0px');
     setStyleIfChanged(thumb.style, 'display', 'none');
     resetScriptThumbVisual(state);
@@ -695,9 +666,9 @@ function updateLayout(state: ScrollbarState, immediateReveal = false): void {
   if (state.isDragging || !ensureScrollTimeline(state, scrollTop)) updateScroll(state, scrollTop);
   else updateTimelineElasticity(state, performance.now(), false, scrollTop);
 
-  if (state.revealAfterLayout || immediateReveal) {
+  if (state.revealAfterLayout) {
     state.revealAfterLayout = false;
-    showTrack(state, immediateReveal);
+    showTrack(state);
   }
 }
 
@@ -891,8 +862,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
     resizedSinceCheck: false,
     resizeEndFrame: null,
     revealAfterLayout: false,
-    deferredTimelineAfterVt: false,
-    deferredRelayoutAfterVt: false,
     destroyed: false,
     transformBlock: null,
     transformBlockResolved: false,
@@ -968,18 +937,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
     // goes on while the scroll range rests: the range moves in whole pixels
     // and can stay put for a frame or two while the content still changes.
     if (state.resizing) state.resizedSinceCheck = true;
-    if (isViewTransitionActive()) {
-      if (!state.deferredRelayoutAfterVt) {
-        state.deferredRelayoutAfterVt = true;
-        runAfterActiveViewTransition(() => {
-          state.deferredRelayoutAfterVt = false;
-          if (state.destroyed) return;
-          if (state.managesOverflowGutter) scheduleLayout(state);
-          else runLayoutNow(state);
-        });
-      }
-      return;
-    }
     if (state.managesOverflowGutter) scheduleLayout(state);
     else runLayoutNow(state);
   });
@@ -999,15 +956,15 @@ export function initCustomScrollbar(container: HTMLElement): void {
   const cleanupRevealBus = bus.on('ui:scrollbar-reveal', (scope) => {
     if (scope && scope !== container && !scope.contains(container)) return;
     if (isInsideViewTransitionUpdate()) {
-      if (state.layoutFrame !== null) {
-        window.cancelAnimationFrame(state.layoutFrame);
-        state.layoutFrame = null;
-      }
-      // Commit geometry and opacity:1 synchronously inside the view-transition
-      // update callback so the new snapshot carries the scrollbar from frame 0
-      // (avoiding the 1 -> 0 -> 1 blink on fast switches while deferring
-      // ScrollTimeline attachment until the transition ends).
-      updateLayout(state, true);
+      // The new image of a view transition is live from its first frame. Lay
+      // the bar out and show it here, inside the update, so that frame has it
+      // already (animateTransition() turns the bar's own fade off meanwhile).
+      // The next frame lays it out again, after the rest of the update, and
+      // reveals a bar that only overflows by then.
+      state.revealAfterLayout = true;
+      updateLayout(state);
+      state.revealAfterLayout = !state.hasOverflow;
+      scheduleLayout(state);
       return;
     }
     state.revealAfterLayout = !state.hasOverflow;

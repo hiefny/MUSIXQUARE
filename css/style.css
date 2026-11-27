@@ -845,8 +845,10 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     }
   }
 
-  /* Single normal-alpha fade over a steady old snapshot avoids the
-     plus-lighter double-flash WebKit produces with default UA transitions. */
+  /* The old page holds still and the new one fades in over it with normal
+     blending. For opaque snapshots this draws what the default crossfade
+     draws, without its two plus-lighter fades that have to stay in step,
+     which WebKit has an open report of flashing with (bug 297845). */
   ::view-transition-group(root) {
     animation: none;
   }
@@ -890,27 +892,23 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     mix-blend-mode: normal;
   }
 
-  /* Isolate the host QR loading spinner onto its own view-transition layer so
-     WebKit does not jump its rotating layers when ::view-transition-new(root)
-     tears down. */
-  ::view-transition-group(host-qr-spinner) {
-    animation: none;
-  }
-
-  ::view-transition-old(host-qr-spinner) {
-    display: none;
-  }
-
-  ::view-transition-new(host-qr-spinner) {
-    animation: view-transition-fade-in 0.25s ease both;
-    mix-blend-mode: normal;
-  }
-
+  /* animateTransition() starts no view transition under reduced motion; this
+     covers one already running when the preference changes. */
   @media (prefers-reduced-motion: reduce) {
-    ::view-transition-new(root),
-    ::view-transition-new(host-qr-spinner) {
+    ::view-transition-new(root) {
       animation: none;
     }
+  }
+
+  /* animateTransition() (src/ui/dom.ts) marks <html> from a transition's
+     update until one frame after it ends. The new image is live, so a custom
+     scrollbar's own fade would run inside it, behind the page's: a bar that
+     enters with a tab would start from transparent and lag the page. Under
+     the mark a bar shows and hides at once, and fades with the page instead.
+     Important outranks the track's inline transition
+     (src/ui/custom-scrollbar.ts). */
+  html.in-view-transition .cscroll-track {
+    transition: none !important;
   }
 
   /* Header loading progress */
@@ -7572,12 +7570,6 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     transition:
       opacity 0.18s ease-out,
       visibility 0s linear 0s;
-  }
-
-  #setup-overlay.active
-    .setup-host-invite-stage.is-room-qr-loading
-    > .setup-host-qr-loading-spinner {
-    view-transition-name: host-qr-spinner;
   }
 
   /* Set after the fade-out (setup-host-invite.ts): the hidden loop holds its

@@ -2798,44 +2798,71 @@ describe('custom-scrollbar transition reveal', () => {
     expect(dialogList.track().querySelector<HTMLElement>('.cscroll-thumb')?.style.display).toBe('');
   });
 
-  it('commits frame-0 geometry and opacity synchronously inside a view-transition update and defers ScrollTimeline until release', async () => {
-    const originalTransition = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
-    const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
-    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
-    let finishVt!: () => void;
-    let runVtUpdate!: () => void;
-    const animate = vi.fn(
-      (
-        _keyframes: Keyframe[] | PropertyIndexedKeyframes,
-        options?: number | KeyframeAnimationOptions,
-      ) =>
-        ({
-          cancel: vi.fn(),
-          ready: Promise.resolve(),
-          timeline: typeof options === 'object' ? options.timeline : null,
-        }) as unknown as Animation,
-    );
+  describe('inside a view transition of the page', () => {
+    let originalTransition: PropertyDescriptor | undefined;
+    let originalTimeline: PropertyDescriptor | undefined;
+    let originalAnimate: PropertyDescriptor | undefined;
+    let finishTransition: () => void;
+    let runTransitionUpdate: () => void;
+    let animate: Mock;
 
-    Object.defineProperty(document, 'startViewTransition', {
-      configurable: true,
-      value: vi.fn((update: () => void) => {
-        runVtUpdate = update;
-        const finished = new Promise<void>((resolve) => {
-          finishVt = resolve;
-        });
-        return { ready: Promise.resolve(), updateCallbackDone: Promise.resolve(), finished };
-      }),
-    });
-    Object.defineProperty(globalThis, 'ScrollTimeline', {
-      configurable: true,
-      value: class ScrollTimelineStub {},
-    });
-    Object.defineProperty(HTMLElement.prototype, 'animate', {
-      configurable: true,
-      value: animate,
+    /** The owner's <html> class from a transition's update until its release (src/ui/dom.ts). */
+    const transitionMark = async (): Promise<string> =>
+      /const VIEW_TRANSITION_CLASS = '([^']+)';/u.exec(
+        await readFile('src/ui/dom.ts', 'utf8'),
+      )?.[1] ?? '';
+
+    beforeEach(() => {
+      originalTransition = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+      originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
+      originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
+      animate = vi.fn(
+        (
+          _keyframes: Keyframe[] | PropertyIndexedKeyframes,
+          options?: number | KeyframeAnimationOptions,
+        ) =>
+          ({
+            cancel: vi.fn(),
+            ready: Promise.resolve(),
+            timeline: typeof options === 'object' ? options.timeline : null,
+          }) as unknown as Animation,
+      );
+      Object.defineProperty(document, 'startViewTransition', {
+        configurable: true,
+        value: vi.fn((update: () => void) => {
+          runTransitionUpdate = update;
+          const finished = new Promise<void>((resolve) => {
+            finishTransition = resolve;
+          });
+          return { ready: Promise.resolve(), updateCallbackDone: Promise.resolve(), finished };
+        }),
+      });
+      Object.defineProperty(globalThis, 'ScrollTimeline', {
+        configurable: true,
+        value: class ScrollTimelineStub {},
+      });
+      Object.defineProperty(HTMLElement.prototype, 'animate', {
+        configurable: true,
+        value: animate,
+      });
     });
 
-    try {
+    afterEach(async () => {
+      // Settle and release the transition so no state of the owner leaks.
+      finishTransition?.();
+      await flushMutationObservers();
+      flushAnimationFrame();
+      if (originalTransition)
+        Object.defineProperty(document, 'startViewTransition', originalTransition);
+      else Reflect.deleteProperty(document, 'startViewTransition');
+      if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
+      else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
+      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+    });
+
+    it('lays the entered bar out and shows it inside the update, then lays it out again the next frame', async () => {
+      const mark = await transitionMark();
       const tabPanel = createScrollbox('vt-tab-reveal');
       tabPanel.setClientHeight(0);
       initCustomScrollbar(tabPanel.container);
@@ -2849,46 +2876,80 @@ describe('custom-scrollbar transition reveal', () => {
         },
         { preserveHeader: true },
       );
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushMutationObservers();
 
-      // Inside startViewTransition's update callback, layout & opacity:1 must
-      // commit synchronously (before any rAF) while ScrollTimeline stays deferred.
-      runVtUpdate();
+      const layoutsBeforeUpdate = tabPanel.rectSpy.mock.calls.length;
+      runTransitionUpdate();
+      // The new image is live from its first frame, so the bar is there
+      // already: geometry, opacity and the scroll timeline. The owner's mark
+      // turns the bar's own fade off (css/style.css), so the inline
+      // transition stays as it is and nothing forces a style flush.
+      expect(mark).not.toBe('');
+      expect(document.documentElement.classList.contains(mark)).toBe(true);
+      expect(tabPanel.rectSpy.mock.calls.length).toBe(layoutsBeforeUpdate + 1);
       expect(tabPanel.track().style.height).toBe('200px');
       expect(tabPanel.track().style.opacity).toBe('1');
       expect(tabPanel.track().style.transition).toBe('opacity 0.3s ease');
-      expect(tabPanel.track().dataset.scrollDriver).toBe('script');
-      expect(animate).not.toHaveBeenCalled();
-
-      // A ResizeObserver delivery during the active transition also defers.
-      const roBefore = tabPanel.rectSpy.mock.calls.length;
-      notifyResize(tabPanel.container);
-      expect(tabPanel.rectSpy.mock.calls.length).toBe(roBefore);
-      expect(animate).not.toHaveBeenCalled();
-
-      // Finishing the view transition + one teardown frame attaches ScrollTimeline cleanly.
-      finishVt();
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(animate).not.toHaveBeenCalled();
-
-      flushAnimationFrame();
       expect(tabPanel.track().dataset.scrollDriver).toBe('timeline');
-      expect(animate).toHaveBeenCalledTimes(1);
+      expect(animate).toHaveBeenCalledOnce();
+
+      // The next frame measures again, after the rest of the update.
+      const layoutsBeforeFrame = tabPanel.rectSpy.mock.calls.length;
+      flushAnimationFrame();
+      expect(tabPanel.rectSpy.mock.calls.length).toBe(layoutsBeforeFrame + 1);
+      expect(tabPanel.track().style.opacity).toBe('1');
+      expect(animate).toHaveBeenCalledOnce();
+
+      // A resize during the transition lays the bar out at once, as outside one.
+      tabPanel.setClientHeight(180);
+      notifyResize(tabPanel.container);
+      expect(tabPanel.track().style.height).toBe('180px');
+
+      // The mark goes one frame after the transition ends.
+      finishTransition();
+      await flushMutationObservers();
+      expect(document.documentElement.classList.contains(mark)).toBe(true);
+      flushAnimationFrame();
+      expect(document.documentElement.classList.contains(mark)).toBe(false);
 
       // The normal auto-fade timer still hides the track after FADE_DELAY.
       vi.advanceTimersByTime(1200);
       expect(tabPanel.track().style.opacity).toBe('0');
-    } finally {
-      if (originalTransition)
-        Object.defineProperty(document, 'startViewTransition', originalTransition);
-      else Reflect.deleteProperty(document, 'startViewTransition');
-      if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
-      else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
-      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate);
-      else Reflect.deleteProperty(HTMLElement.prototype, 'animate');
-    }
+    });
+
+    it('reveals on the next frame a bar whose scroller gets its size later in the same update', async () => {
+      const panel = createScrollbox('vt-late-size');
+      panel.setClientHeight(0);
+      initCustomScrollbar(panel.container);
+
+      animateTransition(() => {
+        bus.emit('ui:scrollbar-reveal', panel.container.parentElement!);
+        // A later part of the same update opens the scroller's surface.
+        panel.setClientHeight(200);
+      });
+      await flushMutationObservers();
+      runTransitionUpdate();
+      expect(panel.track().style.opacity).toBe('0');
+
+      flushAnimationFrame();
+      expect(panel.track().style.height).toBe('200px');
+      expect(panel.track().style.opacity).toBe('1');
+    });
+
+    it('reveals a bar outside the update during a transition as it does without one', async () => {
+      const mark = await transitionMark();
+      const setupArea = createScrollbox('vt-timer-reveal');
+      initCustomScrollbar(setupArea.container);
+      animateTransition(() => {});
+      await flushMutationObservers();
+      runTransitionUpdate();
+      expect(document.documentElement.classList.contains(mark)).toBe(true);
+
+      // As the setup overlay's timer or a rAF does after the update.
+      bus.emit('ui:scrollbar-reveal', setupArea.container.parentElement!);
+      expect(setupArea.track().style.opacity).toBe('1');
+      expect(setupArea.track().style.transition).toBe('opacity 0.3s ease');
+    });
   });
 });
 

@@ -1,6 +1,7 @@
 /** Host setup invitation QR crossfade. */
 
 import { log } from '../core/log.ts';
+import { afterViewTransitions } from './dom.ts';
 
 const HOST_INVITE_STAGE_ID = 'setup-host-invite-stage';
 const HOST_INVITE_PLACEHOLDER_QR_ID = 'setup-host-qr-placeholder';
@@ -16,6 +17,7 @@ const importQrEncoder = () => import('qrcode');
 let hostInviteRenderGeneration = 0;
 let qrEncoderLoad: ReturnType<typeof importQrEncoder> | null = null;
 let cancelHostInviteSpinnerPause: (() => void) | null = null;
+let cancelHostInviteSpinnerReveal: (() => void) | null = null;
 
 function hostInviteElements(): {
   stage: HTMLElement;
@@ -111,12 +113,36 @@ function pauseHostInviteSpinnerAfterHide(spinner: HTMLElement): () => void {
 function setHostInviteLoading(elements: { stage: HTMLElement }, loading: boolean): void {
   cancelHostInviteSpinnerPause?.();
   cancelHostInviteSpinnerPause = null;
-  const spinner = elements.stage.querySelector<HTMLElement>('.setup-host-qr-loading-spinner');
-  // Resume in the same style change as the fade-in, from where the loop stopped.
-  if (loading) spinner?.classList.remove('is-paused');
-  elements.stage.classList.toggle('is-room-qr-loading', loading);
-  elements.stage.setAttribute('aria-busy', String(loading));
-  if (!loading && spinner) cancelHostInviteSpinnerPause = pauseHostInviteSpinnerAfterHide(spinner);
+  cancelHostInviteSpinnerReveal?.();
+  cancelHostInviteSpinnerReveal = null;
+  const { stage } = elements;
+  const spinner = stage.querySelector<HTMLElement>('.setup-host-qr-loading-spinner');
+  stage.setAttribute('aria-busy', String(loading));
+  if (!loading) {
+    stage.classList.remove('is-room-qr-loading');
+    if (spinner) cancelHostInviteSpinnerPause = pauseHostInviteSpinnerAfterHide(spinner);
+    return;
+  }
+  const show = (): void => {
+    cancelHostInviteSpinnerReveal = null;
+    // Resume in the same style change as the fade-in, from where the loop stopped.
+    spinner?.classList.remove('is-paused');
+    stage.classList.add('is-room-qr-loading');
+  };
+  // A spinner on screen stays. One that would appear during a view
+  // transition of the page (the Host tap's own, whose batch is still
+  // pending here) waits until it ends, so it is never in the page's images:
+  // there iOS 26 can paint its turning parts from main-thread state, and
+  // they jump when the transition ends. A room code that arrives first
+  // cancels it, and the spinner never shows.
+  if (stage.classList.contains('is-room-qr-loading')) {
+    if (spinner?.getClientRects().length) {
+      show();
+      return;
+    }
+    stage.classList.remove('is-room-qr-loading');
+  }
+  cancelHostInviteSpinnerReveal = afterViewTransitions(show);
 }
 
 export function finishHostInviteLoading(): void {

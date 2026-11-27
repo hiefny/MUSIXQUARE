@@ -16,6 +16,7 @@ export default defineConfig({
     'youtube-landscape-full-bleed.test.ts',
     'playlist-title-marquee.test.ts',
     'chat-copy-tap.test.ts',
+    'chat-limit.test.ts',
     'debug-overlay-copy.test.ts',
     'maintenance-inline-logo.test.ts',
     'setup-carousel-autoplay.test.ts',

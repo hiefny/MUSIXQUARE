@@ -44,13 +44,17 @@ export default defineConfig({
       'src/core/__tests__/owner-transfer-saga-states.test.ts',
       // Every authority-fence writer through its real caller (RO-25).
       'src/core/__tests__/developer-api-authority-fence-sqlite.test.ts',
+      // The Developer API smoke room's No expiry key: the copies of its room
+      // and lifetime, and the key expiry checks it passes unchanged.
+      'src/core/__tests__/developer-api-smoke-room-key.test.ts',
       'src/core/__tests__/translation-community.test.ts',
       'src/core/__tests__/translation-community-catalog.test.ts',
       'src/core/__tests__/translation-community-route.test.ts',
       // Public status page (RO-57): the contract and the copies it pins, the
       // check ledger and its two writers (the App cron and the browser
-      // monitor's OIDC report), the public answer and the status note.
-      'src/core/__tests__/{admin-status-note,github-actions-oidc-policy,status-api,status-browser-monitor,status-checks,status-contract,status-monitor-workflow,status-note-text,status-ops,status-payload,status-policy-parity,status-probe-claim,status-store-sqlite,status-worker-routes}.test.ts',
+      // monitor's OIDC report), the App minute cron's start of the browser
+      // monitor, the public answer and the status note.
+      'src/core/__tests__/{admin-status-note,github-actions-oidc-policy,status-api,status-browser-monitor,status-checks,status-contract,status-dispatch,status-monitor-workflow,status-note-text,status-ops,status-payload,status-policy-parity,status-probe-claim,status-store-sqlite,status-worker-routes}.test.ts',
       'src/developer-api/__tests__/{developer-api-credential,developer-api-facade-worker,developer-api-worker}.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker,signaling-liveness}.test.ts',
       'src/pro-room/__tests__/{pro-room-app-build-floor,pro-room-claims,pro-room-generation,pro-room-grants,pro-room-permissions,pro-room-playback-timing,pro-room-playlists,pro-room-queue-mode,pro-room-receipt-timing,pro-room-worker,service-control,youtube-occurrence-manifest}.test.ts',
@@ -163,6 +167,14 @@ export default defineConfig({
           branches: 95,
           functions: 99,
           lines: 98,
+        },
+        // The App's start of the status browser monitor (2026-11-27, train
+        // 9.0.846): every function, the bound and the late answer included.
+        'cloudflare/status-dispatch.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 100,
+          lines: 99,
         },
       },
     },

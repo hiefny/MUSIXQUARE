@@ -268,14 +268,57 @@ minutes:
 
 - Website and app (`website`) and Device connections (`connection`): the
   GitHub Actions workflow `.github/workflows/status-monitor.yml` runs at :07,
-  :22, :37 and :52 UTC and on manual dispatch. A fresh Chromium context opens
-  the home page; then a host context makes a room, a guest context joins it,
-  and each sends a chat message. The job reports both results to
-  `POST /api/ops/status-report`.
+  :22, :37 and :52 UTC. From App 9.0.846 the App Worker starts it at those
+  minutes (see "Starting the browser checks" below); the workflow's own
+  schedule at the same minutes only backs that up, and a person can still
+  start it by hand. A fresh Chromium context opens the home page; then a host
+  context makes a room, a guest context joins it, and each sends a chat
+  message. The job reports both results to `POST /api/ops/status-report`.
 - Creating and joining rooms (`rooms`) and PRO rooms (`pro`): the App Worker's
   third cron trigger, `0,15,30,45 * * * *`, runs a test host and a test guest
   through the internal signaling HTTP bridge, and reads, without changing
   anything, the bootstrap of the built-in PRO canary room `000000`.
+
+Starting the browser checks: GitHub delivers this repository's schedule events
+hours late (111 scheduled runs over 7 days came 8 to 10.5 hours late; before
+2026-08-27 the lag was 29 to 46 minutes), while the App Worker's crons run on
+time. So in each of the four minutes the App's minute cron (`* * * * *`) sends
+one `POST` to
+`https://api.github.com/repos/hiefny/MUSIXQUARE/actions/workflows/status-monitor.yml/dispatches`
+with the body `{"ref":"main"}` and the Worker secret
+`MXQR_STATUS_MONITOR_DISPATCH_TOKEN` (`cloudflare/status-dispatch.ts`; the
+token is described in the
+[configuration reference](../docs/configuration-reference.md#mxqr_status_monitor_dispatch_token)).
+The run starts within seconds and its token carries the event
+`workflow_dispatch`, which the two routes accept from `main`. The request is
+bounded by 15 seconds (`STATUS_DISPATCH_TIMEOUT_MS`), follows no redirect and
+is never repeated within a minute: the next check minute is the retry. It
+also goes out during maintenance, because the job reads maintenance itself
+and records maintenance marks. A late scheduled run is one more real check of
+the slot it starts in, where the newest check wins, and the workflow's
+concurrency group runs one monitor at a time, so late runs do no harm.
+
+A dispatch that did not start a run logs one warning,
+`{ diagnostic: 'status_dispatch', outcome, httpStatus }`, without the token,
+a header or a body:
+
+- `unconfigured`: the secret is not set or not one printable token. No request
+  is sent, and each isolate logs this once.
+- `unauthorized` (401): the token is wrong, expired or revoked.
+- `forbidden` (403): the token lacks Actions: Read and write on this
+  repository.
+- `not_found` (404): the token has no access to `hiefny/MUSIXQUARE`, or the
+  workflow file was renamed or removed.
+- `unprocessable` (422): the workflow is disabled (in the GitHub UI, or by
+  GitHub after 60 days without repository activity), it lost its
+  `workflow_dispatch` trigger, or `main` is missing.
+- `rate_limited` (429, or 403 with `x-ratelimit-remaining: 0` or a
+  `retry-after` header): wait. Four requests an hour are far inside GitHub's
+  limits, so look for another client of the same token.
+- `failed`: a 5xx, no answer, or none within 15 seconds: trouble at GitHub or
+  on the way there. The next check minute tries again.
+- `unexpected`: any other answer, a redirect included; its `httpStatus` tells
+  which.
 
 Results go to `mxqr_status_checks` in this database, one row per component and
 slot: `o` passed, `p` failed or `m` recorded during maintenance, with a short
@@ -321,8 +364,9 @@ OIDC token for audience `https://musixquare.com/api/ops/status-report` or
 `https://musixquare.com/api/ops/status-claim`, repository `hiefny/MUSIXQUARE`,
 workflow `status-monitor.yml` on `refs/heads/main`, event `schedule` or
 `workflow_dispatch`, a GitHub-hosted runner and no `environment` claim. Each
-accepts 60 requests per 10 minutes. The workflow uses no GitHub environment,
-and no repository or Worker secret is involved. The App keeps GitHub's key set
+accepts 60 requests per 10 minutes. The workflow uses no GitHub environment
+and no repository secret, and the two routes need no Worker secret; only the
+App's dispatch uses one (above). The App keeps GitHub's key set
 per isolate and downloads it at most once a minute. A download whose request
 ended before it finished (a client that disconnected) is dropped by the next
 request, which logs the warning `github_oidc_jwks_shared_fetch_rejected`
@@ -343,20 +387,22 @@ Troubleshooting:
   Check the App Worker's cron triggers and logs. App code older than 9.0.845
   ignores the status cron, so after an App rollback these rows stay Not
   checked.
-- `website` or `connection` reads Not checked: the GitHub schedule did not run,
-  or the job could not report. GitHub can start a scheduled run late or drop
-  it, and it disables the schedule after 60 days without repository activity.
-  Read the latest Status monitor run. A run succeeds after a delivered report
-  (failed checks included), when production has no `/api/status` yet, and
-  when the report still could not be delivered after its retries because of a
-  429, a 5xx or no answer: that run shows a warning, and `website` and
-  `connection` age to Not checked. A run also succeeds with a warning, having
-  opened nothing, when GitHub's OIDC token service gave no token at its start
-  (a 429, a 5xx or no answer). A run fails when the report or claim route
-  answers 401 or 403 (it refused the job's identity) or any other 4xx outside
-  the route's contract (a contract mismatch), when the job has no OIDC
-  permission or the token service refuses it with a 4xx, or when the script
-  crashes.
+- `website` or `connection` reads Not checked: no monitor run reported in the
+  last 30 minutes. First read the App Worker's logs for `status_dispatch`
+  warnings (above): the App starts the runs, and after an App rollback below
+  9.0.846 only the GitHub schedule does, which can start a run hours late or
+  drop it, and which GitHub disables after 60 days without repository
+  activity. Then read the latest Status monitor run. A run succeeds after a
+  delivered report (failed checks included), when production has no
+  `/api/status` yet, and when the report still could not be delivered after
+  its retries because of a 429, a 5xx or no answer: that run shows a warning,
+  and `website` and `connection` age to Not checked. A run also succeeds with
+  a warning, having opened nothing, when GitHub's OIDC token service gave no
+  token at its start (a 429, a 5xx or no answer). A run fails when the report
+  or claim route answers 401 or 403 (it refused the job's identity) or any
+  other 4xx outside the route's contract (a contract mismatch), when the job
+  has no OIDC permission or the token service refuses it with a 4xx, or when
+  the script crashes.
 - The run log shows `skipped (app_build_mismatch)` for `website` or
   `connection`: production served another App build than the monitor's
   checkout of main (the log names both builds), between merging an App train
@@ -369,6 +415,12 @@ Troubleshooting:
   for example after a signaling rollback. The checks then open no room, and
   `rooms` and `connection` read Not checked until signaling is current again.
 - To stop the browser checks, disable `status-monitor.yml` in the GitHub UI.
+  GitHub then runs no schedule and refuses the App's dispatches, each of which
+  logs `unprocessable` (422), four an hour, until the workflow is enabled
+  again. To stop those requests too, delete the Worker secret as the
+  [hotfix procedure](../docs/hotfix-procedure.md#worker-secret-changes)
+  describes; that has release consequences, so prefer disabling the workflow
+  for a pause.
 
 ## Cloudflare Setup
 
@@ -451,6 +503,42 @@ Do not hand-edit it merely to unblock an operator action. Do not deploy the
 Wrangler configs directly or use the local `deploy:*` primitives for routine
 releases; the exceptional operator path is documented in
 `docs/hotfix-procedure.md`.
+
+## Developer API key lifetimes
+
+The Developer API form of an expanded PRO room issues a key for 30, 90 (the
+default), 180 or 365 days, and the operator CLI below takes any whole number of
+days from 1 to 365. The App accepts that range in every room.
+
+From App 9.0.846 the form of room `000001`, the Developer API smoke room, also
+offers **No expiry**, and the App accepts it in that room only. The release
+workflow's `Smoke Developer API Worker` step (targets `all` and
+`developer-api`) authenticates to `000001` with the `production` environment
+secret `MXQR_DEVELOPER_API_SMOKE_KEY`. An ordinary key there runs out within a
+year, and an `all` release would then fail at that smoke after five Workers
+have deployed. The Developer API schema still requires an expiry later than the
+creation time, and every key check refuses an expiry that has passed, so No
+expiry is a 36,525-day (100-year) lifetime sent in the same `days` field. A key
+issued in 2026 expires in 2126, and the key list shows No expiry instead of
+that date. The App refuses No expiry in any other room, and any other lifetime
+over 365 days, with `INVALID_REQUEST`; the CLI keeps its 1 to 365 day range. A
+No expiry key is revoked like any other and counts toward the room's three
+active keys.
+
+After the App 9.0.846 release, the owner replaces the smoke key once:
+
+1. In `/admin`, expand room `000001`. Name the key (for example
+   `Release smoke`), choose **Playback, playlist & upload**, which holds every
+   scope the smoke uses, and **No expiry**, then select **Issue API key**. If
+   the room already has three active keys, revoke an unused one first. Copy the
+   key: it is shown once.
+2. In the repository settings, under Environments, `production`, replace the
+   secret `MXQR_DEVELOPER_API_SMOKE_KEY` with that key. This changes no Worker
+   and needs no release; do it between releases, and never put the key in a
+   shell argument, a file or a log.
+3. Revoke the previous smoke key in the same panel. The next `all` or
+   `developer-api` release proves the new key; if its smoke answers HTTP 401,
+   issue another No expiry key and replace the secret again.
 
 ## Developer API operator CLI
 

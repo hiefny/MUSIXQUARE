@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
+import { MUSIXQUARE_GITHUB_REPOSITORY } from '../../../cloudflare/github-actions-oidc.ts';
 import { SERVICE_CONTROL_READ_TIMEOUT_MS } from '../../../cloudflare/service-maintenance.ts';
 import {
   STATUS_API_READ_TIMEOUT_MS,
@@ -12,6 +13,9 @@ import {
   STATUS_CLAIM_AUDIENCE,
   STATUS_COMPONENT_IDS,
   STATUS_COMPONENT_SCHEDULE,
+  STATUS_MONITOR_BRANCH,
+  STATUS_MONITOR_WORKFLOW_FILE,
+  STATUS_MONITOR_WORKFLOW_REF,
   STATUS_PROBE_CLAIM_INTERNAL_PATH,
   STATUS_PROBLEM_AFTER_FAILURES,
   STATUS_PUBLIC_PATH,
@@ -28,10 +32,13 @@ import {
   type StatusComponentId,
   type StatusStoredResult,
 } from '../../../cloudflare/status-contract.ts';
+import { isStatusDispatchMinute } from '../../../cloudflare/status-dispatch.ts';
 import {
+  STATUS_CLAIM_POLICY,
   STATUS_OPS_BODY_VERSION,
   STATUS_REPORT_COMPONENTS,
   STATUS_REPORT_OUTCOMES,
+  STATUS_REPORT_POLICY,
 } from '../../../cloudflare/status-ops.ts';
 import { buildStatusPayload, type StatusPayload } from '../../../cloudflare/status-payload.ts';
 import {
@@ -48,11 +55,12 @@ import {
 
 // cloudflare/status-contract.ts is the timing home of resource-ownership
 // record RO-57 (the public status check ledger). The copies below cannot
-// import it: a Wrangler and a workflow cron, a classic runtime script, static
-// HTML, JSON fixtures, the dev server, the share card generator and the
-// signaling Worker, which owns the probe claim. This suite pins each copy to
-// the contract, the monitor's request bodies to the routes that read them,
-// and the contract's budgets to the bounds that other homes keep.
+// import it: a Wrangler and a workflow cron, the workflow that the App Worker
+// asks GitHub to start, a classic runtime script, static HTML, JSON fixtures,
+// the dev server, the share card generator and the signaling Worker, which
+// owns the probe claim. This suite pins each copy to the contract, the
+// monitor's request bodies to the routes that read them, and the contract's
+// budgets to the bounds that other homes keep.
 
 const MINUTE_MS = 60_000;
 const INTERVAL_MS = STATUS_CHECK_INTERVAL_MINUTES * MINUTE_MS;
@@ -187,6 +195,62 @@ describe('status policy parity (resource record RO-57)', () => {
     expect(
       [...workflow.matchAll(/^ {4}timeout-minutes: (\d+)$/gmu)].map((match) => Number(match[1])),
     ).toEqual([STATUS_BROWSER_JOB_TIMEOUT_MINUTES]);
+  });
+
+  it('starts the browser job from the App minute cron at the browser minutes, on a workflow GitHub can dispatch', () => {
+    // Over a whole UTC day the App dispatches in exactly the browser check
+    // minutes, the minutes of the workflow's fallback schedule.
+    const day = Date.UTC(2026, 10, 27);
+    const dispatchMinutes: number[] = [];
+    for (let minute = 0; minute < 24 * 60; minute += 1) {
+      if (isStatusDispatchMinute(day + minute * MINUTE_MS)) dispatchMinutes.push(minute);
+    }
+    expect(dispatchMinutes).toHaveLength(24 * STATUS_BROWSER_CHECK_MINUTES.length);
+    expect([...new Set(dispatchMinutes.map((minute) => minute % 60))]).toEqual([
+      ...STATUS_BROWSER_CHECK_MINUTES,
+    ]);
+    expect(STATUS_BROWSER_CRON).toBe(`${STATUS_BROWSER_CHECK_MINUTES.join(',')} * * * *`);
+
+    // Only the App's every-minute cron dispatches, and Wrangler registers it.
+    const app = read('cloudflare/app-worker.ts');
+    expect(
+      app.match(/\bdispatchStatusMonitor\(/gu),
+      'one dispatch call site in the App Worker',
+    ).toHaveLength(1);
+    expect(app).toContain(
+      "if (cron === '* * * * *' && isStatusDispatchMinute(event?.scheduledTime)) {\n" +
+        '      ctx.waitUntil(dispatchStatusMonitor(statusDispatchDeps(env)));\n',
+    );
+    const wrangler = read('cloudflare/wrangler.app.toml');
+    const crons = /^\[triggers\]\n(?:#[^\n]*\n)*crons = \[([^\]\n]*)\]$/mu.exec(wrangler)?.[1];
+    expect([...(crons ?? '').matchAll(/"([^"]*)"/gu)].map((match) => match[1])).toContain(
+      '* * * * *',
+    );
+
+    // The dispatched file exists, takes workflow_dispatch with no inputs (a
+    // dispatch sends none) and runs its job only from the dispatched branch.
+    const workflowPath = `.github/workflows/${STATUS_MONITOR_WORKFLOW_FILE}`;
+    expect(existsSync(workflowPath), workflowPath).toBe(true);
+    const workflow = read(workflowPath);
+    const triggers = /^on:\n((?:[ \t][^\n]*\n|\n)*)/mu.exec(workflow)?.[1] ?? '';
+    expect(triggers.split('\n').filter((line) => /^ {2}\S/u.test(line))).toEqual([
+      '  schedule:',
+      '  workflow_dispatch:',
+    ]);
+    expect(triggers).not.toMatch(/^ {4}inputs:/mu);
+    expect(workflow).toContain(`\n    if: github.ref == 'refs/heads/${STATUS_MONITOR_BRANCH}'\n`);
+
+    // The routes' OIDC identity names the same repository, file and branch,
+    // and accepts a dispatched run.
+    expect(STATUS_MONITOR_WORKFLOW_REF).toBe(
+      `${MUSIXQUARE_GITHUB_REPOSITORY.repository}/${workflowPath}@refs/heads/${STATUS_MONITOR_BRANCH}`,
+    );
+    for (const policy of [STATUS_REPORT_POLICY, STATUS_CLAIM_POLICY]) {
+      expect(policy.repository).toBe(MUSIXQUARE_GITHUB_REPOSITORY.repository);
+      expect(policy.ref).toBe(`refs/heads/${STATUS_MONITOR_BRANCH}`);
+      expect(policy.eventName).toContain('workflow_dispatch');
+      expect(policy.workflowRefs).toEqual([STATUS_MONITOR_WORKFLOW_REF]);
+    }
   });
 
   it('keeps the page runtime and the dev server fixture route on the contract and the API', () => {

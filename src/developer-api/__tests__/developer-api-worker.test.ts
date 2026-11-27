@@ -659,6 +659,14 @@ describe('Developer API read-only public Worker', () => {
     });
   });
 
+  it('authenticates the smoke room key that admin issuance gave No expiry', async () => {
+    // No expiry is a 36,525-day (100-year) expiry, issued in room 000001 only.
+    const setup = await createEnvironment({ expiresAt: Date.now() + 36_525 * 86_400_000 });
+    const response = await developerApiWorker.fetch(apiRequest(), setup.env);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(roomPayload());
+  });
+
   it('does not enqueue another last-used write when the key was already seen this hour', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-19T06:30:00.000Z'));

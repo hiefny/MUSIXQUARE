@@ -8,6 +8,14 @@ name: Status monitor
 # OIDC token, so no repository secret is used. The App Worker's own cron checks
 # the rooms and PRO rows.
 #
+# - From App 9.0.846 the App Worker starts this workflow: at :07, :22, :37 and
+#   :52 UTC its minute cron asks GitHub for a workflow_dispatch run on main
+#   (cloudflare/status-dispatch.ts, with the Worker secret
+#   MXQR_STATUS_MONITOR_DISPATCH_TOKEN), because GitHub delivers this
+#   repository's schedule events hours late. The schedule below only backs
+#   that up. A late scheduled run is one more real check: it records in the
+#   15-minute slot it starts in, where the newest check wins, and the
+#   concurrency group runs one monitor at a time.
 # - Before the status routes exist, or after a rollback without them, GET
 #   /api/status does not answer schema 1 and the job ends successfully without
 #   opening a browser. During maintenance it reports maintenance and opens
@@ -28,12 +36,15 @@ name: Status monitor
 #   on /status, not as failed runs.
 # - Logs of this public repository are public: the script prints no room code,
 #   peer id, token, IP address or full URL, and the job uploads no artifacts.
-# - Disable this workflow in the GitHub UI to stop the browser checks.
+# - Disable this workflow in the GitHub UI to stop the browser checks: GitHub
+#   then runs no schedule and refuses the App Worker's dispatches (422, which
+#   the App logs as unprocessable at each of those minutes).
 
 on:
   schedule:
     # UTC; the same minutes as STATUS_BROWSER_CRON in
-    # cloudflare/status-contract.ts. GitHub may start a run late or drop it.
+    # cloudflare/status-contract.ts. Only the fallback for the App Worker's
+    # dispatch at these minutes: GitHub may start a run hours late or drop it.
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
 

@@ -46,6 +46,52 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### App 9.0.846 / v846 열차(App cron이 status 브라우저 점검을 시작, 000001 키 No expiry) 배포 전: PR 및 CI 대기 중, target `app`(App만, 업데이트 창 한 번), 머지 뒤 dispatch 전에 오너가 App 비밀 `MXQR_STATUS_MONITOR_DISPATCH_TOKEN`을 둠, [화면 바뀜] 관리자 방 `000001`의 No expiry 키 선택·`/status`의 website·connection 줄이 15분마다 채워짐, [화면 그대로] App 분 cron의 workflow dispatch, 배포 뒤 오너가 smoke 키를 No expiry 키로 바꿈
+
+- [ ] 범위와 상태(배포 전): 열차 갈래 `agent/app-9-0-846`(main `27a25dee`(#647) 위 구현과 시험 `082526e2`, 버전 올리기 `6f19f795`, RO-57 문구
+      고침 `e7ce87a9`, 문서 커밋)가 PR 및 CI 대기 중이다. `9.0.846` / `v846`(App 빌드 846, target `app`, 업데이트 창 한 번, 바닥 795 그대로,
+      Developer API D1 false). 운영 SHA(여섯 Worker 모두 `8bf07f29`)와 견준 런타임 경로는 App 7, 다른 다섯 Worker 0이고 의존성 변경 0이다. App
+      분 cron(`* * * * *`)이 :07·:22·:37·:52(UTC)에 GitHub REST API로 `status-monitor.yml`의 `workflow_dispatch` 실행을 `main`에서 시작하고
+      (`cloudflare/status-dispatch.ts`, 점검 분마다 요청 하나, 15초 한도, 다시 보내지 않음, 결과 분류만 기록), workflow의 일정은 대비로 남는다.
+      관리자는 방 `000001`에서만 No expiry(36,525일) Developer API 키를 내고, 다른 방은 1 ~ 365일 그대로다. 새것은 App Worker 비밀
+      `MXQR_STATUS_MONITOR_DISPATCH_TOKEN` 하나다(`cloudflare/ops-drift.contract.json`의 App 비밀 이름 18 → 19, RO-57 고침). D1, 바인딩, cron
+      trigger, KV namespace, Durable Object, 계약 표지는 바뀌지 않았다. [보고서](design/app-9-0-846-train-2026-11-27.md),
+      [배포 범위](design/app-9-0-846-train-2026-11-27.md#5-배포-범위와-호환성).
+- [ ] 기댄 오너 결정(게이트 아님, 오너 말은 옮기지 않고 뜻만 적음): 2026-11-27 오너가 9.0.845 배포 뒤 `/status`의 website·connection 줄이 GitHub
+      일정 실행의 8 ~ 10.5시간 지연으로 대부분 Not checked인 것(02:15 KST 손 실행과 09:45 KST의 늦은 일정 실행 한 번씩만 적힘)을 지금 고치기로
+      했고, 릴리스 smoke 방 `000001`의 Developer API 키를 No expiry로 둘 수 있게 하자고 했다([보고서 §1](design/app-9-0-846-train-2026-11-27.md#1-오너-결정)).
+- [ ] 오너가 할 일([보고서 §6](design/app-9-0-846-train-2026-11-27.md#6-되돌리기와-남긴-한계)): (1) 머지 뒤 GitHub에서 fine-grained personal access
+      token을 만든다: Repository access는 `hiefny/MUSIXQUARE` 하나, 저장소 권한은 Actions: Read and write 하나(Metadata: Read-only는 GitHub가
+      붙임), 1년 이내의 만료일(날짜는 비공개 메모에 둠). (2) 릴리스 dispatch 전에 그 토큰을 `musixquare-app` Worker의 비밀
+      `MXQR_STATUS_MONITOR_DISPATCH_TOKEN`으로 둔다(`npm run wrangler -- secret put MXQR_STATUS_MONITOR_DISPATCH_TOKEN --config cloudflare/wrangler.app.toml`의
+      입력 칸에 붙여 넣거나 Cloudflare 대시보드의 Variables and Secrets, [설정 참고](configuration-reference.md#mxqr_status_monitor_dispatch_token)).
+      이 변경은 `git:` 메시지 없는 App 버전을 바로 배포하므로 머지 뒤 릴리스 바로 앞에 하고, 릴리스가 도는 동안에는 하지 않는다. 마치면 릴리스
+      담당에게 알린다. 토큰은 이 Worker 비밀에만 두고 GitHub 비밀·변수·환경, 파일, 명령 인자, 이슈, 채팅에 두지 않는다(그 토큰으로
+      `Production Release`도 시작할 수 있음). (3) 배포 뒤 `/admin`에서 방 `000001`을 펼쳐 Playback, playlist & upload와 No expiry로 키를 하나
+      발급하고(활성 키가 셋이면 안 쓰는 것을 먼저 취소, 키는 한 번만 보임), GitHub 저장소 설정 Environments > `production`의 비밀
+      `MXQR_DEVELOPER_API_SMOKE_KEY`를 그 키로 바꾼 뒤, 같은 칸에서 옛 smoke 키를 취소한다. 환경 비밀은 Worker를 바꾸지 않아 릴리스가 필요
+      없고, 다음 `all`·`developer-api` 릴리스의 smoke가 새 키를 증명한다([관리자 운영](../cloudflare/admin-dashboard-ops.md#developer-api-key-lifetimes)).
+- [ ] 배포와 배포 뒤 확인: (1) 최종 로컬 검증(`e7ce87a9`, 런타임은 버전 올리기 `6f19f795`와 같음) 통과(2026-11-27 15:36 ~ 16:16 KST)
+      ([보고서 §4.1](design/app-9-0-846-train-2026-11-27.md#41-최종-로컬-검증-버전-올리기-6f19f795--ro-57-문구-고침-e7ce87a9)). (2) PR CI, 자동
+      코드 검토, squash 머지, exact-main CI, 오너의 토큰과 비밀(위), dispatch 전에
+      `npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`을 1분 간격으로 두 번 읽어 둘 다 비밀 변경 버전을
+      답하는지, 오너의 분명한 배포 승인, Release(target `app`, Developer API D1 false, `raise_app_build_floor` false) 확인 예정. (3) 배포 뒤: 비밀
+      변경이 만든 App 버전(`git:` 메시지 없음)을 `release-history.md`에 릴리스 행 앞의 자기 행으로 적음, 배포 뒤 첫 :07·:22·:37·:52부터
+      `status-monitor.yml`의 `workflow_dispatch` 실행이 그 분의 몇 초 안에 시작됨, `/status`의 website·connection 줄이 15분마다 새 칸과 함께
+      Normal, App Worker 로그에 `status_dispatch` 경고 없음, Drift Audit의 `Worker secrets musixquare-app` 행이 19개 이름과 맞음
+      (`Live secret-name inventory exactly matches 19 expected binding names.`), 공개 읽기(`/`·`/ko/`의 `bootstrap.js?cache=v846`,
+      `/service-worker.js` v846, live 빌드 846), '오너가 할 일' (3)의 smoke 키 교체, 수동 Full E2E는 오너 결정 대기
+      ([릴리스 라운드](design/app-9-0-846-train-2026-11-27.md#42-머지-뒤-릴리스-라운드)).
+- [ ] 되돌리기([보고서 §6](design/app-9-0-846-train-2026-11-27.md#6-되돌리기와-남긴-한계)): 기본은 9.0.847 / v847 이상으로 앞으로 되돌리기다.
+      비밀 변경 뒤의 App은 `git:` 출처가 없는 기준선으로 잡히므로, App 배포 뒤 실패한 `app` 실행은 자동 복구가 App을 되돌리지 않고 후보를
+      둔다(앞으로 고치기). Worker 비밀은 되돌려도 남는다: 이 열차를 되돌리는 변경이 이름을 `cloudflare/ops-drift.contract.json`과
+      `cloudflare/config-drift-ops.md`에서 빼면 Drift Audit이 unexpected로 보고하므로, 그 머지와 릴리스 사이에 비밀을 지우거나(`secret delete`도
+      비밀 변경) 이름을 두 파일과 `src/core/__tests__/ops-drift-audit.test.ts`에 남겼다가 나중에 뺀다. 비밀을 아주 지우면 GitHub에서 토큰도
+      취소한다. App을 9.0.845로 되돌리면 브라우저 줄은 다시 늦은 일정에만 기댄다(대부분 Not checked). 이미 발급한 No expiry 키는 Developer API가
+      계속 받으므로 끝내려면 관리자에서 취소한다. 브라우저 점검을 멈추는 스위치는 GitHub UI에서 `status-monitor.yml`을 끄는 것이다(App의
+      dispatch는 시간에 네 번 `unprocessable` 경고). 급할 때의 Cloudflare 되돌리기 대상은 이 릴리스의 checkpoint가 담는 App 버전(9.0.845 코드에
+      비밀만 더한 비밀 변경 버전)이다.
+
 ### App 9.0.845 / v845 열차(공개 /status 페이지와 15분 점검) 배포 뒤 확인: Release 45865175393이 attempt 1에 성공했고(App `29659e35` → `87e87f8c`, 여섯 Worker 모두 새 버전), 공개 읽기 24/24·첫 브라우저 감시·Drift 통과, 첫 서버 칸은 02:30 칸에서 rooms·pro 통과(02:15 칸은 cron이 퍼지기 전이라 행 없음), 수동 Full E2E는 오너 결정 대기, [화면 바뀜] `/status`·세 칸 사이트맵·바닥글 Status 링크·관리자 상태 공지 칸·공유 카드, [화면 그대로] 15분 서버·브라우저 점검, 셈하지 않는 점검 방, 관리자 PRO 등록부 멈춤 고침, 기기 판정은 아직
 
 - [ ] 범위와 상태(배포 뒤): 9.0.845 / v845(App 빌드 845, target `all`, 업데이트 창 한 번)가 2026-11-27 02:13 KST에 운영에 올랐다([Release 45865175393](https://github.com/hiefny/MUSIXQUARE/actions/runs/45865175393)

@@ -145,18 +145,23 @@ and the `X-MXQR-App-Build` request header that carries it is public.
 The public `musixquare.com/status` page shows four rows, each checked every 15
 minutes. Their timing values live in `cloudflare/status-contract.ts`, and the
 runbook is [admin dashboard operations](../cloudflare/admin-dashboard-ops.md#status-page).
-None of the inputs below is an operator setting.
+Apart from the dispatch token below, none of these inputs is an operator
+setting.
 
 - The rooms and PRO rows come from the App Worker's third cron trigger,
   `0,15,30,45 * * * *` in `cloudflare/wrangler.app.toml`. It takes no input.
 - The website and connection rows come from the `Status monitor` workflow,
-  `.github/workflows/status-monitor.yml`. It runs on the schedule
-  `7,22,37,52 * * * *` (UTC) and on manual `workflow_dispatch`, from `main`
-  only, in its own concurrency group without cancelling a run in progress. Its
-  job runs `scripts/status-browser-monitor.ts` in the
+  `.github/workflows/status-monitor.yml`. From App 9.0.846 the App Worker's
+  minute cron (`* * * * *`) starts it with a `workflow_dispatch` on `main` at
+  :07, :22, :37 and :52 UTC (`cloudflare/status-dispatch.ts`), because GitHub
+  delivers this repository's scheduled runs hours late. Its schedule
+  `7,22,37,52 * * * *` (UTC) only backs that up, and it can still be started
+  by hand. It runs from `main` only, in its own concurrency group without
+  cancelling a run in progress. Its job runs
+  `scripts/status-browser-monitor.ts` in the
   `mcr.microsoft.com/playwright:v1.65.1-noble` container with
   `timeout-minutes: 10` and has no inputs. GitHub can start a scheduled run
-  late or drop it.
+  hours late or drop it.
 - Identity: the job names no GitHub environment, so production environment
   secrets stay out of its reach, and it has `id-token: write`. The script
   requests one GitHub OIDC token per route audience,
@@ -187,10 +192,52 @@ None of the inputs below is an operator setting.
   or when the script crashed. A failed run therefore means that the monitor
   itself is broken; outages show on `/status`.
 
-No repository secret, GitHub environment, Worker secret, binding or Wrangler
-`[vars]` entry was added for the status page, so
-`cloudflare/ops-drift.contract.json` is unchanged. To stop the browser checks,
-disable the workflow in the GitHub UI.
+The status page added no repository secret, GitHub environment, binding or
+Wrangler `[vars]` entry. From App 9.0.846 the App Worker holds one Worker
+secret for it, below, which `cloudflare/ops-drift.contract.json` lists. To
+stop the browser checks, disable the workflow in the GitHub UI
+([hotfix procedure](hotfix-procedure.md#worker-scope-and-order)).
+
+#### `MXQR_STATUS_MONITOR_DISPATCH_TOKEN`
+
+The App Worker secret with which the minute cron asks GitHub to start the
+`Status monitor` workflow:
+`POST /repos/hiefny/MUSIXQUARE/actions/workflows/status-monitor.yml/dispatches`
+with `{"ref":"main"}`, at most once per check minute and never retried within
+it. The workflow's job never sees the token.
+
+- Token: the narrowest one that can start a run, since GitHub cannot limit a
+  token to one workflow. A fine-grained personal access token of the
+  repository owner with Repository access "Only select repositories" set to
+  `hiefny/MUSIXQUARE`, and one repository permission, Actions: Read and write
+  (GitHub adds Metadata: Read-only by itself). No other repository or account
+  permission.
+- Expiry: a custom expiration date at most one year ahead, kept in the owner's
+  private notes, not in this repository. Replace the token before that date:
+  an expired token makes every dispatch log `unauthorized` (401), and the
+  website and connection rows fall back to the late schedule.
+- How it is set: from a checkout of this repository, with Wrangler logged in to
+  the production account, run
+  `npm run wrangler -- secret put MXQR_STATUS_MONITOR_DISPATCH_TOKEN --config cloudflare/wrangler.app.toml`
+  and paste the token at the prompt, which does not echo it, or add it as a
+  Secret in the `musixquare-app` Worker's Variables and Secrets in the
+  Cloudflare dashboard. Never pass it as an argument or keep it in a file.
+  Setting, replacing or deleting it deploys a new App version without a `git:`
+  message: follow
+  [Worker secret changes](hotfix-procedure.md#worker-secret-changes) for the
+  order with releases.
+- Without it the App sends no request and logs one `status_dispatch` warning
+  with outcome `unconfigured` per isolate; the schedule still runs.
+  `cloudflare/ops-drift.contract.json` lists the name, so the Operations Drift
+  Audit fails while it is missing. The other outcomes are in the
+  [runbook](../cloudflare/admin-dashboard-ops.md#status-page).
+- Keep it only in this Worker secret. Actions write lets the token start any
+  workflow of this repository that has `workflow_dispatch` with any inputs,
+  `Production Release` and `App Build Floor` included, cancel, re-run or delete
+  runs and their logs, and disable or enable workflows. Never store it as a
+  GitHub Actions secret or variable or in a GitHub environment, a `.env` file, a
+  shell profile, an issue or a chat. If it may have leaked, revoke it on GitHub
+  first, then set a new one.
 
 ## Safe `.env.example` policy
 

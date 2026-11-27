@@ -32,6 +32,7 @@ import {
   STATUS_CLAIM_AUDIENCE,
   STATUS_COMPONENT_IDS,
   STATUS_COMPONENT_SCHEDULE,
+  STATUS_MONITOR_BRANCH,
   STATUS_MONITOR_WORKFLOW_REF,
   STATUS_OPS_RATE_LIMIT,
   STATUS_OPS_RATE_WINDOW_SECONDS,
@@ -85,11 +86,11 @@ const BEARER_RE = /^Bearer ([^\s]+)$/u;
 
 const STATUS_MONITOR_IDENTITY = {
   ...MUSIXQUARE_GITHUB_REPOSITORY,
-  ref: 'refs/heads/main',
+  ref: `refs/heads/${STATUS_MONITOR_BRANCH}`,
   // The job names no GitHub environment, which keeps production secrets out
   // of its reach; its token then carries no environment claim.
   environment: null,
-  // The schedule, or a run started by hand.
+  // The schedule, or a run that the App Worker's dispatch or a person started.
   eventName: Object.freeze(['schedule', 'workflow_dispatch']),
   runnerEnvironment: 'github-hosted',
   // The monitor job runs its own steps; a token minted inside a reusable

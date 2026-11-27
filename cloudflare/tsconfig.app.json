@@ -18,6 +18,7 @@
     "status-probe-claim.ts",
     "status-checks.ts",
     "status-ops.ts",
+    "status-dispatch.ts",
     "status-note-text.ts",
     "standard-room-account-assertion.ts",
     "standard-room-pin-membership.ts"

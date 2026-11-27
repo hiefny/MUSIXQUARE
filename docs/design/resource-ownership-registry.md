@@ -5094,8 +5094,8 @@ entry needs the owner's acceptance and is not implied by this registry.
     once per isolate (keyed by the env, like `servedAppBuildByAssets`). The fallback is the
     workflow's own schedule, `STATUS_BROWSER_CRON`, whose events GitHub delivers hours late for
     this repository or drops. A late scheduled run is one more real check of the slot it
-    starts in, where the newest `checked_at` wins, and the workflow's concurrency group
-    (`musixquare-status-monitor`, nothing cancelled in progress) runs one monitor at a time.
+    starts in, where the newest `checked_at` wins, and the workflow's own concurrency group
+    (nothing cancelled in progress) runs one monitor at a time.
 
   The reader is `handleStatusApi` (`cloudflare/status-api.ts`). It reads the retained rows
   through `readStatusChecks`, the maintenance state itself (the route is on the maintenance

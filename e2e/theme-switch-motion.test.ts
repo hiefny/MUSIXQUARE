@@ -8,16 +8,19 @@
  * that swaps the palette (setTheme() in src/ui/settings.ts and its class in
  * css/style.css), and the switch turned abrupt. A theme chip press that
  * changes the palette now runs setTheme() inside the update of the app's view
- * transition (animateTransition() in src/ui/dom.ts, which tab changes use),
- * so the browser fades the old screen out and the new one in on the tab
- * change's timing, header included. The hold stays inside the update, so the
- * new image is final from its first frame. Without the View Transition API
- * (older browsers, the legacy TV build) and under reduced motion the switch
- * stays immediate, as in 9.0.836.
+ * transition (animateTransition() in src/ui/dom.ts, which tab changes use).
+ * The old screen holds still, and the new one fades in over it with normal
+ * blending on the tab change's timing, header and bottom bar included: both
+ * stay in the page's images, as only a tab change lifts them out. The hold
+ * stays inside the update, so the new image is final from its first frame.
+ * Without the View Transition API (older browsers, the legacy TV build) and
+ * under reduced motion the switch stays immediate, as in 9.0.836.
  *
  * An init script records each view transition the page starts, without
- * changing it: whether the header was kept live, and the timing and
- * keyframes of its ::view-transition animations. Each switch is pressed and
+ * changing it: whether the header was kept live, the timing and keyframes of
+ * its ::view-transition animations, and, once it is ready, the computed
+ * display, opacity, blend mode and animation of the old and new page images
+ * and the bottom bar's view-transition-name. Each switch is pressed and
  * read in one page script. It reads the press's own task, the page once the
  * update is done (document getAnimations() flushes style first, so a
  * transition from the previous palette would be listed), the header during
@@ -51,6 +54,15 @@ const HOLD_CLASS =
     readFileSync('src/ui/settings.ts', 'utf8'),
   )?.[1] ?? '';
 
+/**
+ * The class animateTransition() keeps on <html> from a transition's update
+ * until one frame after it ends (custom scrollbars do not fade under it),
+ * read from its one home.
+ */
+const TRANSITION_MARK =
+  /const VIEW_TRANSITION_CLASS = '([^']+)';/u.exec(readFileSync('src/ui/dom.ts', 'utf8'))?.[1] ??
+  '';
+
 /** The only group a theme cross-fade may have: the page (header and bottom bar fade with it). */
 const THEME_GROUPS = ['root'];
 
@@ -66,6 +78,14 @@ interface PseudoAnimation {
   keyframes: { offset: number; easing: string; opacity: string | null }[];
 }
 
+/** The computed style of a page image, ::view-transition-old(root) or -new(root). */
+interface PageImage {
+  display: string;
+  opacity: string;
+  mixBlendMode: string;
+  animationName: string;
+}
+
 /** One startViewTransition() call as the recorder saw it. */
 interface TransitionRecord {
   /** <html> had the tab change's live header class when the owner called. */
@@ -74,6 +94,10 @@ interface TransitionRecord {
   activeTab: string | null;
   /** The animations of each ::view-transition pseudo-element once ready. */
   pseudo: Record<string, PseudoAnimation[]>;
+  /** The old and new page images once ready. */
+  images: { old: PageImage; new: PageImage } | null;
+  /** The bottom bar's computed view-transition-name once ready. */
+  navName: string | null;
 }
 
 interface TestWindow extends Window {
@@ -114,7 +138,10 @@ interface PressReading {
     transitions: string[];
     surfaces: string[];
     tokens: string[];
+    /** The root's classes, the transition owner's mark aside, are those from before the press. */
     classesKept: boolean;
+    /** <html> has the transition owner's mark. */
+    marked: boolean;
   } | null;
   /** Read once the fade began; null without a view transition. */
   fade: {
@@ -134,6 +161,7 @@ interface PressReading {
     surfaces: string[];
     tokens: string[];
     classesKept: boolean;
+    marked: boolean;
     /** Every transitionrun event from the press on. */
     runs: string[];
   };
@@ -192,11 +220,22 @@ function installTransitionRecorder({ withoutApi }: { withoutApi: boolean }): voi
     }
     return pseudo;
   };
+  const readPageImage = (pseudo: string): PageImage => {
+    const style = getComputedStyle(document.documentElement, pseudo);
+    return {
+      display: style.display,
+      opacity: style.opacity,
+      mixBlendMode: style.mixBlendMode,
+      animationName: style.animationName,
+    };
+  };
   document.startViewTransition = (...args: Parameters<Document['startViewTransition']>) => {
     const record: TransitionRecord = {
       tabHeader: document.documentElement.classList.contains('tab-header-transition'),
       activeTab: null,
       pseudo: {},
+      images: null,
+      navName: null,
     };
     const transition = native(...args);
     runtime.__themeViewTransitions?.push(transition);
@@ -210,6 +249,14 @@ function installTransitionRecorder({ withoutApi }: { withoutApi: boolean }): voi
     transition.ready.then(
       () => {
         record.pseudo = readPseudoAnimations();
+        record.images = {
+          old: readPageImage('::view-transition-old(root)'),
+          new: readPageImage('::view-transition-new(root)'),
+        };
+        const nav = document.querySelector('.bottom-nav');
+        record.navName = nav
+          ? getComputedStyle(nav).getPropertyValue('view-transition-name').trim()
+          : null;
       },
       () => undefined,
     );
@@ -388,7 +435,7 @@ async function restBeforePress(page: Page): Promise<void> {
  */
 async function pressThemeChip(page: Page, theme: Theme, holdClass: string): Promise<PressReading> {
   return page.evaluate(
-    async ({ target, hold }) => {
+    async ({ target, hold, mark }) => {
       const runtime = window as unknown as TestWindow;
       const root = document.documentElement;
       const header = document.getElementById('main-header')!;
@@ -447,7 +494,12 @@ async function pressThemeChip(page: Page, theme: Theme, holdClass: string): Prom
       const onRun = (event: TransitionEvent) => {
         runs.push(`${label(event.target)}${event.pseudoElement} ${event.propertyName}`);
       };
-      const rootClasses = root.className;
+      // The transition owner's mark comes and goes with each transition.
+      const classes = () =>
+        Array.from(root.classList)
+          .filter((name) => name !== mark)
+          .join(' ');
+      const rootClasses = classes();
       const recorded = runtime.__themeViewTransitions?.length ?? 0;
       const bottomNav = (document.querySelector('.bottom-nav')?.getClientRects().length ?? 0) > 0;
       const before = readSurfaces();
@@ -481,7 +533,8 @@ async function pressThemeChip(page: Page, theme: Theme, holdClass: string): Prom
             transitions: newTransitions(),
             surfaces: readSurfaces(),
             tokens: readTokens(),
-            classesKept: root.className === rootClasses,
+            classesKept: classes() === rootClasses,
+            marked: root.classList.contains(mark),
           };
           let error: string | null = null;
           try {
@@ -524,7 +577,8 @@ async function pressThemeChip(page: Page, theme: Theme, holdClass: string): Prom
             idle: active === undefined ? null : active === null,
             surfaces: readSurfaces(),
             tokens: readTokens(),
-            classesKept: root.className === rootClasses,
+            classesKept: classes() === rootClasses,
+            marked: root.classList.contains(mark),
             runs: [...runs],
           },
         };
@@ -533,7 +587,7 @@ async function pressThemeChip(page: Page, theme: Theme, holdClass: string): Prom
         probe.remove();
       }
     },
-    { target: theme, hold: holdClass },
+    { target: theme, hold: holdClass, mark: TRANSITION_MARK },
   );
 }
 
@@ -566,6 +620,53 @@ function transparentAt(fade: PseudoAnimation | undefined, offset: number): boole
   );
 }
 
+/** Whether a fade has a keyframe at `offset` that is fully opaque. */
+function opaqueAt(fade: PseudoAnimation | undefined, offset: number): boolean {
+  return (
+    fade?.keyframes.some(
+      (keyframe) =>
+        keyframe.offset === offset && keyframe.opacity !== null && Number(keyframe.opacity) === 1,
+    ) ?? false
+  );
+}
+
+/**
+ * The page images as a tab change and a theme switch draw them: the old page
+ * holds still at full opacity with normal blending and no animation, and the
+ * new page fades in over it from transparent to opaque with normal blending.
+ * No image blends plus-lighter, so a pixel the switch leaves alone stays put
+ * whatever the two images' timing.
+ */
+function expectHeldPageImages(record: TransitionRecord, context: string): void {
+  expect(record.images, `the page images of ${context}, read once it was ready`).not.toBeNull();
+  expect(record.images!.old, `the old page image of ${context}`).toEqual({
+    display: 'block',
+    opacity: '1',
+    mixBlendMode: 'normal',
+    animationName: 'none',
+  });
+  expect(record.images!.new.mixBlendMode, `the new page image's blend in ${context}`).toBe(
+    'normal',
+  );
+  expect(record.images!.new.animationName, `the new page image's animation in ${context}`).toBe(
+    'view-transition-fade-in',
+  );
+  expect(
+    record.pseudo['::view-transition-old(root)'] ?? [],
+    `animations of the old page image in ${context}`,
+  ).toEqual([]);
+  expect(
+    Object.values(record.pseudo)
+      .flat()
+      .map((animation) => animation.name)
+      .filter((name) => name.includes('plus-lighter')),
+    `plus-lighter blending in ${context}`,
+  ).toEqual([]);
+  const newRoot = fadeOf(record, '::view-transition-new(root)');
+  expect(transparentAt(newRoot, 0), `the new page of ${context} at its start`).toBe(true);
+  expect(opaqueAt(newRoot, 1), `the new page of ${context} at its end`).toBe(true);
+}
+
 /** The transition groups a record animated: the names inside the pseudo-elements. */
 function groupsOf(record: TransitionRecord): string[] {
   return [
@@ -589,6 +690,12 @@ async function readTabChange(page: Page, opened: OpenedSettings): Promise<Transi
     "the tab change's old page holds steady without a fade-out animation",
   ).toBeUndefined();
   expect(fadeOf(record!, '::view-transition-new(root)'), "the tab change's new page").toBeTruthy();
+  expectHeldPageImages(record!, 'the Settings tab change');
+  // A tab change lifts the bottom bar out of the page's images as a live
+  // layer whenever it keeps the header live (no window or toast over them).
+  expect(record!.navName, "the bottom bar's group in the Settings tab change").toBe(
+    record!.tabHeader ? 'bottom-nav' : 'none',
+  );
   return record!;
 }
 
@@ -618,8 +725,9 @@ function expectNoSwitch(reading: PressReading, theme: Theme): void {
 
 /**
  * A press that changes the palette: one view transition, the old screen in the
- * press's own task, the whole new screen final once the update is done, the
- * header fading with the page, every group on the tab change's fade.
+ * press's own task, the whole new screen final once the update is done, and
+ * the new page fading in over the held old page on the tab change's fade, with
+ * the header and the bottom bar in the page's images.
  */
 function expectCrossFade(
   reading: PressReading,
@@ -647,6 +755,7 @@ function expectCrossFade(
   expect(update.transitions, `transitions ${context} started in its update`).toEqual([]);
   expect(update.held, 'the hold class after the update').toBe(false);
   expect(update.classesKept, `the root's classes after the update of ${context}`).toBe(true);
+  expect(update.marked, `the transition owner's mark during the update of ${context}`).toBe(true);
   expectSurfaces(reading, update, `after the update of ${context}`);
 
   // The header is part of the page's images: no live header group.
@@ -658,10 +767,8 @@ function expectCrossFade(
   const groups = groupsOf(record);
   expect(groups, `the groups of ${context}`).toContain('root');
   expect(groups.filter((group) => !THEME_GROUPS.includes(group))).toEqual([]);
-  expect(
-    groups.includes('bottom-nav'),
-    'bottom-nav stays part of root during a theme switch (only isolated on tab transitions)',
-  ).toBe(false);
+  // The bottom bar too: only a tab change lifts it out as a live layer.
+  expect(record.navName, `the bottom bar's group in ${context}`).toBe('none');
 
   // The old page holds steady underneath while the new page fades in with
   // normal alpha on the same timing as a tab change (no plus-lighter flash).
@@ -670,7 +777,7 @@ function expectCrossFade(
   expect(oldRoot, 'the old page holds steady without fading out').toBeUndefined();
   expect(fadeTiming(newRoot), 'the new page fade').toBeTruthy();
   expect(fadeTiming(newRoot)).toEqual(fadeTiming(fadeOf(tabChange, '::view-transition-new(root)')));
-  expect(transparentAt(newRoot, 0), 'the new page is transparent at its start').toBe(true);
+  expectHeldPageImages(record, context);
 
   const fade = reading.fade!;
   expect(fade, `the fade of ${context}`).not.toBeNull();
@@ -686,6 +793,7 @@ function expectCrossFade(
   expect(reading.after.pressed).toBe('true');
   expect(reading.after.stored).toBe(theme);
   expect(reading.after.classesKept).toBe(true);
+  expect(reading.after.marked, `the transition owner's mark after ${context}`).toBe(false);
   expectSurfaces(reading, reading.after, `after ${context}`);
 }
 
@@ -705,6 +813,7 @@ function expectImmediateSwitch(reading: PressReading, theme: Theme, playActions:
   expect(reading.after.theme).toBe(theme);
   expect(reading.after.stored).toBe(theme);
   expect(reading.after.classesKept, `the root's classes after ${context}`).toBe(true);
+  expect(reading.after.marked, `the transition owner's mark after ${context}`).toBe(false);
   expectSurfaces(reading, reading.after, `after ${context}`);
 }
 
@@ -755,6 +864,9 @@ async function expectCrossFadeSwitches(
 
 test.beforeAll(() => {
   expect(HOLD_CLASS, 'THEME_SWITCHING_CLASS in src/ui/settings.ts').toMatch(
+    /^[a-z]+(?:-[a-z]+)*$/u,
+  );
+  expect(TRANSITION_MARK, 'VIEW_TRANSITION_CLASS in src/ui/dom.ts').toMatch(
     /^[a-z]+(?:-[a-z]+)*$/u,
   );
 });

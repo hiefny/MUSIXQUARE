@@ -1003,6 +1003,30 @@ describe('the design-system page mirrors the field family', () => {
         '.clearable-editor-button:focus-visible',
         all(`${KEYBOARD} .clearable-editor-button:focus-visible`, BASE),
       ],
+      [
+        '.chat-drawer-input .chat-input-wrapper::after',
+        BASE,
+        '.chat-input-wrapper::after',
+        ['height', 'bottom', 'background', 'transform', 'opacity'],
+      ],
+      [
+        '.chat-drawer-input .chat-input-wrapper.limit-warning::after',
+        BASE,
+        '.chat-input-wrapper.limit-warning::after',
+        ['opacity'],
+      ],
+      [
+        '.chat-drawer-input .chat-input-wrapper.limit-flash',
+        BASE,
+        '.chat-input-wrapper.limit-flash',
+        ['border-bottom-color'],
+      ],
+      [
+        '.chat-drawer-input .chat-input-wrapper.limit-flash::after',
+        BASE,
+        '.chat-input-wrapper.limit-flash::after',
+        ['opacity', 'transform', 'background'],
+      ],
     ];
     const drift: string[] = [];
     for (const [appSelector, appContext, pageSelector, properties] of buttons) {
@@ -1028,6 +1052,8 @@ describe('the design-system page mirrors the field family', () => {
       ...DOCUMENTATION_STEPS.keys(),
       '--surface-2',
       '--primary-filled',
+      '--warning-filled',
+      '--chat-limit-progress',
       '--radius-pill',
       '--button-label-size',
       '--button-label-line-height',

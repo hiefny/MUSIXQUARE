@@ -70,6 +70,10 @@ import { initChatCopyGestures } from './chat-copy.ts';
 
 // ─── Chat State ──────────────────────────────────────────────────
 
+const CHAT_LIMIT_WARN_START = 400;
+const CHAT_LIMIT_FLASH_HOLD_MS = 560;
+const CHAT_LIMIT_FLASH_TIMER = 'chat-limit-flash';
+
 let _unreadCount = 0;
 let _chatDrawerState: 'closed' | ChatDrawerDetent = 'closed';
 let _chatDrawerReturnFocus: HTMLElement | null = null;
@@ -1487,13 +1491,13 @@ export function initChat(): void {
     );
   }
 
-  // Chat input: send on Enter + command autocomplete
+  // Chat input: send on Enter + command autocomplete + 400->500 limit gauge/feedback
   const chatInput = getUiElement('chat-input') as HTMLDivElement | null;
   if (chatInput) {
     // Create autocomplete dropdown
-    const wrapper = chatInput.closest('.chat-input-wrapper');
+    const wrapper = chatInput.closest<HTMLElement>('.chat-input-wrapper');
     if (wrapper) {
-      (wrapper as HTMLElement).style.position = 'relative';
+      wrapper.style.position = 'relative';
       wrapper
         .querySelectorAll(':scope > .chat-cmd-suggest, :scope > .chat-cmd-ghost')
         .forEach((element) => element.remove());
@@ -1516,27 +1520,153 @@ export function initChat(): void {
     ghost.className = 'chat-cmd-ghost';
     if (wrapper) wrapper.appendChild(ghost);
 
+    let _isComposing = false;
+    let _isLimitShaking = false;
+    let _lastKeyRepeat = false;
+    let _suppressInputClamp = false;
+
     /** Read text from contenteditable div */
     function getInputValue(): string {
       return chatInput!.textContent || '';
     }
 
-    /** Write text to contenteditable div and place cursor at end */
-    function setInputValue(text: string): void {
+    /** Compute character offsets of the current selection when inside chatInput */
+    function getSelectionInfo(): { start: number; end: number; selectedLen: number } {
+      const len = getInputValue().length;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount !== 1) {
+        return { start: len, end: len, selectedLen: 0 };
+      }
+      const range = sel.getRangeAt(0);
+      if (!chatInput!.contains(range.commonAncestorContainer)) {
+        return { start: len, end: len, selectedLen: 0 };
+      }
+      const pre = document.createRange();
+      pre.selectNodeContents(chatInput!);
+      pre.setEnd(range.startContainer, range.startOffset);
+      const start = pre.toString().length;
+      const selectedLen = range.toString().length;
+      return { start, end: start + selectedLen, selectedLen };
+    }
+
+    /** Write text to contenteditable div and restore caret at an exact offset */
+    function setTextAndCaret(text: string, caretOffset: number): void {
+      if (text.length === 0) {
+        chatInput!.replaceChildren();
+        applyUserTextFontFallback(chatInput!, '');
+        return;
+      }
       chatInput!.textContent = text;
       applyUserTextFontFallback(chatInput!, text);
-      // Place cursor at end
-      if (text) {
-        const sel = window.getSelection();
-        if (sel) {
-          const range = document.createRange();
-          range.selectNodeContents(chatInput!);
-          range.collapse(false);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
+      const node = chatInput!.firstChild;
+      if (!node) return;
+      const clamped = Math.max(0, Math.min(caretOffset, text.length));
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.setStart(node, clamped);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
       }
     }
+
+    /** Write text to contenteditable div and place cursor at end */
+    function setInputValue(text: string): void {
+      setTextAndCaret(text, text.length);
+    }
+
+    /** Close an active IME composition cleanly inside .chat-input-wrapper and restore caret */
+    function flushImeAndRestoreCaret(caretOffset: number): void {
+      const imeDummy = getUiElement('chat-ime-dummy') as HTMLInputElement | null;
+      if (imeDummy) {
+        imeDummy.focus({ preventScroll: true });
+        imeDummy.value = '';
+        chatInput!.focus({ preventScroll: true });
+      }
+      setTextAndCaret(getInputValue(), caretOffset);
+    }
+
+    function clearLimitFlash(syncGauge = true): void {
+      clearManagedTimer(CHAT_LIMIT_FLASH_TIMER);
+      if (wrapper) {
+        wrapper.classList.remove('limit-flash');
+      }
+      if (syncGauge) updateLimitGauge();
+    }
+
+    function updateLimitGauge(): void {
+      if (!wrapper) return;
+      const len = getInputValue().length;
+      const inWarning = len >= CHAT_LIMIT_WARN_START;
+      const progress = inWarning
+        ? Math.min(
+            1,
+            (len - (CHAT_LIMIT_WARN_START - 1)) / (MAX_MSG_LENGTH - (CHAT_LIMIT_WARN_START - 1)),
+          )
+        : 0;
+
+      wrapper.style.setProperty('--chat-limit-progress', progress.toFixed(4));
+      wrapper.classList.toggle('limit-warning', inWarning);
+
+      // Dropping below the cap immediately cancels the transient red flash.
+      if (len < MAX_MSG_LENGTH && wrapper.classList.contains('limit-flash')) {
+        clearLimitFlash(false);
+      }
+      if (len === 0) {
+        _isLimitShaking = false;
+        wrapper.classList.remove('limit-shake');
+      }
+    }
+
+    function triggerLimitHit(fromRepeat = false): void {
+      if (!wrapper) return;
+      wrapper.classList.add('limit-flash');
+
+      setManagedTimer(
+        CHAT_LIMIT_FLASH_TIMER,
+        () => {
+          wrapper.classList.remove('limit-flash');
+          // Safety reset when reduced-motion disables animationend delivery.
+          _isLimitShaking = false;
+          wrapper.classList.remove('limit-shake');
+          updateLimitGauge();
+        },
+        CHAT_LIMIT_FLASH_HOLD_MS,
+      );
+
+      // While holding down a key, let each 400ms shake cycle finish before starting the next.
+      if (!(fromRepeat && _isLimitShaking)) {
+        wrapper.classList.remove('limit-shake');
+        void wrapper.offsetWidth;
+        _isLimitShaking = true;
+        wrapper.classList.add('limit-shake');
+      }
+
+      updateLimitGauge();
+    }
+
+    wrapper?.addEventListener(
+      'animationend',
+      (e) => {
+        if (e.animationName === 'shake') {
+          _isLimitShaking = false;
+          wrapper.classList.remove('limit-shake');
+        }
+      },
+      { signal: uiSignal },
+    );
+
+    uiSignal.addEventListener(
+      'abort',
+      () => {
+        clearManagedTimer(CHAT_LIMIT_FLASH_TIMER);
+        _isLimitShaking = false;
+        wrapper?.classList.remove('limit-flash', 'limit-shake', 'limit-warning');
+        wrapper?.style.removeProperty('--chat-limit-progress');
+      },
+      { once: true },
+    );
 
     function updateGhost(): void {
       const val = getInputValue();
@@ -1628,6 +1758,53 @@ export function initChat(): void {
       chatInput!.removeAttribute('aria-activedescendant');
     }
 
+    function syncComposerState(): void {
+      const val = getInputValue();
+      applyUserTextFontFallback(chatInput!, val);
+      updateGhost();
+      updateLimitGauge();
+      if (!val.startsWith('/') || val.includes(' ')) {
+        hideSuggest();
+        return;
+      }
+      const query = val.slice(1).toLowerCase();
+      const matches = getAvailableCommands(query);
+      showSuggest(matches);
+    }
+
+    function dispatchSyncedInput(): void {
+      _suppressInputClamp = true;
+      try {
+        chatInput!.dispatchEvent(new Event('input', { bubbles: true }));
+      } finally {
+        _suppressInputClamp = false;
+      }
+    }
+
+    function insertBoundedText(rawText: string, fromRepeat = false): boolean {
+      const clean = rawText.replace(/[\r\n]+/g, ' ');
+      const current = getInputValue();
+      const { start, end, selectedLen } = getSelectionInfo();
+      const retained = Math.max(0, current.length - selectedLen);
+      const remaining = Math.max(0, MAX_MSG_LENGTH - retained);
+
+      if (clean.length > remaining) {
+        if (remaining > 0) {
+          const allowed = clean.slice(0, remaining);
+          const next = current.slice(0, start) + allowed + current.slice(end);
+          setTextAndCaret(next, start + allowed.length);
+          dispatchSyncedInput();
+        }
+        triggerLimitHit(fromRepeat);
+        return false;
+      }
+
+      const next = current.slice(0, start) + clean + current.slice(end);
+      setTextAndCaret(next, start + clean.length);
+      dispatchSyncedInput();
+      return true;
+    }
+
     function applySuggest(): void {
       const item = _suggestItems[_suggestIdx];
       if (!item || !chatInput) return;
@@ -1635,22 +1812,21 @@ export function initChat(): void {
       chatInput.focus();
       hideSuggest();
       updateGhost();
+      updateLimitGauge();
     }
 
-    // Paste handler: strip HTML, paste plain text only
+    // Paste handler: strip HTML, clamp to remaining room, and give limit feedback on overflow
     chatInput.addEventListener(
       'paste',
       (e) => {
         e.preventDefault();
         const text = e.clipboardData?.getData('text/plain') || '';
-        // Remove line breaks and limit length
-        const clean = text.replace(/[\r\n]/g, ' ').substring(0, MAX_MSG_LENGTH);
-        document.execCommand('insertText', false, clean);
+        insertBoundedText(text, false);
       },
       { signal: uiSignal },
     );
 
-    // Prevent line breaks in contenteditable
+    // Prevent line breaks and enforce MAX_MSG_LENGTH in contenteditable
     chatInput.addEventListener(
       'beforeinput',
       (e) => {
@@ -1658,24 +1834,18 @@ export function initChat(): void {
           e.preventDefault();
           return;
         }
-        // Enforce maxlength
-        if (e.inputType === 'insertText') {
-          const current = getInputValue();
+        if (
+          e.inputType === 'insertText' ||
+          e.inputType === 'insertReplacementText' ||
+          e.inputType === 'insertFromDrop'
+        ) {
           const incoming = e.data || '';
-          const selection = window.getSelection();
-          const range = selection?.rangeCount === 1 ? selection.getRangeAt(0) : null;
-          const replacedLength =
-            range && chatInput.contains(range.commonAncestorContainer)
-              ? range.toString().length
-              : 0;
-          const retainedLength = Math.max(0, current.length - replacedLength);
+          const current = getInputValue();
+          const { selectedLen } = getSelectionInfo();
+          const retainedLength = Math.max(0, current.length - selectedLen);
           if (retainedLength + incoming.length > MAX_MSG_LENGTH) {
             e.preventDefault();
-            // Insert only what fits
-            const remaining = MAX_MSG_LENGTH - retainedLength;
-            if (remaining > 0) {
-              document.execCommand('insertText', false, incoming.substring(0, remaining));
-            }
+            insertBoundedText(incoming, _lastKeyRepeat);
           }
         }
       },
@@ -1691,22 +1861,32 @@ export function initChat(): void {
       { signal: uiSignal },
     );
 
-    // Input event: filter commands + ghost text
+    // Input event: normalize empty, clamp IME/fallback overflow, update gauge + commands + ghost
     chatInput.addEventListener(
       'input',
       (e) => {
         // Stray-<br> placeholder restore — shared helper, see dom.ts.
         normalizeEmptyContentEditable(chatInput, e);
-        const val = getInputValue();
-        applyUserTextFontFallback(chatInput, val);
-        updateGhost();
-        if (!val.startsWith('/') || val.includes(' ')) {
-          hideSuggest();
-          return;
+        if (!_suppressInputClamp) {
+          const current = getInputValue();
+          if (current.length > MAX_MSG_LENGTH) {
+            const { end } = getSelectionInfo();
+            const overflow = current.length - MAX_MSG_LENGTH;
+            const cutStart = Math.max(0, end - overflow);
+            const trimmed = current.slice(0, cutStart) + current.slice(end);
+            if (_isComposing) {
+              _isComposing = false;
+              setTextAndCaret(trimmed, cutStart);
+              flushImeAndRestoreCaret(cutStart);
+            } else {
+              setTextAndCaret(trimmed, cutStart);
+            }
+            syncComposerState();
+            triggerLimitHit(_lastKeyRepeat);
+            return;
+          }
         }
-        const query = val.slice(1).toLowerCase();
-        const matches = getAvailableCommands(query);
-        showSuggest(matches);
+        syncComposerState();
       },
       { signal: uiSignal },
     );
@@ -1730,6 +1910,7 @@ export function initChat(): void {
     chatInput.addEventListener(
       'blur',
       () => {
+        _lastKeyRepeat = false;
         setManagedTimer('chat-hide-suggest', hideSuggest, 150);
       },
       { signal: uiSignal },
@@ -1738,6 +1919,8 @@ export function initChat(): void {
     chatInput.addEventListener(
       'keydown',
       (e) => {
+        _lastKeyRepeat = e.repeat;
+
         // Autocomplete navigation
         if (_suggestItems.length && !suggest.hidden) {
           if (e.key === 'Tab') {
@@ -1786,10 +1969,39 @@ export function initChat(): void {
       { signal: uiSignal },
     );
 
+    chatInput.addEventListener(
+      'keyup',
+      () => {
+        _lastKeyRepeat = false;
+      },
+      { signal: uiSignal },
+    );
+
+    chatInput.addEventListener(
+      'compositionstart',
+      () => {
+        _isComposing = true;
+      },
+      { signal: uiSignal },
+    );
+
     let _isConfirmingIME = false;
     chatInput.addEventListener(
       'compositionend',
       () => {
+        _isComposing = false;
+        const current = getInputValue();
+        if (current.length > MAX_MSG_LENGTH) {
+          const { end } = getSelectionInfo();
+          const overflow = current.length - MAX_MSG_LENGTH;
+          const cutStart = Math.max(0, end - overflow);
+          const trimmed = current.slice(0, cutStart) + current.slice(end);
+          setTextAndCaret(trimmed, cutStart);
+          syncComposerState();
+          triggerLimitHit(false);
+        } else {
+          updateLimitGauge();
+        }
         // If Enter was pressed during composition, trigger send now that it's finished.
         if (_isConfirmingIME) {
           _isConfirmingIME = false;
@@ -1805,6 +2017,8 @@ export function initChat(): void {
       },
       { signal: uiSignal },
     );
+
+    updateLimitGauge();
 
     // Re-render ghost text on language change. Store the observer ref so
     // re-init (HMR, future re-wiring) disconnects the prior one instead of

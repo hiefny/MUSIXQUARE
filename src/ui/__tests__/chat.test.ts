@@ -457,38 +457,51 @@ describe('Chat Module', () => {
     },
   );
 
-  it('bounds a pasted notice before its local command intercept', async () => {
+  it('bounds a pasted notice at paste time and flashes the limit underline', async () => {
     const { MAX_MSG_LENGTH, MSG } = await import('../../core/constants.ts');
     document.body.innerHTML =
-      '<div class="chat-input-wrapper"><div id="chat-input" contenteditable="true">/notice </div></div>';
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true">/notice </div></div></div>';
     setState('network.appRole', 'host');
     const { initChat, sendChatMessage } = await import('../chat.ts');
     initChat();
+    const wrapper = document.querySelector<HTMLElement>('.chat-input-wrapper')!;
     const input = document.getElementById('chat-input')!;
-    const original = Object.getOwnPropertyDescriptor(document, 'execCommand');
-    Object.defineProperty(document, 'execCommand', {
-      configurable: true,
-      value: (_command: string, _showUi: boolean, text: string) => input.append(text),
-    });
     const sent = vi.fn();
     bus.on('network:broadcast', sent);
-    try {
-      for (let index = 0; index < 2; index += 1) {
-        const paste = new Event('paste', { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, 'clipboardData', {
-          value: { getData: () => 'x'.repeat(MAX_MSG_LENGTH) },
-        });
-        input.dispatchEvent(paste);
-      }
-      sendChatMessage();
-      const notice = sent.mock.calls.find(([frame]) => frame.type === MSG.CHAT_NOTICE)?.[0];
-      expect(notice).toBeDefined();
-      expect(notice.text).toBe('x'.repeat(MAX_MSG_LENGTH - '/notice '.length));
-      expect(showToast).toHaveBeenCalledWith('chat.msg_truncated');
-    } finally {
-      if (original) Object.defineProperty(document, 'execCommand', original);
-      else Reflect.deleteProperty(document, 'execCommand');
+    for (let index = 0; index < 2; index += 1) {
+      const paste = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, 'clipboardData', {
+        value: { getData: () => 'x'.repeat(MAX_MSG_LENGTH) },
+      });
+      input.dispatchEvent(paste);
     }
+    expect(input.textContent).toBe('/notice ' + 'x'.repeat(MAX_MSG_LENGTH - '/notice '.length));
+    expect(wrapper.classList.contains('limit-warning')).toBe(true);
+    expect(wrapper.classList.contains('limit-flash')).toBe(true);
+    expect(wrapper.classList.contains('limit-shake')).toBe(true);
+    sendChatMessage();
+    const notice = sent.mock.calls.find(([frame]) => frame.type === MSG.CHAT_NOTICE)?.[0];
+    expect(notice).toBeDefined();
+    expect(notice.text).toBe('x'.repeat(MAX_MSG_LENGTH - '/notice '.length));
+    expect(wrapper.classList.contains('limit-warning')).toBe(false);
+    expect(wrapper.classList.contains('limit-flash')).toBe(false);
+    expect(wrapper.classList.contains('limit-shake')).toBe(false);
+  });
+
+  it('still bounds an oversized programmatic notice before its local command intercept', async () => {
+    const { MAX_MSG_LENGTH, MSG } = await import('../../core/constants.ts');
+    document.body.innerHTML =
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div></div>';
+    setState('network.appRole', 'host');
+    const { sendChatMessage } = await import('../chat.ts');
+    document.getElementById('chat-input')!.textContent = '/notice ' + 'x'.repeat(MAX_MSG_LENGTH);
+    const sent = vi.fn();
+    bus.on('network:broadcast', sent);
+    sendChatMessage();
+    const notice = sent.mock.calls.find(([frame]) => frame.type === MSG.CHAT_NOTICE)?.[0];
+    expect(notice).toBeDefined();
+    expect(notice.text).toBe('x'.repeat(MAX_MSG_LENGTH - '/notice '.length));
+    expect(showToast).toHaveBeenCalledWith('chat.msg_truncated');
   });
 
   it.each(['w', 'whisper'])(
@@ -604,9 +617,10 @@ describe('Chat Module', () => {
   it('clips replacement text to the room left by the selected characters', async () => {
     const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
     document.body.innerHTML =
-      '<div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div>';
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div></div>';
     const { initChat } = await import('../chat.ts');
     initChat();
+    const wrapper = document.querySelector<HTMLElement>('.chat-input-wrapper')!;
     const input = document.getElementById('chat-input')!;
     input.textContent = 'a'.repeat(MAX_MSG_LENGTH);
     const range = document.createRange();
@@ -615,9 +629,6 @@ describe('Chat Module', () => {
     const selection = window.getSelection()!;
     selection.removeAllRanges();
     selection.addRange(range);
-    const original = Object.getOwnPropertyDescriptor(document, 'execCommand');
-    const insert = vi.fn();
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: insert });
     try {
       const event = new InputEvent('beforeinput', {
         bubbles: true,
@@ -627,11 +638,90 @@ describe('Chat Module', () => {
       });
       input.dispatchEvent(event);
       expect(event.defaultPrevented).toBe(true);
-      expect(insert).toHaveBeenCalledWith('insertText', false, '12345');
+      expect(input.textContent).toBe('aaaaa12345' + 'a'.repeat(MAX_MSG_LENGTH - 10));
+      expect(wrapper.classList.contains('limit-flash')).toBe(true);
+      expect(wrapper.classList.contains('limit-shake')).toBe(true);
     } finally {
       selection.removeAllRanges();
-      if (original) Object.defineProperty(document, 'execCommand', original);
-      else Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
+  it('fills the 400-to-500 underline gauge, flashes red and shakes past 500, and clears below 500', async () => {
+    vi.useFakeTimers();
+    const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+    document.body.innerHTML =
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper">' +
+      '<input id="chat-ime-dummy" type="text" class="visually-offscreen" />' +
+      '<div id="chat-input" contenteditable="true"></div>' +
+      '</div></div>';
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const wrapper = document.querySelector<HTMLElement>('.chat-input-wrapper')!;
+    const input = document.getElementById('chat-input')!;
+
+    try {
+      // Below 400: calm underline, gauge hidden
+      input.textContent = 'a'.repeat(399);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(wrapper.classList.contains('limit-warning')).toBe(false);
+      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe('0.0000');
+
+      // 400 chars: gauge turns on at 1 / 101
+      input.textContent = 'a'.repeat(400);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(wrapper.classList.contains('limit-warning')).toBe(true);
+      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe((1 / 101).toFixed(4));
+      expect(wrapper.classList.contains('limit-flash')).toBe(false);
+
+      // 500 chars: full warning bar, still sendable without red flash
+      input.textContent = 'a'.repeat(MAX_MSG_LENGTH);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(wrapper.classList.contains('limit-warning')).toBe(true);
+      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe('1.0000');
+      expect(wrapper.classList.contains('limit-flash')).toBe(false);
+
+      // Extra input at 500: red flash + shake, then settles back to full yellow after 560ms
+      const blocked = new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: 'z',
+      });
+      input.dispatchEvent(blocked);
+      expect(blocked.defaultPrevented).toBe(true);
+      expect(input.textContent).toHaveLength(MAX_MSG_LENGTH);
+      expect(wrapper.classList.contains('limit-flash')).toBe(true);
+      expect(wrapper.classList.contains('limit-shake')).toBe(true);
+
+      vi.advanceTimersByTime(560);
+      expect(wrapper.classList.contains('limit-flash')).toBe(false);
+      expect(wrapper.classList.contains('limit-warning')).toBe(true);
+      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe('1.0000');
+
+      // Deleting below 500 immediately drops an active red flash
+      input.dispatchEvent(
+        new InputEvent('beforeinput', {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertText',
+          data: 'z',
+        }),
+      );
+      expect(wrapper.classList.contains('limit-flash')).toBe(true);
+      input.textContent = 'a'.repeat(MAX_MSG_LENGTH - 1);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(wrapper.classList.contains('limit-flash')).toBe(false);
+      expect(wrapper.classList.contains('limit-warning')).toBe(true);
+
+      // IME composition overflow trims cleanly to 500 and triggers limit feedback
+      input.dispatchEvent(new Event('compositionstart'));
+      input.textContent = 'a'.repeat(MAX_MSG_LENGTH) + '가나';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(input.textContent).toBe('a'.repeat(MAX_MSG_LENGTH));
+      expect(wrapper.classList.contains('limit-flash')).toBe(true);
+      expect(wrapper.classList.contains('limit-shake')).toBe(true);
+    } finally {
+      vi.useRealTimers();
     }
   });
 

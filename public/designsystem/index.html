@@ -2099,7 +2099,56 @@
                     </button>
                   </div>
                 </div>
+                <div class="input-specimen">
+                  <div class="block-title">Approaching limit</div>
+                  <div
+                    class="chat-input-wrapper limit-warning"
+                    style="--chat-limit-progress: 0.65"
+                  >
+                    <div
+                      class="chat-input"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="Chat message"
+                      data-placeholder="Message or '/' for commands..."
+                    >
+                      400 to 500 chars fill the warning bar
+                    </div>
+                    <button type="button" class="chat-send-btn" aria-label="Send message">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">At limit</div>
+                  <div
+                    class="chat-input-wrapper limit-warning limit-flash"
+                    style="--chat-limit-progress: 1"
+                  >
+                    <div
+                      class="chat-input"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="Chat message"
+                      data-placeholder="Message or '/' for commands..."
+                    >
+                      500 chars reached; extra input flashes red
+                    </div>
+                    <button type="button" class="chat-send-btn" aria-label="Send message">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
+              <p class="input-note">
+                The chat underline fills with a 2px warning gauge from 400 to 500 characters and
+                stays full when sendable at 500. Extra input or overflow paste flashes red and
+                shakes for 400ms, then settles back to full warning.
+              </p>
             </div>
 
             <div class="component-subsection">
@@ -2146,8 +2195,8 @@
                 <div class="token-row">
                   <span class="tok">Underline</span><span class="val">2px</span
                   ><span class="use"
-                    >Rest --surface-3, focus --primary, value error --danger-foreground, disabled
-                    --surface-3</span
+                    >Rest --surface-3, focus --primary, chat 400 to 500 gauge --warning-filled,
+                    value error or limit hit --danger-foreground, disabled --surface-3</span
                   >
                 </div>
                 <div class="token-row">
@@ -2191,6 +2240,10 @@
                   ><span class="use">#3b82f6 / #3b82f6 / #8ab4ff / #0047a8</span>
                 </div>
                 <div class="token-row">
+                  <span class="tok">Limit gauge</span><span class="val">--warning-filled</span
+                  ><span class="use">#f59e0b / #f59e0b / #6b4100 / #6b4100</span>
+                </div>
+                <div class="token-row">
                   <span class="tok">Error</span><span class="val">--danger-foreground</span
                   ><span class="use">#ff3b30 / #ff3b30 / #ff3b30 / #a4001d</span>
                 </div>
@@ -2218,6 +2271,11 @@
                   appears.
                 </li>
                 <li>The blue underline is the focus mark. No field draws a ring.</li>
+                <li>
+                  The chat composer draws a 2px --warning-filled gauge over its underline from 400
+                  to 500 characters; input past 500 flashes --danger-foreground and shakes briefly
+                  before settling on full warning.
+                </li>
               </ul>
             </div>
           </div>

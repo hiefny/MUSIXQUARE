@@ -27,8 +27,9 @@
 
   /* Determinate application work starts at the reading edge in RTL. Circular
  * indeterminate spinners remain direction-neutral. */
-  html[dir='rtl'] .header-progress-bg {
-    transform-origin: right;
+  html[dir='rtl'] .header-progress-bg,
+  html[dir='rtl'] .chat-drawer-input .chat-input-wrapper::after {
+    transform-origin: right center;
   }
 
   html[dir='rtl'] :where(h1, h2, h3, h4, p, button, label, span, input, textarea) {

@@ -1271,27 +1271,63 @@ describe('public design-system page contract', () => {
       'The big button reads Search while a search term is typed and nothing is picked, Please wait... while busy, and Add to Playlist once a result or a link preview is ready. The magnifier always searches. Enter searches until a result is picked or a link previews, then adds it.',
     );
     const composers = frames(buttons).filter((frame) => !strip.includes(frame));
-    expect(titles(composers)).toEqual(['Message', 'Send focused']);
+    expect(titles(composers)).toEqual(['Message', 'Send focused', 'Approaching limit', 'At limit']);
     expect(
       composers.map((frame) => {
         const wrapper = frame.querySelector<HTMLElement>('.chat-input-wrapper')!;
         const send = wrapper.querySelector<HTMLButtonElement>('.chat-send-btn')!;
         return {
+          flash: wrapper.classList.contains('limit-flash'),
           focus: wrapper.dataset.state === 'focus' && send.dataset.state === 'focus',
           placeholder: wrapper.querySelector('.chat-input')?.getAttribute('data-placeholder'),
+          progress: wrapper.style.getPropertyValue('--chat-limit-progress').trim(),
           send: send.getAttribute('aria-label'),
           value: text(wrapper.querySelector('.chat-input')),
+          warning: wrapper.classList.contains('limit-warning'),
         };
       }),
     ).toEqual([
-      { focus: false, placeholder: en['chat.placeholder'], send: en['chat.send'], value: '' },
       {
+        flash: false,
+        focus: false,
+        placeholder: en['chat.placeholder'],
+        progress: '',
+        send: en['chat.send'],
+        value: '',
+        warning: false,
+      },
+      {
+        flash: false,
         focus: true,
         placeholder: en['chat.placeholder'],
+        progress: '',
         send: en['chat.send'],
         value: 'on my way',
+        warning: false,
+      },
+      {
+        flash: false,
+        focus: false,
+        placeholder: en['chat.placeholder'],
+        progress: '0.65',
+        send: en['chat.send'],
+        value: '400 to 500 chars fill the warning bar',
+        warning: true,
+      },
+      {
+        flash: true,
+        focus: false,
+        placeholder: en['chat.placeholder'],
+        progress: '1',
+        send: en['chat.send'],
+        value: '500 chars reached; extra input flashes red',
+        warning: true,
       },
     ]);
+    const notes = [...(buttons?.querySelectorAll(':scope > .input-note') ?? [])].map(text);
+    expect(notes[1]).toBe(
+      'The chat underline fills with a 2px warning gauge from 400 to 500 characters and stays full when sendable at 500. Extra input or overflow paste flashes red and shakes for 400ms, then settles back to full warning.',
+    );
 
     // Spec: the parts, then the color roles with the values of every palette.
     const tables = [...(spec?.querySelectorAll<HTMLElement>(':scope > .tokens') ?? [])];
@@ -1345,6 +1381,7 @@ describe('public design-system page contract', () => {
       ['Placeholder and clear', '--text-muted', palette('--text-muted')],
       ['Rest underline and idle buttons', '--surface-3', palette('--surface-3')],
       ['Focus', '--primary', palette('--primary')],
+      ['Limit gauge', '--warning-filled', '#f59e0b / #f59e0b / #6b4100 / #6b4100'],
       // Only high contrast light darkens the red (#a4001d).
       ['Error', '--danger-foreground', '#ff3b30 / #ff3b30 / #ff3b30 / #a4001d'],
     ]);
@@ -1359,6 +1396,7 @@ describe('public design-system page contract', () => {
       "The line follows the field: centered under a code, at the text's start under an entry.",
       'Dialogs keep one line of space under the field, so nothing moves when an error appears.',
       'The blue underline is the focus mark. No field draws a ring.',
+      'The chat composer draws a 2px --warning-filled gauge over its underline from 400 to 500 characters; input past 500 flashes --danger-foreground and shakes briefly before settling on full warning.',
     ]);
     // Lines under a field end without a full stop (the copy policy).
     expect(

@@ -947,6 +947,7 @@ const ptBr: Record<I18nKey, string> = {
     'A conexão de {{name}} está instável. Tentando restabelecer.',
   'chat.empty_html': 'Ainda não há mensagens.<br>Envie a primeira!',
   'chat.msg_truncated': 'Mensagem cortada para {{max}} caracteres',
+  'chat.over_limit': 'A mensagem ultrapassa o limite em {{count}} e não pode ser enviada',
   'chat.scroll_to_bottom': 'Rolar para o fim',
 
   // Final help and legal blocks

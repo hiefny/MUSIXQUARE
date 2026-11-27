@@ -2171,7 +2171,9 @@
   border-bottom-color: var(--danger-foreground);
 }
 
-/* Chat 400 to 500 underline gauge and transient red limit-hit flash. */
+/* The message limit is soft: from 400 the 2px gauge fills over the chat
+   underline; past 500 the underline turns red, as for a wrong value, and
+   stays red until the message is short enough. Nothing typed is cut. */
 .chat-input-wrapper::after {
   content: '';
   position: absolute;
@@ -2185,7 +2187,6 @@
   pointer-events: none;
   transition:
     transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    background-color 220ms ease,
     opacity 140ms ease;
 }
 
@@ -2193,18 +2194,12 @@
   opacity: 1;
 }
 
-.chat-input-wrapper.limit-flash {
+.chat-input-wrapper.limit-over {
   border-bottom-color: var(--danger-foreground);
 }
 
-.chat-input-wrapper.limit-flash::after {
-  opacity: 1;
-  transform: scaleX(1);
-  background: var(--danger-foreground);
-  transition:
-    transform 80ms ease-out,
-    background-color 80ms ease-out,
-    opacity 80ms ease-out;
+.chat-input-wrapper.limit-over::after {
+  opacity: 0;
 }
 
 /* Disabled: the content at half strength; the underline stays --surface-3.
@@ -2305,6 +2300,33 @@
 .chat-send-btn[data-state='focus'] {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
+}
+
+/* The count stands just above the send arrow: what is left in warning text
+   from 400, the danger red once it goes below zero. Over the limit the arrow
+   goes idle. */
+.chat-limit-count {
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: 44px;
+  min-width: 36px;
+  color: var(--warning-foreground);
+  font-size: var(--fs-12);
+  font-weight: var(--font-weight-label);
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.chat-input-wrapper.limit-over > .chat-limit-count {
+  color: var(--danger-foreground);
+}
+
+.chat-input-wrapper.limit-over > .chat-send-btn {
+  color: var(--surface-3);
+  cursor: default;
 }
 
 /* The YouTube sheet: a picked result and the Cancel / primary pair. */

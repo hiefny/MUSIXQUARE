@@ -916,6 +916,7 @@ const fi: Record<I18nKey, string> = {
     'Käyttäjän {{name}} yhteys on epävakaa. Yhteyttä yritetään palauttaa.',
   'chat.empty_html': 'Ei vielä viestejä.<br>Lähetä ensimmäinen viesti!',
   'chat.msg_truncated': 'Viesti lyhennettiin {{max}} merkkiin',
+  'chat.over_limit': 'Viesti on liian pitkä lähetettäväksi (ylitys {{count}})',
   'chat.scroll_to_bottom': 'Vieritä alas',
   'setup.invite_share_desc_html':
     'Yhdistä useita laitteita langattomasti<br>ja luo valtava äänentoistojärjestelmä.<br>Muodosta yhteys 6-numeroisella kutsukoodilla.',

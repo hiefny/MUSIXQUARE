@@ -8324,8 +8324,12 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     border-bottom-color: var(--primary);
   }
 
-  /* 400 -> 500 yellow gauge drawn directly over the 2px chat underline.
-     Scoped to .chat-drawer-input so .sync-manual-input-wrapper is untouched. */
+  /* The soft message limit (src/ui/chat.ts), scoped to .chat-drawer-input so
+     .sync-manual-input-wrapper is untouched. From 400 the 2px gauge fills
+     over the underline and the count above the send arrow shows what is left.
+     Past 500 the gauge gives way to the red underline of a wrong value, the
+     count goes below zero and the arrow goes idle until the message is short
+     enough. Nothing typed is ever cut. */
   .chat-drawer-input .chat-input-wrapper {
     position: relative;
   }
@@ -8343,7 +8347,6 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     pointer-events: none;
     transition:
       transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
-      background-color 220ms ease,
       opacity 140ms ease;
   }
 
@@ -8351,21 +8354,49 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     opacity: 1;
   }
 
-  /* Red flash on limit hit, then settles back to full yellow. */
-  .chat-drawer-input .chat-input-wrapper.limit-flash {
+  .chat-drawer-input .chat-input-wrapper.limit-over {
     border-bottom-color: var(--danger-foreground);
   }
 
-  .chat-drawer-input .chat-input-wrapper.limit-flash::after {
-    opacity: 1;
-    transform: scaleX(1);
-    background: var(--danger-foreground);
-    transition:
-      transform 80ms ease-out,
-      background-color 80ms ease-out,
-      opacity 80ms ease-out;
+  .chat-drawer-input .chat-input-wrapper.limit-over::after {
+    opacity: 0;
   }
 
+  /* The count stands in the send arrow's column, just above the arrow (the
+     wrapper's 6px padding, the arrow's 2px margin and its 36px). A plain
+     number in warning text, in the danger red once it goes below zero. */
+  .chat-limit-count {
+    position: absolute;
+    inset-inline-end: 0;
+    bottom: 44px;
+    min-width: 36px;
+    color: var(--warning-foreground);
+    font-size: 12px;
+    font-weight: var(--font-weight-label);
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .chat-drawer-input .chat-input-wrapper.limit-over > .chat-limit-count {
+    color: var(--danger-foreground);
+  }
+
+  .chat-drawer-input .chat-input-wrapper.limit-over > .chat-send-btn {
+    color: var(--surface-3);
+    cursor: default;
+  }
+
+  /* Where the browser supports CSS highlights, the part past the limit takes
+     the danger tint. The count and the announcement carry the meaning. */
+  ::highlight(chat-overflow) {
+    background-color: var(--control-danger);
+  }
+
+  /* One shake for a refused send. With reduced motion the red line and the
+     count stay and nothing moves. */
   .chat-drawer-input .chat-input-wrapper.limit-shake {
     animation: shake 0.4s ease;
   }
@@ -13524,10 +13555,6 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     --scrollbar-thumb: CanvasText !important;
     --scrollbar-thumb-hover: Highlight !important;
     --scrollbar-thumb-active: Highlight !important;
-  }
-
-  .chat-drawer-input .chat-input-wrapper::after {
-    forced-color-adjust: none;
   }
 
   :is(button, [role='button'], [role='switch'], [role='tab']) {

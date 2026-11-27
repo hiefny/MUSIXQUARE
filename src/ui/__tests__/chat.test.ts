@@ -7,6 +7,7 @@ import { DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { t } from '../../i18n/index.ts';
 import { sendToHost } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { showToast } from '../toast.ts';
@@ -93,6 +94,10 @@ vi.mock('../../player/transport.ts', () => ({
 vi.mock('../../youtube/oembed.ts', () => ({
   fetchOEmbedTitle: vi.fn(async () => 'Mock Title'),
 }));
+
+/** The soft limit's count, as index.html marks it up. */
+const LIMIT_COUNT =
+  '<span class="chat-limit-count" aria-hidden="true" hidden><span class="chat-limit-count-value"></span></span>';
 
 function expectFontClasses(element: Element | null | undefined, ...classes: string[]): void {
   expect(element).not.toBeNull();
@@ -457,35 +462,85 @@ describe('Chat Module', () => {
     },
   );
 
-  it('bounds a pasted notice at paste time and flashes the limit underline', async () => {
+  it('keeps a pasted notice past the limit and refuses its send until it fits', async () => {
     const { MAX_MSG_LENGTH, MSG } = await import('../../core/constants.ts');
     document.body.innerHTML =
-      '<div class="chat-drawer-input"><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true">/notice </div></div></div>';
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true">/notice </div><button id="btn-chat-send"></button>' +
+      LIMIT_COUNT +
+      '</div></div>';
     setState('network.appRole', 'host');
-    const { initChat, sendChatMessage } = await import('../chat.ts');
+    const { initChat } = await import('../chat.ts');
     initChat();
     const wrapper = document.querySelector<HTMLElement>('.chat-input-wrapper')!;
     const input = document.getElementById('chat-input')!;
+    const send = document.getElementById('btn-chat-send')!;
+    const count = wrapper.querySelector<HTMLElement>('.chat-limit-count')!;
+    const commands: Array<[string, boolean, string]> = [];
+    const original = Object.getOwnPropertyDescriptor(document, 'execCommand');
+    // A paste goes in as an editing command, so the browser's undo sees it.
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: (command: string, showUi: boolean, text: string) => {
+        commands.push([command, showUi, text]);
+        input.append(text);
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+        return true;
+      },
+    });
     const sent = vi.fn();
     bus.on('network:broadcast', sent);
-    for (let index = 0; index < 2; index += 1) {
-      const paste = new Event('paste', { bubbles: true, cancelable: true });
-      Object.defineProperty(paste, 'clipboardData', {
-        value: { getData: () => 'x'.repeat(MAX_MSG_LENGTH) },
-      });
-      input.dispatchEvent(paste);
+    try {
+      for (let index = 0; index < 2; index += 1) {
+        const paste = new Event('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, 'clipboardData', {
+          value: { getData: () => 'x'.repeat(MAX_MSG_LENGTH) },
+        });
+        input.dispatchEvent(paste);
+        expect(paste.defaultPrevented).toBe(true);
+      }
+      expect(commands).toEqual([
+        ['insertText', false, 'x'.repeat(MAX_MSG_LENGTH)],
+        ['insertText', false, 'x'.repeat(MAX_MSG_LENGTH)],
+      ]);
+      const draft = '/notice ' + 'x'.repeat(MAX_MSG_LENGTH * 2);
+      expect(input.textContent).toBe(draft);
+      expect(showToast).not.toHaveBeenCalledWith('chat.msg_truncated');
+      expect(wrapper.classList.contains('limit-over')).toBe(true);
+      expect(wrapper.classList.contains('limit-warning')).toBe(false);
+      expect(count.hidden).toBe(false);
+      expect(count.textContent).toBe(`\u2212${draft.length - MAX_MSG_LENGTH}`);
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(send.getAttribute('aria-disabled')).toBe('true');
+
+      const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      input.dispatchEvent(enter);
+      expect(enter.defaultPrevented).toBe(true);
+      expect(sent).not.toHaveBeenCalled();
+      expect(input.textContent).toBe(draft);
+      expect(wrapper.classList.contains('limit-shake')).toBe(true);
+
+      // Back to the limit: the same draft, shortened by its writer, sends whole.
+      const fits = '/notice ' + 'x'.repeat(MAX_MSG_LENGTH - '/notice '.length);
+      input.textContent = fits;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(wrapper.classList.contains('limit-over')).toBe(false);
+      expect(wrapper.classList.contains('limit-shake')).toBe(false);
+      expect(count.textContent).toBe('0');
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
+      expect(send.hasAttribute('aria-disabled')).toBe(false);
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+      const notice = sent.mock.calls.find(([frame]) => frame.type === MSG.CHAT_NOTICE)?.[0];
+      expect(notice).toBeDefined();
+      expect(notice.text).toBe('x'.repeat(MAX_MSG_LENGTH - '/notice '.length));
+      expect(showToast).not.toHaveBeenCalledWith('chat.msg_truncated');
+      expect(wrapper.classList.contains('limit-warning')).toBe(false);
+      expect(count.hidden).toBe(true);
+    } finally {
+      if (original) Object.defineProperty(document, 'execCommand', original);
+      else Reflect.deleteProperty(document, 'execCommand');
     }
-    expect(input.textContent).toBe('/notice ' + 'x'.repeat(MAX_MSG_LENGTH - '/notice '.length));
-    expect(wrapper.classList.contains('limit-warning')).toBe(true);
-    expect(wrapper.classList.contains('limit-flash')).toBe(true);
-    expect(wrapper.classList.contains('limit-shake')).toBe(true);
-    sendChatMessage();
-    const notice = sent.mock.calls.find(([frame]) => frame.type === MSG.CHAT_NOTICE)?.[0];
-    expect(notice).toBeDefined();
-    expect(notice.text).toBe('x'.repeat(MAX_MSG_LENGTH - '/notice '.length));
-    expect(wrapper.classList.contains('limit-warning')).toBe(false);
-    expect(wrapper.classList.contains('limit-flash')).toBe(false);
-    expect(wrapper.classList.contains('limit-shake')).toBe(false);
   });
 
   it('still bounds an oversized programmatic notice before its local command intercept', async () => {
@@ -571,155 +626,264 @@ describe('Chat Module', () => {
   });
 
   it.each([
-    ['whole input', false],
-    ['partial input', false],
-    ['collapsed cursor', true],
-    ['outside input', true],
-    ['crossing input boundary', true],
-    ['IME composition', false],
-  ] as const)(
-    'bounds replacement with %s selected at the message limit',
-    async (scope, prevented) => {
-      const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
-      document.body.innerHTML =
-        '<div id="outside">external text</div><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div>';
-      const { initChat } = await import('../chat.ts');
-      initChat();
-      const input = document.getElementById('chat-input')!;
-      input.textContent = 'a'.repeat(MAX_MSG_LENGTH);
-      const range = document.createRange();
-      range.selectNodeContents(input);
-      if (scope === 'partial input') {
-        range.setStart(input.firstChild!, 5);
-        range.setEnd(input.firstChild!, 10);
-      } else if (scope === 'collapsed cursor') {
-        range.collapse(false);
-      } else if (scope === 'outside input') {
-        range.selectNodeContents(document.getElementById('outside')!);
-      } else if (scope === 'crossing input boundary') {
-        range.setStart(document.getElementById('outside')!.firstChild!, 0);
-      }
-      const selection = window.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
-      const beforeInput = new InputEvent('beforeinput', {
-        bubbles: true,
-        cancelable: true,
-        inputType: scope === 'IME composition' ? 'insertCompositionText' : 'insertText',
-        data: 'b',
-      });
-      input.dispatchEvent(beforeInput);
-      expect(beforeInput.defaultPrevented).toBe(prevented);
-      selection.removeAllRanges();
-    },
-  );
-
-  it('clips replacement text to the room left by the selected characters', async () => {
+    ['whole input'],
+    ['partial input'],
+    ['collapsed cursor'],
+    ['outside input'],
+    ['crossing input boundary'],
+    ['IME composition'],
+  ] as const)('never cancels typing at the message limit with %s selected', async (scope) => {
     const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+    document.body.innerHTML =
+      '<div id="outside">external text</div><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div>';
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const input = document.getElementById('chat-input')!;
+    input.textContent = 'a'.repeat(MAX_MSG_LENGTH);
+    const range = document.createRange();
+    range.selectNodeContents(input);
+    if (scope === 'partial input') {
+      range.setStart(input.firstChild!, 5);
+      range.setEnd(input.firstChild!, 10);
+    } else if (scope === 'collapsed cursor') {
+      range.collapse(false);
+    } else if (scope === 'outside input') {
+      range.selectNodeContents(document.getElementById('outside')!);
+    } else if (scope === 'crossing input boundary') {
+      range.setStart(document.getElementById('outside')!.firstChild!, 0);
+    }
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const beforeInput = new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: scope === 'IME composition' ? 'insertCompositionText' : 'insertText',
+      data: 'b',
+    });
+    input.dispatchEvent(beforeInput);
+    // The limit is soft: the browser inserts, and only the send waits.
+    expect(beforeInput.defaultPrevented).toBe(false);
+    expect(input.textContent).toBe('a'.repeat(MAX_MSG_LENGTH));
+    selection.removeAllRanges();
+  });
+
+  it('still keeps the message on one line', async () => {
+    document.body.innerHTML =
+      '<div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div>';
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const input = document.getElementById('chat-input')!;
+    for (const inputType of ['insertParagraph', 'insertLineBreak']) {
+      const event = new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType });
+      input.dispatchEvent(event);
+      expect(event.defaultPrevented, inputType).toBe(true);
+    }
+  });
+
+  it('cuts only a huge paste, on a grapheme boundary, and says so', async () => {
+    const { CHAT_PASTE_MAX_LENGTH } = await import('../../chat/message-length.ts');
     document.body.innerHTML =
       '<div class="chat-drawer-input"><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div></div>';
     const { initChat } = await import('../chat.ts');
     initChat();
-    const wrapper = document.querySelector<HTMLElement>('.chat-input-wrapper')!;
     const input = document.getElementById('chat-input')!;
-    input.textContent = 'a'.repeat(MAX_MSG_LENGTH);
-    const range = document.createRange();
-    range.setStart(input.firstChild!, 5);
-    range.setEnd(input.firstChild!, 10);
-    const selection = window.getSelection()!;
-    selection.removeAllRanges();
-    selection.addRange(range);
-    try {
-      const event = new InputEvent('beforeinput', {
-        bubbles: true,
-        cancelable: true,
-        inputType: 'insertText',
-        data: '12345678',
-      });
+    const paste = (text: string): Event => {
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: { getData: () => text } });
       input.dispatchEvent(event);
-      expect(event.defaultPrevented).toBe(true);
-      expect(input.textContent).toBe('aaaaa12345' + 'a'.repeat(MAX_MSG_LENGTH - 10));
-      expect(wrapper.classList.contains('limit-flash')).toBe(true);
-      expect(wrapper.classList.contains('limit-shake')).toBe(true);
+      return event;
+    };
+    const place = (start: number, end = start): void => {
+      input.normalize();
+      const range = document.createRange();
+      range.setStart(input.firstChild!, start);
+      range.setEnd(input.firstChild!, end);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+    };
+    try {
+      // Without an editing command (jsdom) the paste still lands at the caret,
+      // one line, and nothing near the limit is cut.
+      input.textContent = 'ab';
+      place(1);
+      paste('one\r\ntwo\n\nthree');
+      expect(input.textContent).toBe('aone two threeb');
+      expect(showToast).not.toHaveBeenCalled();
+
+      // A paste without text (an image) changes nothing.
+      place(0, 3);
+      expect(paste('').defaultPrevented).toBe(true);
+      expect(input.textContent).toBe('aone two threeb');
+
+      // Six units of room: the emoji does not fit whole, so it stays out.
+      input.textContent = 'a'.repeat(CHAT_PASTE_MAX_LENGTH - 6);
+      place(CHAT_PASTE_MAX_LENGTH - 6);
+      paste('bbbbb\u{1F600}cc');
+      expect(input.textContent).toBe('a'.repeat(CHAT_PASTE_MAX_LENGTH - 6) + 'bbbbb');
+      expect(showToast).toHaveBeenCalledWith('chat.msg_truncated');
+      expect(t).toHaveBeenCalledWith('chat.msg_truncated', { max: CHAT_PASTE_MAX_LENGTH });
+
+      // A selection gives its room back to the paste.
+      vi.mocked(showToast).mockClear();
+      place(0, 10);
+      paste('z'.repeat(10));
+      expect(input.textContent).toBe(
+        'z'.repeat(10) + 'a'.repeat(CHAT_PASTE_MAX_LENGTH - 16) + 'bbbbb',
+      );
+      expect(showToast).not.toHaveBeenCalled();
     } finally {
-      selection.removeAllRanges();
+      window.getSelection()!.removeAllRanges();
     }
   });
 
-  it('fills the 400-to-500 underline gauge, flashes red and shakes past 500, and clears below 500', async () => {
-    vi.useFakeTimers();
+  it('mirrors the draft length without editing it, announces once and refuses an over-limit send', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
     const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+    const { CHAT_LIMIT_WARN_START } = await import('../../chat/message-length.ts');
+    const { CHAT_LIMIT_ANNOUNCE_DELAY_MS } = await import('../chat.ts');
     document.body.innerHTML =
-      '<div class="chat-drawer-input"><div class="chat-input-wrapper">' +
+      '<div id="chat-messages"></div><div class="chat-drawer-input"><div class="chat-input-wrapper">' +
       '<input id="chat-ime-dummy" type="text" class="visually-offscreen" />' +
       '<div id="chat-input" contenteditable="true"></div>' +
+      '<button id="btn-chat-send"></button>' +
+      LIMIT_COUNT +
       '</div></div>';
+    setState('network.appRole', 'host');
     const { initChat } = await import('../chat.ts');
     initChat();
     const wrapper = document.querySelector<HTMLElement>('.chat-input-wrapper')!;
     const input = document.getElementById('chat-input')!;
-
-    try {
-      // Below 400: calm underline, gauge hidden
-      input.textContent = 'a'.repeat(399);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      expect(wrapper.classList.contains('limit-warning')).toBe(false);
-      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe('0.0000');
-
-      // 400 chars: gauge turns on at 1 / 101
-      input.textContent = 'a'.repeat(400);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      expect(wrapper.classList.contains('limit-warning')).toBe(true);
-      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe((1 / 101).toFixed(4));
-      expect(wrapper.classList.contains('limit-flash')).toBe(false);
-
-      // 500 chars: full warning bar, still sendable without red flash
-      input.textContent = 'a'.repeat(MAX_MSG_LENGTH);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      expect(wrapper.classList.contains('limit-warning')).toBe(true);
-      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe('1.0000');
-      expect(wrapper.classList.contains('limit-flash')).toBe(false);
-
-      // Extra input at 500: red flash + shake, then settles back to full yellow after 560ms
-      const blocked = new InputEvent('beforeinput', {
+    const send = document.getElementById('btn-chat-send')!;
+    const dummy = document.getElementById('chat-ime-dummy')!;
+    const count = wrapper.querySelector<HTMLElement>('.chat-limit-count')!;
+    const status = wrapper.querySelector<HTMLElement>('.chat-limit-status')!;
+    const dummyFocus = vi.spyOn(dummy, 'focus');
+    const sent = vi.fn();
+    bus.on('network:broadcast', sent);
+    const type = (text: string, init: InputEventInit = {}): void => {
+      input.textContent = text;
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, ...init }));
+    };
+    const enter = (init: KeyboardEventInit = {}): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Enter',
         bubbles: true,
         cancelable: true,
-        inputType: 'insertText',
-        data: 'z',
+        ...init,
       });
-      input.dispatchEvent(blocked);
-      expect(blocked.defaultPrevented).toBe(true);
-      expect(input.textContent).toHaveLength(MAX_MSG_LENGTH);
-      expect(wrapper.classList.contains('limit-flash')).toBe(true);
-      expect(wrapper.classList.contains('limit-shake')).toBe(true);
+      input.dispatchEvent(event);
+      return event;
+    };
+    const announcements = (): number =>
+      vi.mocked(t).mock.calls.filter(([key]) => key === 'chat.over_limit').length;
 
-      vi.advanceTimersByTime(560);
-      expect(wrapper.classList.contains('limit-flash')).toBe(false);
+    try {
+      expect(status.getAttribute('role')).toBe('status');
+      expect(status.getAttribute('aria-live')).toBe('polite');
+      expect(count.getAttribute('aria-hidden')).toBe('true');
+
+      // Below the last 100: no gauge and no count.
+      type('a'.repeat(CHAT_LIMIT_WARN_START - 1));
+      expect(wrapper.classList.contains('limit-warning')).toBe(false);
+      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe('0.0000');
+      expect(count.hidden).toBe(true);
+
+      // The last 100: the gauge starts at 1 / 101 and the count shows what is left.
+      type('a'.repeat(CHAT_LIMIT_WARN_START));
       expect(wrapper.classList.contains('limit-warning')).toBe(true);
+      expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe((1 / 101).toFixed(4));
+      expect(count.hidden).toBe(false);
+      expect(count.textContent).toBe('100');
+
+      // Exactly the limit: full gauge, sendable.
+      type('a'.repeat(MAX_MSG_LENGTH));
       expect(wrapper.style.getPropertyValue('--chat-limit-progress')).toBe('1.0000');
+      expect(count.textContent).toBe('0');
+      expect(wrapper.classList.contains('limit-over')).toBe(false);
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
 
-      // Deleting below 500 immediately drops an active red flash
-      input.dispatchEvent(
-        new InputEvent('beforeinput', {
-          bubbles: true,
-          cancelable: true,
-          inputType: 'insertText',
-          data: 'z',
-        }),
-      );
-      expect(wrapper.classList.contains('limit-flash')).toBe(true);
-      input.textContent = 'a'.repeat(MAX_MSG_LENGTH - 1);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      expect(wrapper.classList.contains('limit-flash')).toBe(false);
-      expect(wrapper.classList.contains('limit-warning')).toBe(true);
+      // One past: the text stays as typed, the line turns red and stays red.
+      type('a'.repeat(MAX_MSG_LENGTH) + 'b');
+      expect(input.textContent).toBe('a'.repeat(MAX_MSG_LENGTH) + 'b');
+      expect(wrapper.classList.contains('limit-over')).toBe(true);
+      expect(wrapper.classList.contains('limit-warning')).toBe(false);
+      expect(wrapper.classList.contains('limit-shake')).toBe(false);
+      expect(count.textContent).toBe('\u22121');
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(send.getAttribute('aria-disabled')).toBe('true');
 
-      // IME composition overflow trims cleanly to 500 and triggers limit feedback
-      input.dispatchEvent(new Event('compositionstart'));
-      input.textContent = 'a'.repeat(MAX_MSG_LENGTH) + '가나';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      expect(input.textContent).toBe('a'.repeat(MAX_MSG_LENGTH));
-      expect(wrapper.classList.contains('limit-flash')).toBe(true);
+      // The announcement waits for a pause in typing, then speaks once.
+      vi.advanceTimersByTime(CHAT_LIMIT_ANNOUNCE_DELAY_MS - 1);
+      type('a'.repeat(MAX_MSG_LENGTH) + 'bc');
+      vi.advanceTimersByTime(CHAT_LIMIT_ANNOUNCE_DELAY_MS - 1);
+      expect(announcements()).toBe(0);
+      vi.advanceTimersByTime(1);
+      vi.advanceTimersToNextFrame();
+      expect(announcements()).toBe(1);
+      expect(t).toHaveBeenLastCalledWith('chat.over_limit', { count: 2 });
+      expect(status.textContent).toBe('chat.over_limit');
+      type('a'.repeat(MAX_MSG_LENGTH) + 'bcd');
+      vi.advanceTimersByTime(CHAT_LIMIT_ANNOUNCE_DELAY_MS * 2);
+      vi.advanceTimersToNextFrame();
+      expect(announcements()).toBe(1);
+
+      // Enter and the send arrow refuse with one shake and one announcement each.
+      const refused = enter();
+      expect(refused.defaultPrevented).toBe(true);
       expect(wrapper.classList.contains('limit-shake')).toBe(true);
+      expect(status.textContent).toBe('');
+      vi.advanceTimersToNextFrame();
+      expect(status.textContent).toBe('chat.over_limit');
+      expect(announcements()).toBe(2);
+      expect(t).toHaveBeenLastCalledWith('chat.over_limit', { count: 3 });
+      // A held Enter is not a new attempt.
+      enter({ repeat: true });
+      vi.advanceTimersToNextFrame();
+      expect(announcements()).toBe(2);
+      send.dispatchEvent(
+        new MouseEvent('pointerdown', { button: 0, bubbles: true, cancelable: true }),
+      );
+      vi.advanceTimersToNextFrame();
+      expect(announcements()).toBe(3);
+      expect(sent).not.toHaveBeenCalled();
+      expect(input.textContent).toBe('a'.repeat(MAX_MSG_LENGTH) + 'bcd');
+
+      // Composition past the limit is never trimmed or interrupted, and an
+      // Enter that waited for the commit is refused like any other.
+      type('a'.repeat(MAX_MSG_LENGTH - 1));
+      expect(status.textContent).toBe('');
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      type('a'.repeat(MAX_MSG_LENGTH - 1) + '가나', {
+        inputType: 'insertCompositionText',
+        isComposing: true,
+      });
+      expect(input.textContent).toBe('a'.repeat(MAX_MSG_LENGTH - 1) + '가나');
+      expect(wrapper.classList.contains('limit-over')).toBe(true);
+      enter({ isComposing: true });
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '가나' }));
+      vi.advanceTimersByTime(0);
+      vi.advanceTimersToNextFrame();
+      expect(input.textContent).toBe('a'.repeat(MAX_MSG_LENGTH - 1) + '가나');
+      expect(sent).not.toHaveBeenCalled();
+      expect(announcements()).toBe(4);
+      expect(dummyFocus).not.toHaveBeenCalled();
+
+      // Deleting back to the limit clears the state; the next Enter sends it all.
+      type('a'.repeat(MAX_MSG_LENGTH - 1) + '가');
+      expect(wrapper.classList.contains('limit-over')).toBe(false);
+      expect(wrapper.classList.contains('limit-shake')).toBe(false);
+      expect(status.textContent).toBe('');
+      expect(send.hasAttribute('aria-disabled')).toBe(false);
+      enter();
+      expect(sent).toHaveBeenCalledWith(
+        expect.objectContaining({ text: 'a'.repeat(MAX_MSG_LENGTH - 1) + '가' }),
+      );
+      expect(showToast).not.toHaveBeenCalledWith('chat.msg_truncated');
+      expect(input.textContent).toBe('');
+      expect(count.hidden).toBe(true);
     } finally {
       vi.useRealTimers();
     }

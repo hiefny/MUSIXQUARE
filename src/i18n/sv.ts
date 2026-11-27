@@ -919,6 +919,7 @@ const sv: Record<I18nKey, string> = {
     'Anslutningen för {{name}} är instabil. Försöker återställa den.',
   'chat.empty_html': 'Inga meddelanden ännu.<br>Skicka det första meddelandet!',
   'chat.msg_truncated': 'Meddelandet kortades till {{max}} tecken',
+  'chat.over_limit': 'Meddelandet överskrider gränsen med {{count}} och kan inte skickas',
   'chat.scroll_to_bottom': 'Rulla längst ner',
   'setup.invite_share_desc_html':
     'Anslut flera enheter trådlöst<br>och skapa ett kraftfullt ljudsystem.<br>Anslut med en 6-siffrig inbjudningskod.',

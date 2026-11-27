@@ -898,6 +898,7 @@ const tr: Record<I18nKey, string> = {
     '{{name}} adlı katılımcının bağlantısı kararsız. Kurtarılmaya çalışılıyor.',
   'chat.empty_html': 'Henüz mesaj yok.<br>İlk mesajı gönder!',
   'chat.msg_truncated': 'Mesaj {{max}} karakter sınırı nedeniyle kısaltıldı',
+  'chat.over_limit': 'Mesaj sınırı {{count}} kadar aşıyor ve gönderilemiyor',
   'chat.scroll_to_bottom': 'En alta git',
   'setup.invite_share_desc_html':
     'Birden fazla cihazı kablosuz olarak bağlayıp<br>devasa bir ses sistemi oluştur.<br>Bağlanmak için 6 haneli davet kodunu kullan.',

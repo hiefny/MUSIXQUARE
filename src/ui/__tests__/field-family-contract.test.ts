@@ -723,7 +723,7 @@ function pageDeclarations(selector: string, context = ''): Record<string, string
 }
 
 const MIRROR_CLASS =
-  /\.(?:setup-join-input|setup-inline-error|setup-code-label|setup-join-area|dialog-input|dialog-input-split|dialog-input-segment|dialog-input-separator|dialog-hint|yt-search-input-wrapper|yt-intro-text|yt-search-submit-btn|yt-preview-meta|yt-search-results?|yt-search-thumb|yt-search-meta|yt-search-title|yt-search-channel|chat-input-wrapper|chat-input|chat-send-btn|clearable-editor-button|clearable-editor-active|sync-col-label|sync-col-value|sync-manual-display|sync-manual-input-wrapper|sync-manual-input|ob-actions|btn-ob-primary|btn-ob-secondary)(?![\w-])/u;
+  /\.(?:setup-join-input|setup-inline-error|setup-code-label|setup-join-area|dialog-input|dialog-input-split|dialog-input-segment|dialog-input-separator|dialog-hint|yt-search-input-wrapper|yt-intro-text|yt-search-submit-btn|yt-preview-meta|yt-search-results?|yt-search-thumb|yt-search-meta|yt-search-title|yt-search-channel|chat-input-wrapper|chat-input|chat-send-btn|chat-limit-count|clearable-editor-button|clearable-editor-active|sync-col-label|sync-col-value|sync-manual-display|sync-manual-input-wrapper|sync-manual-input|ob-actions|btn-ob-primary|btn-ob-secondary)(?![\w-])/u;
 
 /** Every property of the one app rule with this selector. */
 const all = (selector: string, context: string): string[] =>
@@ -935,6 +935,8 @@ describe('the design-system page mirrors the field family', () => {
       ['.dialog-input.invalid', '.dialog-input:focus'],
       ['.dialog-input-split.invalid .dialog-input-segment', '.dialog-input-segment:focus'],
       [SYNC_INVALID, '.chat-input-wrapper:focus-within'],
+      // A message over the limit: the same red, until it is short enough.
+      ['.chat-input-wrapper.limit-over', '.chat-input-wrapper:focus-within'],
       [YOUTUBE_INVALID, '.yt-search-input-wrapper:focus-within'],
     ];
     for (const [selector, focused] of invalid) {
@@ -1003,11 +1005,13 @@ describe('the design-system page mirrors the field family', () => {
         '.clearable-editor-button:focus-visible',
         all(`${KEYBOARD} .clearable-editor-button:focus-visible`, BASE),
       ],
+      // The soft message limit: the gauge, the red line past 500, the count
+      // above the send arrow and the idle arrow while the message is too long.
       [
         '.chat-drawer-input .chat-input-wrapper::after',
         BASE,
         '.chat-input-wrapper::after',
-        ['height', 'bottom', 'background', 'transform', 'opacity'],
+        ['height', 'bottom', 'background', 'transform', 'opacity', 'transition'],
       ],
       [
         '.chat-drawer-input .chat-input-wrapper.limit-warning::after',
@@ -1016,16 +1020,46 @@ describe('the design-system page mirrors the field family', () => {
         ['opacity'],
       ],
       [
-        '.chat-drawer-input .chat-input-wrapper.limit-flash',
+        '.chat-drawer-input .chat-input-wrapper.limit-over',
         BASE,
-        '.chat-input-wrapper.limit-flash',
+        '.chat-input-wrapper.limit-over',
         ['border-bottom-color'],
       ],
       [
-        '.chat-drawer-input .chat-input-wrapper.limit-flash::after',
+        '.chat-drawer-input .chat-input-wrapper.limit-over::after',
         BASE,
-        '.chat-input-wrapper.limit-flash::after',
-        ['opacity', 'transform', 'background'],
+        '.chat-input-wrapper.limit-over::after',
+        ['opacity'],
+      ],
+      [
+        '.chat-limit-count',
+        BASE,
+        '.chat-limit-count',
+        [
+          'position',
+          'inset-inline-end',
+          'bottom',
+          'min-width',
+          'color',
+          'font-size',
+          'font-weight',
+          'line-height',
+          'font-variant-numeric',
+          'text-align',
+          'white-space',
+        ],
+      ],
+      [
+        '.chat-drawer-input .chat-input-wrapper.limit-over > .chat-limit-count',
+        BASE,
+        '.chat-input-wrapper.limit-over > .chat-limit-count',
+        ['color'],
+      ],
+      [
+        '.chat-drawer-input .chat-input-wrapper.limit-over > .chat-send-btn',
+        BASE,
+        '.chat-input-wrapper.limit-over > .chat-send-btn',
+        ['color', 'cursor'],
       ],
     ];
     const drift: string[] = [];
@@ -1053,6 +1087,7 @@ describe('the design-system page mirrors the field family', () => {
       '--surface-2',
       '--primary-filled',
       '--warning-filled',
+      '--warning-foreground',
       '--chat-limit-progress',
       '--radius-pill',
       '--button-label-size',

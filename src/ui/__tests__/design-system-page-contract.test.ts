@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { CHAT_LIMIT_WARN_START, CHAT_PASTE_MAX_LENGTH } from '../../chat/message-length.ts';
 import en from '../../i18n/en.ts';
 
 const PLAY_PATH = 'M8 5v14l11-7z';
@@ -1094,7 +1095,14 @@ describe('public design-system page contract', () => {
       'Connection problem',
       'Joining (disabled)',
     ]);
-    expect(card.querySelector('[aria-disabled]')).toBeNull();
+    // No field is aria-disabled; only the send arrow of a message over the
+    // limit, which the app marks so while it refuses to send.
+    expect(
+      [...card.querySelectorAll('[aria-disabled]')].map((element) => [
+        element.className,
+        text(element.closest('.input-specimen')?.querySelector('.block-title')),
+      ]),
+    ).toEqual([['chat-send-btn', 'Over the limit']]);
     const nickname = stateFrames.slice(0, 4).map((frame) => {
       const box = frame.querySelector<HTMLElement>('.dialog-input')!;
       const hint = frame.querySelector<HTMLElement>(':scope > .dialog-hint');
@@ -1172,7 +1180,7 @@ describe('public design-system page contract', () => {
       [...card.querySelectorAll<HTMLElement>('[aria-invalid="true"]')].map((field) =>
         text(field.closest('.input-specimen')?.querySelector('.block-title')),
       ),
-    ).toEqual(['Code entry', 'Error', 'Wrong code']);
+    ).toEqual(['Code entry', 'Error', 'Wrong code', 'Over the limit']);
     expect(card.querySelectorAll('[data-state="focus"]')).toHaveLength(3);
     expect(card.querySelectorAll('.dialog-input[data-state="focus"]')).toHaveLength(1);
 
@@ -1271,63 +1279,100 @@ describe('public design-system page contract', () => {
       'The big button reads Search while a search term is typed and nothing is picked, Please wait... while busy, and Add to Playlist once a result or a link preview is ready. The magnifier always searches. Enter searches until a result is picked or a link previews, then adds it.',
     );
     const composers = frames(buttons).filter((frame) => !strip.includes(frame));
-    expect(titles(composers)).toEqual(['Message', 'Send focused', 'Approaching limit', 'At limit']);
+    expect(titles(composers)).toEqual([
+      'Message',
+      'Send focused',
+      'Approaching limit',
+      'Over the limit',
+    ]);
+    // The message row and the send-focused row share one grid; the limit
+    // specimens wrap to two lines and sit in their own, so the row stays 48.
+    expect(composers[0]?.parentElement).toBe(composers[1]?.parentElement);
+    expect(composers[2]?.parentElement).toBe(composers[3]?.parentElement);
+    expect(composers[2]?.parentElement).not.toBe(composers[0]?.parentElement);
     expect(
       composers.map((frame) => {
         const wrapper = frame.querySelector<HTMLElement>('.chat-input-wrapper')!;
         const send = wrapper.querySelector<HTMLButtonElement>('.chat-send-btn')!;
+        const count = wrapper.querySelector<HTMLElement>(':scope > .chat-limit-count');
         return {
-          flash: wrapper.classList.contains('limit-flash'),
+          count: count ? text(count) : null,
+          countHidden: count?.getAttribute('aria-hidden') ?? null,
           focus: wrapper.dataset.state === 'focus' && send.dataset.state === 'focus',
+          invalid: wrapper.querySelector('.chat-input')?.getAttribute('aria-invalid') ?? null,
+          over: wrapper.classList.contains('limit-over'),
           placeholder: wrapper.querySelector('.chat-input')?.getAttribute('data-placeholder'),
           progress: wrapper.style.getPropertyValue('--chat-limit-progress').trim(),
           send: send.getAttribute('aria-label'),
+          sendDisabled: send.getAttribute('aria-disabled'),
           value: text(wrapper.querySelector('.chat-input')),
           warning: wrapper.classList.contains('limit-warning'),
         };
       }),
     ).toEqual([
       {
-        flash: false,
+        count: null,
+        countHidden: null,
         focus: false,
+        invalid: null,
+        over: false,
         placeholder: en['chat.placeholder'],
         progress: '',
         send: en['chat.send'],
+        sendDisabled: null,
         value: '',
         warning: false,
       },
       {
-        flash: false,
+        count: null,
+        countHidden: null,
         focus: true,
+        invalid: null,
+        over: false,
         placeholder: en['chat.placeholder'],
         progress: '',
         send: en['chat.send'],
+        sendDisabled: null,
         value: 'on my way',
         warning: false,
       },
       {
-        flash: false,
+        // 488 of 500: (488 - 399) / 101 of the line, 12 left.
+        count: '12',
+        countHidden: 'true',
         focus: false,
+        invalid: null,
+        over: false,
         placeholder: en['chat.placeholder'],
-        progress: '0.65',
+        progress: ((488 - 399) / 101).toFixed(4),
         send: en['chat.send'],
-        value: '400 to 500 chars fill the warning bar',
+        sendDisabled: null,
+        value:
+          'From 400 the line fills and the count above the arrow shows how much room is left before the message is too long to send',
         warning: true,
       },
       {
-        flash: true,
+        count: '\u221212',
+        countHidden: 'true',
         focus: false,
+        invalid: 'true',
+        over: true,
         placeholder: en['chat.placeholder'],
         progress: '1',
         send: en['chat.send'],
-        value: '500 chars reached; extra input flashes red',
-        warning: true,
+        sendDisabled: 'true',
+        value:
+          'Past 500 the line turns red, the count goes below zero and the message waits until it is short enough to send',
+        warning: false,
       },
     ]);
     const notes = [...(buttons?.querySelectorAll(':scope > .input-note') ?? [])].map(text);
     expect(notes[1]).toBe(
-      'The chat underline fills with a 2px warning gauge from 400 to 500 characters and stays full when sendable at 500. Extra input or overflow paste flashes red and shakes for 400ms, then settles back to full warning.',
+      'The message limit is soft: nothing typed is cut, and only a paste past 2000 is shortened. The count is the number the chat wire counts, so an emoji can take 2 or more. A send over the limit shakes the composer once and is announced; with reduced motion only the red line and the count show.',
     );
+    // The note's numbers are the app's.
+    expect(notes[1]).toContain(String(CHAT_PASTE_MAX_LENGTH));
+    expect(CHAT_LIMIT_WARN_START).toBe(400);
 
     // Spec: the parts, then the color roles with the values of every palette.
     const tables = [...(spec?.querySelectorAll<HTMLElement>(':scope > .tokens') ?? [])];
@@ -1349,6 +1394,7 @@ describe('public design-system page contract', () => {
       'Line, progress and result',
       'Line, error',
       'Underline',
+      'Limit count',
       'Disabled',
       'Buttons in a field',
     ]);
@@ -1361,10 +1407,17 @@ describe('public design-system page contract', () => {
         'Line, progress and result': '12 / 600 / 18',
         'Line, error': '12 / 600 / 18',
         Underline: '2px',
+        'Limit count': '12 / 600 / 18',
       }),
     );
     expect(parts[0]?.[1]).toMatch(/^32 \/ 700, box 56; join code 24 \/ 700 \/ 32 under 360px/u);
     expect(parts[7]?.[2]).toMatch(/^--danger-foreground/u);
+    expect(parts[8]?.[2]).toBe(
+      'Rest --surface-3, focus --primary, chat 400 to 500 gauge --warning-filled, value error or message over the limit --danger-foreground, disabled --surface-3',
+    );
+    expect(parts[9]?.[2]).toBe(
+      '--warning-foreground from 400, --danger-foreground below zero; over the send arrow, tabular figures',
+    );
     const palette = (token: string): string =>
       ['dark', 'light', 'contrast-dark', 'contrast-light']
         .map(
@@ -1382,6 +1435,8 @@ describe('public design-system page contract', () => {
       ['Rest underline and idle buttons', '--surface-3', palette('--surface-3')],
       ['Focus', '--primary', palette('--primary')],
       ['Limit gauge', '--warning-filled', '#f59e0b / #f59e0b / #6b4100 / #6b4100'],
+      // Light, in both contrasts, reads the warning brown as text.
+      ['Limit count', '--warning-foreground', '#f59e0b / #6b4100 / #f59e0b / #6b4100'],
       // Only high contrast light darkens the red (#a4001d).
       ['Error', '--danger-foreground', '#ff3b30 / #ff3b30 / #ff3b30 / #a4001d'],
     ]);
@@ -1396,7 +1451,7 @@ describe('public design-system page contract', () => {
       "The line follows the field: centered under a code, at the text's start under an entry.",
       'Dialogs keep one line of space under the field, so nothing moves when an error appears.',
       'The blue underline is the focus mark. No field draws a ring.',
-      'The chat composer draws a 2px --warning-filled gauge over its underline from 400 to 500 characters; input past 500 flashes --danger-foreground and shakes briefly before settling on full warning.',
+      'The chat limit is soft. From 400 a 2px --warning-filled gauge fills the underline and the count shows what is left; past 500 the line stays --danger-foreground until the message is short enough, the count goes below zero and the send waits. Nothing typed is cut.',
     ]);
     // Lines under a field end without a full stop (the copy policy).
     expect(

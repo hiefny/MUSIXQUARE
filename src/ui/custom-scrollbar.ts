@@ -12,6 +12,7 @@ import {
 import { isDesktopLayout, SHORT_DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { bus } from '../core/events.ts';
+import { isInsideViewTransitionUpdate } from './dom.ts';
 import { isHovered, isHoverInput } from './hover-pointer.ts';
 
 const THUMB_MIN_HEIGHT = 30;
@@ -954,6 +955,18 @@ export function initCustomScrollbar(container: HTMLElement): void {
   const cleanupRelayoutBus = bus.on('ui:scrollbar-relayout', () => scheduleLayout(state));
   const cleanupRevealBus = bus.on('ui:scrollbar-reveal', (scope) => {
     if (scope && scope !== container && !scope.contains(container)) return;
+    if (isInsideViewTransitionUpdate()) {
+      // The new image of a view transition is live from its first frame. Lay
+      // the bar out and show it here, inside the update, so that frame has it
+      // already (animateTransition() turns the bar's own fade off meanwhile).
+      // The next frame lays it out again, after the rest of the update, and
+      // reveals a bar that only overflows by then.
+      state.revealAfterLayout = true;
+      updateLayout(state);
+      state.revealAfterLayout = !state.hasOverflow;
+      scheduleLayout(state);
+      return;
+    }
     state.revealAfterLayout = !state.hasOverflow;
     scheduleLayout(state);
     // Already-measured live surfaces reveal immediately. A parked surface

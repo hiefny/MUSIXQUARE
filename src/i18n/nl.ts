@@ -528,6 +528,9 @@ const nl: Record<I18nKey, string> = {
     'De verbinding van {{name}} is instabiel. We proberen deze te herstellen.',
   'chat.empty_html': 'Nog geen berichten.<br>Stuur het eerste bericht!',
   'chat.msg_truncated': 'Bericht ingekort tot {{max}} tekens',
+  'chat.over_limit':
+    'Het bericht overschrijdt de limiet met {{count}} en kan niet worden verstuurd',
+  'chat.paste_truncated': 'De geplakte tekst was te lang en is niet helemaal toegevoegd',
   'chat.scroll_to_bottom': 'Naar onderen scrollen',
 
   // YouTube

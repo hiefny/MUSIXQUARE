@@ -2100,6 +2100,69 @@
                   </div>
                 </div>
               </div>
+              <div class="input-demo-grid">
+                <div class="input-specimen">
+                  <div class="block-title">Approaching limit</div>
+                  <div
+                    class="chat-input-wrapper limit-warning"
+                    style="--chat-limit-progress: 0.8812"
+                  >
+                    <div
+                      class="chat-input"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="Chat message"
+                      data-placeholder="Message or '/' for commands..."
+                    >
+                      From 400 the line fills and the count above the arrow shows how much room is
+                      left before the message is too long to send
+                    </div>
+                    <button type="button" class="chat-send-btn" aria-label="Send message">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+                      </svg>
+                    </button>
+                    <span class="chat-limit-count" aria-hidden="true"
+                      ><span class="chat-limit-count-value">12</span></span
+                    >
+                  </div>
+                </div>
+                <div class="input-specimen">
+                  <div class="block-title">Over the limit</div>
+                  <div class="chat-input-wrapper limit-over" style="--chat-limit-progress: 1">
+                    <div
+                      class="chat-input"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-label="Chat message"
+                      aria-invalid="true"
+                      data-placeholder="Message or '/' for commands..."
+                    >
+                      Past 500 the line turns red, the count goes below zero and the message waits
+                      until it is short enough to send
+                    </div>
+                    <button
+                      type="button"
+                      class="chat-send-btn"
+                      aria-label="Send message"
+                      aria-disabled="true"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+                      </svg>
+                    </button>
+                    <span class="chat-limit-count" aria-hidden="true"
+                      ><span class="chat-limit-count-value">&minus;12</span></span
+                    >
+                  </div>
+                </div>
+              </div>
+              <p class="input-note">
+                The message limit is soft: nothing typed is cut, and only a paste that would make
+                the message longer than 2000 is shortened. The count uses the same unit the app
+                sends, so an emoji can take 2 or more. A send over the limit shakes the composer
+                once and is announced; with reduced motion only the red line and the count show.
+              </p>
             </div>
 
             <div class="component-subsection">
@@ -2146,8 +2209,16 @@
                 <div class="token-row">
                   <span class="tok">Underline</span><span class="val">2px</span
                   ><span class="use"
-                    >Rest --surface-3, focus --primary, value error --danger-foreground, disabled
+                    >Rest --surface-3, focus --primary, chat 400 to 500 gauge --warning-filled,
+                    value error or message over the limit --danger-foreground, disabled
                     --surface-3</span
+                  >
+                </div>
+                <div class="token-row">
+                  <span class="tok">Limit count</span><span class="val">12 / 600 / 18</span
+                  ><span class="use"
+                    >--warning-foreground from 400, --danger-foreground below zero; over the send
+                    arrow, tabular figures</span
                   >
                 </div>
                 <div class="token-row">
@@ -2191,6 +2262,14 @@
                   ><span class="use">#3b82f6 / #3b82f6 / #8ab4ff / #0047a8</span>
                 </div>
                 <div class="token-row">
+                  <span class="tok">Limit gauge</span><span class="val">--warning-filled</span
+                  ><span class="use">#f59e0b / #f59e0b / #6b4100 / #6b4100</span>
+                </div>
+                <div class="token-row">
+                  <span class="tok">Limit count</span><span class="val">--warning-foreground</span
+                  ><span class="use">#f59e0b / #6b4100 / #f59e0b / #6b4100</span>
+                </div>
+                <div class="token-row">
                   <span class="tok">Error</span><span class="val">--danger-foreground</span
                   ><span class="use">#ff3b30 / #ff3b30 / #ff3b30 / #a4001d</span>
                 </div>
@@ -2218,6 +2297,12 @@
                   appears.
                 </li>
                 <li>The blue underline is the focus mark. No field draws a ring.</li>
+                <li>
+                  The chat limit is soft. From 400 a 2px --warning-filled gauge fills the underline
+                  and the count shows what is left; past 500 the line stays --danger-foreground
+                  until the message is short enough, the count goes below zero and the send waits.
+                  Nothing typed is cut.
+                </li>
               </ul>
             </div>
           </div>

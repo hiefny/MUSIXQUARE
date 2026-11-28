@@ -901,6 +901,8 @@ const en: Record<I18nKey, string> = {
     "{{name}}'s connection is unstable. Trying to recover.",
   'chat.empty_html': 'No messages yet.<br>Send the first message!',
   'chat.msg_truncated': 'Message truncated to {{max}} characters',
+  'chat.over_limit': "Message is {{count}} over the limit and can't be sent",
+  'chat.paste_truncated': 'The pasted text was too long, so not all of it was added',
   'chat.scroll_to_bottom': 'Scroll to bottom',
   'setup.invite_share_desc_html':
     'Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit invitation code to connect.',

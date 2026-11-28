@@ -927,6 +927,8 @@ const pl: Record<I18nKey, string> = {
     'Połączenie użytkownika {{name}} jest niestabilne. Trwa próba przywrócenia.',
   'chat.empty_html': 'Brak wiadomości.<br>Napisz pierwszą wiadomość!',
   'chat.msg_truncated': 'Wiadomość została skrócona do {{max}} znaków',
+  'chat.over_limit': 'Wiadomość przekracza limit o {{count}} i nie można jej wysłać',
+  'chat.paste_truncated': 'Wklejony tekst był za długi i nie został dodany w całości',
   'chat.scroll_to_bottom': 'Przewiń na dół',
   'setup.invite_share_desc_html':
     'Połącz bezprzewodowo wiele urządzeń,<br>aby stworzyć potężny system audio.<br>Użyj 6-cyfrowego kodu zaproszenia, aby się połączyć.',

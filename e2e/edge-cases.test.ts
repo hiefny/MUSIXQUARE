@@ -248,9 +248,24 @@ test.describe('Edge Cases', () => {
 
     await openChatDrawer(pair.hostPage);
 
+    // The limit is soft: 600 stays in the composer and nothing is sent.
     const longMsg = 'A'.repeat(600);
-    await sendChat(pair.hostPage, longMsg);
+    await pair.hostPage.locator('#chat-input').fill(longMsg);
+    // The arrow is aria-disabled while the message is too long; press it anyway.
+    await pair.hostPage.locator('#btn-chat-send').click({ force: true });
+    await expect(pair.hostPage.locator('#chat-input')).toHaveText(longMsg);
+    await expect(pair.hostPage.locator('.chat-limit-count')).toHaveText('\u{2212}100');
+    // A negative assertion needs a bounded observation window: a refused send
+    // fires no event the other page could wait for.
+    await pair.hostPage.waitForTimeout(300); // intentional brief settle for negative assertion
+    for (const page of [pair.hostPage, pair.guestPage]) {
+      await expect(page.locator('#chat-messages .chat-group:not(.system) .chat-text')).toHaveCount(
+        0,
+      );
+    }
 
+    // Shortened to the limit by its writer, it reaches both pages whole.
+    await sendChat(pair.hostPage, 'A'.repeat(500));
     for (const page of [pair.hostPage, pair.guestPage]) {
       await expect(page.locator('#chat-messages .chat-group:not(.system) .chat-text')).toHaveText([
         'A'.repeat(500),

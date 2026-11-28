@@ -116,7 +116,6 @@ async function proceedToHostCode(mode: number): Promise<void> {
     isStandardRoomRole('host') &&
     !getState('setup.sessionStarted');
   setupSetHostError(null);
-  resetHostInviteVisual();
   // Fetch the QR encoder alongside the code, not after it: a late encoder
   // splits the code and QR reveals into two steps.
   preloadHostInviteQrEncoder();
@@ -131,6 +130,10 @@ async function proceedToHostCode(mode: number): Promise<void> {
     setupShowRoleArea(false);
     setupShowCodeArea(true);
   });
+  // After the step's transition is batched (Retry batches none before
+  // this), so the loading spinner waits for that transition to end and is
+  // never in its images (setup-host-invite.ts).
+  resetHostInviteVisual();
 
   const codeEl = setupEl('setup-code');
   if (codeEl) {

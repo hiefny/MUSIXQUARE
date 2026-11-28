@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   flowId: 0,
   preloadQrEncoder: vi.fn(),
+  resetVisual: vi.fn(),
   revealQr: vi.fn(async () => true),
   scheduleDocumentReload: vi.fn(),
   setupRenderActions: vi.fn((buttons: Array<Record<string, unknown>>) => {
@@ -55,7 +56,7 @@ vi.mock('../dom.ts', () => ({
 vi.mock('../setup-host-invite.ts', () => ({
   finishHostInviteLoading: vi.fn(),
   preloadHostInviteQrEncoder: mocks.preloadQrEncoder,
-  resetHostInviteVisual: vi.fn(),
+  resetHostInviteVisual: mocks.resetVisual,
   revealHostInviteQr: mocks.revealQr,
 }));
 
@@ -211,6 +212,34 @@ describe('host setup recovery', () => {
     await vi.waitFor(() => {
       expect(mocks.revealQr).toHaveBeenCalledWith('123456', expect.any(Function));
     });
+  });
+
+  it('batches each attempt’s step transition before it shows the loading spinner again', async () => {
+    mocks.createSession
+      .mockRejectedValueOnce(new Error('signaling unavailable'))
+      .mockReturnValueOnce(new Promise<string>(() => {}));
+
+    // The Host tap: the welcome-to-host and step transitions come first.
+    startHostFlow();
+    const firstReset = mocks.resetVisual.mock.invocationCallOrder[0]!;
+    expect(
+      mocks.animateTransition.mock.invocationCallOrder.filter((order) => order < firstReset),
+    ).toHaveLength(2);
+    await vi.waitFor(() => {
+      expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.session_create_fail');
+    });
+
+    // Retry has no transition of its own batched before the step's: the
+    // spinner would show at once, inside that transition's images
+    // (setup-host-invite.ts waits only for one already batched).
+    mocks.animateTransition.mockClear();
+    mocks.resetVisual.mockClear();
+    const retry = mocks.actions[1]?.onClick as (() => void) | undefined;
+    retry?.();
+    expect(mocks.resetVisual).toHaveBeenCalledOnce();
+    expect(mocks.animateTransition.mock.invocationCallOrder[0]!).toBeLessThan(
+      mocks.resetVisual.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('discards a late signaling result when Back wins the room-creation race', async () => {

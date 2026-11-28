@@ -836,24 +836,79 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     will-change: transform;
   }
 
-  /* Normal tab transitions keep only the live header image. Its own logo and
-     loading-text motion continues without replaying an old snapshot. The
-     runtime opts out when an overlay needs the original root stacking order. */
+  @keyframes view-transition-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* The old page holds still and the new one fades in over it with normal
+     blending. For opaque snapshots this draws what the default crossfade
+     draws, without its two plus-lighter fades that have to stay in step,
+     which WebKit has an open report of flashing with (bug 297845). */
+  ::view-transition-group(root) {
+    animation: none;
+  }
+
+  ::view-transition-old(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-new(root) {
+    animation: view-transition-fade-in 0.25s ease both;
+    mix-blend-mode: normal;
+  }
+
+  /* Normal tab transitions keep only the live header and bottom-nav chrome.
+     Their own logo, loading-text, and active-tab state stay steady without
+     replaying an old snapshot. The runtime opts out when an overlay needs the
+     original root stacking order. */
   html.tab-header-transition #main-header {
     view-transition-name: main-header;
   }
 
+  html.tab-header-transition .bottom-nav {
+    view-transition-name: bottom-nav;
+  }
+
   ::view-transition-group(main-header),
-  ::view-transition-new(main-header) {
+  ::view-transition-new(main-header),
+  ::view-transition-group(bottom-nav),
+  ::view-transition-new(bottom-nav) {
     animation: none;
   }
 
-  ::view-transition-old(main-header) {
+  ::view-transition-old(main-header),
+  ::view-transition-old(bottom-nav) {
     display: none;
   }
 
-  ::view-transition-new(main-header) {
+  ::view-transition-new(main-header),
+  ::view-transition-new(bottom-nav) {
     mix-blend-mode: normal;
+  }
+
+  /* animateTransition() starts no view transition under reduced motion; this
+     covers one already running when the preference changes. */
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-new(root) {
+      animation: none;
+    }
+  }
+
+  /* animateTransition() (src/ui/dom.ts) marks <html> from a transition's
+     update until one frame after it ends. The new image is live, so a custom
+     scrollbar's own fade would run inside it, behind the page's: a bar that
+     enters with a tab would start from transparent and lag the page. Under
+     the mark a bar shows and hides at once, and fades with the page instead.
+     Important outranks the track's inline transition
+     (src/ui/custom-scrollbar.ts). */
+  html.in-view-transition .cscroll-track {
+    transition: none !important;
   }
 
   /* Header loading progress */
@@ -5018,9 +5073,6 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     /* iOS Safari: Force hardware acceleration to isolate from background video layers */
     transform: translateZ(0);
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-
-    /* Prevent transparency flicker during View Transition tab switches */
-    view-transition-name: bottom-nav;
   }
 
   /* Hide bottom-nav when soft keyboard is open — prevents floating in wrong position
@@ -8270,6 +8322,91 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
 
   .chat-input-wrapper:focus-within {
     border-bottom-color: var(--primary);
+  }
+
+  /* The soft message limit (src/ui/chat.ts), scoped to .chat-drawer-input so
+     .sync-manual-input-wrapper is untouched. From 400 the 2px gauge fills
+     over the underline and the count above the send arrow shows what is left.
+     Past 500 the gauge gives way to the red underline of a wrong value, the
+     count goes below zero and the arrow goes idle until the message is short
+     enough. Nothing typed is ever cut. */
+  .chat-drawer-input .chat-input-wrapper {
+    position: relative;
+  }
+
+  .chat-drawer-input .chat-input-wrapper::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    bottom: -2px;
+    height: 2px;
+    background: var(--warning-filled);
+    transform-origin: left center;
+    transform: scaleX(var(--chat-limit-progress, 0));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 140ms ease;
+  }
+
+  .chat-drawer-input .chat-input-wrapper.limit-warning::after {
+    opacity: 1;
+  }
+
+  .chat-drawer-input .chat-input-wrapper.limit-over {
+    border-bottom-color: var(--danger-foreground);
+  }
+
+  .chat-drawer-input .chat-input-wrapper.limit-over::after {
+    opacity: 0;
+  }
+
+  /* The count stands in the send arrow's column, just above the arrow (the
+     wrapper's 6px padding, the arrow's 2px margin and its 36px). A plain
+     number in warning text, in the danger red once it goes below zero. An
+     explicit side, mirrored in rtl.css: a logical inset compiles to :is()
+     selectors that the legacy TV browsers cannot read. */
+  .chat-limit-count {
+    position: absolute;
+    right: 0;
+    bottom: 44px;
+    min-width: 36px;
+    color: var(--warning-foreground);
+    font-size: 12px;
+    font-weight: var(--font-weight-label);
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .chat-drawer-input .chat-input-wrapper.limit-over > .chat-limit-count {
+    color: var(--danger-foreground);
+  }
+
+  .chat-drawer-input .chat-input-wrapper.limit-over > .chat-send-btn {
+    color: var(--surface-3);
+    cursor: default;
+  }
+
+  /* Where the browser supports CSS highlights, the part past the limit takes
+     the danger tint. The count and the announcement carry the meaning. */
+  ::highlight(chat-overflow) {
+    background-color: var(--control-danger);
+  }
+
+  /* One shake for a refused send. With reduced motion the red line and the
+     count stay and nothing moves. */
+  .chat-drawer-input .chat-input-wrapper.limit-shake {
+    animation: shake 0.4s ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-drawer-input .chat-input-wrapper.limit-shake {
+      animation: none;
+    }
   }
 
   /* ── Command Autocomplete Dropdown ── */
@@ -12550,13 +12687,15 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     }
 
     /* Playlist keeps its own scroll owner so the floating selection pill and
-       reorder auto-scroll stay anchored inside the left content pane. The
-       pane keeps its 8px under that body; the body takes the bottom inset. */
+       reorder auto-scroll stay anchored inside the left content pane. That
+       body reaches the bottom edge, as the other panes' scrollports do, so no
+       strip of bare pane shows under the list; the pane's 8px moves into the
+       body's end padding with the bottom inset. */
     #tab-playlist.active {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      padding-bottom: 8px;
+      padding-bottom: 0;
     }
 
     /* Rows pass under the home indicator. The inset is end padding, which
@@ -12571,7 +12710,7 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
       min-height: 0;
       height: auto;
       overflow-y: auto;
-      padding-bottom: calc(8px + var(--safe-bottom));
+      padding-bottom: calc(16px + var(--safe-bottom));
       scroll-padding-bottom: var(--safe-bottom);
     }
 

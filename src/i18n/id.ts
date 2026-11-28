@@ -929,6 +929,8 @@ const id: Record<I18nKey, string> = {
     'Koneksi {{name}} tidak stabil. Mencoba memulihkannya.',
   'chat.empty_html': 'Belum ada pesan.<br>Kirim pesan pertama!',
   'chat.msg_truncated': 'Pesan dipotong menjadi {{max}} karakter',
+  'chat.over_limit': 'Pesan melebihi batas sebanyak {{count}} dan tidak dapat dikirim',
+  'chat.paste_truncated': 'Teks yang ditempel terlalu panjang, jadi tidak semuanya ditambahkan',
   'chat.scroll_to_bottom': 'Gulir ke bawah',
   'help.install_app_html':
     'Suka MUSIXQUARE? Anda bisa memasangnya sebagai aplikasi.<ul class="help-list"><li><strong>iOS:</strong> Bagikan → Tambah ke Layar Utama</li><li><strong>Android:</strong> Menu → Instal aplikasi</li><li><strong>Windows:</strong> Ikon instal di bilah alamat</li><li><strong>macOS:</strong> Bagikan → Tambah ke Dock</li></ul>',

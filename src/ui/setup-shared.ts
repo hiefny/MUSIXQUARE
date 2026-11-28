@@ -315,9 +315,8 @@ export function hideSetupOverlay(): void {
 }
 
 // Bare DOM-toggling primitives. Callers that change MULTIPLE areas in
-// a row (role flow entry, welcome return, etc.) MUST wrap the batch in
-// a single animateTransition(). Multiple startViewTransition() calls in one
-// setup change supersede each other and produce aborted-transition errors.
+// a row (role flow entry, welcome return, etc.) wrap the batch in a single
+// animateTransition(), so the areas change in one update of one snapshot.
 export function setupShowCodeArea(show: boolean): void {
   const box = setupEl('setup-code-area');
   const becameVisible = !!box && show && box.style.display !== 'flex';
@@ -327,14 +326,16 @@ export function setupShowCodeArea(show: boolean): void {
 }
 
 export function setupSetCode(code: string): void {
-  animateTransition(() => {
-    const el = setupEl('setup-code');
-    if (el) {
-      if (el.tagName === 'INPUT') (el as HTMLInputElement).value = code || '------';
-      else el.textContent = code || '------';
-    }
-    setupShowCodeArea(!!code);
-  });
+  // Commit the room code directly, without a view transition: setup-host
+  // starts the room QR's CSS crossfade right after, and a transition's old
+  // image would hold that crossfade's first frame (the placeholder QR and
+  // '------') over the live one.
+  const el = setupEl('setup-code');
+  if (el) {
+    if (el.tagName === 'INPUT') (el as HTMLInputElement).value = code || '------';
+    else el.textContent = code || '------';
+  }
+  setupShowCodeArea(!!code);
 }
 
 export function setupShowJoinArea(show: boolean): void {

@@ -27,8 +27,9 @@
 
   /* Determinate application work starts at the reading edge in RTL. Circular
  * indeterminate spinners remain direction-neutral. */
-  html[dir='rtl'] .header-progress-bg {
-    transform-origin: right;
+  html[dir='rtl'] .header-progress-bg,
+  html[dir='rtl'] .chat-drawer-input .chat-input-wrapper::after {
+    transform-origin: right center;
   }
 
   html[dir='rtl'] :where(h1, h2, h3, h4, p, button, label, span, input, textarea) {
@@ -62,6 +63,7 @@
       .device-sub-index,
       .chat-cmd-usage,
       .chat-cmd-ghost,
+      .chat-limit-count-value,
       .dialog-input-split,
       .dialog-input-segment,
       .dialog-input-separator,
@@ -180,6 +182,12 @@
   html[dir='rtl'] .skip-link {
     left: auto;
     right: 16px;
+  }
+
+  /* The chat count stays over the send arrow, which RTL places on the left. */
+  html[dir='rtl'] .chat-limit-count {
+    left: 0;
+    right: auto;
   }
 }
 

@@ -886,6 +886,8 @@ const ko = {
     '{{name}} 님의 연결이 불안정해요. 복구를 시도 중이에요.',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',
   'chat.msg_truncated': '메시지가 {{max}}자로 잘렸어요',
+  'chat.over_limit': '메시지가 제한을 {{count}}만큼 넘어서 보낼 수 없어요',
+  'chat.paste_truncated': '붙여 넣은 내용이 너무 길어서 다 넣지 못했어요',
   'chat.scroll_to_bottom': '맨 아래로 스크롤',
   'setup.invite_share_desc_html':
     '여러 기기를 무선으로 연결해<br>거대한 오디오 시스템을 만들어 보세요.<br>6자리 초대 코드로 연결할 수 있어요.',

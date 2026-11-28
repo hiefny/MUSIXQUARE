@@ -930,6 +930,8 @@ const ms: Record<I18nKey, string> = {
     'Sambungan {{name}} tidak stabil. Sedang cuba memulihkannya.',
   'chat.empty_html': 'Belum ada mesej.<br>Hantar mesej pertama!',
   'chat.msg_truncated': 'Mesej dipendekkan kepada {{max}} aksara',
+  'chat.over_limit': 'Mesej melebihi had sebanyak {{count}} dan tidak boleh dihantar',
+  'chat.paste_truncated': 'Teks yang ditampal terlalu panjang, jadi tidak semuanya ditambah',
   'chat.scroll_to_bottom': 'Tatal ke bawah',
   'setup.invite_share_desc_html':
     'Sambungkan berbilang peranti secara wayarles<br>untuk membina sistem audio yang hebat.<br>Gunakan kod jemputan 6 digit untuk menyambung.',

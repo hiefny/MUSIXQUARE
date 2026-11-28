@@ -914,6 +914,8 @@ const da: Record<I18nKey, string> = {
     'Forbindelsen for {{name}} er ustabil. Forsøger at genoprette den.',
   'chat.empty_html': 'Ingen beskeder endnu.<br>Send den første besked!',
   'chat.msg_truncated': 'Beskeden blev forkortet til {{max}} tegn',
+  'chat.over_limit': 'Beskeden overskrider grænsen med {{count}} og kan ikke sendes',
+  'chat.paste_truncated': 'Den indsatte tekst var for lang, så ikke det hele blev tilføjet',
   'chat.scroll_to_bottom': 'Rul til bunden',
   'setup.invite_share_desc_html':
     'Forbind flere enheder trådløst<br>for at skabe et kraftfuldt lydsystem.<br>Brug en 6-cifret invitationskode til at oprette forbindelse.',

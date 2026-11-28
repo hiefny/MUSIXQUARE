@@ -225,6 +225,73 @@ describe('OS contrast accessibility styles', () => {
     }
   });
 
+  it('keeps the chat limit count readable on the composer in every palette', async () => {
+    const root = parseCss(await readFile('css/style.css', 'utf8'));
+    const declarations = (selector: string, context = ''): Record<string, string> => {
+      const found: Record<string, string> = {};
+      root.walkRules((rule) => {
+        const parent = rule.parent;
+        const inMedia = parent?.type === 'atrule' && (parent as { name?: string }).name === 'media';
+        if (inMedia !== Boolean(context)) return;
+        if (context && (parent as { params?: string }).params !== context) return;
+        if (!rule.selectors.map((item) => item.replace(/\s+/gu, ' ')).includes(selector)) return;
+        rule.walkDecls((declaration) => {
+          found[declaration.prop] = declaration.value.trim();
+        });
+      });
+      return found;
+    };
+    // The palettes cascade in this order: base dark, light, more contrast
+    // (a later layer), light more contrast.
+    const base = declarations(':root');
+    const light = declarations("html[data-theme='light']");
+    const more = declarations("html[data-contrast='more']");
+    const lightMore = declarations("html[data-theme='light'][data-contrast='more']");
+    const palettes = {
+      dark: { ...base },
+      light: { ...base, ...light },
+      'more contrast dark': { ...base, ...more },
+      'more contrast light': { ...base, ...light, ...more, ...lightMore },
+    };
+    // The composer paints --surface-1; the count reads the warning text role,
+    // and the danger red below zero.
+    expect(declarations('.chat-drawer-input').background).toBe('var(--surface-1)');
+    expect(declarations('.chat-limit-count').color).toBe('var(--warning-foreground)');
+    expect(
+      declarations('.chat-drawer-input .chat-input-wrapper.limit-over > .chat-limit-count').color,
+    ).toBe('var(--danger-foreground)');
+    const ratios = Object.fromEntries(
+      Object.entries(palettes).map(([name, tokens]) => [
+        name,
+        {
+          left:
+            Math.round(
+              contrastRatio(tokens['--warning-foreground']!, tokens['--surface-1']!) * 100,
+            ) / 100,
+          over:
+            Math.round(
+              contrastRatio(tokens['--danger-foreground']!, tokens['--surface-1']!) * 100,
+            ) / 100,
+        },
+      ]),
+    );
+    expect(ratios).toEqual({
+      dark: { left: 8.1, over: 4.91 },
+      // The ordinary light palette keeps the brand red (#ff3b30) for every red
+      // text, as its other error lines do; the minus sign, the red line and the
+      // announcement say it too. More contrast is the contract.
+      light: { left: 8.82, over: 3.55 },
+      'more contrast dark': { left: 9.22, over: 5.58 },
+      'more contrast light': { left: 8.82, over: 8.09 },
+    });
+    for (const [name, { left, over }] of Object.entries(ratios)) {
+      expect(left, `${name} count`).toBeGreaterThanOrEqual(4.5);
+      if (name.startsWith('more contrast')) {
+        expect(over, `${name} count below zero`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
   it('lets Windows forced colors own the palette while retaining control structure', async () => {
     const css = await readFile('css/style.css', 'utf8');
 

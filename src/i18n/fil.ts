@@ -934,6 +934,9 @@ const fil: Record<I18nKey, string> = {
     'Hindi stable ang koneksyon ni {{name}}. Sinusubukang ibalik ito.',
   'chat.empty_html': 'Wala pang mensahe.<br>Ipadala ang unang mensahe!',
   'chat.msg_truncated': 'Pinaikli ang mensahe sa {{max}} character',
+  'chat.over_limit': 'Lampas nang {{count}} sa limitasyon ang mensahe kaya hindi ito maipapadala',
+  'chat.paste_truncated':
+    'Masyadong mahaba ang na-paste na text kaya hindi naidagdag ang lahat nito',
   'chat.scroll_to_bottom': 'Mag-scroll sa ibaba',
   'setup.invite_share_desc_html':
     'Ikonekta nang wireless ang maraming device<br>para gumawa ng napakalaking audio system.<br>Gumamit ng 6-digit na code ng imbitasyon para kumonekta.',

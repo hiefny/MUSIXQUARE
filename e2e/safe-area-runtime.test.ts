@@ -309,7 +309,7 @@ test.describe('screens over the Play pane in a running room', () => {
 });
 
 // The Playlist pane's list scrolls in the pane's body, which reaches down to
-// the pane's own 8px above the screen edge. Rows pass under the home
+// the screen edge like every other pane's scrollport. Rows pass under the home
 // indicator, while the end of the list, the selection bar and the
 // current-track locator stay above it.
 const LONG_LIST_SAMPLES = ['tablet landscape', 'phone landscape', 'right-to-left tablet landscape'];
@@ -346,8 +346,8 @@ test.describe('the Playlist pane with a long list in a running room', () => {
       const body = page.locator('#tab-playlist .tab-body');
       const bodyBox = (await body.boundingBox())!;
       expect(
-        Math.abs(bodyBox.y + bodyBox.height - (sample.height - 8)),
-        'the list body ends at the pane padding above the screen edge',
+        Math.abs(bodyBox.y + bodyBox.height - sample.height),
+        'the list body reaches the screen edge',
       ).toBeLessThanOrEqual(TOLERANCE_PX);
       const overflow = await body.evaluate((node) => node.scrollHeight - node.clientHeight);
       expect(overflow, 'the list must really scroll').toBeGreaterThan(sample.insets.bottom + 40);
@@ -358,7 +358,7 @@ test.describe('the Playlist pane with a long list in a running room', () => {
           const hit = document.elementFromPoint(x, y);
           return hit !== null && hit.closest('#playlist-ui') !== null;
         },
-        { x: bodyBox.x + bodyBox.width / 2, y: safeBottom + (sample.insets.bottom - 8) / 2 },
+        { x: bodyBox.x + bodyBox.width / 2, y: safeBottom + sample.insets.bottom / 2 },
       );
       expect(listInStrip, 'the list is painted below the safe bottom').toBe(true);
 

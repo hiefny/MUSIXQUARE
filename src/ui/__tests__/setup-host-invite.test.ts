@@ -16,6 +16,7 @@ vi.mock('../../core/log.ts', () => ({
   log: { warn: mocks.warn },
 }));
 
+import { animateTransition } from '../dom.ts';
 import {
   finishHostInviteLoading,
   resetHostInviteVisual,
@@ -235,6 +236,142 @@ describe('host setup invitation QR', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  // The spinner never enters the images of a view transition of the page
+  // (src/ui/dom.ts): it shows once the transition is over, never if the room
+  // code arrives first, and one already on screen stays.
+  describe('while the page runs a view transition', () => {
+    let originalTransition: PropertyDescriptor | undefined;
+    let update: () => void;
+    let finish: () => void;
+
+    function stage(): HTMLElement {
+      return document.getElementById('setup-host-invite-stage')!;
+    }
+
+    function spinner(): HTMLElement {
+      return document.querySelector<HTMLElement>('.setup-host-qr-loading-spinner')!;
+    }
+
+    async function flushTransitionTasks(): Promise<void> {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      // Start from a spinner the last attempt hid, as a failed attempt
+      // leaves it for Retry.
+      finishHostInviteLoading();
+      vi.advanceTimersByTime(250);
+      update = () => {};
+      finish = () => {};
+      originalTransition = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+      Object.defineProperty(document, 'startViewTransition', {
+        configurable: true,
+        value: vi.fn((callback: () => void) => {
+          update = callback;
+          return {
+            ready: Promise.resolve(),
+            updateCallbackDone: Promise.resolve(),
+            finished: new Promise<void>((resolve) => {
+              finish = resolve;
+            }),
+          };
+        }),
+      });
+    });
+
+    afterEach(async () => {
+      // Start a batch still waiting, then settle and release its transition,
+      // so no state of the page's one transition owner leaks into the next row.
+      await flushTransitionTasks();
+      finish();
+      await flushTransitionTasks();
+      vi.advanceTimersToNextFrame();
+      if (originalTransition) {
+        Object.defineProperty(document, 'startViewTransition', originalTransition);
+      } else {
+        Reflect.deleteProperty(document, 'startViewTransition');
+      }
+      vi.useRealTimers();
+    });
+
+    it('shows the spinner at once when no transition is batched, so callers batch first', async () => {
+      // setup-host.ts batches the step's transition before it resets the
+      // invite, on the Host tap and on Retry alike: reset first, the spinner
+      // would start its fade-in in the transition's old image.
+      resetHostInviteVisual();
+      expect(stage().classList.contains('is-room-qr-loading')).toBe(true);
+      expect(spinner().classList.contains('is-paused')).toBe(false);
+    });
+
+    it('shows the spinner once the transition batched with the loading state has ended', async () => {
+      expect(spinner().classList.contains('is-paused')).toBe(true);
+      // The step change and the code flow's loading state, in one task, in
+      // setup-host.ts's order (Host tap and Retry).
+      animateTransition(() => {});
+      resetHostInviteVisual();
+      expect(stage().getAttribute('aria-busy')).toBe('true');
+      expect(stage().classList.contains('is-room-qr-loading')).toBe(false);
+
+      await flushTransitionTasks();
+      update();
+      finish();
+      await flushTransitionTasks();
+      expect(stage().classList.contains('is-room-qr-loading')).toBe(false);
+
+      // The transition's marks go one frame after it ends; the spinner then
+      // resumes and fades in.
+      vi.advanceTimersToNextFrame();
+      expect(stage().classList.contains('is-room-qr-loading')).toBe(true);
+      expect(spinner().classList.contains('is-paused')).toBe(false);
+    });
+
+    it('never shows the spinner when the room code arrives during the transition', async () => {
+      animateTransition(() => {});
+      resetHostInviteVisual();
+      await flushTransitionTasks();
+      update();
+
+      mocks.toString.mockResolvedValueOnce('<svg><path d="M0 0h1v1z"/></svg>');
+      await expect(revealHostInviteQr('654321', () => true)).resolves.toBe(true);
+      expect(stage().classList.contains('is-room-qr-visible')).toBe(true);
+      expect(stage().getAttribute('aria-busy')).toBe('false');
+
+      finish();
+      await flushTransitionTasks();
+      vi.advanceTimersToNextFrame();
+      expect(stage().classList.contains('is-room-qr-loading')).toBe(false);
+    });
+
+    it('keeps a spinner that is already on screen', async () => {
+      resetHostInviteVisual();
+      expect(stage().classList.contains('is-room-qr-loading')).toBe(true);
+      Object.defineProperty(spinner(), 'getClientRects', {
+        configurable: true,
+        value: () => [{ width: 42, height: 42 }],
+      });
+
+      // The room code arrives while a transition of the page is batched.
+      animateTransition(() => {});
+      let resolveSvg!: (value: string) => void;
+      mocks.toString.mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveSvg = resolve;
+          }),
+      );
+      const reveal = revealHostInviteQr('654321', () => true);
+
+      expect(stage().classList.contains('is-room-qr-loading')).toBe(true);
+      expect(stage().getAttribute('aria-busy')).toBe('true');
+      await vi.waitFor(() => expect(resolveSvg).toBeTypeOf('function'));
+      resolveSvg('<svg><path d="M0 0h1v1z"/></svg>');
+      await expect(reveal).resolves.toBe(true);
     });
   });
 

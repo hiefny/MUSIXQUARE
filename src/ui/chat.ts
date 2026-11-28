@@ -31,6 +31,14 @@ import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
 import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { filterProfanity } from '../chat/profanity.ts';
+import {
+  CHAT_LIMIT_ANNOUNCE_DELAY_MS,
+  CHAT_LIMIT_WARN_START,
+  CHAT_PASTE_MAX_LENGTH,
+  fitToMessageLength,
+  isOverMessageLimit,
+  trimChatDraft,
+} from '../chat/message-length.ts';
 import { clearLatestPinnedNotice, registerChatProtocolHandlers } from '../chat/protocol.ts';
 import {
   addChatMessage,
@@ -69,6 +77,14 @@ import { scrollToWithPreferredMotion } from './scroll-motion.ts';
 import { initChatCopyGestures } from './chat-copy.ts';
 
 // ─── Chat State ──────────────────────────────────────────────────
+
+// The message limit is soft in the composer: what someone types is never
+// edited. From CHAT_LIMIT_WARN_START the count and the 2px gauge appear; past
+// MAX_MSG_LENGTH the line turns red, the count goes below zero and the send
+// waits until the draft is short enough again (src/chat/message-length.ts).
+const CHAT_LIMIT_ANNOUNCE_TIMER = 'chat-limit-announce';
+/** CSS Custom Highlight name for the part past the limit (progressive enhancement). */
+const CHAT_OVERFLOW_HIGHLIGHT = 'chat-overflow';
 
 let _unreadCount = 0;
 let _chatDrawerState: 'closed' | ChatDrawerDetent = 'closed';
@@ -603,6 +619,9 @@ export function toggleChatDrawer(
   const backdrop = getUiElement('chat-backdrop');
   if (backdrop) backdrop.classList.toggle('open', opening);
 
+  // The phone sheet carries the composer's status region away when it closes.
+  if (isMobileChatDrawer()) _chatSheetVisibility?.(opening);
+
   if (opening) {
     resetUnread();
     const messages = getUiElement('chat-messages');
@@ -1117,12 +1136,15 @@ let _lastSentTime = 0;
 let _lastSentText = '';
 let _lastSentTs = 0;
 
+/**
+ * The send path's last safety net. The composer blocks an over-limit send, so
+ * typing and pasting never reach this cut; a programmatic send can. It keeps
+ * whole graphemes within the wire's MAX_MSG_LENGTH UTF-16 units.
+ */
 function boundChatSubmission(text: string): string {
-  if (text.length > MAX_MSG_LENGTH) {
-    text = text.substring(0, MAX_MSG_LENGTH);
-    showToast(t('chat.msg_truncated', { max: MAX_MSG_LENGTH }));
-  }
-  return text;
+  if (!isOverMessageLimit(text)) return text;
+  showToast(t('chat.msg_truncated', { max: MAX_MSG_LENGTH }));
+  return fitToMessageLength(text, MAX_MSG_LENGTH);
 }
 
 function resetChatEditable(input: HTMLDivElement): void {
@@ -1135,7 +1157,7 @@ function resetChatEditable(input: HTMLDivElement): void {
 export function sendChatMessage(): void {
   const input = getUiElement('chat-input') as HTMLDivElement | null;
   if (!input) return;
-  let text = (input.textContent || '').trim();
+  let text = trimChatDraft(input.textContent || '');
   if (!text) return;
   const submissionText = text;
 
@@ -1315,6 +1337,32 @@ export function sendChatMessage(): void {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+/** The composer's refusal (shake and announcement), wired by initChat. */
+let _refuseOverLimitSend: (() => void) | null = null;
+
+/**
+ * The composer's answer to the phone sheet closing (false) and opening
+ * (true), wired by initChat. The over-limit announcement waits for a pause in
+ * typing; a wait that ended while the sheet was closed would speak into a
+ * hidden status region and count as said.
+ */
+let _chatSheetVisibility: ((visible: boolean) => void) | null = null;
+
+/**
+ * Send from the composer (Enter, the send arrow, an Enter that waited for an
+ * IME commit). A draft whose sent text would pass MAX_MSG_LENGTH stays as
+ * typed and is refused, so the person decides what to cut; sendChatMessage's
+ * bound never sees it.
+ */
+function submitChatComposer(): void {
+  const input = getUiElement('chat-input') as HTMLDivElement | null;
+  if (input && isOverMessageLimit(trimChatDraft(input.textContent || ''))) {
+    _refuseOverLimitSend?.();
+    return;
+  }
+  sendChatMessage();
+}
+
 // ─── Event Delegation ────────────────────────────────────────────
 
 let _chatDelegationAC: AbortController | null = null;
@@ -1456,7 +1504,7 @@ export function initChat(): void {
     const handleSend = (e: Event) => {
       if (e instanceof MouseEvent && e.button !== 0) return;
       e.preventDefault(); // Prevent input blur
-      sendChatMessage();
+      submitChatComposer();
       const chatInput = getUiElement('chat-input') as HTMLDivElement | null;
       if (chatInput) chatInput.focus();
     };
@@ -1487,13 +1535,13 @@ export function initChat(): void {
     );
   }
 
-  // Chat input: send on Enter + command autocomplete
+  // Chat input: send on Enter + command autocomplete + the soft message limit
   const chatInput = getUiElement('chat-input') as HTMLDivElement | null;
   if (chatInput) {
     // Create autocomplete dropdown
-    const wrapper = chatInput.closest('.chat-input-wrapper');
+    const wrapper = chatInput.closest<HTMLElement>('.chat-input-wrapper');
     if (wrapper) {
-      (wrapper as HTMLElement).style.position = 'relative';
+      wrapper.style.position = 'relative';
       wrapper
         .querySelectorAll(':scope > .chat-cmd-suggest, :scope > .chat-cmd-ghost')
         .forEach((element) => element.remove());
@@ -1516,9 +1564,53 @@ export function initChat(): void {
     ghost.className = 'chat-cmd-ghost';
     if (wrapper) wrapper.appendChild(ghost);
 
+    // The soft limit's count and its polite announcements (index.html). Both
+    // sit beside the editor, so updating them never touches the text or an
+    // open IME composition. The count is a plain number of UTF-16 units left
+    // (the wire's unit) and stays out of the accessibility tree; the status
+    // region says what it means. A composer without the count still refuses.
+    const composerRow = wrapper ?? chatInput.parentElement;
+    const limitCount =
+      composerRow?.querySelector<HTMLElement>(':scope > .chat-limit-count') ?? null;
+    const limitCountValue =
+      limitCount?.querySelector<HTMLElement>('.chat-limit-count-value') ?? limitCount;
+    const status =
+      composerRow?.querySelector<HTMLElement>(':scope > .chat-limit-status') ??
+      document.createElement('div');
+    if (!status.isConnected) {
+      status.className = 'sr-only chat-limit-status';
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.setAttribute('aria-atomic', 'true');
+      (composerRow ?? document.body).append(status);
+    }
+
+    // Progressive enhancement: paint the part past the limit with a CSS
+    // highlight, which changes no DOM, so typing, undo and the IME are untouched.
+    const highlights =
+      typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight === 'function'
+        ? CSS.highlights
+        : null;
+
+    let _overLimitAnnounced = false;
+    /** How far over the limit the status region says the draft is; 0 when silent. */
+    let _spokenOverBy = 0;
+    /**
+     * An IME composition is open. Its reading (pinyin, kana) is often longer
+     * than the text it commits, so until compositionend the count and the line
+     * follow the editor as it is, but the editor's invalid state and anything
+     * said about the limit wait for the commit.
+     */
+    let _composing = false;
+
     /** Read text from contenteditable div */
     function getInputValue(): string {
       return chatInput!.textContent || '';
+    }
+
+    /** What a send would carry; the limit, the count and the gauge measure this. */
+    function getSendableValue(): string {
+      return trimChatDraft(getInputValue());
     }
 
     /** Write text to contenteditable div and place cursor at end */
@@ -1537,6 +1629,233 @@ export function initChat(): void {
         }
       }
     }
+
+    /** UTF-16 units the current selection would replace inside the editor. */
+    function selectedLength(): number {
+      const selection = window.getSelection();
+      const range = selection?.rangeCount === 1 ? selection.getRangeAt(0) : null;
+      return range && chatInput!.contains(range.commonAncestorContainer)
+        ? range.toString().length
+        : 0;
+    }
+
+    /**
+     * Insert plain text at the selection through the browser's editing
+     * pipeline, so undo, the caret and an IME stay in step with the text.
+     * Where the browser refuses the command, nothing goes in.
+     */
+    function insertPlainText(text: string): void {
+      if (typeof document.execCommand === 'function') {
+        document.execCommand('insertText', false, text);
+        return;
+      }
+      // jsdom has no editing commands: replace the selection directly. Undo
+      // cannot see this path, and no browser takes it.
+      const selection = window.getSelection();
+      let range = selection?.rangeCount === 1 ? selection.getRangeAt(0) : null;
+      if (!range || !chatInput!.contains(range.commonAncestorContainer)) {
+        range = document.createRange();
+        range.selectNodeContents(chatInput!);
+        range.collapse(false);
+      }
+      range.deleteContents();
+      const node = document.createTextNode(text);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      chatInput!.dispatchEvent(
+        new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: text }),
+      );
+    }
+
+    /** The editor's text between two offsets into its textContent, or null. */
+    function textRange(from: number, to: number): Range | null {
+      const range = document.createRange();
+      let started = false;
+      let seen = 0;
+      const walker = document.createTreeWalker(chatInput!, NodeFilter.SHOW_TEXT);
+      for (
+        let node = walker.nextNode() as Text | null;
+        node;
+        node = walker.nextNode() as Text | null
+      ) {
+        const end = seen + node.length;
+        if (!started && from <= end) {
+          range.setStart(node, from - seen);
+          started = true;
+        }
+        if (started && to <= end) {
+          range.setEnd(node, to - seen);
+          return range;
+        }
+        seen = end;
+      }
+      return null;
+    }
+
+    /**
+     * Paint the part of the sent text that does not fit, and nothing of the
+     * spaces around it that a send drops. Clear when nothing is over.
+     */
+    function paintOverflow(text: string, sendable: string | null): void {
+      if (!highlights) return;
+      // trimChatDraft keeps one slice of the draft: it starts where the
+      // whitespace before it ends.
+      const start = sendable === null ? -1 : text.indexOf(sendable);
+      const range =
+        sendable === null || start < 0
+          ? null
+          : textRange(
+              start + fitToMessageLength(sendable, MAX_MSG_LENGTH).length,
+              start + sendable.length,
+            );
+      if (range) highlights.set(CHAT_OVERFLOW_HIGHLIGHT, new Highlight(range));
+      else highlights.delete(CHAT_OVERFLOW_HIGHLIGHT);
+    }
+
+    /**
+     * Say through the status region how far over the limit the draft is.
+     * Clearing it first repeats the same words. The number is read when it is
+     * spoken, so a draft changed before the next frame says nothing stale, and
+     * one back within the limit says nothing.
+     */
+    function announceOverLimit(): void {
+      status.textContent = '';
+      _spokenOverBy = 0;
+      window.requestAnimationFrame(() => {
+        const overBy = getSendableValue().length - MAX_MSG_LENGTH;
+        if (uiSignal.aborted || overBy <= 0) return;
+        status.textContent = t('chat.over_limit', { count: overBy });
+        _spokenOverBy = overBy;
+      });
+    }
+
+    /**
+     * Mirror the length of what a send would carry (the draft without the
+     * whitespace at its ends): the gauge and the count from
+     * CHAT_LIMIT_WARN_START, and past MAX_MSG_LENGTH the red line, the
+     * negative count, aria-invalid on the editor and an idle send arrow. The
+     * first time a draft goes over, it is announced once typing pauses with
+     * no composition open.
+     */
+    function syncLimitState(text = getInputValue()): void {
+      const sendable = trimChatDraft(text);
+      const length = sendable.length;
+      const over = isOverMessageLimit(sendable);
+      const near = !over && length >= CHAT_LIMIT_WARN_START;
+      if (wrapper) {
+        const progress = over
+          ? 1
+          : near
+            ? (length - (CHAT_LIMIT_WARN_START - 1)) /
+              (MAX_MSG_LENGTH - (CHAT_LIMIT_WARN_START - 1))
+            : 0;
+        wrapper.style.setProperty('--chat-limit-progress', progress.toFixed(4));
+        wrapper.classList.toggle('limit-warning', near);
+        wrapper.classList.toggle('limit-over', over);
+        if (!over) wrapper.classList.remove('limit-shake');
+      }
+      if (limitCount) limitCount.hidden = !near && !over;
+      if (limitCountValue) {
+        limitCountValue.textContent = over
+          ? `\u2212${length - MAX_MSG_LENGTH}`
+          : near
+            ? String(MAX_MSG_LENGTH - length)
+            : '';
+      }
+      if (over) sendBtn?.setAttribute('aria-disabled', 'true');
+      else sendBtn?.removeAttribute('aria-disabled');
+      // A screen reader may speak a change of the focused editor's invalid
+      // state, so a reading longer than its commit does not flip it.
+      if (!_composing) {
+        if (over) chatInput!.setAttribute('aria-invalid', 'true');
+        else chatInput!.removeAttribute('aria-invalid');
+      }
+      paintOverflow(text, over ? sendable : null);
+
+      if (!over) {
+        clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
+        _overLimitAnnounced = false;
+        _spokenOverBy = 0;
+        if (status.textContent) status.textContent = '';
+        return;
+      }
+      // A number that no longer matches the draft is cleared rather than left
+      // for a screen reader to find; the next refusal says the current one.
+      if (_spokenOverBy && _spokenOverBy !== length - MAX_MSG_LENGTH) {
+        _spokenOverBy = 0;
+        status.textContent = '';
+      }
+      if (_composing) {
+        clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
+      } else if (!_overLimitAnnounced) {
+        // Debounced: each keystroke while over restarts the wait.
+        setManagedTimer(
+          CHAT_LIMIT_ANNOUNCE_TIMER,
+          () => {
+            if (_overLimitAnnounced || _composing) return;
+            if (!isOverMessageLimit(getSendableValue())) return;
+            _overLimitAnnounced = true;
+            announceOverLimit();
+          },
+          CHAT_LIMIT_ANNOUNCE_DELAY_MS,
+        );
+      }
+    }
+
+    /** A refused send: one shake (none with reduced motion) and one announcement. */
+    function refuseOverLimitSend(): void {
+      syncLimitState();
+      if (wrapper) {
+        wrapper.classList.remove('limit-shake');
+        void wrapper.offsetWidth; // Restart the animation on a repeated attempt.
+        wrapper.classList.add('limit-shake');
+      }
+      clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
+      _overLimitAnnounced = true;
+      announceOverLimit();
+    }
+    _refuseOverLimitSend = refuseOverLimitSend;
+
+    // Closing drops a waiting over-limit announcement; opening waits again,
+    // so a draft that went over just before the close is announced once the
+    // sheet is back.
+    const onChatSheetVisibility = (visible: boolean): void => {
+      if (visible) syncLimitState();
+      else clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
+    };
+    _chatSheetVisibility = onChatSheetVisibility;
+
+    // Only a shake that ran to its end clears the class. A restart cancels the
+    // running shake, and that late cancel must not stop the new one. With
+    // reduced motion nothing runs; the next attempt or the end of the
+    // over-limit state clears the class.
+    wrapper?.addEventListener(
+      'animationend',
+      (e) => {
+        if (e.target === wrapper && e.animationName === 'shake') {
+          wrapper.classList.remove('limit-shake');
+        }
+      },
+      { signal: uiSignal },
+    );
+
+    uiSignal.addEventListener(
+      'abort',
+      () => {
+        clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
+        highlights?.delete(CHAT_OVERFLOW_HIGHLIGHT);
+        if (_refuseOverLimitSend === refuseOverLimitSend) _refuseOverLimitSend = null;
+        if (_chatSheetVisibility === onChatSheetVisibility) _chatSheetVisibility = null;
+        wrapper?.classList.remove('limit-warning', 'limit-over', 'limit-shake');
+        wrapper?.style.removeProperty('--chat-limit-progress');
+        chatInput.removeAttribute('aria-invalid');
+        sendBtn?.removeAttribute('aria-disabled');
+      },
+      { once: true },
+    );
 
     function updateGhost(): void {
       const val = getInputValue();
@@ -1628,6 +1947,20 @@ export function initChat(): void {
       chatInput!.removeAttribute('aria-activedescendant');
     }
 
+    function syncComposerState(): void {
+      const val = getInputValue();
+      applyUserTextFontFallback(chatInput!, val);
+      updateGhost();
+      syncLimitState(val);
+      if (!val.startsWith('/') || val.includes(' ')) {
+        hideSuggest();
+        return;
+      }
+      const query = val.slice(1).toLowerCase();
+      const matches = getAvailableCommands(query);
+      showSuggest(matches);
+    }
+
     function applySuggest(): void {
       const item = _suggestItems[_suggestIdx];
       if (!item || !chatInput) return;
@@ -1635,48 +1968,41 @@ export function initChat(): void {
       chatInput.focus();
       hideSuggest();
       updateGhost();
+      syncLimitState();
     }
 
-    // Paste handler: strip HTML, paste plain text only
+    // Paste handler: plain text on one line, inserted as an editing command so
+    // undo keeps working. The limit is soft, so a paste may go past it; only a
+    // huge paste is cut, on a grapheme boundary, at CHAT_PASTE_MAX_LENGTH,
+    // and the toast says that not all of it went in. It names no number: the
+    // cap is not the message limit, and it counts UTF-16 units.
     chatInput.addEventListener(
       'paste',
       (e) => {
         e.preventDefault();
-        const text = e.clipboardData?.getData('text/plain') || '';
-        // Remove line breaks and limit length
-        const clean = text.replace(/[\r\n]/g, ' ').substring(0, MAX_MSG_LENGTH);
-        document.execCommand('insertText', false, clean);
+        // A muted composer is not editable (it stays focusable) and takes no
+        // paste. jsdom has no isContentEditable, so only a real false stops.
+        if (chatInput.isContentEditable === false) return;
+        const pasted = (e.clipboardData?.getData('text/plain') || '').replace(/[\r\n]+/g, ' ');
+        if (!pasted) return;
+        const room = Math.max(
+          0,
+          CHAT_PASTE_MAX_LENGTH - (getInputValue().length - selectedLength()),
+        );
+        const text = fitToMessageLength(pasted, room);
+        if (text) insertPlainText(text);
+        if (text.length < pasted.length) showToast(t('chat.paste_truncated'));
       },
       { signal: uiSignal },
     );
 
-    // Prevent line breaks in contenteditable
+    // Keep the message on one line. Nothing else is cancelled: typing, IME
+    // commits and replacements always go in, and the limit only blocks the send.
     chatInput.addEventListener(
       'beforeinput',
       (e) => {
         if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
           e.preventDefault();
-          return;
-        }
-        // Enforce maxlength
-        if (e.inputType === 'insertText') {
-          const current = getInputValue();
-          const incoming = e.data || '';
-          const selection = window.getSelection();
-          const range = selection?.rangeCount === 1 ? selection.getRangeAt(0) : null;
-          const replacedLength =
-            range && chatInput.contains(range.commonAncestorContainer)
-              ? range.toString().length
-              : 0;
-          const retainedLength = Math.max(0, current.length - replacedLength);
-          if (retainedLength + incoming.length > MAX_MSG_LENGTH) {
-            e.preventDefault();
-            // Insert only what fits
-            const remaining = MAX_MSG_LENGTH - retainedLength;
-            if (remaining > 0) {
-              document.execCommand('insertText', false, incoming.substring(0, remaining));
-            }
-          }
         }
       },
       { signal: uiSignal },
@@ -1691,22 +2017,16 @@ export function initChat(): void {
       { signal: uiSignal },
     );
 
-    // Input event: filter commands + ghost text
+    // Input event: normalize empty, then the limit state, commands and ghost text
     chatInput.addEventListener(
       'input',
       (e) => {
         // Stray-<br> placeholder restore — shared helper, see dom.ts.
         normalizeEmptyContentEditable(chatInput, e);
-        const val = getInputValue();
-        applyUserTextFontFallback(chatInput, val);
-        updateGhost();
-        if (!val.startsWith('/') || val.includes(' ')) {
-          hideSuggest();
-          return;
-        }
-        const query = val.slice(1).toLowerCase();
-        const matches = getAvailableCommands(query);
-        showSuggest(matches);
+        // Input outside a composition means none is open, even if an IME
+        // never sent its compositionend.
+        if (e instanceof InputEvent && !e.isComposing) _composing = false;
+        syncComposerState();
       },
       { signal: uiSignal },
     );
@@ -1731,6 +2051,12 @@ export function initChat(): void {
       'blur',
       () => {
         setManagedTimer('chat-hide-suggest', hideSuggest, 150);
+        // Leaving the editor ends any composition; catch up if no
+        // compositionend came.
+        if (_composing) {
+          _composing = false;
+          syncLimitState();
+        }
       },
       { signal: uiSignal },
     );
@@ -1780,8 +2106,21 @@ export function initChat(): void {
           }
 
           e.preventDefault();
-          sendChatMessage();
+          // A held Enter repeats keydown: over the limit that is not a new attempt.
+          if (e.repeat && isOverMessageLimit(getSendableValue())) return;
+          submitChatComposer();
         }
+      },
+      { signal: uiSignal },
+    );
+
+    // An open composition holds back the limit's invalid state and its
+    // announcement (see _composing); the commit syncs them.
+    chatInput.addEventListener(
+      'compositionstart',
+      () => {
+        _composing = true;
+        clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
       },
       { signal: uiSignal },
     );
@@ -1790,6 +2129,8 @@ export function initChat(): void {
     chatInput.addEventListener(
       'compositionend',
       () => {
+        _composing = false;
+        syncLimitState();
         // If Enter was pressed during composition, trigger send now that it's finished.
         if (_isConfirmingIME) {
           _isConfirmingIME = false;
@@ -1797,7 +2138,7 @@ export function initChat(): void {
           setManagedTimer(
             'chat-ime-send',
             () => {
-              sendChatMessage();
+              submitChatComposer();
             },
             0,
           );
@@ -1805,6 +2146,8 @@ export function initChat(): void {
       },
       { signal: uiSignal },
     );
+
+    syncLimitState();
 
     // Re-render ghost text on language change. Store the observer ref so
     // re-init (HMR, future re-wiring) disconnects the prior one instead of

@@ -39,14 +39,101 @@ export function cycleFocusWithin(
 }
 
 // ─── Batch View Transition ───────────────────────────────────────
+// animateTransition() is the app's only caller of startViewTransition(), and
+// it runs one native view transition at a time. Calls made in one task share
+// a batch. A call made while a transition starts, before its update callback
+// has run or while it runs, joins that update. A call made after the update
+// applies in place: the new image is live, so the change shows inside the
+// running fade. A second startViewTransition() would skip the running
+// transition mid-fade and capture where it stopped as the next old image.
+// Except in runWithoutViewTransitions() and browsers without view
+// transitions, a change never applies inside its caller: the caller's own
+// code runs first, whether a transition runs or not.
 
-let _batchedTransitionCb: (() => void) | null = null;
-let _batchedTransitionPreservesHeader = false;
-let _headerTransitionGeneration = 0;
+/**
+ * On <html> from a transition's update until its release frame. Under it a
+ * custom scrollbar shows and hides without its own fade (css/style.css),
+ * which would otherwise run inside the live new image, behind the page's.
+ */
+const VIEW_TRANSITION_CLASS = 'in-view-transition';
+
+/**
+ * How long one native transition may hold the page's screen changes, which
+ * join it while it runs. Its capture, update and fade take a fraction of a
+ * second even on a slow phone. A transition still unsettled after this is one
+ * the browser never ran: the owner ends it and applies its updates itself.
+ */
+const VIEW_TRANSITION_DEADLINE_MS = 2000;
+
+/** The updates of the next native transition, collected until its microtask starts it. */
+interface TransitionBatch {
+  updates: Array<() => void>;
+  /** Every update in the batch is an ordinary tab change. */
+  preservesHeader: boolean;
+  /** Closing-window settlements, released when the transition settles. */
+  settlements: Array<() => void>;
+}
+
+/** The native transition from startViewTransition() until it settles. */
+interface RunningTransition {
+  updates: Array<() => void>;
+  phase: 'starting' | 'updating' | 'updated';
+  /** Calls made after the update, applied in place in their microtask. */
+  inPlace: Array<() => void>;
+  settlements: Array<() => void>;
+  transition: ViewTransitionLike | null;
+}
+
+let _batch: TransitionBatch | null = null;
+let _running: RunningTransition | null = null;
+let _transitionGeneration = 0;
+/** The newest transition until its release frame; 0 once released. */
+let _activeViewTransitionGeneration = 0;
+let _inViewTransitionUpdateDepth = 0;
 let _immediateTransitionDepth = 0;
 let _backDispatchDepth = 0;
+const _afterViewTransitions = new Set<() => void>();
 const _backSurfaceTransitions = new Map<Promise<void>, () => void>();
-let _batchedBackSettlements: Array<() => void> = [];
+
+/** Whether code runs inside a view transition's update, or applies in place during one. */
+export function isInsideViewTransitionUpdate(): boolean {
+  return _inViewTransitionUpdateDepth > 0;
+}
+
+/** A transition is batched, running or waiting for its release frame. */
+function viewTransitionPending(): boolean {
+  return _batch !== null || _running !== null || _activeViewTransitionGeneration !== 0;
+}
+
+/**
+ * Run `callback` once no view transition is batched, running or waiting for
+ * its release frame; at once when none is. Returns a function that cancels a
+ * callback still waiting. One that throws is logged, and the rest still run.
+ */
+export function afterViewTransitions(callback: () => void): () => void {
+  if (!viewTransitionPending()) {
+    callback();
+    return () => {};
+  }
+  const waiting = (): void => callback();
+  _afterViewTransitions.add(waiting);
+  return () => {
+    _afterViewTransitions.delete(waiting);
+  };
+}
+
+function runAfterViewTransitions(): void {
+  if (viewTransitionPending() || _afterViewTransitions.size === 0) return;
+  const callbacks = [..._afterViewTransitions];
+  _afterViewTransitions.clear();
+  for (const callback of callbacks) {
+    try {
+      callback();
+    } catch (error) {
+      log.warn('[UI] Work waiting for a view transition failed', error);
+    }
+  }
+}
 
 /** A closing surface owns its completion; no duration or CSS inference is needed. */
 export function beginBackSurfaceTransition(): () => void {
@@ -252,6 +339,68 @@ export function runWithoutViewTransitions(callback: () => void): void {
   }
 }
 
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Run each update on its own, so one that throws cannot drop the rest of its transition. */
+function runTransitionUpdates(updates: Array<() => void>): void {
+  // An update can add another (a tab listener's call): the loop reaches it.
+  for (let index = 0; index < updates.length; index += 1) {
+    try {
+      updates[index]?.();
+    } catch (error) {
+      log.warn('[UI] A view transition update failed', error);
+    }
+  }
+}
+
+/**
+ * Apply the calls made after a running transition's update, inside the
+ * update depth, so a tab's custom scrollbar still shows at once.
+ */
+function applyInPlace(running: RunningTransition): void {
+  const updates = running.inPlace;
+  if (updates.length === 0) return;
+  _inViewTransitionUpdateDepth += 1;
+  try {
+    runTransitionUpdates(updates);
+  } finally {
+    _inViewTransitionUpdateDepth -= 1;
+    updates.length = 0;
+  }
+}
+
+/**
+ * Call `release` in the next animation frame, or at once on a hidden page:
+ * a hidden page runs no frames until it is shown again, and the browser
+ * settles a transition early when the page hides.
+ */
+function releaseAfterFrame(release: () => void): void {
+  if (typeof window.requestAnimationFrame !== 'function' || document.visibilityState === 'hidden') {
+    release();
+    return;
+  }
+  let frame = 0;
+  let released = false;
+  const onVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') finish();
+  };
+  const finish = (): void => {
+    if (released) return;
+    released = true;
+    window.cancelAnimationFrame?.(frame);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    release();
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  frame = window.requestAnimationFrame(finish);
+}
+
 export function animateTransition(callback: () => void, options: TransitionOptions = {}): void {
   const transitionDocument = document as DocumentWithViewTransition;
   const finishBackSurface =
@@ -265,120 +414,221 @@ export function animateTransition(callback: () => void, options: TransitionOptio
     return;
   }
 
-  if (finishBackSurface) _batchedBackSettlements.push(finishBackSurface);
-
-  if (_batchedTransitionCb !== null) {
-    // A batched setup/mode update may open an overlay. Only isolate chrome
-    // when every update in this native transition is an ordinary tab change.
-    _batchedTransitionPreservesHeader &&= options.preserveHeader === true;
-    const oldCb = _batchedTransitionCb;
-    _batchedTransitionCb = () => {
-      oldCb();
-      callback();
-    };
+  const running = _running;
+  if (running) {
+    // The running transition's old image still shows a closing window, so
+    // the close settles with that transition, not at once.
+    if (finishBackSurface) running.settlements.push(finishBackSurface);
+    if (running.phase !== 'updated') {
+      running.updates.push(callback);
+      return;
+    }
+    // After the caller's code, as a batched change: applied at once here, a
+    // join area shown first would let its caller's focus() open the iOS
+    // keyboard only when a fade happens to run.
+    if (running.inPlace.push(callback) === 1) {
+      Promise.resolve()
+        .then(() => applyInPlace(running))
+        .catch((error) => {
+          log.warn('[UI] A change applied in place failed', error);
+        });
+    }
     return;
   }
 
-  _batchedTransitionCb = callback;
-  _batchedTransitionPreservesHeader = options.preserveHeader === true;
+  if (_batch !== null) {
+    if (finishBackSurface) _batch.settlements.push(finishBackSurface);
+    // A batched setup/mode update may open an overlay. Only isolate chrome
+    // when every update in this native transition is an ordinary tab change.
+    _batch.preservesHeader &&= options.preserveHeader === true;
+    _batch.updates.push(callback);
+    return;
+  }
+
+  _batch = {
+    updates: [callback],
+    preservesHeader: options.preserveHeader === true,
+    settlements: finishBackSurface ? [finishBackSurface] : [],
+  };
   Promise.resolve()
-    .then(() => {
-      const cb = _batchedTransitionCb;
-      const preserveHeader = _batchedTransitionPreservesHeader;
-      const backSettlements = _batchedBackSettlements;
-      _batchedBackSettlements = [];
-      const finishBackSurfaces = () => backSettlements.forEach((finish) => finish());
-      _batchedTransitionCb = null;
-      _batchedTransitionPreservesHeader = false;
-      if (!cb) {
-        finishBackSurfaces();
-        return;
-      }
-      const root = document.documentElement;
-      const generation = ++_headerTransitionGeneration;
-      root.classList.toggle(
-        'tab-header-transition',
-        preserveHeader && canPreserveTransitionHeader(),
-      );
-      let stopWatchingHeader = () => {};
-      const releaseHeader = () => {
-        stopWatchingHeader();
-        // A superseded transition must not clear a newer transition's group.
-        if (generation === _headerTransitionGeneration) {
-          root.classList.remove('tab-header-transition');
-        }
-      };
-      let executed = false;
-      try {
-        // startViewTransition returns a ViewTransition object whose
-        // `ready` / `finished` / `updateCallbackDone` Promises reject when
-        // the transition is aborted (e.g. another transition supersedes
-        // this one, or the document visibility flips mid-animation). The
-        // callback still runs, so the abort has no user-facing impact —
-        // but an uncaught rejection lands in the global `unhandledrejection`
-        // handler and shows up in console as "InvalidStateError: Transition
-        // was aborted because of invalid state". Silence the benign ones.
-        const vt = transitionDocument.startViewTransition(() => {
-          executed = true;
-          cb();
-          // Tab lifecycle listeners may synchronously reveal a modal too.
-          if (generation === _headerTransitionGeneration && !canPreserveTransitionHeader()) {
-            root.classList.remove('tab-header-transition');
-          }
-        });
-        const surfaceFinished = vt?.finished ?? vt?.updateCallbackDone;
-        if (surfaceFinished !== undefined)
-          void surfaceFinished.then(finishBackSurfaces, finishBackSurfaces);
-        else finishBackSurfaces();
-        if (root.classList.contains('tab-header-transition') && vt?.skipTransition) {
-          // A network/session dialog can arrive after capture. Finish only the
-          // obsolete tab effect so the live overlay regains its correct stack;
-          // no cooldown is imposed on the next tab transition.
-          const checkHeaderOcclusion = () => {
-            if (generation !== _headerTransitionGeneration) return;
-            if (!root.classList.contains('tab-header-transition')) {
-              stopWatchingHeader();
-              return;
-            }
-            if (!canPreserveTransitionHeader()) {
-              vt.skipTransition?.();
-              releaseHeader();
-            }
-          };
-          const observer = new MutationObserver(checkHeaderOcclusion);
-          observer.observe(document.body, {
-            attributes: true,
-            attributeFilter: ['class', 'style'],
-            childList: true,
-            subtree: true,
-          });
-          const events = ['fullscreenchange', 'webkitfullscreenchange', 'focusin'];
-          for (const event of events) document.addEventListener(event, checkHeaderOcclusion);
-          stopWatchingHeader = () => {
-            observer.disconnect();
-            for (const event of events) document.removeEventListener(event, checkHeaderOcclusion);
-          };
-        }
-        vt?.ready?.catch(() => {
-          /* noop — benign abort */
-        });
-        if (vt?.finished !== undefined) void vt.finished.then(releaseHeader, releaseHeader);
-        else releaseHeader();
-        vt?.updateCallbackDone?.catch(() => {
-          /* noop — benign abort */
-        });
-      } catch {
-        releaseHeader();
-        try {
-          if (!executed) cb();
-        } finally {
-          finishBackSurfaces();
-        }
-      }
-    })
+    .then(startBatchedTransition)
     .catch((error) => {
       log.warn('[UI] Batched view transition failed', error);
     });
+}
+
+function startBatchedTransition(): void {
+  const batch = _batch;
+  _batch = null;
+  if (!batch) return;
+  const transitionDocument = document as DocumentWithViewTransition;
+  // With reduced motion nothing would animate: apply the batch here, after
+  // its callers' task as a transition's update would be, but without
+  // capturing the page or routing input to <html> for a few frames.
+  if (!transitionDocument.startViewTransition || prefersReducedMotion()) {
+    try {
+      runTransitionUpdates(batch.updates);
+    } finally {
+      for (const finish of batch.settlements) finish();
+      runAfterViewTransitions();
+    }
+    return;
+  }
+
+  const root = document.documentElement;
+  const generation = ++_transitionGeneration;
+  _activeViewTransitionGeneration = generation;
+  const running: RunningTransition = {
+    updates: batch.updates,
+    phase: 'starting',
+    inPlace: [],
+    settlements: batch.settlements,
+    transition: null,
+  };
+  _running = running;
+  root.classList.toggle(
+    'tab-header-transition',
+    batch.preservesHeader && canPreserveTransitionHeader(),
+  );
+
+  let stopWatchingHeader = (): void => {};
+  // A window that comes up while the header and nav are live layers would
+  // paint under them. Their old images are hidden, so dropping only their
+  // names would blink them: end the presentation, and the window shows in
+  // its own stack at once. The marks wait for the transition to settle.
+  const endHeaderIsolation = (): void => {
+    stopWatchingHeader();
+    if (!root.classList.contains('tab-header-transition')) return;
+    running.transition?.skipTransition?.();
+    root.classList.remove('tab-header-transition');
+  };
+  const release = (): void => {
+    // A newer transition owns the marks once it starts.
+    if (generation !== _transitionGeneration || _activeViewTransitionGeneration !== generation) {
+      return;
+    }
+    root.classList.remove('tab-header-transition', VIEW_TRANSITION_CLASS);
+    _activeViewTransitionGeneration = 0;
+    runAfterViewTransitions();
+  };
+  let settled = false;
+  let deadline: number | null = null;
+  const settle = (afterFrame: boolean): void => {
+    if (settled) return;
+    settled = true;
+    if (deadline !== null) window.clearTimeout(deadline);
+    deadline = null;
+    // Changes still waiting to apply in place go first: a window they
+    // close settles after its change, and a call they make still joins.
+    applyInPlace(running);
+    if (_running === running) _running = null;
+    stopWatchingHeader();
+    for (const finish of running.settlements.splice(0)) finish();
+    // Live chrome and the scrollbar rule stay for one frame after the
+    // transition, so WebKit finishes its teardown before their names go.
+    if (afterFrame) releaseAfterFrame(release);
+    else release();
+  };
+
+  let executed = false;
+  const update = (): void => {
+    // The owner's deadline may have applied the updates already.
+    if (executed) return;
+    executed = true;
+    running.phase = 'updating';
+    if (_activeViewTransitionGeneration === generation) root.classList.add(VIEW_TRANSITION_CLASS);
+    _inViewTransitionUpdateDepth += 1;
+    try {
+      runTransitionUpdates(running.updates);
+    } finally {
+      _inViewTransitionUpdateDepth -= 1;
+      running.phase = 'updated';
+    }
+    // Tab lifecycle listeners, or an update that joined, may reveal a modal.
+    if (root.classList.contains('tab-header-transition') && !canPreserveTransitionHeader()) {
+      endHeaderIsolation();
+    }
+  };
+
+  try {
+    // startViewTransition returns a ViewTransition object whose `ready`,
+    // `finished` and `updateCallbackDone` promises reject when the
+    // transition is skipped (the document hides mid-animation, or the
+    // occlusion check below ends it). The update still runs, so the skip
+    // has no user-facing impact, but an uncaught rejection lands in the
+    // global `unhandledrejection` handler and shows up in console as
+    // "InvalidStateError: Transition was aborted because of invalid
+    // state". Silence the benign ones.
+    const transition = transitionDocument.startViewTransition(update);
+    running.transition = transition ?? null;
+    // Every later change waits on this transition, so it ends in time even
+    // in a browser that never runs it. A plain timer, as for a closing
+    // window's fallback: room-wide timer cleanup must not cancel it.
+    deadline = window.setTimeout(() => {
+      deadline = null;
+      if (settled) return;
+      log.warn('[UI] A view transition did not end in time; applying its updates');
+      try {
+        running.transition?.skipTransition?.();
+      } catch {
+        /* the browser's transition is already over */
+      }
+      update();
+      settle(false);
+    }, VIEW_TRANSITION_DEADLINE_MS);
+    if (
+      root.classList.contains('tab-header-transition') &&
+      typeof transition?.skipTransition === 'function'
+    ) {
+      // A network/session dialog can arrive after capture. Finish only the
+      // obsolete tab effect so the live overlay regains its correct stack;
+      // no cooldown is imposed on the next tab transition.
+      const checkHeaderOcclusion = (): void => {
+        if (!root.classList.contains('tab-header-transition')) {
+          stopWatchingHeader();
+          return;
+        }
+        if (!canPreserveTransitionHeader()) endHeaderIsolation();
+      };
+      const observer = new MutationObserver(checkHeaderOcclusion);
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+        childList: true,
+        subtree: true,
+      });
+      const events = ['fullscreenchange', 'webkitfullscreenchange', 'focusin'];
+      for (const event of events) document.addEventListener(event, checkHeaderOcclusion);
+      stopWatchingHeader = () => {
+        observer.disconnect();
+        for (const event of events) document.removeEventListener(event, checkHeaderOcclusion);
+      };
+    }
+    transition?.ready?.catch(() => {
+      /* noop — benign abort */
+    });
+    transition?.updateCallbackDone?.catch(() => {
+      /* noop — benign abort */
+    });
+    // Per spec `finished` settles only after the update callback has run,
+    // skipped transitions included.
+    const done = transition?.finished ?? transition?.updateCallbackDone;
+    if (done !== undefined) {
+      void done.then(
+        () => settle(true),
+        () => settle(true),
+      );
+    } else {
+      settle(false);
+    }
+  } catch {
+    // No native transition: apply the updates here, then release.
+    try {
+      if (!executed) update();
+    } finally {
+      settle(false);
+    }
+  }
 }
 
 // ─── HTML Escaping ───────────────────────────────────────────────

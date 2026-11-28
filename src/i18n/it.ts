@@ -934,6 +934,8 @@ const it: Record<I18nKey, string> = {
     'La connessione di {{name}} è instabile. Tentativo di ripristino in corso.',
   'chat.empty_html': 'Nessun messaggio presente.<br>Scrivi il primo messaggio!',
   'chat.msg_truncated': 'Il messaggio è stato troncato a {{max}} caratteri',
+  'chat.over_limit': 'Il messaggio supera di {{count}} il limite e non può essere inviato',
+  'chat.paste_truncated': 'Il testo incollato era troppo lungo e non è stato aggiunto per intero',
   'chat.scroll_to_bottom': 'Scorri in fondo',
   'setup.invite_share_desc_html':
     'Connetti più dispositivi in modalità wireless<br>per creare un enorme sistema audio.<br>Usa un codice d’invito a 6 cifre per connetterti.',

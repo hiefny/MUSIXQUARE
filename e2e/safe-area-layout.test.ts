@@ -399,7 +399,8 @@ for (const sample of cases) {
 // padding, which focus scrolling reads. The Playlist pane scrolls in its body
 // instead: the body takes the inset as end padding, which keeps the sticky
 // selection bar above the indicator, and as scroll padding, which the
-// current-track follow reads; the pane keeps the 8px it has under the body.
+// current-track follow reads. The body reaches the bottom edge too, with the
+// pane's 8px in its end padding, so no strip of bare pane shows under the list.
 for (const sample of cases.filter((sample) =>
   [
     'compact iPad landscape',
@@ -435,7 +436,7 @@ for (const sample of cases.filter((sample) =>
     expect(paneBox.y + paneBox.height, 'playlist bottom').toBeCloseTo(sample.height, 0);
     const body = playlist.locator('.tab-body');
     const bodyBox = (await body.boundingBox())!;
-    expect(bodyBox.y + bodyBox.height, 'playlist body bottom').toBeCloseTo(sample.height - 8, 0);
+    expect(bodyBox.y + bodyBox.height, 'playlist body bottom').toBeCloseTo(sample.height, 0);
     const bodyEnds = await body.evaluate((node) => {
       const style = getComputedStyle(node);
       return {
@@ -443,7 +444,7 @@ for (const sample of cases.filter((sample) =>
         scrollPadding: Number.parseFloat(style.scrollPaddingBottom),
       };
     });
-    expect(bodyEnds.padding, 'playlist body end padding').toBeCloseTo(8 + sample.insets.bottom, 0);
+    expect(bodyEnds.padding, 'playlist body end padding').toBeCloseTo(16 + sample.insets.bottom, 0);
     expect(bodyEnds.scrollPadding, 'playlist body scroll padding').toBeCloseTo(
       sample.insets.bottom,
       0,

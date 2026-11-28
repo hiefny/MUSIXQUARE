@@ -1368,7 +1368,7 @@ describe('public design-system page contract', () => {
     ]);
     const notes = [...(buttons?.querySelectorAll(':scope > .input-note') ?? [])].map(text);
     expect(notes[1]).toBe(
-      'The message limit is soft: nothing typed is cut, and only a paste past 2000 is shortened. The count is the number the chat wire counts, so an emoji can take 2 or more. A send over the limit shakes the composer once and is announced; with reduced motion only the red line and the count show.',
+      'The message limit is soft: nothing typed is cut, and only a paste that would make the message longer than 2000 is shortened. The count uses the same unit the app sends, so an emoji can take 2 or more. A send over the limit shakes the composer once and is announced; with reduced motion only the red line and the count show.',
     );
     // The note's numbers are the app's.
     expect(notes[1]).toContain(String(CHAT_PASTE_MAX_LENGTH));

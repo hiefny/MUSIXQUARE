@@ -1037,7 +1037,7 @@ describe('the design-system page mirrors the field family', () => {
         '.chat-limit-count',
         [
           'position',
-          'inset-inline-end',
+          'right',
           'bottom',
           'min-width',
           'color',

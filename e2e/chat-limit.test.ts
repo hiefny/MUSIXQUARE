@@ -661,7 +661,7 @@ test('in RTL the count stands over the send arrow and keeps its minus sign first
   page,
 }) => {
   await openComposer(page);
-  // An RTL locale sets both; the built CSS resolves logical insets by :lang().
+  // An RTL locale sets both; rtl.css moves the count to the left by [dir].
   await page.evaluate(() => {
     document.documentElement.setAttribute('lang', 'ar');
     document.documentElement.setAttribute('dir', 'rtl');

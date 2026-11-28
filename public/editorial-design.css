@@ -2307,7 +2307,7 @@
    goes idle. */
 .chat-limit-count {
   position: absolute;
-  inset-inline-end: 0;
+  right: 0;
   bottom: 44px;
   min-width: 36px;
   color: var(--warning-foreground);

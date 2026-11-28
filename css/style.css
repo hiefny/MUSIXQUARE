@@ -8364,10 +8364,12 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
 
   /* The count stands in the send arrow's column, just above the arrow (the
      wrapper's 6px padding, the arrow's 2px margin and its 36px). A plain
-     number in warning text, in the danger red once it goes below zero. */
+     number in warning text, in the danger red once it goes below zero. An
+     explicit side, mirrored in rtl.css: a logical inset compiles to :is()
+     selectors that the legacy TV browsers cannot read. */
   .chat-limit-count {
     position: absolute;
-    inset-inline-end: 0;
+    right: 0;
     bottom: 44px;
     min-width: 36px;
     color: var(--warning-foreground);

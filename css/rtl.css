@@ -183,6 +183,12 @@
     left: auto;
     right: 16px;
   }
+
+  /* The chat count stays over the send arrow, which RTL places on the left. */
+  html[dir='rtl'] .chat-limit-count {
+    left: 0;
+    right: auto;
+  }
 }
 
 /* Explicit sides avoid the legacy CSS compiler expanding logical inset into

@@ -475,33 +475,61 @@ test('in forced colors the gauge, the count and the thick invalid edge still sho
       )!;
       const probe = document.createElement('span');
       document.body.append(probe);
-      probe.style.color = 'Highlight';
-      const highlight = getComputedStyle(probe).color;
+      // Name each system color the state may resolve to.
+      const system: Array<[string, string]> = [
+        'Highlight',
+        'LinkText',
+        'ButtonText',
+        'ButtonFace',
+        'GrayText',
+      ].map((name) => {
+        probe.style.color = name;
+        return [getComputedStyle(probe).color, name];
+      });
       probe.remove();
+      const named = (color: string): string =>
+        system.find(([value]) => value === color)?.[1] ?? color;
       const gauge = getComputedStyle(wrapper, '::after');
+      const count = wrapper.querySelector<HTMLElement>('.chat-limit-count')!;
       return {
-        gaugeIsHighlight: gauge.backgroundColor === highlight,
+        gauge: named(gauge.backgroundColor),
         gaugeOpacity: gauge.opacity,
         forcedAdjust: gauge.getPropertyValue('forced-color-adjust'),
+        line: named(getComputedStyle(wrapper).borderBottomColor),
         outlineWidth: getComputedStyle(document.getElementById('chat-input')!).outlineWidth,
-        countVisible: !wrapper.querySelector<HTMLElement>('.chat-limit-count')!.hidden,
+        countVisible: !count.hidden,
+        count: named(getComputedStyle(count).color),
+        send: named(getComputedStyle(document.getElementById('btn-chat-send')!).color),
       };
     });
+  // At rest the line is the idle ButtonFace edge.
+  await page.locator('#chat-input').blur();
+  await expect.poll(read).toMatchObject({ line: 'ButtonFace', countVisible: false });
+  await page.locator('#chat-input').focus();
   await page.keyboard.insertText('a'.repeat(450));
-  // The token remap paints the gauge with the system Highlight; no opt-out.
+  // The token remap paints the gauge with the system Highlight and the count
+  // with LinkText (--warning-foreground); no opt-out.
   await expect.poll(read).toMatchObject({
-    gaugeIsHighlight: true,
+    gauge: 'Highlight',
     gaugeOpacity: '1',
     forcedAdjust: 'auto',
     countVisible: true,
+    count: 'LinkText',
   });
-  // Over the limit, aria-invalid thickens the resting field edge as for a
-  // wrong value (focus draws its own 3px ring), and the count stays.
+  // Over the limit the red roles remap to ButtonText: the line and the count
+  // keep their state, aria-invalid thickens the resting field edge as for a
+  // wrong value (focus draws its own 3px ring), and the aria-disabled arrow
+  // takes the system disabled color.
   await page.keyboard.insertText('a'.repeat(51));
   await page.locator('#chat-input').blur();
-  await expect
-    .poll(read)
-    .toMatchObject({ gaugeOpacity: '0', outlineWidth: '2px', countVisible: true });
+  await expect.poll(read).toMatchObject({
+    gaugeOpacity: '0',
+    line: 'ButtonText',
+    outlineWidth: '2px',
+    countVisible: true,
+    count: 'ButtonText',
+    send: 'GrayText',
+  });
   expect(await composer(page)).toMatchObject({ over: true, count: `${MINUS}1`, invalid: 'true' });
 });
 

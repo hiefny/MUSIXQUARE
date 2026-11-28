@@ -10,7 +10,11 @@
  * Android keyboard.
  */
 import { expect, test, type CDPSession, type Page } from '@playwright/test';
-import { CHAT_LIMIT_WARN_START, CHAT_PASTE_MAX_LENGTH } from '../src/chat/message-length.ts';
+import {
+  CHAT_LIMIT_ANNOUNCE_DELAY_MS,
+  CHAT_LIMIT_WARN_START,
+  CHAT_PASTE_MAX_LENGTH,
+} from '../src/chat/message-length.ts';
 import { MAX_MSG_LENGTH } from '../src/core/constants.ts';
 import en from '../src/i18n/en.ts';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
@@ -275,15 +279,17 @@ test('composition across the limit is never trimmed (CJK and Korean, CDP IME)', 
   const cdp = await page.context().newCDPSession(page);
   try {
     // Chinese: the pinyin runs to 502 while composing; 你好 commits at 499.
+    // The count and the line follow the reading, but the editor is not
+    // flagged invalid until a commit is.
     await page.keyboard.insertText('a'.repeat(MAX_MSG_LENGTH - 3));
     for (const reading of ['n', 'ni', 'nih', 'niha', 'nihao']) await compose(cdp, reading);
     let state = await composer(page);
     expect(state.text).toBe('a'.repeat(MAX_MSG_LENGTH - 3) + 'nihao');
-    expect(state).toMatchObject({ over: true, count: `${MINUS}2` });
+    expect(state).toMatchObject({ over: true, count: `${MINUS}2`, invalid: null });
     await cdp.send('Input.insertText', { text: '\u{4F60}\u{597D}' });
     state = await composer(page);
     expect(state.text).toBe('a'.repeat(MAX_MSG_LENGTH - 3) + '\u{4F60}\u{597D}');
-    expect(state).toMatchObject({ over: false, count: '1' });
+    expect(state).toMatchObject({ over: false, count: '1', invalid: null });
 
     // Japanese: きょうは is 501 while composing; 今日は commits at exactly 500.
     await clearComposer(page);
@@ -302,10 +308,16 @@ test('composition across the limit is never trimmed (CJK and Korean, CDP IME)', 
     await clearComposer(page);
     await page.keyboard.insertText('a'.repeat(MAX_MSG_LENGTH));
     for (const jamo of ['\u{3131}', '\u{AC00}']) await compose(cdp, jamo);
+    expect(await composer(page)).toMatchObject({ over: true, count: `${MINUS}1`, invalid: null });
     await cdp.send('Input.insertText', { text: '\u{AC00}' });
     state = await composer(page);
     expect(state.text).toBe('a'.repeat(MAX_MSG_LENGTH) + '\u{AC00}');
-    expect(state).toMatchObject({ over: true, count: `${MINUS}1`, loneSurrogates: 0 });
+    expect(state).toMatchObject({
+      over: true,
+      count: `${MINUS}1`,
+      invalid: 'true',
+      loneSurrogates: 0,
+    });
 
     // Every composition ended normally and nothing moved focus to the IME dummy.
     expect(state.counters.compositionstart).toBe(3);
@@ -355,6 +367,60 @@ test('an Enter during a composition waits for the commit, then sends or refuses'
     // A refusal moves no focus.
     expect(state.counters.dummyFocus).toBe(1);
     expect(await sentMessages(page)).toHaveLength(1);
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+});
+
+test('a pause in an open composition says nothing about the limit; a pause after its commit does', async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'Playwright has no IME composition API for WebKit');
+  await openComposer(page);
+  const cdp = await page.context().newCDPSession(page);
+  // Longer than the announcement's typing pause.
+  const pause = () => page.waitForTimeout(CHAT_LIMIT_ANNOUNCE_DELAY_MS + 500);
+  try {
+    // 497 + nihao is 502 while a candidate is picked; 你好 commits at 499.
+    await page.keyboard.insertText('a'.repeat(MAX_MSG_LENGTH - 3));
+    for (const reading of ['n', 'ni', 'nih', 'niha', 'nihao']) await compose(cdp, reading);
+    await pause();
+    expect(await composer(page)).toMatchObject({ over: true, invalid: null, status: '' });
+    await cdp.send('Input.insertText', { text: '\u{4F60}\u{597D}' });
+    await pause();
+    let state = await composer(page);
+    expect(state).toMatchObject({ over: false, count: '1', invalid: null, status: '' });
+    expect(state.counters.announcements).toEqual([]);
+
+    // 498 + にほんご is 502; 日本語 commits at 501, and the pause after the
+    // commit says 1, not the reading's 2.
+    await clearComposer(page);
+    await page.keyboard.insertText('b'.repeat(MAX_MSG_LENGTH - 2));
+    await compose(cdp, '\u{306B}\u{307B}\u{3093}\u{3054}');
+    await pause();
+    expect((await composer(page)).counters.announcements).toEqual([]);
+    await cdp.send('Input.insertText', { text: '\u{65E5}\u{672C}\u{8A9E}' });
+    await expect
+      .poll(async () => (await composer(page)).counters.announcements)
+      .toEqual([overLimit(1)]);
+    state = await composer(page);
+    expect(state).toMatchObject({
+      over: true,
+      count: `${MINUS}1`,
+      invalid: 'true',
+      status: overLimit(1),
+    });
+
+    // Typing on: the spoken number no longer holds, so it is cleared rather
+    // than left for a screen reader to find, and the crossing is not repeated.
+    await page.keyboard.type('!');
+    expect(await composer(page)).toMatchObject({ count: `${MINUS}2`, status: '' });
+    await pause();
+    state = await composer(page);
+    expect(state.counters.announcements).toEqual([overLimit(1)]);
+    expect(state.counters.compositionend).toBe(state.counters.compositionstart);
+    expect(await sentMessages(page)).toEqual([]);
   } finally {
     await cdp.detach().catch(() => {});
   }

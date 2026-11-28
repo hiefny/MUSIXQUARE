@@ -1582,6 +1582,15 @@ export function initChat(): void {
         : null;
 
     let _overLimitAnnounced = false;
+    /** How far over the limit the status region says the draft is; 0 when silent. */
+    let _spokenOverBy = 0;
+    /**
+     * An IME composition is open. Its reading (pinyin, kana) is often longer
+     * than the text it commits, so until compositionend the count and the line
+     * follow the editor as it is, but the editor's invalid state and anything
+     * said about the limit wait for the commit.
+     */
+    let _composing = false;
 
     /** Read text from contenteditable div */
     function getInputValue(): string {
@@ -1698,20 +1707,20 @@ export function initChat(): void {
       else highlights.delete(CHAT_OVERFLOW_HIGHLIGHT);
     }
 
-    function overLimitMessage(sendable: string): string {
-      return t('chat.over_limit', { count: sendable.length - MAX_MSG_LENGTH });
-    }
-
     /**
-     * Speak through the status region; clearing it first repeats the same
-     * words. A draft shortened before the next frame says nothing stale.
+     * Say through the status region how far over the limit the draft is.
+     * Clearing it first repeats the same words. The number is read when it is
+     * spoken, so a draft changed before the next frame says nothing stale, and
+     * one back within the limit says nothing.
      */
-    function announceLimit(message: string): void {
+    function announceOverLimit(): void {
       status.textContent = '';
+      _spokenOverBy = 0;
       window.requestAnimationFrame(() => {
-        if (!uiSignal.aborted && isOverMessageLimit(getSendableValue())) {
-          status.textContent = message;
-        }
+        const overBy = getSendableValue().length - MAX_MSG_LENGTH;
+        if (uiSignal.aborted || overBy <= 0) return;
+        status.textContent = t('chat.over_limit', { count: overBy });
+        _spokenOverBy = overBy;
       });
     }
 
@@ -1720,7 +1729,8 @@ export function initChat(): void {
      * whitespace at its ends): the gauge and the count from
      * CHAT_LIMIT_WARN_START, and past MAX_MSG_LENGTH the red line, the
      * negative count, aria-invalid on the editor and an idle send arrow. The
-     * first time a draft goes over, it is announced once typing pauses.
+     * first time a draft goes over, it is announced once typing pauses with
+     * no composition open.
      */
     function syncLimitState(text = getInputValue()): void {
       const sendable = trimChatDraft(text);
@@ -1747,28 +1757,40 @@ export function initChat(): void {
             ? String(MAX_MSG_LENGTH - length)
             : '';
       }
-      if (over) {
-        chatInput!.setAttribute('aria-invalid', 'true');
-        sendBtn?.setAttribute('aria-disabled', 'true');
-      } else {
-        chatInput!.removeAttribute('aria-invalid');
-        sendBtn?.removeAttribute('aria-disabled');
+      if (over) sendBtn?.setAttribute('aria-disabled', 'true');
+      else sendBtn?.removeAttribute('aria-disabled');
+      // A screen reader may speak a change of the focused editor's invalid
+      // state, so a reading longer than its commit does not flip it.
+      if (!_composing) {
+        if (over) chatInput!.setAttribute('aria-invalid', 'true');
+        else chatInput!.removeAttribute('aria-invalid');
       }
       paintOverflow(text, over ? sendable : null);
 
       if (!over) {
         clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
         _overLimitAnnounced = false;
+        _spokenOverBy = 0;
         if (status.textContent) status.textContent = '';
+        return;
+      }
+      // A number that no longer matches the draft is cleared rather than left
+      // for a screen reader to find; the next refusal says the current one.
+      if (_spokenOverBy && _spokenOverBy !== length - MAX_MSG_LENGTH) {
+        _spokenOverBy = 0;
+        status.textContent = '';
+      }
+      if (_composing) {
+        clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
       } else if (!_overLimitAnnounced) {
         // Debounced: each keystroke while over restarts the wait.
         setManagedTimer(
           CHAT_LIMIT_ANNOUNCE_TIMER,
           () => {
-            const current = getSendableValue();
-            if (_overLimitAnnounced || !isOverMessageLimit(current)) return;
+            if (_overLimitAnnounced || _composing) return;
+            if (!isOverMessageLimit(getSendableValue())) return;
             _overLimitAnnounced = true;
-            announceLimit(overLimitMessage(current));
+            announceOverLimit();
           },
           CHAT_LIMIT_ANNOUNCE_DELAY_MS,
         );
@@ -1777,8 +1799,7 @@ export function initChat(): void {
 
     /** A refused send: one shake (none with reduced motion) and one announcement. */
     function refuseOverLimitSend(): void {
-      const text = getInputValue();
-      syncLimitState(text);
+      syncLimitState();
       if (wrapper) {
         wrapper.classList.remove('limit-shake');
         void wrapper.offsetWidth; // Restart the animation on a repeated attempt.
@@ -1786,7 +1807,7 @@ export function initChat(): void {
       }
       clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
       _overLimitAnnounced = true;
-      announceLimit(overLimitMessage(trimChatDraft(text)));
+      announceOverLimit();
     }
     _refuseOverLimitSend = refuseOverLimitSend;
 
@@ -1982,6 +2003,9 @@ export function initChat(): void {
       (e) => {
         // Stray-<br> placeholder restore — shared helper, see dom.ts.
         normalizeEmptyContentEditable(chatInput, e);
+        // Input outside a composition means none is open, even if an IME
+        // never sent its compositionend.
+        if (e instanceof InputEvent && !e.isComposing) _composing = false;
         syncComposerState();
       },
       { signal: uiSignal },
@@ -2007,6 +2031,12 @@ export function initChat(): void {
       'blur',
       () => {
         setManagedTimer('chat-hide-suggest', hideSuggest, 150);
+        // Leaving the editor ends any composition; catch up if no
+        // compositionend came.
+        if (_composing) {
+          _composing = false;
+          syncLimitState();
+        }
       },
       { signal: uiSignal },
     );
@@ -2064,10 +2094,22 @@ export function initChat(): void {
       { signal: uiSignal },
     );
 
+    // An open composition holds back the limit's invalid state and its
+    // announcement (see _composing); the commit syncs them.
+    chatInput.addEventListener(
+      'compositionstart',
+      () => {
+        _composing = true;
+        clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
+      },
+      { signal: uiSignal },
+    );
+
     let _isConfirmingIME = false;
     chatInput.addEventListener(
       'compositionend',
       () => {
+        _composing = false;
         syncLimitState();
         // If Enter was pressed during composition, trigger send now that it's finished.
         if (_isConfirmingIME) {

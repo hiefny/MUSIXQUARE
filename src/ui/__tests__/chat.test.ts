@@ -970,6 +970,112 @@ describe('Chat Module', () => {
     expect(showToast).not.toHaveBeenCalledWith('chat.msg_truncated');
   });
 
+  it('waits for an IME commit before it flags or announces the limit, and leaves no stale number', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
+    const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+    const { CHAT_LIMIT_ANNOUNCE_DELAY_MS } = await import('../../chat/message-length.ts');
+    document.body.innerHTML =
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper">' +
+      '<div id="chat-input" contenteditable="true"></div><button id="btn-chat-send"></button>' +
+      LIMIT_COUNT +
+      '</div></div>';
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const wrapper = document.querySelector<HTMLElement>('.chat-input-wrapper')!;
+    const input = document.getElementById('chat-input')!;
+    const send = document.getElementById('btn-chat-send')!;
+    const count = wrapper.querySelector<HTMLElement>('.chat-limit-count')!;
+    const status = wrapper.querySelector<HTMLElement>('.chat-limit-status')!;
+    const spoken = (): number[] =>
+      vi
+        .mocked(t)
+        .mock.calls.filter(([key]) => key === 'chat.over_limit')
+        .map(([, values]) => (values as { count: number }).count);
+    const edit = (text: string, init: InputEventInit = {}): void => {
+      input.textContent = text;
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, ...init }));
+    };
+    const startComposing = (): void => {
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    };
+    const compose = (text: string): void =>
+      edit(text, { inputType: 'insertCompositionText', isComposing: true });
+    const commit = (text: string): void => {
+      compose(text);
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    };
+    const pause = (): void => {
+      vi.advanceTimersByTime(CHAT_LIMIT_ANNOUNCE_DELAY_MS);
+      vi.advanceTimersToNextFrame();
+    };
+
+    try {
+      // Pinyin runs to 502 while a candidate is chosen; 你好 commits at 499.
+      const base = 'a'.repeat(MAX_MSG_LENGTH - 3);
+      edit(base);
+      startComposing();
+      compose(base + 'nihao');
+      // The count, the line and the arrow follow the editor as it is ...
+      expect(wrapper.classList.contains('limit-over')).toBe(true);
+      expect(count.textContent).toBe('\u22122');
+      expect(send.getAttribute('aria-disabled')).toBe('true');
+      // ... but nothing is flagged or said before the commit.
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
+      pause();
+      pause();
+      expect(spoken()).toEqual([]);
+      commit(base + '你好');
+      pause();
+      expect(spoken()).toEqual([]);
+      expect(wrapper.classList.contains('limit-over')).toBe(false);
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
+      expect(status.textContent).toBe('');
+
+      // にほんご is 502 while composing; 日本語 commits at 501, and the pause
+      // after the commit says 1, not 2.
+      const longer = 'b'.repeat(MAX_MSG_LENGTH - 2);
+      edit(longer);
+      startComposing();
+      compose(longer + 'にほんご');
+      pause();
+      expect(spoken()).toEqual([]);
+      commit(longer + '日本語');
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      pause();
+      expect(spoken()).toEqual([1]);
+      expect(status.textContent).toBe('chat.over_limit');
+
+      // One more past it: the spoken 1 no longer holds, so it is cleared,
+      // and the crossing is not announced again.
+      edit(longer + '日本語!');
+      expect(status.textContent).toBe('');
+      pause();
+      expect(spoken()).toEqual([1]);
+
+      // A composition whose compositionend never comes: the next input
+      // outside a composition, or leaving the editor, catches up.
+      edit(base);
+      startComposing();
+      compose(base + 'abcd');
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
+      edit(base + 'abcd', { inputType: 'insertText' });
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      pause();
+      expect(spoken()).toEqual([1, 1]);
+      edit(base);
+      startComposing();
+      compose(base + 'efgh');
+      input.dispatchEvent(new FocusEvent('blur'));
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      pause();
+      expect(spoken()).toEqual([1, 1, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('installs bubble copy gestures when the desktop chat starts already visible', async () => {
     const desktopMedia = window.matchMedia(DESKTOP_LAYOUT_QUERY);
     Object.defineProperty(desktopMedia, 'matches', { configurable: true, value: true });

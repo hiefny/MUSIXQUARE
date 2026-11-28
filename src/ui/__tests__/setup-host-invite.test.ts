@@ -263,7 +263,8 @@ describe('host setup invitation QR', () => {
 
     beforeEach(() => {
       vi.useFakeTimers();
-      // Start from a spinner the last code hid, as Retry does.
+      // Start from a spinner the last attempt hid, as a failed attempt
+      // leaves it for Retry.
       finishHostInviteLoading();
       vi.advanceTimersByTime(250);
       update = () => {};
@@ -299,9 +300,19 @@ describe('host setup invitation QR', () => {
       vi.useRealTimers();
     });
 
+    it('shows the spinner at once when no transition is batched, so callers batch first', async () => {
+      // setup-host.ts batches the step's transition before it resets the
+      // invite, on the Host tap and on Retry alike: reset first, the spinner
+      // would start its fade-in in the transition's old image.
+      resetHostInviteVisual();
+      expect(stage().classList.contains('is-room-qr-loading')).toBe(true);
+      expect(spinner().classList.contains('is-paused')).toBe(false);
+    });
+
     it('shows the spinner once the transition batched with the loading state has ended', async () => {
       expect(spinner().classList.contains('is-paused')).toBe(true);
-      // The Host tap's step change and the code flow's loading state, in one task.
+      // The step change and the code flow's loading state, in one task, in
+      // setup-host.ts's order (Host tap and Retry).
       animateTransition(() => {});
       resetHostInviteVisual();
       expect(stage().getAttribute('aria-busy')).toBe('true');

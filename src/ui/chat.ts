@@ -1631,18 +1631,15 @@ export function initChat(): void {
     /**
      * Insert plain text at the selection through the browser's editing
      * pipeline, so undo, the caret and an IME stay in step with the text.
+     * Where the browser refuses the command, nothing goes in.
      */
     function insertPlainText(text: string): void {
-      const inserted = (() => {
-        try {
-          return document.execCommand('insertText', false, text);
-        } catch {
-          return false;
-        }
-      })();
-      if (inserted) return;
-      // Without the editing command (jsdom), replace the selection directly.
-      // Undo cannot see this path.
+      if (typeof document.execCommand === 'function') {
+        document.execCommand('insertText', false, text);
+        return;
+      }
+      // jsdom has no editing commands: replace the selection directly. Undo
+      // cannot see this path, and no browser takes it.
       const selection = window.getSelection();
       let range = selection?.rangeCount === 1 ? selection.getRangeAt(0) : null;
       if (!range || !chatInput!.contains(range.commonAncestorContainer)) {
@@ -1961,6 +1958,9 @@ export function initChat(): void {
       'paste',
       (e) => {
         e.preventDefault();
+        // A muted composer is not editable (it stays focusable) and takes no
+        // paste. jsdom has no isContentEditable, so only a real false stops.
+        if (chatInput.isContentEditable === false) return;
         const pasted = (e.clipboardData?.getData('text/plain') || '').replace(/[\r\n]+/g, ' ');
         if (!pasted) return;
         const room = Math.max(

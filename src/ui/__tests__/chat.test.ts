@@ -737,6 +737,52 @@ describe('Chat Module', () => {
     }
   });
 
+  it('takes no paste while muted and never forces one past a refused editing command', async () => {
+    const { CHAT_PASTE_MAX_LENGTH } = await import('../../chat/message-length.ts');
+    document.body.innerHTML =
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true">draft</div></div></div>';
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const input = document.getElementById('chat-input')!;
+    const range = document.createRange();
+    range.selectNodeContents(input);
+    range.collapse(false);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    const paste = (text: string): Event => {
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: { getData: () => text } });
+      input.dispatchEvent(event);
+      return event;
+    };
+    // A browser refuses insertText where nothing is editable.
+    const execCommand = vi.fn(() => false);
+    const original = Object.getOwnPropertyDescriptor(document, 'execCommand');
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+    // jsdom has no isContentEditable; the mute sets contentEditable to false.
+    let editable = false;
+    Object.defineProperty(input, 'isContentEditable', { configurable: true, get: () => editable });
+    try {
+      // Muted: the native paste is cancelled and nothing else happens, not
+      // even the toast for a paste that would have been cut.
+      const muted = paste('x'.repeat(CHAT_PASTE_MAX_LENGTH + 1));
+      expect(muted.defaultPrevented).toBe(true);
+      expect(execCommand).not.toHaveBeenCalled();
+      expect(input.textContent).toBe('draft');
+      expect(showToast).not.toHaveBeenCalled();
+
+      // Editable, but the browser refuses the command: nothing is forced in.
+      editable = true;
+      paste('more');
+      expect(execCommand).toHaveBeenCalledExactlyOnceWith('insertText', false, 'more');
+      expect(input.textContent).toBe('draft');
+    } finally {
+      window.getSelection()!.removeAllRanges();
+      if (original) Object.defineProperty(document, 'execCommand', original);
+      else Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
   it('mirrors the draft length without editing it, announces once and refuses an over-limit send', async () => {
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],

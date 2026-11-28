@@ -474,6 +474,24 @@ test('a huge paste is cut on a grapheme boundary and the toast says so', async (
   expect((await composer(page)).text).toHaveLength(CHAT_PASTE_MAX_LENGTH);
 });
 
+test('a muted composer takes no paste', async ({ page }) => {
+  await openComposer(page);
+  await page.keyboard.type('draft');
+  // The app's own mute: the editor stops being editable but stays focusable.
+  await page.evaluate(() => {
+    (
+      window as Window & { __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void }
+    ).__MUSIXQUARE_SET_STATE__('network.chatMuted', true);
+  });
+  const editor = page.locator('#chat-input');
+  await expect(editor).toHaveAttribute('contenteditable', 'false');
+  await editor.focus();
+  await expect(editor).toBeFocused();
+  await paste(page, 'x'.repeat(CHAT_PASTE_MAX_LENGTH + 1));
+  expect(await composer(page)).toMatchObject({ text: 'draft', over: false, count: null });
+  await expect(page.locator('#toast')).not.toHaveClass(/\bshow\b/u);
+});
+
 test('an emoji at the limit stays whole, and the message sends once it fits', async ({ page }) => {
   await openComposer(page);
   await page.keyboard.insertText('a'.repeat(MAX_MSG_LENGTH - 1));

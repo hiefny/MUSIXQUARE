@@ -478,9 +478,10 @@ test('a muted composer takes no paste', async ({ page }) => {
   await page.keyboard.type('draft');
   // The app's own mute: the editor stops being editable but stays focusable.
   await page.evaluate(() => {
-    (
-      window as Window & { __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void }
-    ).__MUSIXQUARE_SET_STATE__('network.chatMuted', true);
+    const runtime = window as typeof window & {
+      __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
+    };
+    runtime.__MUSIXQUARE_SET_STATE__('network.chatMuted', true);
   });
   const editor = page.locator('#chat-input');
   await expect(editor).toHaveAttribute('contenteditable', 'false');

@@ -12687,13 +12687,15 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
     }
 
     /* Playlist keeps its own scroll owner so the floating selection pill and
-       reorder auto-scroll stay anchored inside the left content pane. The
-       pane keeps its 8px under that body; the body takes the bottom inset. */
+       reorder auto-scroll stay anchored inside the left content pane. That
+       body reaches the bottom edge, as the other panes' scrollports do, so no
+       strip of bare pane shows under the list; the pane's 8px moves into the
+       body's end padding with the bottom inset. */
     #tab-playlist.active {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      padding-bottom: 8px;
+      padding-bottom: 0;
     }
 
     /* Rows pass under the home indicator. The inset is end padding, which
@@ -12708,7 +12710,7 @@ for keyboard navigation only; a field's own focus mark is not a ring and shows o
       min-height: 0;
       height: auto;
       overflow-y: auto;
-      padding-bottom: calc(8px + var(--safe-bottom));
+      padding-bottom: calc(16px + var(--safe-bottom));
       scroll-padding-bottom: var(--safe-bottom);
     }
 

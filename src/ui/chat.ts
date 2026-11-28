@@ -32,6 +32,7 @@ import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { filterProfanity } from '../chat/profanity.ts';
 import {
+  CHAT_LIMIT_ANNOUNCE_DELAY_MS,
   CHAT_LIMIT_WARN_START,
   CHAT_PASTE_MAX_LENGTH,
   fitToMessageLength,
@@ -80,8 +81,6 @@ import { initChatCopyGestures } from './chat-copy.ts';
 // edited. From CHAT_LIMIT_WARN_START the count and the 2px gauge appear; past
 // MAX_MSG_LENGTH the line turns red, the count goes below zero and the send
 // waits until the draft is short enough again (src/chat/message-length.ts).
-/** Typing pause before the over-limit announcement. */
-export const CHAT_LIMIT_ANNOUNCE_DELAY_MS = 1000;
 const CHAT_LIMIT_ANNOUNCE_TIMER = 'chat-limit-announce';
 /** CSS Custom Highlight name for the part past the limit (progressive enhancement). */
 const CHAT_OVERFLOW_HIGHLIGHT = 'chat-overflow';

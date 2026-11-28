@@ -742,8 +742,8 @@ describe('Chat Module', () => {
       toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
     });
     const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
-    const { CHAT_LIMIT_WARN_START } = await import('../../chat/message-length.ts');
-    const { CHAT_LIMIT_ANNOUNCE_DELAY_MS } = await import('../chat.ts');
+    const { CHAT_LIMIT_ANNOUNCE_DELAY_MS, CHAT_LIMIT_WARN_START } =
+      await import('../../chat/message-length.ts');
     document.body.innerHTML =
       '<div id="chat-messages"></div><div class="chat-drawer-input"><div class="chat-input-wrapper">' +
       '<input id="chat-ime-dummy" type="text" class="visually-offscreen" />' +

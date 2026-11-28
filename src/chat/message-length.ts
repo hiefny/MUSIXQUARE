@@ -23,6 +23,9 @@ export const CHAT_LIMIT_WARN_START = MAX_MSG_LENGTH - 100;
 /** A paste never grows the draft past this many UTF-16 units (four messages). */
 export const CHAT_PASTE_MAX_LENGTH = MAX_MSG_LENGTH * 4;
 
+/** Typing pause before the composer says, once, that a draft went over the limit. */
+export const CHAT_LIMIT_ANNOUNCE_DELAY_MS = 1000;
+
 /** True when the text cannot be sent: more UTF-16 units than the wire allows. */
 export function isOverMessageLimit(text: string): boolean {
   return text.length > MAX_MSG_LENGTH;

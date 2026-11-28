@@ -37,6 +37,7 @@ import {
   CHAT_PASTE_MAX_LENGTH,
   fitToMessageLength,
   isOverMessageLimit,
+  trimChatDraft,
 } from '../chat/message-length.ts';
 import { clearLatestPinnedNotice, registerChatProtocolHandlers } from '../chat/protocol.ts';
 import {
@@ -1153,7 +1154,7 @@ function resetChatEditable(input: HTMLDivElement): void {
 export function sendChatMessage(): void {
   const input = getUiElement('chat-input') as HTMLDivElement | null;
   if (!input) return;
-  let text = (input.textContent || '').trim();
+  let text = trimChatDraft(input.textContent || '');
   if (!text) return;
   const submissionText = text;
 
@@ -1338,12 +1339,13 @@ let _refuseOverLimitSend: (() => void) | null = null;
 
 /**
  * Send from the composer (Enter, the send arrow, an Enter that waited for an
- * IME commit). A draft over MAX_MSG_LENGTH stays as typed and is refused, so
- * the person decides what to cut; sendChatMessage's bound never sees it.
+ * IME commit). A draft whose sent text would pass MAX_MSG_LENGTH stays as
+ * typed and is refused, so the person decides what to cut; sendChatMessage's
+ * bound never sees it.
  */
 function submitChatComposer(): void {
   const input = getUiElement('chat-input') as HTMLDivElement | null;
-  if (input && isOverMessageLimit(input.textContent || '')) {
+  if (input && isOverMessageLimit(trimChatDraft(input.textContent || ''))) {
     _refuseOverLimitSend?.();
     return;
   }
@@ -1586,6 +1588,11 @@ export function initChat(): void {
       return chatInput!.textContent || '';
     }
 
+    /** What a send would carry; the limit, the count and the gauge measure this. */
+    function getSendableValue(): string {
+      return trimChatDraft(getInputValue());
+    }
+
     /** Write text to contenteditable div and place cursor at end */
     function setInputValue(text: string): void {
       chatInput!.textContent = text;
@@ -1646,34 +1653,53 @@ export function initChat(): void {
       );
     }
 
-    /** Paint everything after the longest part that fits; clear when nothing is over. */
-    function paintOverflow(text: string | null): void {
-      if (!highlights) return;
-      if (text === null) {
-        highlights.delete(CHAT_OVERFLOW_HIGHLIGHT);
-        return;
-      }
-      let remaining = fitToMessageLength(text, MAX_MSG_LENGTH).length;
+    /** The editor's text between two offsets into its textContent, or null. */
+    function textRange(from: number, to: number): Range | null {
+      const range = document.createRange();
+      let started = false;
+      let seen = 0;
       const walker = document.createTreeWalker(chatInput!, NodeFilter.SHOW_TEXT);
       for (
         let node = walker.nextNode() as Text | null;
         node;
         node = walker.nextNode() as Text | null
       ) {
-        if (remaining <= node.length) {
-          const range = document.createRange();
-          range.selectNodeContents(chatInput!);
-          range.setStart(node, remaining);
-          highlights.set(CHAT_OVERFLOW_HIGHLIGHT, new Highlight(range));
-          return;
+        const end = seen + node.length;
+        if (!started && from <= end) {
+          range.setStart(node, from - seen);
+          started = true;
         }
-        remaining -= node.length;
+        if (started && to <= end) {
+          range.setEnd(node, to - seen);
+          return range;
+        }
+        seen = end;
       }
-      highlights.delete(CHAT_OVERFLOW_HIGHLIGHT);
+      return null;
     }
 
-    function overLimitMessage(text: string): string {
-      return t('chat.over_limit', { count: text.length - MAX_MSG_LENGTH });
+    /**
+     * Paint the part of the sent text that does not fit, and nothing of the
+     * spaces around it that a send drops. Clear when nothing is over.
+     */
+    function paintOverflow(text: string, sendable: string | null): void {
+      if (!highlights) return;
+      // trimChatDraft keeps one slice of the draft: it starts where the
+      // whitespace before it ends.
+      const start = sendable === null ? -1 : text.indexOf(sendable);
+      const range =
+        sendable === null || start < 0
+          ? null
+          : textRange(
+              start + fitToMessageLength(sendable, MAX_MSG_LENGTH).length,
+              start + sendable.length,
+            );
+      if (range) highlights.set(CHAT_OVERFLOW_HIGHLIGHT, new Highlight(range));
+      else highlights.delete(CHAT_OVERFLOW_HIGHLIGHT);
+    }
+
+    function overLimitMessage(sendable: string): string {
+      return t('chat.over_limit', { count: sendable.length - MAX_MSG_LENGTH });
     }
 
     /**
@@ -1683,21 +1709,23 @@ export function initChat(): void {
     function announceLimit(message: string): void {
       status.textContent = '';
       window.requestAnimationFrame(() => {
-        if (!uiSignal.aborted && isOverMessageLimit(getInputValue())) {
+        if (!uiSignal.aborted && isOverMessageLimit(getSendableValue())) {
           status.textContent = message;
         }
       });
     }
 
     /**
-     * Mirror the draft's length: the gauge and the count from
+     * Mirror the length of what a send would carry (the draft without the
+     * whitespace at its ends): the gauge and the count from
      * CHAT_LIMIT_WARN_START, and past MAX_MSG_LENGTH the red line, the
      * negative count, aria-invalid on the editor and an idle send arrow. The
      * first time a draft goes over, it is announced once typing pauses.
      */
     function syncLimitState(text = getInputValue()): void {
-      const length = text.length;
-      const over = isOverMessageLimit(text);
+      const sendable = trimChatDraft(text);
+      const length = sendable.length;
+      const over = isOverMessageLimit(sendable);
       const near = !over && length >= CHAT_LIMIT_WARN_START;
       if (wrapper) {
         const progress = over
@@ -1726,7 +1754,7 @@ export function initChat(): void {
         chatInput!.removeAttribute('aria-invalid');
         sendBtn?.removeAttribute('aria-disabled');
       }
-      paintOverflow(over ? text : null);
+      paintOverflow(text, over ? sendable : null);
 
       if (!over) {
         clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
@@ -1737,7 +1765,7 @@ export function initChat(): void {
         setManagedTimer(
           CHAT_LIMIT_ANNOUNCE_TIMER,
           () => {
-            const current = getInputValue();
+            const current = getSendableValue();
             if (_overLimitAnnounced || !isOverMessageLimit(current)) return;
             _overLimitAnnounced = true;
             announceLimit(overLimitMessage(current));
@@ -1758,7 +1786,7 @@ export function initChat(): void {
       }
       clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
       _overLimitAnnounced = true;
-      announceLimit(overLimitMessage(text));
+      announceLimit(overLimitMessage(trimChatDraft(text)));
     }
     _refuseOverLimitSend = refuseOverLimitSend;
 
@@ -2029,7 +2057,7 @@ export function initChat(): void {
 
           e.preventDefault();
           // A held Enter repeats keydown: over the limit that is not a new attempt.
-          if (e.repeat && isOverMessageLimit(getInputValue())) return;
+          if (e.repeat && isOverMessageLimit(getSendableValue())) return;
           submitChatComposer();
         }
       },

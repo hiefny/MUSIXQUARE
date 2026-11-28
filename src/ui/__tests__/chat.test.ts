@@ -921,6 +921,55 @@ describe('Chat Module', () => {
     }
   });
 
+  it('measures what a send carries, so whitespace at either end never holds a message back', async () => {
+    const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+    document.body.innerHTML =
+      '<div id="chat-messages"></div><div class="chat-drawer-input"><div class="chat-input-wrapper">' +
+      '<div id="chat-input" contenteditable="true"></div><button id="btn-chat-send"></button>' +
+      LIMIT_COUNT +
+      '</div></div>';
+    setState('network.appRole', 'host');
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const wrapper = document.querySelector<HTMLElement>('.chat-input-wrapper')!;
+    const input = document.getElementById('chat-input')!;
+    const send = document.getElementById('btn-chat-send')!;
+    const count = wrapper.querySelector<HTMLElement>('.chat-limit-count')!;
+    const sent = vi.fn();
+    bus.on('network:broadcast', sent);
+    const type = (text: string): void => {
+      input.textContent = text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    // A space after the last word counts once a word follows it.
+    type('v'.repeat(MAX_MSG_LENGTH - 1) + ' ');
+    expect(count.textContent).toBe('1');
+    type('v'.repeat(MAX_MSG_LENGTH - 1) + ' v');
+    expect(wrapper.classList.contains('limit-over')).toBe(true);
+    expect(count.textContent).toBe('\u22121');
+
+    // A pasted line with its line breaks (a space at each end) and a typed
+    // space after a full message: exactly the limit, so each sends whole.
+    for (const draft of [
+      ' ' + 'w'.repeat(MAX_MSG_LENGTH) + ' ',
+      'y'.repeat(MAX_MSG_LENGTH) + ' \u00A0',
+    ]) {
+      sent.mockClear();
+      type(draft);
+      expect(wrapper.classList.contains('limit-over')).toBe(false);
+      expect(count.textContent).toBe('0');
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
+      expect(send.hasAttribute('aria-disabled')).toBe(false);
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+      expect(sent).toHaveBeenCalledWith(expect.objectContaining({ text: draft.trim() }));
+      expect(input.textContent).toBe('');
+    }
+    expect(showToast).not.toHaveBeenCalledWith('chat.msg_truncated');
+  });
+
   it('installs bubble copy gestures when the desktop chat starts already visible', async () => {
     const desktopMedia = window.matchMedia(DESKTOP_LAYOUT_QUERY);
     Object.defineProperty(desktopMedia, 'matches', { configurable: true, value: true });

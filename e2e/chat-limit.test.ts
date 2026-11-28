@@ -438,6 +438,46 @@ test('an emoji at the limit stays whole, and the message sends once it fits', as
   if (state.highlight !== undefined) expect(state.highlight).toBe(KOREA);
 });
 
+test('whitespace that the send drops at either end does not count toward the limit', async ({
+  page,
+}) => {
+  await openComposer(page);
+  // A line copied with its line break: the break becomes a space, which the
+  // send drops, so this is exactly the limit and sends whole.
+  await paste(page, 'x'.repeat(MAX_MSG_LENGTH) + '\n');
+  expect(await composer(page)).toMatchObject({
+    over: false,
+    count: '0',
+    invalid: null,
+    sendDisabled: null,
+  });
+  await page.keyboard.press('Enter');
+  await expect.poll(() => sentMessages(page)).toEqual(['x'.repeat(MAX_MSG_LENGTH)]);
+
+  // A habitual space after a full message.
+  await page.keyboard.insertText('y'.repeat(MAX_MSG_LENGTH));
+  await page.keyboard.type(' ');
+  expect(await composer(page)).toMatchObject({ over: false, count: '0', invalid: null });
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(() => sentMessages(page))
+    .toEqual(['x'.repeat(MAX_MSG_LENGTH), 'y'.repeat(MAX_MSG_LENGTH)]);
+
+  // One over between a leading and a trailing space: only the letter past the
+  // limit is painted, and the send still waits.
+  await paste(page, '\n' + 'z'.repeat(MAX_MSG_LENGTH + 1));
+  await page.keyboard.type(' ');
+  const state = await composer(page);
+  expect(state).toMatchObject({ over: true, count: `${MINUS}1`, invalid: 'true' });
+  if (state.highlight !== undefined) expect(state.highlight).toBe('z');
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(async () => (await composer(page)).counters.announcements)
+    .toContain(overLimit(1));
+  expect(new Set((await composer(page)).counters.announcements)).toEqual(new Set([overLimit(1)]));
+  expect(await sentMessages(page)).toHaveLength(2);
+});
+
 test('with reduced motion a refused send does not shake; the red line and count stay', async ({
   page,
 }) => {

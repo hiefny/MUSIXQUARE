@@ -6,6 +6,7 @@ import {
   fitToMessageLength,
   fitToMessageLengthWithoutSegmenterForTests,
   isOverMessageLimit,
+  trimChatDraft,
 } from '../message-length.ts';
 
 const GRIN = '\u{1F600}';
@@ -64,5 +65,18 @@ describe('chat message length', () => {
 
   it('cuts to MAX_MSG_LENGTH by default', () => {
     expect(fitToMessageLength('a'.repeat(MAX_MSG_LENGTH * 2))).toHaveLength(MAX_MSG_LENGTH);
+  });
+
+  it('measures a draft without the whitespace a send drops at its ends', () => {
+    const draft = `\u00A0 \n${'a'.repeat(MAX_MSG_LENGTH - 2)} b\t \u00A0`;
+    const sent = trimChatDraft(draft);
+    expect(sent).toBe(`${'a'.repeat(MAX_MSG_LENGTH - 2)} b`);
+    // One slice of the draft, so the composer can find it to paint the overflow.
+    expect(draft.indexOf(sent)).toBe(3);
+    expect(isOverMessageLimit(draft)).toBe(true);
+    expect(isOverMessageLimit(sent)).toBe(false);
+    // Spaces inside the message still count.
+    expect(isOverMessageLimit(trimChatDraft(` ${'a'.repeat(MAX_MSG_LENGTH - 1)}  b `))).toBe(true);
+    expect(trimChatDraft(' \u00A0\n')).toBe('');
   });
 });

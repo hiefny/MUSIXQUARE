@@ -31,6 +31,15 @@ export function isOverMessageLimit(text: string): boolean {
   return text.length > MAX_MSG_LENGTH;
 }
 
+/**
+ * The text a send carries: the draft without the spaces and line breaks at
+ * either end. It is one slice of the draft. The composer measures the limit on
+ * it, so a space after the last word never holds back a message that fits.
+ */
+export function trimChatDraft(draft: string): string {
+  return draft.trim();
+}
+
 let _segmenter: Intl.Segmenter | null | undefined;
 
 function graphemeSegmenter(): Intl.Segmenter | null {

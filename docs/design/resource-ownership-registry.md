@@ -5289,6 +5289,17 @@ get a record only if a change adds a second machine:
   skips `invalidateGuestJoinAttempt`; a fix-lane candidate only with a failing test.
 - PRO Durable Object alarm (`scheduleAlarm`) and the signaling Durable Object alarms: single owners
   with side hints.
+- Page view transitions (`animateTransition()` in `src/ui/dom.ts`, checked 2026-11-28 for PR #650):
+  one owner runs one native transition at a time and holds its batch, its running update, its
+  release frame (one frame after `finished`, at once on a hidden page) and its deadline
+  (`VIEW_TRANSITION_DEADLINE_MS`). The only requester of its waiting work (`afterViewTransitions`)
+  is the host QR loading spinner's reveal in `src/ui/setup-host-invite.ts`, which keeps only the
+  cancel handle. The spinner's pause after its fade-out lives in the same module, and
+  `setHostInviteLoading` cancels both. `src/ui/custom-scrollbar.ts` only reads
+  `isInsideViewTransitionUpdate`. Anchor tests: `tab-transitions.test.ts` (one transition at a
+  time, the deadline, a hidden page), `setup-host-invite.test.ts` and `setup-host-recovery.test.ts`
+  (the spinner waits for the step's transition on the Host tap and on Retry). A second module with
+  pending or timer state on either needs a record.
 
 ## Before adding a flow
 

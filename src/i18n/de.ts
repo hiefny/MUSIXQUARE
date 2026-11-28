@@ -953,6 +953,7 @@ const de: Record<I18nKey, string> = {
   'chat.msg_truncated': 'Nachricht auf {{max}} Zeichen gekürzt',
   'chat.over_limit':
     'Die Nachricht überschreitet das Limit um {{count}} und kann nicht gesendet werden',
+  'chat.paste_truncated': 'Der eingefügte Text war zu lang und wurde nicht vollständig hinzugefügt',
   'chat.scroll_to_bottom': 'Nach unten scrollen',
   'help.install_app_html':
     'Gefällt dir MUSIXQUARE? Du kannst es als App installieren.<ul class="help-list"><li><strong>iOS:</strong> Teilen → Zum Home-Bildschirm hinzufügen</li><li><strong>Android:</strong> Menü → App installieren</li><li><strong>Windows:</strong> Installationssymbol in der Adressleiste</li><li><strong>macOS:</strong> Teilen → Zum Dock hinzufügen</li></ul>',

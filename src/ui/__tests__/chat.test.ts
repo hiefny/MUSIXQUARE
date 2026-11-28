@@ -721,8 +721,11 @@ describe('Chat Module', () => {
       place(CHAT_PASTE_MAX_LENGTH - 6);
       paste('bbbbb\u{1F600}cc');
       expect(input.textContent).toBe('a'.repeat(CHAT_PASTE_MAX_LENGTH - 6) + 'bbbbb');
-      expect(showToast).toHaveBeenCalledWith('chat.msg_truncated');
-      expect(t).toHaveBeenCalledWith('chat.msg_truncated', { max: CHAT_PASTE_MAX_LENGTH });
+      // The toast says the paste did not all go in and names no number: the
+      // cap is not the message limit.
+      expect(showToast).toHaveBeenCalledWith('chat.paste_truncated');
+      expect(t).toHaveBeenCalledWith('chat.paste_truncated');
+      expect(showToast).not.toHaveBeenCalledWith('chat.msg_truncated');
 
       // A selection gives its room back to the paste.
       vi.mocked(showToast).mockClear();

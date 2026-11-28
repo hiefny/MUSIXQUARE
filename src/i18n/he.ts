@@ -880,6 +880,7 @@ const he: Record<I18nKey, string> = {
   'chat.empty_html': 'אין עדיין הודעות.<br>שלחו את ההודעה הראשונה!',
   'chat.msg_truncated': 'ההודעה קוצרה ל-{{max}} תווים',
   'chat.over_limit': 'ההודעה חורגת מהמגבלה ב-{{count}} ולא ניתן לשלוח אותה',
+  'chat.paste_truncated': 'הטקסט שהודבק היה ארוך מדי, ולכן לא כולו נוסף',
   'chat.scroll_to_bottom': 'גלילה לתחתית',
   'setup.invite_share_desc_html':
     'חברו כמה מכשירים באופן אלחוטי<br>כדי ליצור מערכת שמע עוצמתית.<br>התחברו באמצעות קוד הזמנה בן 6 ספרות.',

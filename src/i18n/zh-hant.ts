@@ -852,6 +852,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.empty_html': '還沒有訊息。<br>傳送第一則訊息吧！',
   'chat.msg_truncated': '訊息已截斷為 {{max}} 個字元',
   'chat.over_limit': '訊息比上限多 {{count}}，無法傳送',
+  'chat.paste_truncated': '貼上的文字太長，未能全部加入',
   'chat.scroll_to_bottom': '捲動到底部',
 
   // Final help and legal blocks

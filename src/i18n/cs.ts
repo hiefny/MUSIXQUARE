@@ -918,6 +918,7 @@ const cs: Record<I18nKey, string> = {
   'chat.empty_html': 'Zatím tu nejsou žádné zprávy.<br>Pošlete první zprávu!',
   'chat.msg_truncated': 'Zpráva byla zkrácena na {{max}} znaků',
   'chat.over_limit': 'Zpráva překračuje limit o {{count}} a nelze ji odeslat',
+  'chat.paste_truncated': 'Vložený text byl příliš dlouhý, takže nebyl přidán celý',
   'chat.scroll_to_bottom': 'Posunout dolů',
   'setup.invite_share_desc_html':
     'Bezdrátově propojte několik zařízení<br>a vytvořte působivý zvukový systém.<br>Připojte se pomocí šestimístného zvacího kódu.',

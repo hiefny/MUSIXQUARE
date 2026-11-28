@@ -933,6 +933,7 @@ const ja: Record<I18nKey, string> = {
   'chat.empty_html': 'まだメッセージはありません。<br>最初のメッセージを送ってみましょう！',
   'chat.msg_truncated': 'メッセージは{{max}}文字に切り詰められました',
   'chat.over_limit': 'メッセージが上限を{{count}}超えているため、送信できません',
+  'chat.paste_truncated': '貼り付けたテキストが長すぎるため、すべては追加できませんでした',
   'chat.scroll_to_bottom': '一番下へスクロール',
 
   // Final help and legal blocks

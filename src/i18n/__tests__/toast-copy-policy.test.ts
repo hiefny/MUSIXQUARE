@@ -29,6 +29,7 @@ const SHARED_TOAST_KEYS = [
   'chat.debug_copied',
   'chat.msg_truncated',
   'chat.muted_placeholder',
+  'chat.paste_truncated',
   'chat.remote_upload_failed_system_message',
   'chat.remote_upload_limited_system_message',
   'common.granted',

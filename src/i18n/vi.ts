@@ -917,6 +917,7 @@ const vi: Record<I18nKey, string> = {
   'chat.empty_html': 'Chưa có tin nhắn.<br>Hãy gửi tin nhắn đầu tiên!',
   'chat.msg_truncated': 'Tin nhắn đã bị cắt còn {{max}} ký tự',
   'chat.over_limit': 'Tin nhắn vượt quá giới hạn (dư {{count}}) nên không thể gửi',
+  'chat.paste_truncated': 'Văn bản đã dán quá dài nên không được thêm hết',
   'chat.scroll_to_bottom': 'Cuộn xuống cuối',
   'help.install_app_html':
     'Bạn thích MUSIXQUARE? Bạn có thể cài đặt như một ứng dụng.<ul class="help-list"><li><strong>iOS:</strong> Chia sẻ → Thêm vào Màn hình chính</li><li><strong>Android:</strong> Menu → Cài đặt ứng dụng</li><li><strong>Windows:</strong> Biểu tượng cài đặt trên thanh địa chỉ</li><li><strong>macOS:</strong> Chia sẻ → Thêm vào Dock</li></ul>',

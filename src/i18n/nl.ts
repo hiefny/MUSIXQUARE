@@ -530,6 +530,7 @@ const nl: Record<I18nKey, string> = {
   'chat.msg_truncated': 'Bericht ingekort tot {{max}} tekens',
   'chat.over_limit':
     'Het bericht overschrijdt de limiet met {{count}} en kan niet worden verstuurd',
+  'chat.paste_truncated': 'De geplakte tekst was te lang en is niet helemaal toegevoegd',
   'chat.scroll_to_bottom': 'Naar onderen scrollen',
 
   // YouTube

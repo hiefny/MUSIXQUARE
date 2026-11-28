@@ -914,6 +914,7 @@ const nb: Record<I18nKey, string> = {
   'chat.empty_html': 'Ingen meldinger ennå.<br>Send den første meldingen!',
   'chat.msg_truncated': 'Meldingen ble forkortet til {{max}} tegn',
   'chat.over_limit': 'Meldingen overskrider grensen med {{count}} og kan ikke sendes',
+  'chat.paste_truncated': 'Den innlimte teksten var for lang, så ikke alt ble lagt til',
   'chat.scroll_to_bottom': 'Rull til bunnen',
   'setup.invite_share_desc_html':
     'Koble sammen flere enheter trådløst<br>for å lage et kraftig lydsystem.<br>Bruk en 6-sifret invitasjonskode for å koble til.',

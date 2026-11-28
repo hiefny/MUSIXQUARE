@@ -464,9 +464,8 @@ test('a huge paste is cut on a grapheme boundary and the toast says so', async (
     over: true,
     count: `${MINUS}${CHAT_PASTE_MAX_LENGTH - 1 - MAX_MSG_LENGTH}`,
   });
-  await expect(page.locator('#toast-msg')).toHaveText(
-    en['chat.msg_truncated'].replace('{{max}}', String(CHAT_PASTE_MAX_LENGTH)),
-  );
+  // The toast names no number: 2000 is the paste's cap, not the message limit.
+  await expect(page.locator('#toast-msg')).toHaveText(en['chat.paste_truncated']);
   // The one unit left takes one letter; after that a paste adds nothing.
   await paste(page, 'more');
   expect((await composer(page)).text).toBe('x'.repeat(CHAT_PASTE_MAX_LENGTH - 1) + 'm');

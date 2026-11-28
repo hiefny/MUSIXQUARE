@@ -917,6 +917,7 @@ const fi: Record<I18nKey, string> = {
   'chat.empty_html': 'Ei vielä viestejä.<br>Lähetä ensimmäinen viesti!',
   'chat.msg_truncated': 'Viesti lyhennettiin {{max}} merkkiin',
   'chat.over_limit': 'Viesti on liian pitkä lähetettäväksi (ylitys {{count}})',
+  'chat.paste_truncated': 'Liitetty teksti oli liian pitkä, joten sitä ei lisätty kokonaan',
   'chat.scroll_to_bottom': 'Vieritä alas',
   'setup.invite_share_desc_html':
     'Yhdistä useita laitteita langattomasti<br>ja luo valtava äänentoistojärjestelmä.<br>Muodosta yhteys 6-numeroisella kutsukoodilla.',

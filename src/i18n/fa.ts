@@ -898,6 +898,7 @@ const fa: Record<I18nKey, string> = {
   'chat.empty_html': 'هنوز پیامی نیست.<br>نخستین پیام را بفرستید!',
   'chat.msg_truncated': 'پیام به {{max}} نویسه کوتاه شد',
   'chat.over_limit': 'پیام به اندازه {{count}} از سقف مجاز بیشتر است و ارسال نمی‌شود',
+  'chat.paste_truncated': 'متن چسبانده‌شده خیلی طولانی بود و همه آن اضافه نشد',
   'chat.scroll_to_bottom': 'رفتن به پایین',
   'setup.invite_share_desc_html':
     'چند دستگاه را بی‌سیم متصل کنید<br>و یک سیستم صوتی بزرگ بسازید.<br>برای اتصال از کد دعوت 6 رقمی استفاده کنید.',

@@ -952,6 +952,7 @@ const es: Record<I18nKey, string> = {
   'chat.empty_html': 'Aún no hay mensajes.<br>¡Envía el primero!',
   'chat.msg_truncated': 'Mensaje recortado a {{max}} caracteres',
   'chat.over_limit': 'El mensaje supera el límite en {{count}} y no se puede enviar',
+  'chat.paste_truncated': 'El texto pegado era demasiado largo y no se añadió completo',
   'chat.scroll_to_bottom': 'Desplazar al final',
 
   // Final help and legal blocks

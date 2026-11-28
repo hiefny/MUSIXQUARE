@@ -931,6 +931,7 @@ const ro: Record<I18nKey, string> = {
   'chat.empty_html': 'Nu există încă mesaje.<br>Trimite primul mesaj!',
   'chat.msg_truncated': 'Mesaj limitat la {{max}} de caractere',
   'chat.over_limit': 'Mesajul depășește limita cu {{count}} și nu poate fi trimis',
+  'chat.paste_truncated': 'Textul lipit a fost prea lung și nu a fost adăugat în întregime',
   'chat.scroll_to_bottom': 'Derulează până jos',
   'setup.invite_share_desc_html':
     'Conectează wireless mai multe dispozitive<br>pentru a crea un sistem audio impresionant.<br>Folosește un cod de invitație din 6 cifre.',

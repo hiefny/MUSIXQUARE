@@ -946,6 +946,7 @@ const fr: Record<I18nKey, string> = {
   'chat.empty_html': 'Aucun message pour l’instant.<br>Envoyez le premier message !',
   'chat.msg_truncated': 'Message tronqué à {{max}} caractères',
   'chat.over_limit': 'Le message dépasse la limite de {{count}} et ne peut pas être envoyé',
+  'chat.paste_truncated': "Le texte collé était trop long et n'a pas été ajouté en entier",
   'chat.scroll_to_bottom': 'Aller au dernier message',
   'help.install_app_html':
     'Vous aimez MUSIXQUARE ? Vous pouvez l’installer comme une application.<ul class="help-list"><li><strong>iOS :</strong> Partager → Ajouter à l’écran d’accueil</li><li><strong>Android :</strong> Menu → Installer l’application</li><li><strong>Windows :</strong> Icône d’installation dans la barre d’adresse</li><li><strong>macOS :</strong> Partager → Ajouter au Dock</li></ul>',

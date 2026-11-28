@@ -1953,7 +1953,8 @@ export function initChat(): void {
     // Paste handler: plain text on one line, inserted as an editing command so
     // undo keeps working. The limit is soft, so a paste may go past it; only a
     // huge paste is cut, on a grapheme boundary, at CHAT_PASTE_MAX_LENGTH,
-    // and the toast says so.
+    // and the toast says that not all of it went in. It names no number: the
+    // cap is not the message limit, and it counts UTF-16 units.
     chatInput.addEventListener(
       'paste',
       (e) => {
@@ -1969,9 +1970,7 @@ export function initChat(): void {
         );
         const text = fitToMessageLength(pasted, room);
         if (text) insertPlainText(text);
-        if (text.length < pasted.length) {
-          showToast(t('chat.msg_truncated', { max: CHAT_PASTE_MAX_LENGTH }));
-        }
+        if (text.length < pasted.length) showToast(t('chat.paste_truncated'));
       },
       { signal: uiSignal },
     );

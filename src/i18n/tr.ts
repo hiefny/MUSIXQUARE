@@ -899,6 +899,7 @@ const tr: Record<I18nKey, string> = {
   'chat.empty_html': 'Henüz mesaj yok.<br>İlk mesajı gönder!',
   'chat.msg_truncated': 'Mesaj {{max}} karakter sınırı nedeniyle kısaltıldı',
   'chat.over_limit': 'Mesaj sınırı {{count}} kadar aşıyor ve gönderilemiyor',
+  'chat.paste_truncated': 'Yapıştırılan metin çok uzun olduğu için tamamı eklenmedi',
   'chat.scroll_to_bottom': 'En alta git',
   'setup.invite_share_desc_html':
     'Birden fazla cihazı kablosuz olarak bağlayıp<br>devasa bir ses sistemi oluştur.<br>Bağlanmak için 6 haneli davet kodunu kullan.',

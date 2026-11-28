@@ -619,6 +619,9 @@ export function toggleChatDrawer(
   const backdrop = getUiElement('chat-backdrop');
   if (backdrop) backdrop.classList.toggle('open', opening);
 
+  // The phone sheet carries the composer's status region away when it closes.
+  if (isMobileChatDrawer()) _chatSheetVisibility?.(opening);
+
   if (opening) {
     resetUnread();
     const messages = getUiElement('chat-messages');
@@ -1338,6 +1341,14 @@ export function sendChatMessage(): void {
 let _refuseOverLimitSend: (() => void) | null = null;
 
 /**
+ * The composer's answer to the phone sheet closing (false) and opening
+ * (true), wired by initChat. The over-limit announcement waits for a pause in
+ * typing; a wait that ended while the sheet was closed would speak into a
+ * hidden status region and count as said.
+ */
+let _chatSheetVisibility: ((visible: boolean) => void) | null = null;
+
+/**
  * Send from the composer (Enter, the send arrow, an Enter that waited for an
  * IME commit). A draft whose sent text would pass MAX_MSG_LENGTH stays as
  * typed and is refused, so the person decides what to cut; sendChatMessage's
@@ -1808,6 +1819,15 @@ export function initChat(): void {
     }
     _refuseOverLimitSend = refuseOverLimitSend;
 
+    // Closing drops a waiting over-limit announcement; opening waits again,
+    // so a draft that went over just before the close is announced once the
+    // sheet is back.
+    const onChatSheetVisibility = (visible: boolean): void => {
+      if (visible) syncLimitState();
+      else clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
+    };
+    _chatSheetVisibility = onChatSheetVisibility;
+
     // Only a shake that ran to its end clears the class. A restart cancels the
     // running shake, and that late cancel must not stop the new one. With
     // reduced motion nothing runs; the next attempt or the end of the
@@ -1828,6 +1848,7 @@ export function initChat(): void {
         clearManagedTimer(CHAT_LIMIT_ANNOUNCE_TIMER);
         highlights?.delete(CHAT_OVERFLOW_HIGHLIGHT);
         if (_refuseOverLimitSend === refuseOverLimitSend) _refuseOverLimitSend = null;
+        if (_chatSheetVisibility === onChatSheetVisibility) _chatSheetVisibility = null;
         wrapper?.classList.remove('limit-warning', 'limit-over', 'limit-shake');
         wrapper?.style.removeProperty('--chat-limit-progress');
         chatInput.removeAttribute('aria-invalid');

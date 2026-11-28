@@ -970,6 +970,53 @@ describe('Chat Module', () => {
     }
   });
 
+  it('waits again for the over-limit announcement when the phone sheet closes first', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
+    const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+    const { CHAT_LIMIT_ANNOUNCE_DELAY_MS } = await import('../../chat/message-length.ts');
+    document.body.innerHTML =
+      '<div id="chat-drawer" tabindex="-1"><div class="chat-drawer-header"></div>' +
+      '<div class="chat-drawer-input"><div class="chat-input-wrapper">' +
+      '<div id="chat-input" contenteditable="true"></div><button id="btn-chat-send"></button>' +
+      LIMIT_COUNT +
+      '</div></div></div>';
+    const { initChat, toggleChatDrawer } = await import('../chat.ts');
+    initChat();
+    const drawer = document.getElementById('chat-drawer')!;
+    const input = document.getElementById('chat-input')!;
+    const status = document.querySelector<HTMLElement>('.chat-limit-status')!;
+    const announcements = (): number =>
+      vi.mocked(t).mock.calls.filter(([key]) => key === 'chat.over_limit').length;
+    const type = (text: string): void => {
+      input.textContent = text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    try {
+      if (!drawer.classList.contains('open')) toggleChatDrawer();
+      type('a'.repeat(MAX_MSG_LENGTH + 1));
+      // The sheet closes before typing has paused long enough: nothing is said
+      // into the hidden status region, and nothing counts as said.
+      vi.advanceTimersByTime(CHAT_LIMIT_ANNOUNCE_DELAY_MS - 1);
+      toggleChatDrawer();
+      vi.advanceTimersByTime(CHAT_LIMIT_ANNOUNCE_DELAY_MS * 2);
+      vi.advanceTimersToNextFrame();
+      expect(announcements()).toBe(0);
+      expect(status.textContent).toBe('');
+
+      // Back on screen, the draft is still over and is announced once.
+      toggleChatDrawer();
+      vi.advanceTimersByTime(CHAT_LIMIT_ANNOUNCE_DELAY_MS);
+      vi.advanceTimersToNextFrame();
+      expect(announcements()).toBe(1);
+      expect(status.textContent).toBe('chat.over_limit');
+    } finally {
+      if (drawer.classList.contains('open')) toggleChatDrawer();
+      vi.useRealTimers();
+    }
+  });
+
   it('measures what a send carries, so whitespace at either end never holds a message back', async () => {
     const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
     document.body.innerHTML =

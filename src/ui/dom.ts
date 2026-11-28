@@ -46,6 +46,9 @@ export function cycleFocusWithin(
 // applies in place: the new image is live, so the change shows inside the
 // running fade. A second startViewTransition() would skip the running
 // transition mid-fade and capture where it stopped as the next old image.
+// Except in runWithoutViewTransitions() and browsers without view
+// transitions, a change never applies inside its caller: the caller's own
+// code runs first, whether a transition runs or not.
 
 /**
  * On <html> from a transition's update until its release frame. Under it a
@@ -67,6 +70,8 @@ interface TransitionBatch {
 interface RunningTransition {
   updates: Array<() => void>;
   phase: 'starting' | 'updating' | 'updated';
+  /** Calls made after the update, applied in place in their microtask. */
+  inPlace: Array<() => void>;
   settlements: Array<() => void>;
   transition: ViewTransitionLike | null;
 }
@@ -347,6 +352,22 @@ function runTransitionUpdates(updates: Array<() => void>): void {
 }
 
 /**
+ * Apply the calls made after a running transition's update, inside the
+ * update depth, so a tab's custom scrollbar still shows at once.
+ */
+function applyInPlace(running: RunningTransition): void {
+  const updates = running.inPlace;
+  if (updates.length === 0) return;
+  _inViewTransitionUpdateDepth += 1;
+  try {
+    runTransitionUpdates(updates);
+  } finally {
+    _inViewTransitionUpdateDepth -= 1;
+    updates.length = 0;
+  }
+}
+
+/**
  * Call `release` in the next animation frame, or at once on a hidden page:
  * a hidden page runs no frames until it is shown again, and the browser
  * settles a transition early when the page hides.
@@ -394,11 +415,15 @@ export function animateTransition(callback: () => void, options: TransitionOptio
       running.updates.push(callback);
       return;
     }
-    _inViewTransitionUpdateDepth += 1;
-    try {
-      callback();
-    } finally {
-      _inViewTransitionUpdateDepth -= 1;
+    // After the caller's code, as a batched change: applied at once here, a
+    // join area shown first would let its caller's focus() open the iOS
+    // keyboard only when a fade happens to run.
+    if (running.inPlace.push(callback) === 1) {
+      Promise.resolve()
+        .then(() => applyInPlace(running))
+        .catch((error) => {
+          log.warn('[UI] A change applied in place failed', error);
+        });
     }
     return;
   }
@@ -448,6 +473,7 @@ function startBatchedTransition(): void {
   const running: RunningTransition = {
     updates: batch.updates,
     phase: 'starting',
+    inPlace: [],
     settlements: batch.settlements,
     transition: null,
   };
@@ -481,6 +507,9 @@ function startBatchedTransition(): void {
   const settle = (afterFrame: boolean): void => {
     if (settled) return;
     settled = true;
+    // Changes still waiting to apply in place go first: a window they
+    // close settles after its change, and a call they make still joins.
+    applyInPlace(running);
     if (_running === running) _running = null;
     stopWatchingHeader();
     for (const finish of running.settlements.splice(0)) finish();

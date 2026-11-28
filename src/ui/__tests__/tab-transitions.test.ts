@@ -325,9 +325,12 @@ describe('one native view transition at a time', () => {
       insideUpdate = isInsideViewTransitionUpdate();
     });
     switchTab('connect');
+    // As at rest, the caller's own code runs before the change.
+    expect(activeTab()).toBe('tab-settings');
 
-    // The new image is live, so the change shows at once without a second
-    // capture that would skip the running fade.
+    // The new image is live, so the change shows in this frame without a
+    // second capture that would skip the running fade.
+    await Promise.resolve();
     expect(activeTab()).toBe('tab-connect');
     expect(insideUpdate).toBe(true);
     expect(isInsideViewTransitionUpdate()).toBe(false);
@@ -335,6 +338,66 @@ describe('one native view transition at a time', () => {
     expect(nativeTransition).toHaveBeenCalledOnce();
     expect(transitions[0].skip).not.toHaveBeenCalled();
     expect(preservesHeader()).toBe(true);
+  });
+
+  it('shows an area after its caller’s own code whether or not a fade runs', async () => {
+    // The guest join step shows its area and then focuses the code field
+    // (setup-guest.ts): the field is still hidden then, at rest and during a
+    // running fade alike, so iOS never opens its keyboard only by timing.
+    const area = document.createElement('div');
+    area.hidden = true;
+    document.body.append(area);
+    /** Shows the area, and says whether it was still hidden when its caller went on. */
+    const showThenGoOn = (): boolean => {
+      animateTransition(() => {
+        area.hidden = false;
+      });
+      return area.hidden === true;
+    };
+
+    expect(showThenGoOn()).toBe(true);
+    await flushTransitionTasks();
+    transitions[0].update();
+    expect(area.hidden).toBe(false);
+
+    area.hidden = true;
+    expect(showThenGoOn()).toBe(true);
+    await Promise.resolve();
+    expect(area.hidden).toBe(false);
+    expect(nativeTransition).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a change applied in place from throwing into its caller', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+
+    expect(() =>
+      animateTransition(() => {
+        throw new Error('a listener failed');
+      }),
+    ).not.toThrow();
+    switchTab('connect');
+    await Promise.resolve();
+    // The change after the one that threw still applies.
+    expect(activeTab()).toBe('tab-connect');
+    expect(isInsideViewTransitionUpdate()).toBe(false);
+  });
+
+  it('applies changes still waiting in place before the transition settles', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+    transitions[0].finish();
+
+    const close = vi.fn();
+    animateTransition(close, { closingWindow: true });
+    const observed = vi.fn(() => expect(close).toHaveBeenCalledOnce());
+    const observation = whenBackSurfaceSettled().then(observed);
+    await flushTransitionTasks();
+    await observation;
+    expect(observed).toHaveBeenCalledOnce();
+    expect(nativeTransition).toHaveBeenCalledOnce();
   });
 
   it.each(['finish', 'reject'] as const)(
@@ -398,8 +461,8 @@ describe('one native view transition at a time', () => {
     transitions[0].update();
     expect(activeTab()).toBe('tab-connect');
     press('connect', 'ArrowLeft');
-    expect(activeTab()).toBe('tab-settings');
     await flushTransitionTasks();
+    expect(activeTab()).toBe('tab-settings');
 
     expect(nativeTransition).toHaveBeenCalledOnce();
     expect(transitions[0].skip).not.toHaveBeenCalled();
@@ -415,8 +478,8 @@ describe('one native view transition at a time', () => {
     animateTransition(() => {
       document.getElementById('dialog-overlay')!.classList.add('show');
     });
-    expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
     await flushTransitionTasks();
+    expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
 
     expect(nativeTransition).toHaveBeenCalledOnce();
     expect(transitions[0].skip).toHaveBeenCalledOnce();
@@ -434,12 +497,10 @@ describe('one native view transition at a time', () => {
       animateTransition(close, { closingWindow: true });
       const observed = vi.fn();
       const observation = whenBackSurfaceSettled().then(observed);
-      if (when === 'before') {
-        expect(close).not.toHaveBeenCalled();
-        transitions[0].update();
-      }
-      expect(close).toHaveBeenCalledOnce();
+      expect(close).not.toHaveBeenCalled();
+      if (when === 'before') transitions[0].update();
       await flushTransitionTasks();
+      expect(close).toHaveBeenCalledOnce();
       // The held old image still shows the closing window.
       expect(observed).not.toHaveBeenCalled();
 

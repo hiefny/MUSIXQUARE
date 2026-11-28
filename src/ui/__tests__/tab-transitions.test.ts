@@ -12,6 +12,7 @@ import {
   animateTransition,
   finishOverlayExit,
   isInsideViewTransitionUpdate,
+  onOverlayStackChange,
   runWithoutViewTransitions,
   startOverlayExit,
   whenBackSurfaceSettled,
@@ -389,19 +390,21 @@ describe('one native view transition at a time', () => {
     expect(isInsideViewTransitionUpdate()).toBe(false);
   });
 
-  it('applies changes still waiting in place before the transition settles', async () => {
+  it('applies changes still waiting in place before the transition settles their windows', async () => {
     switchTab('settings');
     await flushTransitionTasks();
     transitions[0].update();
+    // The transition ends before a change made now gets its own turn.
     transitions[0].finish();
 
-    const close = vi.fn();
-    animateTransition(close, { closingWindow: true });
-    const observed = vi.fn(() => expect(close).toHaveBeenCalledOnce());
-    const observation = whenBackSurfaceSettled().then(observed);
+    const order: string[] = [];
+    animateTransition(() => order.push('change'), { closingWindow: true });
+    // The closing-surface ledger reports when the window's close settles.
+    const stopListening = onOverlayStackChange(() => order.push('window settled'));
     await flushTransitionTasks();
-    await observation;
-    expect(observed).toHaveBeenCalledOnce();
+    stopListening();
+    expect(order.indexOf('change')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('change')).toBeLessThan(order.indexOf('window settled'));
     expect(nativeTransition).toHaveBeenCalledOnce();
   });
 

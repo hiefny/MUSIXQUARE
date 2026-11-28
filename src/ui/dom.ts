@@ -57,6 +57,14 @@ export function cycleFocusWithin(
  */
 const VIEW_TRANSITION_CLASS = 'in-view-transition';
 
+/**
+ * How long one native transition may hold the page's screen changes, which
+ * join it while it runs. Its capture, update and fade take a fraction of a
+ * second even on a slow phone. A transition still unsettled after this is one
+ * the browser never ran: the owner ends it and applies its updates itself.
+ */
+const VIEW_TRANSITION_DEADLINE_MS = 2000;
+
 /** The updates of the next native transition, collected until its microtask starts it. */
 interface TransitionBatch {
   updates: Array<() => void>;
@@ -504,9 +512,12 @@ function startBatchedTransition(): void {
     runAfterViewTransitions();
   };
   let settled = false;
+  let deadline: number | null = null;
   const settle = (afterFrame: boolean): void => {
     if (settled) return;
     settled = true;
+    if (deadline !== null) window.clearTimeout(deadline);
+    deadline = null;
     // Changes still waiting to apply in place go first: a window they
     // close settles after its change, and a call they make still joins.
     applyInPlace(running);
@@ -521,6 +532,8 @@ function startBatchedTransition(): void {
 
   let executed = false;
   const update = (): void => {
+    // The owner's deadline may have applied the updates already.
+    if (executed) return;
     executed = true;
     running.phase = 'updating';
     if (_activeViewTransitionGeneration === generation) root.classList.add(VIEW_TRANSITION_CLASS);
@@ -548,6 +561,21 @@ function startBatchedTransition(): void {
     // state". Silence the benign ones.
     const transition = transitionDocument.startViewTransition(update);
     running.transition = transition ?? null;
+    // Every later change waits on this transition, so it ends in time even
+    // in a browser that never runs it. A plain timer, as for a closing
+    // window's fallback: room-wide timer cleanup must not cancel it.
+    deadline = window.setTimeout(() => {
+      deadline = null;
+      if (settled) return;
+      log.warn('[UI] A view transition did not end in time; applying its updates');
+      try {
+        running.transition?.skipTransition?.();
+      } catch {
+        /* the browser's transition is already over */
+      }
+      update();
+      settle(false);
+    }, VIEW_TRANSITION_DEADLINE_MS);
     if (
       root.classList.contains('tab-header-transition') &&
       typeof transition?.skipTransition === 'function'

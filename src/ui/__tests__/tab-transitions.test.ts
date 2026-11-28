@@ -34,6 +34,11 @@ const VIEW_TRANSITION_CLASS =
   /const VIEW_TRANSITION_CLASS = '([^']+)';/u.exec(readFileSync('src/ui/dom.ts', 'utf8'))?.[1] ??
   '';
 
+/** How long the owner lets one transition hold later changes, read from its home. */
+const VIEW_TRANSITION_DEADLINE_MS = Number(
+  /const VIEW_TRANSITION_DEADLINE_MS = (\d+);/u.exec(readFileSync('src/ui/dom.ts', 'utf8'))?.[1],
+);
+
 let originalTransition: PropertyDescriptor | undefined;
 let transitions: PendingTransition[];
 let nativeTransition: ReturnType<typeof vi.fn>;
@@ -708,6 +713,63 @@ describe('tab transition fallback and cleanup', () => {
     expect(preservesHeader()).toBe(false);
     expect(marked()).toBe(false);
     expect(waiting).toHaveReturnedWith('tab-settings');
+  });
+
+  it('ends a transition the browser never runs at its deadline, then starts the next', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    // The browser never runs this update. A later change joins it.
+    switchTab('connect');
+    await flushTransitionTasks();
+    vi.advanceTimersByTime(VIEW_TRANSITION_DEADLINE_MS - 1);
+    expect(activeTab()).toBe('tab-play');
+    expect(transitions[0].skip).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(transitions[0].skip).toHaveBeenCalledOnce();
+    expect(activeTab()).toBe('tab-connect');
+    expect(preservesHeader()).toBe(false);
+    expect(marked()).toBe(false);
+
+    // A late run of that update changes nothing; the next change gets its
+    // own transition.
+    transitions[0].update();
+    expect(activeTab()).toBe('tab-connect');
+    switchTab('settings');
+    await flushTransitionTasks();
+    expect(nativeTransition).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases a transition whose update ran but which never ends, at its deadline', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+    const waiting = vi.fn();
+    afterViewTransitions(waiting);
+    const observed = vi.fn();
+    animateTransition(() => {}, { closingWindow: true });
+    const observation = whenBackSurfaceSettled().then(observed);
+
+    vi.advanceTimersByTime(VIEW_TRANSITION_DEADLINE_MS);
+    await observation;
+    expect(transitions[0].skip).toHaveBeenCalledOnce();
+    expect(activeTab()).toBe('tab-settings');
+    expect(marked()).toBe(false);
+    expect(waiting).toHaveBeenCalledOnce();
+    expect(observed).toHaveBeenCalledOnce();
+  });
+
+  it('clears the deadline of a transition that ends on its own', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+    transitions[0].finish();
+    await flushTransitionTasks();
+    flushReleaseFrame();
+
+    vi.advanceTimersByTime(VIEW_TRANSITION_DEADLINE_MS * 2);
+    expect(transitions[0].skip).not.toHaveBeenCalled();
+    expect(activeTab()).toBe('tab-settings');
   });
 
   it('keeps unsupported browsers synchronous even immediately after loading', () => {

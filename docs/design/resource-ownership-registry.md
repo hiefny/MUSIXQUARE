@@ -5296,10 +5296,13 @@ get a record only if a change adds a second machine:
   is the host QR loading spinner's reveal in `src/ui/setup-host-invite.ts`, which keeps only the
   cancel handle. The spinner's pause after its fade-out lives in the same module, and
   `setHostInviteLoading` cancels both. `src/ui/custom-scrollbar.ts` only reads
-  `isInsideViewTransitionUpdate`. Anchor tests: `tab-transitions.test.ts` (one transition at a
-  time, the deadline, a hidden page), `setup-host-invite.test.ts` and `setup-host-recovery.test.ts`
-  (the spinner waits for the step's transition on the Host tap and on Retry). A second module with
-  pending or timer state on either needs a record.
+  `isInsideViewTransitionUpdate`. The RO-30 Back guard waits for closing windows to settle before
+  it re-arms (`whenBackSurfaceSettled`), and a window that closes during a transition settles with
+  that transition, so the deadline also bounds that wait. Anchor tests: `tab-transitions.test.ts`
+  (one transition at a time, the deadline, a closing window settled at the deadline, a hidden
+  page), `setup-host-invite.test.ts` and `setup-host-recovery.test.ts` (the spinner waits for the
+  step's transition on the Host tap and on Retry). A second module with pending or timer state on
+  these transitions or their waiting work needs a record.
 
 ## Before adding a flow
 

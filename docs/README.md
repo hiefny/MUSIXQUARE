@@ -96,6 +96,51 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App 9.0.847 / v847 train: one view transition at a time with the iOS view-transition, host QR and scrollbar flicker fix, instant transitions under reduced motion, a soft chat message limit, and the iPad Playlist bottom edge (2026-11-28)](design/app-9-0-847-train-2026-11-28.md):
+  before deploy, awaiting PR CI on PR #650's branch `agent/ios-transition-flicker-fix`, force-pushed with this train
+  (owner approved) over main `baa1d7c3` (#649, 9.0.846 release record); the merge and the release each wait for the
+  owner's approval. PR #650 held the owner's two product commits on the old base `b92c1083`, numbered 9.0.845 although
+  9.0.845 and 9.0.846 had already shipped; it conflicted, GitHub CI never ran on it, and its 9.0.845 bump, report and
+  README entry are replaced by this train. The two commits are kept as authored: the old page holds still while the new
+  one fades in with normal blending, the bottom bar is named only for tab changes, a tab's custom scrollbar is laid out
+  and shown inside the transition update, and the room code no longer starts a second transition over the host QR
+  crossfade. On top, `animateTransition()` in `src/ui/dom.ts` runs one native view transition at a time (a change made
+  during one joins its update or applies in place after its caller's code, so taps, tab-list arrow keys and the
+  session-full and reconnect paths never cut a running fade), turns every custom scrollbar's own fade off under one
+  root class, shows the host QR spinner only after transitions, starts none under reduced motion and ends a transition
+  the browser never runs after 2 s; the PR's ResizeObserver and ScrollTimeline deferrals and its spinner layer are
+  gone. Under reduced motion, tab changes, setup steps and media windows now switch at once: that is the owner's answer
+  to the open 9.0.837 question in the release record, whose item closes once 9.0.847 ships. The chat composer keeps the
+  owner's 400-to-500 gauge but never edits what is typed: a count above the send arrow from 400, and past 500 a red
+  underline, a count below zero and a refused send with one shake and one polite announcement (`chat.over_limit`);
+  pastes go through the editing pipeline so undo works, and only a paste that would grow the draft past 2000 UTF-16
+  units is cut (on a grapheme boundary, with the new toast `chat.paste_truncated`; both strings in 42 catalogs). In the
+  sidebar layout the Playlist list now reaches the bottom edge like every other pane, where the owner saw a thin strip
+  on iPad. The ownership registry lists page view transitions as a checked single-owner side flow
+  (`OK: 52 registry records, 476 production files`). Target `app` (changed runtime paths: App 57 including the 42
+  catalogs, every other Worker 0), one update dialog, App build floor stays 795. Round 1, the full local gate of the
+  rebased PR candidate `9ae3e37d`, failed only on three PR-caused tests (the red text color painted on a surface, a
+  chat forced-color opt-out, and the design-system Message row at 68 instead of 48) and passed the rest: 823 unit files
+  (20,333 passed, 1 skipped), 131 Chromium files (1,215 passed, 3 skipped), the WebKit lane (239 passed, 24 skipped),
+  the WebKit service-worker smoke (1 passed), the `candidate` lane (20 passed, 11 skipped) and the critical paths (101
+  passed). Round 2 measured main against the PR in Chromium 159 and WebKit 27.2: the PR removes a real scrollbar dip
+  and the second host transition, but its clamp broke undo after any paste and Chinese and Japanese input near 500, and
+  extended the emoji split at the limit to Chromium pastes. Round 3 built, independently reviewed and fixed three
+  prototypes (one transition at a time, a hard and a soft chat limit), and the owner chose the soft limit with the
+  transition work. Round 4 reviewed the joined branch (no blocker in the combination) and ran a first full local gate
+  at `71825936`: static checks, the full unit suite (824 files, 20,381 passed, 1 skipped) and Worker coverage passed,
+  then `build:checked` stopped because the count's logical inset compiled to `:is()`, which the legacy TV build check
+  refuses. The count now sits at an explicit side with an RTL rule, five French, Italian, Turkish and Persian strings
+  were corrected, and the Playlist edge was fixed (on the fix before its commit, the safe-area layout e2e passed 64 in
+  Chromium and 64 in WebKit; round 5 runs it again on `71a7054e`). Round 5, the final local gate at `71a7054e`
+  (2026-11-28 16:21 to 18:42 KST), passed everything except three rows of the running-room safe-area e2e that still
+  expected the old 8px strip: static checks, the full unit suite (824 files, 20,381 passed, 1 skipped), Worker coverage
+  (88 files, 3,917 passed), `build:checked` with the legacy TV check, deploy scope (target `app` compatible), the WebKit
+  lane (28 files, 250 passed, 29 skipped), the WebKit service-worker smoke (1 passed), `candidate` (20 passed, 11
+  skipped), the critical paths (101 passed) and 133 Chromium files (1,229 passed, 3 skipped), `keyboard-focus-ring`
+  included; the test-only `797f864b` fixed that expectation and the file passed again (23 passed). Windows WebKit paints
+  no named view-transition group, and no real iPhone, iPad or Android device or GPU compositing was used; the device
+  checks, the manual Full E2E decision and the two small fixes left for the next train are listed in the report.
 - [App 9.0.846 / v846 train: the App cron starts the `/status` browser checks through `workflow_dispatch`, and a No expiry Developer API key for the smoke room `000001` (2026-11-27)](design/app-9-0-846-train-2026-11-27.md):
   released on 2026-11-27 17:17 KST in Release 45964254315 (PR #648, squash `1f955f9c`, exact-main CI 45962710091
   attempt 1, candidate artifact 15181104825) as App 9.0.846 / v846 (App build 846, target `app`, one update dialog;
